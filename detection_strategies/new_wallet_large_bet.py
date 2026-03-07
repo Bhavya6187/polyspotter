@@ -17,7 +17,7 @@ from datetime import datetime, timezone, timedelta
 import requests
 
 from detection_strategies import DetectionStrategy, Signal
-from detection_strategies.db import (
+from db import (
     get_flagged_wallet_stats,
     record_flagged_wallet,
 )

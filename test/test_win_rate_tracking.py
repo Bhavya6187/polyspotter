@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 import sqlite3
 
-from detection_strategies.db import (
+from db import (
     record_tracked_bet,
     get_wallet_stats,
 )
@@ -43,7 +43,7 @@ class TestWinRateTrackingHelpers(unittest.TestCase):
             "timestamp": 1700000000,
         }
 
-    @patch("detection_strategies.db.get_db")
+    @patch("db.get_db")
     def test_record_trade_inserts(self, mock_get_db):
         mock_get_db.return_value = self.conn
         trade = self._make_trade()
@@ -51,7 +51,7 @@ class TestWinRateTrackingHelpers(unittest.TestCase):
         row = self.conn.execute("SELECT COUNT(*) FROM tracked_bets").fetchone()
         self.assertEqual(row[0], 1)
 
-    @patch("detection_strategies.db.get_db")
+    @patch("db.get_db")
     def test_record_trade_no_wallet_skips(self, mock_get_db):
         mock_get_db.return_value = self.conn
         trade = self._make_trade(wallet="")
@@ -59,7 +59,7 @@ class TestWinRateTrackingHelpers(unittest.TestCase):
         row = self.conn.execute("SELECT COUNT(*) FROM tracked_bets").fetchone()
         self.assertEqual(row[0], 0)
 
-    @patch("detection_strategies.db.get_db")
+    @patch("db.get_db")
     def test_get_wallet_stats_empty(self, mock_get_db):
         mock_get_db.return_value = self.conn
         stats = get_wallet_stats("0xnonexistent")
@@ -67,7 +67,7 @@ class TestWinRateTrackingHelpers(unittest.TestCase):
         self.assertEqual(stats["resolved_bets"], 0)
         self.assertEqual(stats["wins"], 0)
 
-    @patch("detection_strategies.db.get_db")
+    @patch("db.get_db")
     def test_get_wallet_stats_with_data(self, mock_get_db):
         mock_get_db.return_value = self.conn
         self.conn.execute("""
@@ -96,7 +96,7 @@ class TestWinRateTrackingHelpers(unittest.TestCase):
 
 class TestWinRateTrackingStrategy(unittest.TestCase):
     @patch("detection_strategies.win_rate_tracking._update_resolutions", return_value=0)
-    @patch("detection_strategies.db.get_db")
+    @patch("db.get_db")
     def test_high_win_rate_triggers_signal(self, mock_get_db, mock_resolutions):
         conn = sqlite3.connect(":memory:")
         conn.execute("PRAGMA journal_mode=WAL")
@@ -142,7 +142,7 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
         self.assertEqual(result.strategy, "win_rate_tracking")
 
     @patch("detection_strategies.win_rate_tracking._update_resolutions", return_value=0)
-    @patch("detection_strategies.db.get_db")
+    @patch("db.get_db")
     def test_low_win_rate_no_signal(self, mock_get_db, mock_resolutions):
         conn = sqlite3.connect(":memory:")
         conn.execute("PRAGMA journal_mode=WAL")
@@ -192,7 +192,7 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
         self.assertIsNone(result)
 
     @patch("detection_strategies.win_rate_tracking._update_resolutions", return_value=0)
-    @patch("detection_strategies.db.get_db")
+    @patch("db.get_db")
     def test_too_few_resolved_no_signal(self, mock_get_db, mock_resolutions):
         conn = sqlite3.connect(":memory:")
         conn.execute("PRAGMA journal_mode=WAL")

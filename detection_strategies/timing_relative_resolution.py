@@ -15,11 +15,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from detection_strategies import DetectionStrategy, Signal
-from detection_strategies.db import (
+from db import (
     get_wallet_timing_stats,
     record_timing_flag,
 )
-from detection_strategies.gamma_cache import get_market_by_condition
+from gamma_cache import get_market_by_condition
 
 # ---------------------------------------------------------------------------
 # Configuration

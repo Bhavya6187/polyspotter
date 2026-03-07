@@ -25,7 +25,7 @@ from collections import defaultdict
 import requests
 
 from detection_strategies import DetectionStrategy, Signal
-from detection_strategies.db import (
+from db import (
     get_cached_funder,
     get_known_sybil_funders,
     get_wallets_by_funder,

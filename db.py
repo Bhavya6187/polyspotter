@@ -17,7 +17,7 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "polybot.db")
+DB_PATH = os.path.join(os.path.dirname(__file__), "polybot.db")
 
 _conn: sqlite3.Connection | None = None
 

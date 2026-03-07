@@ -14,7 +14,7 @@ from datetime import datetime, timezone, timedelta
 import requests
 
 from detection_strategies import ALL_STRATEGIES, Signal
-from detection_strategies.db import get_db
+from db import get_db
 
 # ---------------------------------------------------------------------------
 # Configuration

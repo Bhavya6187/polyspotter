@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from detection_strategies import DetectionStrategy, Signal
-from detection_strategies.gamma_cache import get_market_by_condition
+from gamma_cache import get_market_by_condition
 
 # ---------------------------------------------------------------------------
 # Configuration

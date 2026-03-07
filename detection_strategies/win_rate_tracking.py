@@ -18,7 +18,7 @@ import time
 import requests
 
 from detection_strategies import DetectionStrategy, Signal
-from detection_strategies.db import (
+from db import (
     get_unresolved_condition_ids,
     get_unresolved_bets_for_condition,
     get_wallet_stats,

@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 from detection_strategies import DetectionStrategy, Signal
-from detection_strategies.db import (
+from db import (
     get_wallet_cross_event_stats,
     get_wallet_event_history,
     record_wallet_event_trade,

@@ -16,11 +16,11 @@ import math
 from collections import defaultdict
 
 from detection_strategies import DetectionStrategy, Signal
-from detection_strategies.db import (
+from db import (
     get_average_volume,
     record_volume_snapshot,
 )
-from detection_strategies.gamma_cache import get_market_by_condition
+from gamma_cache import get_market_by_condition
 
 # ---------------------------------------------------------------------------
 # Configuration
