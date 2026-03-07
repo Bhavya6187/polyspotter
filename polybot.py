@@ -13,7 +13,16 @@ from datetime import datetime, timezone, timedelta
 
 import requests
 
-from detection_strategies import ALL_STRATEGIES, Signal
+from detection_strategies import Signal
+from detection_strategies.win_rate_tracking import WinRateTrackingStrategy
+from detection_strategies.new_wallet_large_bet import NewWalletLargeBetStrategy
+from detection_strategies.timing_relative_resolution import TimingRelativeResolutionStrategy
+from detection_strategies.pre_event_volume_spike import PreEventVolumeSpikeStrategy
+from detection_strategies.wallet_clustering import WalletClusteringStrategy
+from detection_strategies.concentrated_one_sided import ConcentratedOneSidedStrategy
+from detection_strategies.price_impact import PriceImpactStrategy
+from detection_strategies.low_activity_large_bet import LowActivityLargeBetStrategy
+from detection_strategies.correlated_cross_market import CorrelatedCrossMarketStrategy
 from db import get_db
 
 # ---------------------------------------------------------------------------
@@ -368,11 +377,41 @@ def _format_summary(trades: list[dict], signals: list[Signal], strategy_names: s
 
 
 def run():
-    strategies = ALL_STRATEGIES
-    strategy_names = ", ".join(s.name for s in strategies)
-
     # Ensure the database is initialized before strategies run
     get_db()
+
+    # -------------------------------------------------------------------------
+    # Strategy execution order (data dependencies documented inline)
+    #
+    # Per-trade phase (check_trade): runs once per trade, in this order:
+    #   1. win_rate_tracking    — populates wallet_pnl table via Data API
+    #   2. new_wallet_large_bet — reads wallet_pnl (from step 1)
+    #   3. timing_relative_resolution — reads wallet_pnl (from step 1)
+    #   4. low_activity_large_bet     — independent (fetches own orderbook)
+    #
+    # Batch phase (analyze_all): runs once across all trades, in this order:
+    #   5. pre_event_volume_spike     — independent
+    #   6. wallet_clustering          — writes funder data to wallet_funders table
+    #   7. concentrated_one_sided     — reads funder data (from step 6)
+    #   8. price_impact               — independent (fetches own candles/orderbook)
+    #   9. correlated_cross_market    — independent
+    # -------------------------------------------------------------------------
+    per_trade_strategies = [
+        WinRateTrackingStrategy(),          # 1. writes wallet_pnl
+        NewWalletLargeBetStrategy(),        # 2. reads wallet_pnl
+        TimingRelativeResolutionStrategy(), # 3. reads wallet_pnl
+        LowActivityLargeBetStrategy(),      # 4. independent
+    ]
+    batch_strategies = [
+        PreEventVolumeSpikeStrategy(),      # 5. independent
+        WalletClusteringStrategy(),         # 6. writes wallet_funders
+        ConcentratedOneSidedStrategy(),     # 7. reads wallet_funders
+        PriceImpactStrategy(),              # 8. independent
+        CorrelatedCrossMarketStrategy(),    # 9. independent
+    ]
+
+    all_strategies = per_trade_strategies + batch_strategies
+    strategy_names = ", ".join(s.name for s in all_strategies)
 
     print("=" * 72)
     print("  Polymarket Unusual Activity Scanner (single run)")
@@ -388,7 +427,7 @@ def run():
         print("\n[*] No trades above threshold found. Done.")
         return
 
-    print(f"\n[*] Running {len(strategies)} strategy(ies) on {len(trades)} trade(s)...")
+    print(f"\n[*] Running {len(all_strategies)} strategy(ies) on {len(trades)} trade(s)...")
     all_signals: list[Signal] = []
 
     # -- per-trade analysis ----------------------------------------------------
@@ -397,14 +436,14 @@ def run():
         title = trade.get("title", "?")
         print(f"\n  [{i}/{len(trades)}] ${usd:,.2f} on \"{title}\"")
 
-        for strategy in strategies:
+        for strategy in per_trade_strategies:
             signal = strategy.check_trade(trade)
             if signal:
                 all_signals.append(signal)
 
     # -- batch analysis --------------------------------------------------------
     print(f"\n[*] Running batch analysis across all {len(trades)} trade(s)...")
-    for strategy in strategies:
+    for strategy in batch_strategies:
         batch_signals = strategy.analyze_all(trades)
         all_signals.extend(batch_signals)
 

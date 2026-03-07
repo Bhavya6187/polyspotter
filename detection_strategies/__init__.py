@@ -57,13 +57,13 @@ from detection_strategies.low_activity_large_bet import LowActivityLargeBetStrat
 from detection_strategies.correlated_cross_market import CorrelatedCrossMarketStrategy  # noqa: E402
 
 ALL_STRATEGIES: list[DetectionStrategy] = [
-    NewWalletLargeBetStrategy(),
+    WinRateTrackingStrategy(),          # must be first: populates wallet_pnl used by later strategies
+    NewWalletLargeBetStrategy(),        # reads wallet_pnl (from win_rate_tracking)
+    TimingRelativeResolutionStrategy(), # reads wallet_pnl (from win_rate_tracking)
     PreEventVolumeSpikeStrategy(),
-    WalletClusteringStrategy(),
-    ConcentratedOneSidedStrategy(),
-    TimingRelativeResolutionStrategy(),
+    WalletClusteringStrategy(),         # writes funder data (used by concentrated_one_sided)
+    ConcentratedOneSidedStrategy(),     # reads funder data (from wallet_clustering)
     PriceImpactStrategy(),
-    WinRateTrackingStrategy(),
     LowActivityLargeBetStrategy(),
     CorrelatedCrossMarketStrategy(),
 ]

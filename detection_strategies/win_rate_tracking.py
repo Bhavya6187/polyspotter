@@ -25,15 +25,49 @@ from db import (
     get_wallet_pnl_summary,
     mark_bet_resolved,
     record_tracked_bet,
+    record_wallet_pnl,
 )
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 GAMMA_API = "https://gamma-api.polymarket.com"
+DATA_API = "https://data-api.polymarket.com"
 WIN_RATE_ALERT_THRESHOLD = 0.70   # flag if win rate >= 70%
 MIN_RESOLVED_BETS = 3             # need at least N resolved bets to judge
 LOOKUP_DELAY = 0.15
+PNL_FETCH_DELAY = 0.1
+
+# Wallets whose P&L has already been fetched this run
+_pnl_fetched: set[str] = set()
+
+
+# ---------------------------------------------------------------------------
+# Wallet P&L fetching (populates wallet_pnl table on the fly)
+# ---------------------------------------------------------------------------
+def _fetch_wallet_pnl(wallet: str) -> None:
+    """Fetch open + closed positions from the Data API and persist them.
+    Called once per wallet per run."""
+    if wallet.lower() in _pnl_fetched:
+        return
+    _pnl_fetched.add(wallet.lower())
+
+    for position_type, endpoint in [("open", "positions"), ("closed", "closed-positions")]:
+        time.sleep(PNL_FETCH_DELAY)
+        try:
+            resp = requests.get(
+                f"{DATA_API}/{endpoint}",
+                params={"user": wallet},
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                continue
+            positions = resp.json()
+            if isinstance(positions, list):
+                for pos in positions:
+                    record_wallet_pnl(wallet, pos, position_type)
+        except requests.RequestException:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +150,7 @@ class WinRateTrackingStrategy(DetectionStrategy):
             return None
 
         record_tracked_bet(trade)
+        _fetch_wallet_pnl(wallet)
 
         stats = get_wallet_stats(wallet)
         pnl = get_wallet_pnl_summary(wallet)

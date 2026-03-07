@@ -12,25 +12,88 @@ Price observations are persisted to the database on every run.
 
 from __future__ import annotations
 
+import sys
+import time
 from collections import defaultdict
+
+import requests
 
 from detection_strategies import DetectionStrategy, Signal
 from db import (
     get_historical_price_range,
     get_orderbook_stats,
     get_price_candles,
+    record_orderbook_snapshot,
+    record_price_candles_batch,
     record_price_observation,
 )
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
+CLOB_API = "https://clob.polymarket.com"
+CLOB_DELAY = 0.1
+
+# Tokens/conditions already fetched this run (avoid redundant API calls)
+_candles_fetched: set[str] = set()       # token_ids
+_orderbook_fetched: set[str] = set()     # condition_ids
+
 PRICE_SHIFT_THRESHOLD = 0.15  # flag if price moved >= 15 percentage points
 HISTORICAL_SHIFT_THRESHOLD = 0.25  # flag if price moved >= 25pp from historical range
 MIN_TRADES_FOR_SIGNAL = 2      # need at least this many trades to measure shift
 VELOCITY_WINDOW_SEC = 300      # 5-minute window for velocity calculation
 VELOCITY_THRESHOLD = 0.10      # 10pp move in 5 minutes = fast
 THIN_BOOK_DEPTH_USD = 5000     # orderbook with < $5k depth is considered thin
+
+
+# ---------------------------------------------------------------------------
+# CLOB data fetching (populate price_candles + orderbook_snapshots on the fly)
+# ---------------------------------------------------------------------------
+def _fetch_price_candles(condition_id: str, token_id: str, outcome: str) -> None:
+    """Fetch price history from CLOB and persist candles."""
+    if token_id in _candles_fetched:
+        return
+    _candles_fetched.add(token_id)
+    time.sleep(CLOB_DELAY)
+    try:
+        resp = requests.get(
+            f"{CLOB_API}/prices-history",
+            params={"market": token_id, "interval": "all", "fidelity": 60},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return
+        data = resp.json()
+        history = data.get("history", [])
+        if history:
+            record_price_candles_batch(condition_id, token_id, outcome, history)
+    except requests.RequestException as e:
+        print(f"[WARN] CLOB candles fetch failed for {condition_id[:12]}...: {e}",
+              file=sys.stderr)
+
+
+def _fetch_orderbook(condition_id: str, token_id: str, outcome: str) -> None:
+    """Fetch order book from CLOB and persist a snapshot."""
+    if condition_id in _orderbook_fetched:
+        return
+    _orderbook_fetched.add(condition_id)
+    time.sleep(CLOB_DELAY)
+    try:
+        resp = requests.get(
+            f"{CLOB_API}/book",
+            params={"token_id": token_id},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return
+        data = resp.json()
+        bids = data.get("bids", [])
+        asks = data.get("asks", [])
+        if bids or asks:
+            record_orderbook_snapshot(condition_id, token_id, outcome, bids, asks)
+    except requests.RequestException as e:
+        print(f"[WARN] CLOB book fetch failed for {condition_id[:12]}...: {e}",
+              file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +130,15 @@ class PriceImpactStrategy(DetectionStrategy):
         tokens_with_window_signal: set[tuple[str, str]] = set()
 
         for (cid, outcome), t_list in token_trades.items():
+            # Fetch CLOB data (candles + orderbook) so it's available for
+            # velocity detection and thin-book checks later
+            for t in t_list:
+                token_id = t.get("asset", "")
+                if token_id:
+                    _fetch_price_candles(cid, token_id, outcome)
+                    _fetch_orderbook(cid, token_id, outcome)
+                    break  # one fetch per token is enough
+
             # Record all price observations for future runs
             for t in t_list:
                 price = float(t.get("price", 0))

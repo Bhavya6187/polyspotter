@@ -54,6 +54,10 @@ def _init_tables(conn: sqlite3.Connection) -> None:
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tracked_wallet ON tracked_bets(wallet)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tracked_unresolved ON tracked_bets(resolved)")
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_tracked_dedup
+        ON tracked_bets(wallet, condition_id, outcome, side, trade_timestamp)
+    """)
 
     # -- wallet_clustering (funder cache) --------------------------------------
     conn.execute("""
@@ -124,6 +128,10 @@ def _init_tables(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_ph_token ON price_history(condition_id, outcome)"
     )
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ph_dedup
+        ON price_history(condition_id, outcome, trade_timestamp)
+    """)
 
     # -- timing_relative_resolution (repeat timing patterns) -------------------
     conn.execute("""
@@ -138,6 +146,10 @@ def _init_tables(conn: sqlite3.Connection) -> None:
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tf_wallet ON timing_flags(wallet)")
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_tf_dedup
+        ON timing_flags(wallet, condition_id, trade_timestamp)
+    """)
 
     # -- wallet_pnl (profit/loss from closed positions) -------------------------
     conn.execute("""
@@ -217,7 +229,7 @@ def record_tracked_bet(trade: dict) -> None:
         return
     conn = get_db()
     conn.execute(
-        """INSERT INTO tracked_bets
+        """INSERT OR IGNORE INTO tracked_bets
            (wallet, condition_id, outcome, side, usd_value, trade_timestamp, recorded_at)
            VALUES (?, ?, ?, ?, ?, ?, ?)""",
         (
@@ -518,7 +530,7 @@ def record_price_observation(condition_id: str, outcome: str, price: float,
     """Record a price observation for a token."""
     conn = get_db()
     conn.execute(
-        """INSERT INTO price_history
+        """INSERT OR IGNORE INTO price_history
            (condition_id, outcome, price, trade_timestamp, recorded_at)
            VALUES (?, ?, ?, ?, ?)""",
         (condition_id, outcome, price, trade_timestamp,
@@ -564,7 +576,7 @@ def record_timing_flag(wallet: str, condition_id: str, minutes_to_resolution: fl
     """Record that a wallet bet close to market resolution."""
     conn = get_db()
     conn.execute(
-        """INSERT INTO timing_flags
+        """INSERT OR IGNORE INTO timing_flags
            (wallet, condition_id, minutes_to_resolution, usd_value, trade_timestamp, recorded_at)
            VALUES (?, ?, ?, ?, ?, ?)""",
         (
@@ -607,7 +619,7 @@ def record_wallet_pnl(wallet: str, position: dict, position_type: str) -> None:
     """Record a wallet's position P&L data (open or closed)."""
     conn = get_db()
     conn.execute(
-        """INSERT OR IGNORE INTO wallet_pnl
+        """INSERT OR REPLACE INTO wallet_pnl
            (wallet, condition_id, asset, outcome, avg_price, total_bought,
             realized_pnl, cur_price, event_slug, end_date, position_type, recorded_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
