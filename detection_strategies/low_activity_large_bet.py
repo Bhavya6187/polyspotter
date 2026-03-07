@@ -10,10 +10,18 @@ baseline.
 
 from __future__ import annotations
 
+import sys
+import time
 from datetime import datetime
 
+import requests
+
 from detection_strategies import DetectionStrategy, Signal
+from db import record_orderbook_snapshot
 from gamma_cache import get_market_by_condition
+
+CLOB_API = "https://clob.polymarket.com"
+CLOB_DELAY = 0.1
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -22,6 +30,7 @@ LOW_VOLUME_24H_USD = 5000     # market is "low activity" if 24h vol < this
 BET_TO_VOLUME_RATIO = 0.50    # flag if single bet >= 50% of 24h volume (raised from 20%)
 BET_TO_LIQUIDITY_RATIO = 0.05 # suppress if bet < 5% of market liquidity
 SHORT_LIVED_MARKET_HOURS = 6  # skip markets shorter than this
+THIN_BOOK_DEPTH_USD = 5000    # orderbook with < $5k total depth is thin
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +97,17 @@ class LowActivityLargeBetStrategy(DetectionStrategy):
         else:
             severity = 2.0
 
+        # Boost severity if orderbook is thin (live fetch from CLOB)
+        ob = self._fetch_orderbook(trade, cid)
+        if ob:
+            total_depth = ob["bid_depth"] + ob["ask_depth"]
+            if total_depth < THIN_BOOK_DEPTH_USD and total_depth > 0:
+                severity = min(4.0, severity + 0.5)
+                parts.append(f"thin book ${total_depth:,.0f}")
+            if ob["spread"] > 0.05:
+                severity = min(4.0, severity + 0.5)
+                parts.append(f"wide spread {ob['spread']:.1%}")
+
         return Signal(
             strategy=self.name,
             severity=severity,
@@ -95,3 +115,38 @@ class LowActivityLargeBetStrategy(DetectionStrategy):
             trade=trade,
             condition_id=cid,
         )
+
+    def _fetch_orderbook(self, trade: dict, cid: str) -> dict | None:
+        """Fetch live orderbook from CLOB and persist a snapshot."""
+        token_id = trade.get("asset", "")
+        if not token_id:
+            return None
+        time.sleep(CLOB_DELAY)
+        try:
+            resp = requests.get(
+                f"{CLOB_API}/book",
+                params={"token_id": token_id},
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            bids = data.get("bids", [])
+            asks = data.get("asks", [])
+            if not bids and not asks:
+                return None
+            outcome = trade.get("outcome", "")
+            record_orderbook_snapshot(cid, token_id, outcome, bids, asks)
+            best_bid = max((float(b["price"]) for b in bids), default=0)
+            best_ask = min((float(a["price"]) for a in asks), default=0)
+            spread = (best_ask - best_bid) if best_ask > 0 and best_bid > 0 else 0
+            bid_depth = sum(float(b["size"]) * float(b["price"]) for b in bids)
+            ask_depth = sum(float(a["size"]) * float(a["price"]) for a in asks)
+            return {
+                "bid_depth": bid_depth,
+                "ask_depth": ask_depth,
+                "spread": spread,
+            }
+        except requests.RequestException as e:
+            print(f"[WARN] CLOB book fetch failed for {cid}: {e}", file=sys.stderr)
+            return None

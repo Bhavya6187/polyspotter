@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 
 from detection_strategies import DetectionStrategy, Signal
 from db import (
+    get_wallet_pnl_summary,
     get_wallet_timing_stats,
     record_timing_flag,
 )
@@ -93,6 +94,16 @@ class TimingRelativeResolutionStrategy(DetectionStrategy):
                     f"across {timing_stats['distinct_markets']} markets, "
                     f"${timing_stats['total_usd']:,.0f} total"
                 )
+
+                # Cross-reference: is this serial timer also profitable?
+                pnl = get_wallet_pnl_summary(wallet)
+                if pnl["closed_positions"] >= 3 and pnl["total_pnl"] > 0:
+                    win_pct = pnl["wins"] / pnl["closed_positions"] if pnl["closed_positions"] > 0 else 0
+                    severity = min(8.0, severity + 1.0)
+                    headline += (
+                        f" + PROFITABLE: {win_pct:.0%} wins, "
+                        f"${pnl['total_pnl']:+,.0f} P&L"
+                    )
 
         return Signal(
             strategy=self.name,

@@ -116,6 +116,15 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
         """)
         conn.execute("CREATE INDEX idx_tracked_wallet ON tracked_bets(wallet)")
         conn.execute("CREATE INDEX idx_tracked_unresolved ON tracked_bets(resolved)")
+        conn.execute("""
+            CREATE TABLE wallet_pnl (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                wallet TEXT, condition_id TEXT, asset TEXT, outcome TEXT,
+                avg_price REAL, total_bought REAL, realized_pnl REAL,
+                cur_price REAL, event_slug TEXT, end_date TEXT,
+                position_type TEXT, recorded_at TEXT
+            )
+        """)
         # Pre-populate with winning resolved bets
         for i in range(4):
             conn.execute("""
@@ -162,6 +171,15 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
         """)
         conn.execute("CREATE INDEX idx_tracked_wallet ON tracked_bets(wallet)")
         conn.execute("CREATE INDEX idx_tracked_unresolved ON tracked_bets(resolved)")
+        conn.execute("""
+            CREATE TABLE wallet_pnl (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                wallet TEXT, condition_id TEXT, asset TEXT, outcome TEXT,
+                avg_price REAL, total_bought REAL, realized_pnl REAL,
+                cur_price REAL, event_slug TEXT, end_date TEXT,
+                position_type TEXT, recorded_at TEXT
+            )
+        """)
         # 1 win, 3 losses -> 25% win rate
         conn.execute("""
             INSERT INTO tracked_bets
@@ -212,6 +230,15 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
         """)
         conn.execute("CREATE INDEX idx_tracked_wallet ON tracked_bets(wallet)")
         conn.execute("CREATE INDEX idx_tracked_unresolved ON tracked_bets(resolved)")
+        conn.execute("""
+            CREATE TABLE wallet_pnl (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                wallet TEXT, condition_id TEXT, asset TEXT, outcome TEXT,
+                avg_price REAL, total_bought REAL, realized_pnl REAL,
+                cur_price REAL, event_slug TEXT, end_date TEXT,
+                position_type TEXT, recorded_at TEXT
+            )
+        """)
         # Only 2 resolved (below threshold of 3)
         for i in range(2):
             conn.execute("""

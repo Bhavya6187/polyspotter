@@ -139,6 +139,70 @@ def _init_tables(conn: sqlite3.Connection) -> None:
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tf_wallet ON timing_flags(wallet)")
 
+    # -- wallet_pnl (profit/loss from closed positions) -------------------------
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS wallet_pnl (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            wallet TEXT NOT NULL,
+            condition_id TEXT NOT NULL,
+            asset TEXT,
+            outcome TEXT,
+            avg_price REAL,
+            total_bought REAL,
+            realized_pnl REAL,
+            cur_price REAL,
+            event_slug TEXT,
+            end_date TEXT,
+            position_type TEXT NOT NULL,
+            recorded_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_wpnl_wallet ON wallet_pnl(wallet)")
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_wpnl_dedup
+        ON wallet_pnl(wallet, condition_id, asset, position_type)
+    """)
+
+    # -- price_candles (CLOB historical price time-series) ----------------------
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS price_candles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            condition_id TEXT NOT NULL,
+            token_id TEXT NOT NULL,
+            outcome TEXT,
+            t REAL NOT NULL,
+            p REAL NOT NULL,
+            recorded_at TEXT NOT NULL
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pc_token ON price_candles(condition_id, token_id)"
+    )
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_pc_dedup
+        ON price_candles(token_id, t)
+    """)
+
+    # -- orderbook_snapshots (CLOB order book depth) ----------------------------
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS orderbook_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            condition_id TEXT NOT NULL,
+            token_id TEXT NOT NULL,
+            outcome TEXT,
+            best_bid REAL,
+            best_ask REAL,
+            spread REAL,
+            bid_depth REAL,
+            ask_depth REAL,
+            mid_price REAL,
+            snapshot_at TEXT NOT NULL
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_obs_cid ON orderbook_snapshots(condition_id)"
+    )
+
     conn.commit()
 
 
@@ -532,4 +596,161 @@ def get_wallet_timing_stats(wallet: str) -> dict:
         "avg_minutes": row[2] or 0.0,
         "min_minutes": row[3] or 0.0,
         "total_usd": row[4] or 0.0,
+    }
+
+
+# ===========================================================================
+# wallet_pnl operations (enriched win_rate_tracking / position analysis)
+# ===========================================================================
+
+def record_wallet_pnl(wallet: str, position: dict, position_type: str) -> None:
+    """Record a wallet's position P&L data (open or closed)."""
+    conn = get_db()
+    conn.execute(
+        """INSERT OR IGNORE INTO wallet_pnl
+           (wallet, condition_id, asset, outcome, avg_price, total_bought,
+            realized_pnl, cur_price, event_slug, end_date, position_type, recorded_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            wallet.lower(),
+            position.get("conditionId", ""),
+            position.get("asset", ""),
+            position.get("outcome", ""),
+            float(position.get("avgPrice", 0) or 0),
+            float(position.get("totalBought", 0) or 0),
+            float(position.get("realizedPnl", 0) or 0),
+            float(position.get("curPrice", 0) or 0),
+            position.get("eventSlug", ""),
+            position.get("endDate", ""),
+            position_type,
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    conn.commit()
+
+
+def get_wallet_pnl_summary(wallet: str) -> dict:
+    """Get aggregate P&L summary for a wallet."""
+    conn = get_db()
+    row = conn.execute(
+        """SELECT
+               COUNT(*) as total_positions,
+               SUM(CASE WHEN position_type='closed' THEN 1 ELSE 0 END) as closed,
+               SUM(CASE WHEN position_type='closed' AND realized_pnl > 0 THEN 1 ELSE 0 END) as wins,
+               SUM(CASE WHEN position_type='closed' AND realized_pnl <= 0 THEN 1 ELSE 0 END) as losses,
+               SUM(realized_pnl) as total_pnl,
+               SUM(total_bought) as total_invested
+           FROM wallet_pnl WHERE wallet = ?""",
+        (wallet.lower(),),
+    ).fetchone()
+    return {
+        "total_positions": row[0] or 0,
+        "closed_positions": row[1] or 0,
+        "wins": row[2] or 0,
+        "losses": row[3] or 0,
+        "total_pnl": row[4] or 0.0,
+        "total_invested": row[5] or 0.0,
+    }
+
+
+# ===========================================================================
+# price_candles operations (CLOB price history)
+# ===========================================================================
+
+def record_price_candle(condition_id: str, token_id: str, outcome: str,
+                        t: float, p: float) -> None:
+    """Record a single price candle point."""
+    conn = get_db()
+    conn.execute(
+        """INSERT OR IGNORE INTO price_candles
+           (condition_id, token_id, outcome, t, p, recorded_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (condition_id, token_id, outcome, t, p,
+         datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()
+
+
+def record_price_candles_batch(condition_id: str, token_id: str, outcome: str,
+                               candles: list[dict]) -> int:
+    """Batch-insert price candle data. Returns count inserted."""
+    conn = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    inserted = 0
+    for c in candles:
+        try:
+            conn.execute(
+                """INSERT OR IGNORE INTO price_candles
+                   (condition_id, token_id, outcome, t, p, recorded_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (condition_id, token_id, outcome, c["t"], c["p"], now),
+            )
+            inserted += 1
+        except (KeyError, sqlite3.IntegrityError):
+            pass
+    conn.commit()
+    return inserted
+
+
+def get_price_candles(condition_id: str, token_id: str,
+                      limit: int = 500) -> list[tuple[float, float]]:
+    """Return recent price candles as (timestamp, price) pairs, oldest first."""
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT t, p FROM price_candles
+           WHERE condition_id = ? AND token_id = ?
+           ORDER BY t DESC LIMIT ?""",
+        (condition_id, token_id, limit),
+    ).fetchall()
+    return [(r[0], r[1]) for r in reversed(rows)]
+
+
+# ===========================================================================
+# orderbook_snapshots operations (CLOB order book depth)
+# ===========================================================================
+
+def record_orderbook_snapshot(condition_id: str, token_id: str, outcome: str,
+                              bids: list[dict], asks: list[dict]) -> None:
+    """Record an order book snapshot with computed depth metrics."""
+    best_bid = max((float(b["price"]) for b in bids), default=0)
+    best_ask = min((float(a["price"]) for a in asks), default=0)
+    spread = (best_ask - best_bid) if best_ask > 0 and best_bid > 0 else 0
+    mid_price = (best_ask + best_bid) / 2 if best_ask > 0 and best_bid > 0 else 0
+
+    bid_depth = sum(float(b["size"]) * float(b["price"]) for b in bids)
+    ask_depth = sum(float(a["size"]) * float(a["price"]) for a in asks)
+
+    conn = get_db()
+    conn.execute(
+        """INSERT INTO orderbook_snapshots
+           (condition_id, token_id, outcome, best_bid, best_ask, spread,
+            bid_depth, ask_depth, mid_price, snapshot_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (condition_id, token_id, outcome, best_bid, best_ask, spread,
+         bid_depth, ask_depth, mid_price,
+         datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()
+
+
+def get_orderbook_stats(condition_id: str) -> dict | None:
+    """Get the latest order book snapshot for a condition."""
+    conn = get_db()
+    row = conn.execute(
+        """SELECT best_bid, best_ask, spread, bid_depth, ask_depth, mid_price, snapshot_at
+           FROM orderbook_snapshots
+           WHERE condition_id = ?
+           ORDER BY snapshot_at DESC LIMIT 1""",
+        (condition_id,),
+    ).fetchone()
+    if not row:
+        return None
+    return {
+        "best_bid": row[0],
+        "best_ask": row[1],
+        "spread": row[2],
+        "bid_depth": row[3],
+        "ask_depth": row[4],
+        "mid_price": row[5],
+        "snapshot_at": row[6],
     }

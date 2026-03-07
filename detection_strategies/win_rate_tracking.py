@@ -22,6 +22,7 @@ from db import (
     get_unresolved_condition_ids,
     get_unresolved_bets_for_condition,
     get_wallet_stats,
+    get_wallet_pnl_summary,
     mark_bet_resolved,
     record_tracked_bet,
 )
@@ -117,19 +118,42 @@ class WinRateTrackingStrategy(DetectionStrategy):
         record_tracked_bet(trade)
 
         stats = get_wallet_stats(wallet)
-        if stats["resolved_bets"] < MIN_RESOLVED_BETS:
-            return None
+        pnl = get_wallet_pnl_summary(wallet)
 
-        win_rate = stats["wins"] / stats["resolved_bets"]
-        if win_rate < WIN_RATE_ALERT_THRESHOLD:
+        # Use tracked_bets resolution if enough data, otherwise fall back to
+        # closed-positions P&L data from the Data API
+        win_rate = None
+        source = ""
+        resolved = stats["resolved_bets"]
+        wins = stats["wins"]
+
+        if resolved >= MIN_RESOLVED_BETS:
+            win_rate = wins / resolved
+            source = "resolved"
+        elif pnl["closed_positions"] >= MIN_RESOLVED_BETS:
+            resolved = pnl["closed_positions"]
+            wins = pnl["wins"]
+            win_rate = wins / resolved if resolved > 0 else 0
+            source = "P&L"
+
+        if win_rate is None or win_rate < WIN_RATE_ALERT_THRESHOLD:
             return None
 
         severity = 4.0 if win_rate >= 0.90 else 3.0
 
+        headline = f"{win_rate:.0%} win rate ({wins}/{resolved} {source})"
+
+        # Boost severity if P&L data confirms profitability
+        if pnl["closed_positions"] >= MIN_RESOLVED_BETS and pnl["total_pnl"] > 0:
+            profit_ratio = pnl["total_pnl"] / pnl["total_invested"] if pnl["total_invested"] > 0 else 0
+            if profit_ratio > 0.5:
+                severity = min(6.0, severity + 1.0)
+                headline += f", ${pnl['total_pnl']:+,.0f} P&L ({profit_ratio:.0%} ROI)"
+
         return Signal(
             strategy=self.name,
             severity=severity,
-            headline=f"{win_rate:.0%} win rate ({stats['wins']}/{stats['resolved_bets']} resolved)",
+            headline=headline,
             trade=trade,
             condition_id=trade.get("conditionId", ""),
         )

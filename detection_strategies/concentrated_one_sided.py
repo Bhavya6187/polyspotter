@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 from detection_strategies import DetectionStrategy, Signal
+from db import get_cached_funder
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -69,10 +70,27 @@ class ConcentratedOneSidedStrategy(DetectionStrategy):
                 if t.get("transactionHash")
             ]
 
+            severity = 3.5
+            headline = f"{len(wallets)} wallets, same direction ({outcome}/{side}), ${total_usd:,.0f}"
+
+            # Cross-reference with wallet_clustering: check if any wallets
+            # in this cluster share a common funder (Sybil indicator)
+            funders: dict[str, list[str]] = {}
+            for w in wallets:
+                funder = get_cached_funder(w)
+                if funder:
+                    funders.setdefault(funder, []).append(w)
+
+            shared_funders = {f: ws for f, ws in funders.items() if len(ws) >= 2}
+            if shared_funders:
+                n_shared = sum(len(ws) for ws in shared_funders.values())
+                severity = min(6.0, severity + 1.5)
+                headline += f" — {n_shared} share funder (Sybil?)"
+
             signals.append(Signal(
                 strategy=self.name,
-                severity=3.5,
-                headline=f"{len(wallets)} wallets, same direction ({outcome}/{side}), ${total_usd:,.0f}",
+                severity=severity,
+                headline=headline,
                 trade=sample,
                 condition_id=cid,
                 trade_hashes=tx_hashes,

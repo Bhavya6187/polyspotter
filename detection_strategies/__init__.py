@@ -59,8 +59,8 @@ from detection_strategies.correlated_cross_market import CorrelatedCrossMarketSt
 ALL_STRATEGIES: list[DetectionStrategy] = [
     NewWalletLargeBetStrategy(),
     PreEventVolumeSpikeStrategy(),
-    ConcentratedOneSidedStrategy(),
     WalletClusteringStrategy(),
+    ConcentratedOneSidedStrategy(),
     TimingRelativeResolutionStrategy(),
     PriceImpactStrategy(),
     WinRateTrackingStrategy(),

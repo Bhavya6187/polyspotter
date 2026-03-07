@@ -19,6 +19,7 @@ import requests
 from detection_strategies import DetectionStrategy, Signal
 from db import (
     get_flagged_wallet_stats,
+    get_wallet_pnl_summary,
     record_flagged_wallet,
 )
 
@@ -186,6 +187,16 @@ class NewWalletLargeBetStrategy(DetectionStrategy):
                 )
                 print(f"    >>> REPEAT OFFENDER: flagged {flag_stats['times_flagged']} times, "
                       f"${flag_stats['total_usd_flagged']:,.0f} total")
+
+            # Cross-reference with P&L data: a "new" wallet that already
+            # has many positions or high profitability is very suspicious
+            pnl = get_wallet_pnl_summary(wallet)
+            if pnl["total_positions"] > 5:
+                severity = min(7.0, severity + 1.0)
+                headline += f", {pnl['total_positions']} positions already"
+            if pnl["closed_positions"] >= 3 and pnl["total_pnl"] > 0:
+                severity = min(7.0, severity + 0.5)
+                headline += f", ${pnl['total_pnl']:+,.0f} P&L"
 
             return Signal(
                 strategy=self.name,

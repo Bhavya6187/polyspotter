@@ -11,6 +11,9 @@ Tables populated:
   - flagged_wallets       (new_wallet_large_bet)
   - wallet_funders        (wallet_clustering)
   - market_volume_snapshots (pre_event_volume_spike)
+  - wallet_pnl            (positions & P&L from Data API)
+  - price_candles         (CLOB historical price time-series)
+  - orderbook_snapshots   (CLOB order book depth)
 
 Usage:
     python backfill.py [--days 30] [--threshold 3000] [--skip-etherscan] [--skip-profiles]
@@ -48,6 +51,9 @@ from db import (
     record_volume_snapshot,
     save_funder,
     get_cached_funder,
+    record_wallet_pnl,
+    record_price_candles_batch,
+    record_orderbook_snapshot,
 )
 
 # ---------------------------------------------------------------------------
@@ -58,12 +64,16 @@ GAMMA_API = "https://gamma-api.polymarket.com"
 ETHERSCAN_API = "https://api.etherscan.io/v2/api"
 POLYGON_CHAIN_ID = 137
 
+CLOB_API = "https://clob.polymarket.com"
+
 ETHERSCAN_API_KEY = os.environ.get("ETHERSCAN_API_KEY", "")
 
 # Rate limiting delays (seconds)
 GAMMA_DELAY = 0.15
 ETHERSCAN_DELAY = 0.25
 PROFILE_DELAY = 0.25
+DATA_API_DELAY = 0.1
+CLOB_DELAY = 0.1
 
 PAGE_SIZE = 10000
 
@@ -138,7 +148,7 @@ def get_wallet_profile(address: str) -> tuple[datetime | None, dict]:
 def fetch_trades(days: int, threshold: int) -> list[dict]:
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     cutoff_ts = cutoff.timestamp()
-    print(f"[1/7] Fetching trades >= ${threshold:,} since {cutoff.strftime('%Y-%m-%d')}...")
+    print(f"[1/11] Fetching trades >= ${threshold:,} since {cutoff.strftime('%Y-%m-%d')}...")
 
     all_trades: list[dict] = []
     offset = 0
@@ -191,7 +201,7 @@ def fetch_trades(days: int, threshold: int) -> list[dict]:
 # Step 2: Backfill tracked_bets (win_rate_tracking)
 # ---------------------------------------------------------------------------
 def backfill_tracked_bets(trades: list[dict]) -> None:
-    print(f"[2/7] Backfilling tracked_bets ({len(trades)} trades)...")
+    print(f"[2/11] Backfilling tracked_bets ({len(trades)} trades)...")
     conn = get_db()
 
     # Get existing (wallet, condition_id, trade_timestamp) to avoid duplicates
@@ -222,7 +232,7 @@ def backfill_tracked_bets(trades: list[dict]) -> None:
 # Step 3: Resolve tracked bets (win_rate_tracking)
 # ---------------------------------------------------------------------------
 def resolve_tracked_bets() -> None:
-    print("[3/7] Resolving tracked bets against market outcomes...")
+    print("[3/11] Resolving tracked bets against market outcomes...")
     conn = get_db()
 
     unresolved_cids = [
@@ -278,7 +288,7 @@ def resolve_tracked_bets() -> None:
 #         + timing_flags (timing_relative_resolution)
 # ---------------------------------------------------------------------------
 def backfill_event_price_timing_volume(trades: list[dict]) -> None:
-    print("[4/7] Backfilling wallet_event_history, price_history, "
+    print("[4/11] Backfilling wallet_event_history, price_history, "
           "timing_flags, and volume snapshots...")
 
     conn = get_db()
@@ -379,7 +389,7 @@ def backfill_event_price_timing_volume(trades: list[dict]) -> None:
 # Step 5: Backfill flagged_wallets (new_wallet_large_bet)
 # ---------------------------------------------------------------------------
 def backfill_flagged_wallets(trades: list[dict], skip_profiles: bool) -> None:
-    print("[5/7] Backfilling flagged_wallets (new wallet detection)...")
+    print("[5/11] Backfilling flagged_wallets (new wallet detection)...")
 
     if skip_profiles:
         print("  Skipped (--skip-profiles)\n")
@@ -434,7 +444,7 @@ def backfill_flagged_wallets(trades: list[dict], skip_profiles: bool) -> None:
 # Step 6: Backfill wallet_funders (wallet_clustering)
 # ---------------------------------------------------------------------------
 def backfill_wallet_funders(trades: list[dict], skip_etherscan: bool) -> None:
-    print("[6/7] Backfilling wallet_funders (Etherscan funder lookups)...")
+    print("[6/11] Backfilling wallet_funders (Etherscan funder lookups)...")
 
     if skip_etherscan or not ETHERSCAN_API_KEY:
         reason = "--skip-etherscan" if skip_etherscan else "no ETHERSCAN_API_KEY"
@@ -492,10 +502,298 @@ def backfill_wallet_funders(trades: list[dict], skip_etherscan: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Step 7: Summary
+# Step 7: Backfill wallet activity (full trade history per wallet via Data API)
+# ---------------------------------------------------------------------------
+def backfill_wallet_activity(trades: list[dict]) -> None:
+    """Fetch full trade history for each wallet via /activity endpoint.
+
+    This enriches tracked_bets, wallet_event_history, price_history, and
+    timing_flags with trades that fell below the size threshold or outside
+    the time window.
+    """
+    print("[7/11] Backfilling wallet activity (full history per wallet)...")
+
+    conn = get_db()
+    wallets = {t.get("proxyWallet", "").lower() for t in trades} - {""}
+    print(f"  Fetching activity for {len(wallets)} unique wallets...")
+
+    # Load existing dedup keys
+    existing_bets = set()
+    for r in conn.execute(
+        "SELECT wallet, condition_id, trade_timestamp FROM tracked_bets"
+    ).fetchall():
+        existing_bets.add((r[0], r[1], r[2]))
+
+    existing_events = set()
+    for r in conn.execute(
+        "SELECT wallet, condition_id, trade_timestamp FROM wallet_event_history"
+    ).fetchall():
+        existing_events.add((r[0], r[1], r[2]))
+
+    existing_prices = set()
+    for r in conn.execute(
+        "SELECT condition_id, outcome, trade_timestamp FROM price_history"
+    ).fetchall():
+        existing_prices.add((r[0], r[1], r[2]))
+
+    bets_added = 0
+    events_added = 0
+    prices_added = 0
+    activity_total = 0
+
+    for i, wallet in enumerate(wallets):
+        if (i + 1) % 20 == 0:
+            print(f"  processed {i + 1}/{len(wallets)} wallets "
+                  f"({activity_total} activity records)...")
+
+        # Paginate through /activity
+        offset = 0
+        while True:
+            time.sleep(DATA_API_DELAY)
+            try:
+                resp = requests.get(
+                    f"{DATA_API}/activity",
+                    params={"user": wallet, "limit": 500, "offset": offset},
+                    timeout=15,
+                )
+                if resp.status_code != 200:
+                    break
+                page = resp.json()
+            except requests.RequestException:
+                break
+
+            if not isinstance(page, list) or not page:
+                break
+
+            for act in page:
+                if act.get("type") != "TRADE":
+                    continue
+                activity_total += 1
+
+                cid = act.get("conditionId", "")
+                ts = act.get("timestamp", 0)
+                outcome = act.get("outcome", "")
+                side = act.get("side", "")
+                price = float(act.get("price", 0) or 0)
+                usdc_size = float(act.get("usdcSize", 0) or 0)
+                event_slug = act.get("eventSlug", "")
+
+                # Build a trade-like dict for existing record functions
+                trade_like = {
+                    "proxyWallet": wallet,
+                    "conditionId": cid,
+                    "outcome": outcome,
+                    "side": side,
+                    "price": price,
+                    "timestamp": ts,
+                    "eventSlug": event_slug,
+                    "_usd_value": usdc_size,
+                }
+
+                # tracked_bets: record ALL trades (not just large ones)
+                if wallet and cid and (wallet, cid, ts) not in existing_bets:
+                    record_tracked_bet(trade_like)
+                    existing_bets.add((wallet, cid, ts))
+                    bets_added += 1
+
+                # wallet_event_history
+                if wallet and event_slug and cid and (wallet, cid, ts) not in existing_events:
+                    record_wallet_event_trade(trade_like)
+                    existing_events.add((wallet, cid, ts))
+                    events_added += 1
+
+                # price_history
+                if cid and outcome and price > 0 and (cid, outcome, ts) not in existing_prices:
+                    record_price_observation(cid, outcome, price, ts)
+                    existing_prices.add((cid, outcome, ts))
+                    prices_added += 1
+
+            if len(page) < 500:
+                break
+            offset += 500
+
+    print(f"  Total activity records processed: {activity_total}")
+    print(f"  tracked_bets added:        {bets_added}")
+    print(f"  wallet_event_history added: {events_added}")
+    print(f"  price_history added:        {prices_added}\n")
+
+
+# ---------------------------------------------------------------------------
+# Step 8: Backfill wallet P&L (positions + closed-positions via Data API)
+# ---------------------------------------------------------------------------
+def backfill_wallet_pnl(trades: list[dict]) -> None:
+    """Fetch open and closed positions for each wallet.
+
+    /positions gives current open positions with live P&L.
+    /closed-positions gives resolved positions with realized P&L.
+    This directly feeds win_rate_tracking and concentrated_one_sided.
+    """
+    print("[8/11] Backfilling wallet P&L (positions + closed-positions)...")
+
+    wallets = {t.get("proxyWallet", "").lower() for t in trades} - {""}
+    print(f"  Fetching positions for {len(wallets)} unique wallets...")
+
+    open_count = 0
+    closed_count = 0
+
+    for i, wallet in enumerate(wallets):
+        if (i + 1) % 20 == 0:
+            print(f"  processed {i + 1}/{len(wallets)} wallets "
+                  f"({open_count} open, {closed_count} closed)...")
+
+        # Open positions
+        time.sleep(DATA_API_DELAY)
+        try:
+            resp = requests.get(
+                f"{DATA_API}/positions",
+                params={"user": wallet},
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                positions = resp.json()
+                if isinstance(positions, list):
+                    for pos in positions:
+                        record_wallet_pnl(wallet, pos, "open")
+                        open_count += 1
+        except requests.RequestException:
+            pass
+
+        # Closed positions
+        time.sleep(DATA_API_DELAY)
+        try:
+            resp = requests.get(
+                f"{DATA_API}/closed-positions",
+                params={"user": wallet},
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                positions = resp.json()
+                if isinstance(positions, list):
+                    for pos in positions:
+                        record_wallet_pnl(wallet, pos, "closed")
+                        closed_count += 1
+        except requests.RequestException:
+            pass
+
+    print(f"  Open positions:   {open_count}")
+    print(f"  Closed positions: {closed_count}\n")
+
+
+# ---------------------------------------------------------------------------
+# Step 9: Backfill price candles (CLOB /prices-history per token)
+# ---------------------------------------------------------------------------
+def backfill_price_candles(trades: list[dict]) -> None:
+    """Fetch continuous price history from CLOB for each token.
+
+    This provides much richer price data than trade-by-trade observations,
+    enabling better price_impact detection (velocity, trends, anomalies).
+    """
+    print("[9/11] Backfilling price candles (CLOB price history)...")
+
+    # Collect unique (condition_id, token_id, outcome) from trades
+    tokens: dict[str, tuple[str, str]] = {}  # token_id -> (condition_id, outcome)
+    for t in trades:
+        asset = t.get("asset", "")
+        cid = t.get("conditionId", "")
+        outcome = t.get("outcome", "")
+        if asset and cid:
+            tokens[asset] = (cid, outcome)
+
+    # Also try to get token IDs from market metadata cache
+    for cid, m in _market_cache.items():
+        token_ids = m.get("clobTokenIds")
+        outcomes = m.get("outcomes")
+        if isinstance(token_ids, list) and isinstance(outcomes, list):
+            try:
+                parsed_outcomes = json.loads(outcomes) if isinstance(outcomes, str) else outcomes
+            except (json.JSONDecodeError, ValueError):
+                parsed_outcomes = outcomes
+            for j, tid in enumerate(token_ids):
+                if tid and tid not in tokens:
+                    outcome_name = parsed_outcomes[j] if j < len(parsed_outcomes) else ""
+                    tokens[tid] = (cid, outcome_name)
+
+    print(f"  Fetching price history for {len(tokens)} unique tokens...")
+
+    total_candles = 0
+    for i, (token_id, (cid, outcome)) in enumerate(tokens.items()):
+        if (i + 1) % 50 == 0:
+            print(f"  fetched {i + 1}/{len(tokens)} tokens "
+                  f"({total_candles} candle points)...")
+
+        time.sleep(CLOB_DELAY)
+        try:
+            resp = requests.get(
+                f"{CLOB_API}/prices-history",
+                params={"market": token_id, "interval": "all", "fidelity": 60},
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                continue
+            data = resp.json()
+            history = data.get("history", [])
+            if history:
+                inserted = record_price_candles_batch(cid, token_id, outcome, history)
+                total_candles += inserted
+        except requests.RequestException:
+            pass
+
+    print(f"  Total candle points recorded: {total_candles}\n")
+
+
+# ---------------------------------------------------------------------------
+# Step 10: Backfill order book snapshots (CLOB /book per token)
+# ---------------------------------------------------------------------------
+def backfill_orderbook_snapshots(trades: list[dict]) -> None:
+    """Fetch current order book depth for each token.
+
+    Captures bid/ask spread, depth, and mid-price for liquidity analysis.
+    Enriches price_impact and low_activity_large_bet strategies.
+    """
+    print("[10/11] Backfilling order book snapshots (CLOB depth)...")
+
+    # Collect unique tokens (only for active/open markets)
+    tokens: dict[str, tuple[str, str]] = {}  # token_id -> (condition_id, outcome)
+    for t in trades:
+        asset = t.get("asset", "")
+        cid = t.get("conditionId", "")
+        outcome = t.get("outcome", "")
+        if asset and cid:
+            tokens[asset] = (cid, outcome)
+
+    print(f"  Fetching order books for {len(tokens)} unique tokens...")
+
+    recorded = 0
+    for i, (token_id, (cid, outcome)) in enumerate(tokens.items()):
+        if (i + 1) % 50 == 0:
+            print(f"  fetched {i + 1}/{len(tokens)} order books...")
+
+        time.sleep(CLOB_DELAY)
+        try:
+            resp = requests.get(
+                f"{CLOB_API}/book",
+                params={"token_id": token_id},
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                continue
+            data = resp.json()
+            bids = data.get("bids", [])
+            asks = data.get("asks", [])
+            if bids or asks:
+                record_orderbook_snapshot(cid, token_id, outcome, bids, asks)
+                recorded += 1
+        except requests.RequestException:
+            pass
+
+    print(f"  Order book snapshots recorded: {recorded}\n")
+
+
+# ---------------------------------------------------------------------------
+# Step 11: Summary
 # ---------------------------------------------------------------------------
 def print_summary() -> None:
-    print("[7/7] Backfill complete. Database summary:")
+    print("[11/11] Backfill complete. Database summary:")
     conn = get_db()
 
     tables = [
@@ -506,6 +804,9 @@ def print_summary() -> None:
         ("flagged_wallets", "new_wallet_large_bet"),
         ("wallet_funders", "wallet_clustering"),
         ("market_volume_snapshots", "pre_event_volume_spike"),
+        ("wallet_pnl", "positions & P&L"),
+        ("price_candles", "CLOB price history"),
+        ("orderbook_snapshots", "order book depth"),
     ]
 
     for table, strategy in tables:
@@ -519,6 +820,21 @@ def print_summary() -> None:
     total, resolved = row[0] or 0, row[1] or 0
     pct = f"{resolved/total:.0%}" if total > 0 else "n/a"
     print(f"\n  Tracked bets: {total} total, {resolved} resolved ({pct})")
+
+    # P&L stats
+    row = conn.execute(
+        """SELECT COUNT(*),
+                  SUM(CASE WHEN position_type='closed' AND realized_pnl > 0 THEN 1 ELSE 0 END),
+                  SUM(CASE WHEN position_type='closed' AND realized_pnl <= 0 THEN 1 ELSE 0 END),
+                  SUM(realized_pnl)
+           FROM wallet_pnl WHERE position_type='closed'"""
+    ).fetchone()
+    closed = row[0] or 0
+    wins = row[1] or 0
+    losses = row[2] or 0
+    total_pnl = row[3] or 0
+    print(f"  Closed positions: {closed} ({wins} wins, {losses} losses, "
+          f"${total_pnl:+,.0f} total P&L)")
     print()
 
 
@@ -558,6 +874,10 @@ def main():
     backfill_event_price_timing_volume(trades)
     backfill_flagged_wallets(trades, args.skip_profiles)
     backfill_wallet_funders(trades, args.skip_etherscan)
+    backfill_wallet_activity(trades)
+    backfill_wallet_pnl(trades)
+    backfill_price_candles(trades)
+    backfill_orderbook_snapshots(trades)
     print_summary()
 
 

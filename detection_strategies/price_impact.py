@@ -17,6 +17,8 @@ from collections import defaultdict
 from detection_strategies import DetectionStrategy, Signal
 from db import (
     get_historical_price_range,
+    get_orderbook_stats,
+    get_price_candles,
     record_price_observation,
 )
 
@@ -26,6 +28,9 @@ from db import (
 PRICE_SHIFT_THRESHOLD = 0.15  # flag if price moved >= 15 percentage points
 HISTORICAL_SHIFT_THRESHOLD = 0.25  # flag if price moved >= 25pp from historical range
 MIN_TRADES_FOR_SIGNAL = 2      # need at least this many trades to measure shift
+VELOCITY_WINDOW_SEC = 300      # 5-minute window for velocity calculation
+VELOCITY_THRESHOLD = 0.10      # 10pp move in 5 minutes = fast
+THIN_BOOK_DEPTH_USD = 5000     # orderbook with < $5k depth is considered thin
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +155,61 @@ class PriceImpactStrategy(DetectionStrategy):
                 condition_id=cid,
                 trade_hashes=tx_hashes,
             ))
+
+        # --- Velocity detection using CLOB price candles ---
+        for (cid, outcome), t_list in token_trades.items():
+            if (cid, outcome) in tokens_with_window_signal:
+                continue  # already flagged above
+
+            # Get candle data for this token — look for rapid moves
+            # We need the token_id (asset) from the trade
+            token_id = ""
+            for t in t_list:
+                token_id = t.get("asset", "")
+                if token_id:
+                    break
+            if not token_id:
+                continue
+
+            candles = get_price_candles(cid, token_id, limit=100)
+            if len(candles) < 3:
+                continue
+
+            # Check for rapid price velocity in recent candles
+            for j in range(len(candles) - 1):
+                t0, p0 = candles[j]
+                t1, p1 = candles[j + 1]
+                dt = t1 - t0
+                if dt <= 0 or dt > VELOCITY_WINDOW_SEC:
+                    continue
+                velocity = abs(p1 - p0)
+                if velocity >= VELOCITY_THRESHOLD:
+                    direction = "UP" if p1 > p0 else "DOWN"
+                    sample = t_list[0]
+                    severity = min(3.5, velocity * 10.0)
+
+                    # Boost if orderbook is thin
+                    ob = get_orderbook_stats(cid)
+                    if ob and (ob["bid_depth"] + ob["ask_depth"]) < THIN_BOOK_DEPTH_USD:
+                        severity = min(5.0, severity + 1.0)
+
+                    tx_hashes = [t.get("transactionHash", "") for t in t_list if t.get("transactionHash")]
+                    headline = (
+                        f"rapid price {direction} {velocity:.2%} in "
+                        f"{dt:.0f}s ({outcome})"
+                    )
+                    if ob and ob["spread"] > 0:
+                        headline += f", spread {ob['spread']:.2%}"
+
+                    signals.append(Signal(
+                        strategy=self.name,
+                        severity=severity,
+                        headline=headline,
+                        trade=sample,
+                        condition_id=cid,
+                        trade_hashes=tx_hashes,
+                    ))
+                    break  # one velocity signal per token
 
         if signals:
             print(f"  [price_impact] Found {len(signals)} token(s) with significant price shifts")
