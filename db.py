@@ -80,6 +80,22 @@ def _init_tables(conn: sqlite3.Connection) -> None:
         )
     """)
 
+    # -- new_wallet_large_bet (per-trade dedup for flag counting) -------------
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS flagged_trade_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            wallet TEXT NOT NULL,
+            condition_id TEXT NOT NULL,
+            trade_timestamp REAL NOT NULL,
+            usd_value REAL NOT NULL,
+            recorded_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_fte_dedup
+        ON flagged_trade_events(wallet, condition_id, trade_timestamp)
+    """)
+
     # -- correlated_cross_market (cross-run event history) ---------------------
     conn.execute("""
         CREATE TABLE IF NOT EXISTS wallet_event_history (
@@ -410,6 +426,28 @@ def get_flagged_wallet_stats(wallet: str) -> dict | None:
 
 
 # ===========================================================================
+# flagged_trade_events operations (dedup for flagged_wallets counting)
+# ===========================================================================
+
+def record_flagged_trade_event(wallet: str, condition_id: str,
+                                trade_timestamp: float, usd_value: float) -> bool:
+    """Record a specific trade flagging event. Returns True if this is a new
+    event (not previously seen), False if it was already recorded."""
+    conn = get_db()
+    cursor = conn.execute(
+        """INSERT OR IGNORE INTO flagged_trade_events
+           (wallet, condition_id, trade_timestamp, usd_value, recorded_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        (
+            wallet.lower(), condition_id, trade_timestamp, usd_value,
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+# ===========================================================================
 # wallet_event_history operations (correlated_cross_market)
 # ===========================================================================
 
@@ -485,9 +523,24 @@ def get_wallet_cross_event_stats(wallet: str) -> dict:
 # market_volume_snapshots operations (pre_event_volume_spike)
 # ===========================================================================
 
+VOLUME_SNAPSHOT_MIN_INTERVAL_SEC = 1800  # 30 minutes between snapshots per market
+
+
 def record_volume_snapshot(condition_id: str, volume_24h: float) -> None:
-    """Record a volume observation for a market."""
+    """Record a volume observation for a market.
+    Skips if a snapshot for this condition was recorded less than
+    VOLUME_SNAPSHOT_MIN_INTERVAL_SEC ago to prevent baseline dilution."""
     conn = get_db()
+    row = conn.execute(
+        """SELECT snapshot_at FROM market_volume_snapshots
+           WHERE condition_id = ? ORDER BY snapshot_at DESC LIMIT 1""",
+        (condition_id,),
+    ).fetchone()
+    if row:
+        last_at = datetime.fromisoformat(row[0])
+        now = datetime.now(timezone.utc)
+        if (now - last_at).total_seconds() < VOLUME_SNAPSHOT_MIN_INTERVAL_SEC:
+            return
     conn.execute(
         """INSERT INTO market_volume_snapshots (condition_id, volume_24h, snapshot_at)
            VALUES (?, ?, ?)""",
@@ -615,6 +668,14 @@ def get_wallet_timing_stats(wallet: str) -> dict:
 # wallet_pnl operations (enriched win_rate_tracking / position analysis)
 # ===========================================================================
 
+def clear_wallet_pnl(wallet: str) -> None:
+    """Delete all cached P&L records for a wallet so fresh data can replace them.
+    Prevents stale 'open' records lingering after positions close."""
+    conn = get_db()
+    conn.execute("DELETE FROM wallet_pnl WHERE wallet = ?", (wallet.lower(),))
+    conn.commit()
+
+
 def record_wallet_pnl(wallet: str, position: dict, position_type: str) -> None:
     """Record a wallet's position P&L data (open or closed)."""
     conn = get_db()
@@ -721,9 +782,26 @@ def get_price_candles(condition_id: str, token_id: str,
 # orderbook_snapshots operations (CLOB order book depth)
 # ===========================================================================
 
+ORDERBOOK_SNAPSHOT_MIN_INTERVAL_SEC = 600  # 10 minutes between snapshots per condition
+
+
 def record_orderbook_snapshot(condition_id: str, token_id: str, outcome: str,
                               bids: list[dict], asks: list[dict]) -> None:
-    """Record an order book snapshot with computed depth metrics."""
+    """Record an order book snapshot with computed depth metrics.
+    Skips if a snapshot for this condition was recorded less than
+    ORDERBOOK_SNAPSHOT_MIN_INTERVAL_SEC ago to prevent table bloat."""
+    conn = get_db()
+    row = conn.execute(
+        """SELECT snapshot_at FROM orderbook_snapshots
+           WHERE condition_id = ? ORDER BY snapshot_at DESC LIMIT 1""",
+        (condition_id,),
+    ).fetchone()
+    if row:
+        last_at = datetime.fromisoformat(row[0])
+        now = datetime.now(timezone.utc)
+        if (now - last_at).total_seconds() < ORDERBOOK_SNAPSHOT_MIN_INTERVAL_SEC:
+            return
+
     best_bid = max((float(b["price"]) for b in bids), default=0)
     best_ask = min((float(a["price"]) for a in asks), default=0)
     spread = (best_ask - best_bid) if best_ask > 0 and best_bid > 0 else 0
@@ -732,7 +810,6 @@ def record_orderbook_snapshot(condition_id: str, token_id: str, outcome: str,
     bid_depth = sum(float(b["size"]) * float(b["price"]) for b in bids)
     ask_depth = sum(float(a["size"]) * float(a["price"]) for a in asks)
 
-    conn = get_db()
     conn.execute(
         """INSERT INTO orderbook_snapshots
            (condition_id, token_id, outcome, best_bid, best_ask, spread,

@@ -19,6 +19,7 @@ import requests
 
 from detection_strategies import DetectionStrategy, Signal
 from db import (
+    clear_wallet_pnl,
     get_unresolved_condition_ids,
     get_unresolved_bets_for_condition,
     get_wallet_stats,
@@ -51,6 +52,8 @@ def _fetch_wallet_pnl(wallet: str) -> None:
     if wallet.lower() in _pnl_fetched:
         return
     _pnl_fetched.add(wallet.lower())
+
+    clear_wallet_pnl(wallet)
 
     for position_type, endpoint in [("open", "positions"), ("closed", "closed-positions")]:
         time.sleep(PNL_FETCH_DELAY)

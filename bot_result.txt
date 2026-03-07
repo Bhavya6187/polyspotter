@@ -1,0 +1,2198 @@
+========================================================================
+  Polymarket Unusual Activity Scanner (single run)
+========================================================================
+  Bet threshold:  $3,000
+  Trade window:   last 3600s
+  Strategies:     win_rate_tracking, new_wallet_large_bet, timing_relative_resolution, low_activity_large_bet, pre_event_volume_spike, wallet_clustering, concentrated_one_sided, price_impact, correlated_cross_market
+
+[*] Fetching trades >= $3,000 from the last 3600s (since 18:59:42 UTC)...
+[*] Received 366 trades >= $3,000 within the last 3600s
+
+[*] Running 9 strategy(ies) on 366 trade(s)...
+
+  [1/366] $20,160.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $20,160.00 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0x6ade59...73f5b0 ...
+    [lookup] 0x6ade59...73f5b0 — "Vital-Boy", age: 126d 23h
+    [ok] Wallet is 126d 23h old — not flagged
+
+  [2/366] $19,999.80 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $19,999.80 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0x7af9ba...8db408 ...
+    [lookup] 0x7af9ba...8db408 — "Outlying-Ticket", age: 13d 0h
+    >>> ALERT: New wallet detected!
+
+  [3/366] $5,028.20 on "BNP Paribas Open: Karolina Muchova vs Anna Bondar"
+  [new_wallet_large_bet] $5,028.20 on "BNP Paribas Open: Karolina Muchova vs Anna Bondar"
+    [lookup] Fetching profile for 0xde9f7f...ccd43c ...
+    [lookup] 0xde9f7f...ccd43c — "Slow-Escape", age: 473d 22h
+    [ok] Wallet is 473d 22h old — not flagged
+
+  [4/366] $30,500.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $30,500.00 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0xf6d91f...eb305e ...
+    [lookup] 0xf6d91f...eb305e — "Legal-Progression", age: 33d 0h
+    [ok] Wallet is 33d 0h old — not flagged
+
+  [5/366] $3,015.75 on "Will Chelsea FC win on 2026-03-07?"
+  [new_wallet_large_bet] $3,015.75 on "Will Chelsea FC win on 2026-03-07?"
+    [lookup] Fetching profile for 0x762ee1...564bf0 ...
+    [lookup] 0x762ee1...564bf0 — "Terrible-Garage", age: 298d 23h
+    [ok] Wallet is 298d 23h old — not flagged
+
+  [6/366] $5,042.80 on "Boise State Broncos vs. Colorado State Rams"
+  [new_wallet_large_bet] $5,042.80 on "Boise State Broncos vs. Colorado State Rams"
+    [lookup] Fetching profile for 0xb45a79...12192c ...
+    [lookup] 0xb45a79...12192c — "Pesky-Fedora", age: 63d 20h
+    [ok] Wallet is 63d 20h old — not flagged
+
+  [7/366] $4,289.07 on "Spread: Chelsea FC (-1.5)"
+  [new_wallet_large_bet] $4,289.07 on "Spread: Chelsea FC (-1.5)"
+    [cache hit] 0x762ee1...564bf0
+    [ok] Wallet is 298d 23h old — not flagged
+
+  [8/366] $4,000.00 on "Jazz vs. Bucks"
+  [new_wallet_large_bet] $4,000.00 on "Jazz vs. Bucks"
+    [lookup] Fetching profile for 0x66b684...bc159d ...
+    [lookup] 0x66b684...bc159d — "Natural-Manatee", age: 290d 7h
+    [ok] Wallet is 290d 7h old — not flagged
+
+  [9/366] $4,540.05 on "BNP Paribas Open: Francisco Cerundolo vs Benjamin Bonzi"
+  [new_wallet_large_bet] $4,540.05 on "BNP Paribas Open: Francisco Cerundolo vs Benjamin Bonzi"
+    [lookup] Fetching profile for 0x204f72...a95e14 ...
+    [lookup] 0x204f72...a95e14 — "Frail-Possible", age: 221d 5h
+    [ok] Wallet is 221d 5h old — not flagged
+
+  [10/366] $8,175.16 on "BNP Paribas Open: Storm Hunter vs Belinda Bencic"
+  [new_wallet_large_bet] $8,175.16 on "BNP Paribas Open: Storm Hunter vs Belinda Bencic"
+    [lookup] Fetching profile for 0x026a85...c71381 ...
+    [lookup] 0x026a85...c71381 — "Nifty-Wage", age: 10d 22h
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 2 times, $25,352 total
+
+  [11/366] $20,160.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $20,160.00 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0x6ade59...73f5b0
+    [ok] Wallet is 126d 23h old — not flagged
+
+  [12/366] $5,000.00 on "Spread: Timberwolves (-6.5)"
+  [new_wallet_large_bet] $5,000.00 on "Spread: Timberwolves (-6.5)"
+    [lookup] Fetching profile for 0x27345a...006d9e ...
+    [lookup] 0x27345a...006d9e — "Stimulating-Consensus", age: 126d 4h
+    [ok] Wallet is 126d 4h old — not flagged
+
+  [13/366] $26,522.10 on "Spread: Timberwolves (-7.5)"
+  [new_wallet_large_bet] $26,522.10 on "Spread: Timberwolves (-7.5)"
+    [lookup] Fetching profile for 0x72b40c...177d67 ...
+    [lookup] 0x72b40c...177d67 — "Voluminous-Latte", age: 93d 2h
+    [ok] Wallet is 93d 2h old — not flagged
+
+  [14/366] $67,200.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $67,200.00 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0xd7a589...e47c26 ...
+    [lookup] 0xd7a589...e47c26 — "French-Whole", age: 74d 13h
+    [ok] Wallet is 74d 13h old — not flagged
+
+  [15/366] $12,822.29 on "Arkansas Razorbacks vs. Missouri Tigers: O/U 160.5"
+  [new_wallet_large_bet] $12,822.29 on "Arkansas Razorbacks vs. Missouri Tigers: O/U 160.5"
+    [lookup] Fetching profile for 0x1dc810...7cda92 ...
+    [lookup] 0x1dc810...7cda92 — "Wet-Satellite", age: 14d 21h
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 2 times, $29,297 total
+
+  [16/366] $6,100.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $6,100.00 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0x86279a...ed5382 ...
+    [lookup] 0x86279a...ed5382 — "Awesome-Rubber", age: 655d 4h
+    [ok] Wallet is 655d 4h old — not flagged
+
+  [17/366] $4,950.00 on "Will the Iranian regime fall by April 30?"
+  [new_wallet_large_bet] $4,950.00 on "Will the Iranian regime fall by April 30?"
+    [lookup] Fetching profile for 0xf7375a...5d3a5b ...
+    [lookup] 0xf7375a...5d3a5b — "Snoopy-Orator", age: 0h 4m
+    >>> ALERT: New wallet detected!
+
+  [18/366] $6,237.62 on "Magic vs. Timberwolves"
+  [new_wallet_large_bet] $6,237.62 on "Magic vs. Timberwolves"
+    [lookup] Fetching profile for 0x47f80d...dd6699 ...
+    [lookup] 0x47f80d...dd6699 — "Carefree-Ramen", age: 7d 10h
+    >>> ALERT: New wallet detected!
+
+  [19/366] $4,490.69 on "Will Iran announce a new supreme leader on March 7, 2026?"
+  [new_wallet_large_bet] $4,490.69 on "Will Iran announce a new supreme leader on March 7, 2026?"
+    [lookup] Fetching profile for 0x0e12c4...037ed6 ...
+    [lookup] 0x0e12c4...037ed6 — "Thorny-Hook", age: 49d 1h
+    [ok] Wallet is 49d 1h old — not flagged
+
+  [20/366] $4,412.22 on "Jazz vs. Bucks"
+  [new_wallet_large_bet] $4,412.22 on "Jazz vs. Bucks"
+    [lookup] Fetching profile for 0xd10695...5fc79c ...
+    [lookup] 0xd10695...5fc79c — "Unkempt-Image", age: 54d 7h
+    [ok] Wallet is 54d 7h old — not flagged
+
+  [21/366] $6,720.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $6,720.00 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0x39d3c7...779ef0 ...
+    [lookup] 0x39d3c7...779ef0 — "Lost-Property", age: 38d 21h
+    [ok] Wallet is 38d 21h old — not flagged
+
+  [22/366] $67,200.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $67,200.00 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0xd7a589...e47c26
+    [ok] Wallet is 74d 13h old — not flagged
+
+  [23/366] $4,754.95 on "Will Manchester City FC win on 2026-03-07?"
+  [new_wallet_large_bet] $4,754.95 on "Will Manchester City FC win on 2026-03-07?"
+    [cache hit] 0x204f72...a95e14
+    [ok] Wallet is 221d 5h old — not flagged
+
+  [24/366] $3,360.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $3,360.00 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0xc97485...cdb33b ...
+    [lookup] 0xc97485...cdb33b — "Tough-Nexus", age: 113d 6h
+    [ok] Wallet is 113d 6h old — not flagged
+
+  [25/366] $5,357.72 on "Spread: Timberwolves (-5.5)"
+  [new_wallet_large_bet] $5,357.72 on "Spread: Timberwolves (-5.5)"
+    [lookup] Fetching profile for 0x636876...696dc8 ...
+    [lookup] 0x636876...696dc8 — "Unrealistic-Doorbell", age: 77d 18h
+    [ok] Wallet is 77d 18h old — not flagged
+
+  [26/366] $4,386.41 on "Will Juventus FC win on 2026-03-07?"
+  [new_wallet_large_bet] $4,386.41 on "Will Juventus FC win on 2026-03-07?"
+    [lookup] Fetching profile for 0x160bf4...0d4296 ...
+    [lookup] 0x160bf4...0d4296 — "Considerate-Burrito", age: 236d 6h
+    [ok] Wallet is 236d 6h old — not flagged
+
+  [27/366] $3,271.14 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $3,271.14 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0x160bf4...0d4296
+    [ok] Wallet is 236d 6h old — not flagged
+
+  [28/366] $15,048.09 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $15,048.09 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0x7af9ba...8db408
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 2 times, $35,048 total
+
+  [29/366] $12,000.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $12,000.00 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0xf6d91f...eb305e
+    [ok] Wallet is 33d 0h old — not flagged
+
+  [30/366] $3,335.40 on "Will Juventus FC vs. Pisa SC end in a draw?"
+  [new_wallet_large_bet] $3,335.40 on "Will Juventus FC vs. Pisa SC end in a draw?"
+    [cache hit] 0x160bf4...0d4296
+    [ok] Wallet is 236d 6h old — not flagged
+
+  [31/366] $4,387.50 on "Will Juventus FC win on 2026-03-07?"
+  [new_wallet_large_bet] $4,387.50 on "Will Juventus FC win on 2026-03-07?"
+    [cache hit] 0x160bf4...0d4296
+    [ok] Wallet is 236d 6h old — not flagged
+
+  [32/366] $4,000.00 on "Will Olympique de Marseille win on 2026-03-07?"
+  [new_wallet_large_bet] $4,000.00 on "Will Olympique de Marseille win on 2026-03-07?"
+    [lookup] Fetching profile for 0x4173f3...53d3ed ...
+    [lookup] 0x4173f3...53d3ed — "Wrathful-Craft", age: 33d 23h
+    [ok] Wallet is 33d 23h old — not flagged
+
+  [33/366] $4,380.35 on "Will Juventus FC win on 2026-03-07?"
+  [new_wallet_large_bet] $4,380.35 on "Will Juventus FC win on 2026-03-07?"
+    [cache hit] 0x160bf4...0d4296
+    [ok] Wallet is 236d 6h old — not flagged
+
+  [34/366] $3,335.40 on "Will Juventus FC vs. Pisa SC end in a draw?"
+  [new_wallet_large_bet] $3,335.40 on "Will Juventus FC vs. Pisa SC end in a draw?"
+    [cache hit] 0x160bf4...0d4296
+    [ok] Wallet is 236d 6h old — not flagged
+
+  [35/366] $12,000.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $12,000.00 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0xf6d91f...eb305e
+    [ok] Wallet is 33d 0h old — not flagged
+
+  [36/366] $5,420.75 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $5,420.75 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0xf6d91f...eb305e
+    [ok] Wallet is 33d 0h old — not flagged
+
+  [37/366] $4,125.00 on "Spread: Hawks (-5.5)"
+  [new_wallet_large_bet] $4,125.00 on "Spread: Hawks (-5.5)"
+    [lookup] Fetching profile for 0xeb7538...4faaf9 ...
+    [lookup] 0xeb7538...4faaf9 — "Anxious-Spectacle", age: 78d 23h
+    [ok] Wallet is 78d 23h old — not flagged
+
+  [38/366] $3,051.19 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $3,051.19 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0x6ade59...73f5b0
+    [ok] Wallet is 126d 23h old — not flagged
+
+  [39/366] $9,200.38 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $9,200.38 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0xa49bec...6f4c40 ...
+    [lookup] 0xa49bec...6f4c40 — "Muddy-Ice", age: 476d 20h
+    [ok] Wallet is 476d 20h old — not flagged
+
+  [40/366] $12,000.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $12,000.00 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0xf6d91f...eb305e
+    [ok] Wallet is 33d 0h old — not flagged
+
+  [41/366] $5,357.82 on "Connecticut Huskies vs. Marquette Golden Eagles"
+  [new_wallet_large_bet] $5,357.82 on "Connecticut Huskies vs. Marquette Golden Eagles"
+    [cache hit] 0x636876...696dc8
+    [ok] Wallet is 77d 18h old — not flagged
+
+  [42/366] $5,600.20 on "Clippers vs. Grizzlies"
+  [new_wallet_large_bet] $5,600.20 on "Clippers vs. Grizzlies"
+    [lookup] Fetching profile for 0x1cf58e...426440 ...
+    [lookup] 0x1cf58e...426440 — "Palatable-Availability", age: 472d 17h
+    [ok] Wallet is 472d 17h old — not flagged
+
+  [43/366] $3,595.52 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $3,595.52 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0x433723...958882 ...
+    [lookup] 0x433723...958882 — "Quizzical-Hire", age: 765d 7h
+    [ok] Wallet is 765d 7h old — not flagged
+
+  [44/366] $7,537.11 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $7,537.11 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0xb90494...44c255 ...
+    [lookup] 0xb90494...44c255 — "Ideal-Astronomy", age: 44d 9h
+    [ok] Wallet is 44d 9h old — not flagged
+
+  [45/366] $8,810.10 on "Will Manchester City FC win on 2026-03-07?"
+  [new_wallet_large_bet] $8,810.10 on "Will Manchester City FC win on 2026-03-07?"
+    [cache hit] 0x204f72...a95e14
+    [ok] Wallet is 221d 5h old — not flagged
+
+  [46/366] $20,678.64 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $20,678.64 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0xf6d91f...eb305e
+    [ok] Wallet is 33d 0h old — not flagged
+
+  [47/366] $3,186.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $3,186.00 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0xdc876e...6d7ab6 ...
+    [lookup] 0xdc876e...6d7ab6 — "Sorrowful-Shallows", age: 64d 4h
+    [ok] Wallet is 64d 4h old — not flagged
+
+  [48/366] $18,358.78 on "Will the Fed decrease interest rates by 50+ bps after the March 2026 meeting?"
+  [new_wallet_large_bet] $18,358.78 on "Will the Fed decrease interest rates by 50+ bps after the March 2026 meeting?"
+    [lookup] Fetching profile for 0x1e3e27...37a561 ...
+    [lookup] 0x1e3e27...37a561 — "Nocturnal-Badge", age: 120d 17h
+    [ok] Wallet is 120d 17h old — not flagged
+
+  [49/366] $30,000.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $30,000.00 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0xf6d91f...eb305e
+    [ok] Wallet is 33d 0h old — not flagged
+
+  [50/366] $4,000.00 on "Counter-Strike: FURIA vs 3DMAX - Map 1 Winner"
+  [new_wallet_large_bet] $4,000.00 on "Counter-Strike: FURIA vs 3DMAX - Map 1 Winner"
+    [lookup] Fetching profile for 0x26f8af...bd3452 ...
+    [lookup] 0x26f8af...bd3452 — "Wooden-Breath", age: 66d 19h
+    [ok] Wallet is 66d 19h old — not flagged
+
+  [51/366] $6,878.54 on "Will Estoril Praia win on 2026-03-07?"
+  [new_wallet_large_bet] $6,878.54 on "Will Estoril Praia win on 2026-03-07?"
+    [lookup] Fetching profile for 0x3fd9a8...871ef0 ...
+    [lookup] 0x3fd9a8...871ef0 — "Lucky-Baboon", age: 4d 10h
+    >>> ALERT: New wallet detected!
+
+  [52/366] $18,679.23 on "Spread: Timberwolves (-5.5)"
+  [new_wallet_large_bet] $18,679.23 on "Spread: Timberwolves (-5.5)"
+    [lookup] Fetching profile for 0xdb27bf...a6c56e ...
+    [lookup] 0xdb27bf...a6c56e — "Extraneous-Twine", age: 281d 23h
+    [ok] Wallet is 281d 23h old — not flagged
+
+  [53/366] $25,000.00 on "Magic vs. Timberwolves: O/U 226.5"
+  [new_wallet_large_bet] $25,000.00 on "Magic vs. Timberwolves: O/U 226.5"
+    [lookup] Fetching profile for 0x8a6c68...c30b3f ...
+    [lookup] 0x8a6c68...c30b3f — "Rare-Dishwasher", age: 13d 3h
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 5 times, $241,991 total
+
+  [54/366] $8,991.00 on "Will Atalanta BC win on 2026-03-07?"
+  [new_wallet_large_bet] $8,991.00 on "Will Atalanta BC win on 2026-03-07?"
+    [lookup] Fetching profile for 0xad6a84...ef9dbd ...
+    [lookup] 0xad6a84...ef9dbd — "Oddball-Flow", age: 261d 2h
+    [ok] Wallet is 261d 2h old — not flagged
+
+  [55/366] $12,395.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $12,395.00 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0x8cdc59...b2b83f ...
+    [lookup] 0x8cdc59...b2b83f — "Large-Sock", age: 267d 20h
+    [ok] Wallet is 267d 20h old — not flagged
+
+  [56/366] $9,300.28 on "Spread: Timberwolves (-6.5)"
+  [new_wallet_large_bet] $9,300.28 on "Spread: Timberwolves (-6.5)"
+    [cache hit] 0xdb27bf...a6c56e
+    [ok] Wallet is 281d 23h old — not flagged
+
+  [57/366] $3,877.78 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $3,877.78 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0x6d11cd...55c449 ...
+    [lookup] 0x6d11cd...55c449 — "Gripping-Leader", age: 87d 1h
+    [ok] Wallet is 87d 1h old — not flagged
+
+  [58/366] $18,377.18 on "Will the Fed decrease interest rates by 50+ bps after the March 2026 meeting?"
+  [new_wallet_large_bet] $18,377.18 on "Will the Fed decrease interest rates by 50+ bps after the March 2026 meeting?"
+    [cache hit] 0x1e3e27...37a561
+    [ok] Wallet is 120d 17h old — not flagged
+
+  [59/366] $10,134.45 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $10,134.45 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0xb90494...44c255
+    [ok] Wallet is 44d 9h old — not flagged
+
+  [60/366] $15,995.00 on "Spread: Bruins (-1.5)"
+  [new_wallet_large_bet] $15,995.00 on "Spread: Bruins (-1.5)"
+    [lookup] Fetching profile for 0x2a2c53...fb9bc1 ...
+    [lookup] 0x2a2c53...fb9bc1 — "Dishonest-Bloom", age: 5d 0h
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 6 times, $120,847 total
+
+  [61/366] $50,000.00 on "Magic vs. Timberwolves"
+  [new_wallet_large_bet] $50,000.00 on "Magic vs. Timberwolves"
+    [cache hit] 0x8a6c68...c30b3f
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 6 times, $291,991 total
+
+  [62/366] $5,528.75 on "Will Olympique de Marseille win on 2026-03-07?"
+  [new_wallet_large_bet] $5,528.75 on "Will Olympique de Marseille win on 2026-03-07?"
+    [cache hit] 0xdc876e...6d7ab6
+    [ok] Wallet is 64d 4h old — not flagged
+
+  [63/366] $18,441.64 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $18,441.64 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0xb90494...44c255
+    [ok] Wallet is 44d 9h old — not flagged
+
+  [64/366] $16,021.93 on "Will AJ Auxerre vs. RC Strasbourg Alsace end in a draw?"
+  [new_wallet_large_bet] $16,021.93 on "Will AJ Auxerre vs. RC Strasbourg Alsace end in a draw?"
+    [cache hit] 0x72b40c...177d67
+    [ok] Wallet is 93d 2h old — not flagged
+
+  [65/366] $7,010.40 on "Magic vs. Timberwolves"
+  [new_wallet_large_bet] $7,010.40 on "Magic vs. Timberwolves"
+    [cache hit] 0xdb27bf...a6c56e
+    [ok] Wallet is 281d 23h old — not flagged
+
+  [66/366] $3,045.09 on "BNP Paribas Open: Roberto Bautista Agut vs Jack Draper"
+  [new_wallet_large_bet] $3,045.09 on "BNP Paribas Open: Roberto Bautista Agut vs Jack Draper"
+    [lookup] Fetching profile for 0x3a979c...a566f5 ...
+    [lookup] 0x3a979c...a566f5 — "Late-Integrity", age: 67d 2h
+    [ok] Wallet is 67d 2h old — not flagged
+
+  [67/366] $7,128.29 on "Will Jamie Dimon win the 2028 US Presidential Election?"
+  [new_wallet_large_bet] $7,128.29 on "Will Jamie Dimon win the 2028 US Presidential Election?"
+    [lookup] Fetching profile for 0xa66790...aaceb3 ...
+    [lookup] 0xa66790...aaceb3 — "Arctic-Kickoff", age: 258d 4h
+    [ok] Wallet is 258d 4h old — not flagged
+
+  [68/366] $5,911.46 on "Bitcoin Up or Down - March 7, 2:50PM-2:55PM ET"
+  [new_wallet_large_bet] $5,911.46 on "Bitcoin Up or Down - March 7, 2:50PM-2:55PM ET"
+    [lookup] Fetching profile for 0xd84c2b...e407b9 ...
+    [lookup] 0xd84c2b...e407b9 — "Good-Subset", age: 46d 17h
+    [ok] Wallet is 46d 17h old — not flagged
+
+  [69/366] $6,720.00 on "BNP Paribas Open: Hailey Baptiste vs Elena Rybakina"
+  [new_wallet_large_bet] $6,720.00 on "BNP Paribas Open: Hailey Baptiste vs Elena Rybakina"
+    [lookup] Fetching profile for 0xb9e54e...6b1809 ...
+    [lookup] 0xb9e54e...6b1809 — "Buoyant-Vise", age: 7d 15h
+    >>> ALERT: New wallet detected!
+
+  [70/366] $8,101.50 on "Capitals vs. Bruins: O/U 4.5"
+  [new_wallet_large_bet] $8,101.50 on "Capitals vs. Bruins: O/U 4.5"
+    [lookup] Fetching profile for 0x7e3a1f...553246 ...
+    [lookup] 0x7e3a1f...553246 — "Smart-Elbow", age: 68d 22h
+    [ok] Wallet is 68d 22h old — not flagged
+
+  [71/366] $11,520.00 on "UFC 326: Charles Oliveira vs. Max Holloway (Lightweight, Main Card)"
+  [new_wallet_large_bet] $11,520.00 on "UFC 326: Charles Oliveira vs. Max Holloway (Lightweight, Main Card)"
+    [lookup] Fetching profile for 0xb6aee7...4e4df8 ...
+    [lookup] 0xb6aee7...4e4df8 — "Fuzzy-Oversight", age: 38d 20h
+    [ok] Wallet is 38d 20h old — not flagged
+
+  [72/366] $6,954.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $6,954.00 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0x8cdc59...b2b83f
+    [ok] Wallet is 267d 20h old — not flagged
+
+  [73/366] $11,520.00 on "UFC 326: Charles Oliveira vs. Max Holloway (Lightweight, Main Card)"
+  [new_wallet_large_bet] $11,520.00 on "UFC 326: Charles Oliveira vs. Max Holloway (Lightweight, Main Card)"
+    [lookup] Fetching profile for 0x93abbc...7a9723 ...
+    [lookup] 0x93abbc...7a9723 — "Velvety-Relief", age: 102d 19h
+    [ok] Wallet is 102d 19h old — not flagged
+
+  [74/366] $101,739.73 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $101,739.73 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0x03e8a5...af1697 ...
+    [lookup] 0x03e8a5...af1697 — "Admired-Teacher", age: 77d 1h
+    [ok] Wallet is 77d 1h old — not flagged
+
+  [75/366] $6,133.60 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $6,133.60 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0x204f72...a95e14
+    [ok] Wallet is 221d 5h old — not flagged
+
+  [76/366] $3,343.30 on "Will MrBeast's next video get between 40 and 45 million views on day 1?"
+  [new_wallet_large_bet] $3,343.30 on "Will MrBeast's next video get between 40 and 45 million views on day 1?"
+    [lookup] Fetching profile for 0x8245ea...57ebed ...
+    [lookup] 0x8245ea...57ebed — "Webbed-Parking", age: 600d 17h
+    [ok] Wallet is 600d 17h old — not flagged
+
+  [77/366] $5,832.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $5,832.00 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0x16602a...825598 ...
+    [lookup] 0x16602a...825598 — "Rusty-Eagle", age: 655d 4h
+    [ok] Wallet is 655d 4h old — not flagged
+
+  [78/366] $3,494.46 on "Will Olympique de Marseille win on 2026-03-07?"
+  [new_wallet_large_bet] $3,494.46 on "Will Olympique de Marseille win on 2026-03-07?"
+    [lookup] Fetching profile for 0x6d3c5b...b3d294 ...
+    [lookup] 0x6d3c5b...b3d294 — "Scornful-West", age: 122d 10h
+    [ok] Wallet is 122d 10h old — not flagged
+
+  [79/366] $4,000.00 on "Spread: Timberwolves (-7.5)"
+  [new_wallet_large_bet] $4,000.00 on "Spread: Timberwolves (-7.5)"
+    [lookup] Fetching profile for 0x842ac9...407422 ...
+    [lookup] 0x842ac9...407422 — "Plaintive-Abundance", age: 37d 6h
+    [ok] Wallet is 37d 6h old — not flagged
+
+  [80/366] $5,099.70 on "Will Manchester City FC win on 2026-03-07?"
+  [new_wallet_large_bet] $5,099.70 on "Will Manchester City FC win on 2026-03-07?"
+    [lookup] Fetching profile for 0xc2c89e...bd5471 ...
+    [lookup] 0xc2c89e...bd5471 — "Sorrowful-Ton", age: 235d 9h
+    [ok] Wallet is 235d 9h old — not flagged
+
+  [81/366] $24,900.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $24,900.00 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0x8cdc59...b2b83f
+    [ok] Wallet is 267d 20h old — not flagged
+
+  [82/366] $3,762.25 on "Will Chelsea FC win on 2026-03-07?"
+  [new_wallet_large_bet] $3,762.25 on "Will Chelsea FC win on 2026-03-07?"
+    [lookup] Fetching profile for 0x198fa7...dfc419 ...
+    [lookup] 0x198fa7...dfc419 — "Stormy-Influence", age: 43d 7h
+    [ok] Wallet is 43d 7h old — not flagged
+
+  [83/366] $17,152.01 on "Nets vs. Pistons"
+  [new_wallet_large_bet] $17,152.01 on "Nets vs. Pistons"
+    [lookup] Fetching profile for 0x00d5f8...b6ed84 ...
+    [lookup] 0x00d5f8...b6ed84 — "Clumsy-Liver", age: 29d 5h
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 5 times, $45,356 total
+
+  [84/366] $8,090.00 on "Newcastle United FC vs. Manchester City FC: O/U 3.5"
+  [new_wallet_large_bet] $8,090.00 on "Newcastle United FC vs. Manchester City FC: O/U 3.5"
+    [cache hit] 0x204f72...a95e14
+    [ok] Wallet is 221d 5h old — not flagged
+
+  [85/366] $3,255.34 on "Will Juventus FC win on 2026-03-07?"
+  [new_wallet_large_bet] $3,255.34 on "Will Juventus FC win on 2026-03-07?"
+    [lookup] Fetching profile for 0xe3d4de...fb2bac ...
+    [lookup] 0xe3d4de...fb2bac — "Illustrious-Pinecone", age: 494d 2h
+    [ok] Wallet is 494d 2h old — not flagged
+
+  [86/366] $5,700.00 on "Will Bitcoin reach $75,000 in March?"
+  [new_wallet_large_bet] $5,700.00 on "Will Bitcoin reach $75,000 in March?"
+    [lookup] Fetching profile for 0xf705fa...453ca7 ...
+    [lookup] 0xf705fa...453ca7 — no profile found (treating as new)
+    >>> ALERT: New wallet detected!
+
+  [87/366] $5,480.00 on "Magic vs. Timberwolves: O/U 224.5"
+  [new_wallet_large_bet] $5,480.00 on "Magic vs. Timberwolves: O/U 224.5"
+    [lookup] Fetching profile for 0x2fcbda...ea78cf ...
+    [lookup] 0x2fcbda...ea78cf — "Fabulous-Trolley", age: 4h 49m
+    >>> ALERT: New wallet detected!
+
+  [88/366] $20,944.44 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $20,944.44 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0x72b40c...177d67
+    [ok] Wallet is 93d 2h old — not flagged
+
+  [89/366] $4,050.00 on "Will Athletic Club win on 2026-03-08?"
+  [new_wallet_large_bet] $4,050.00 on "Will Athletic Club win on 2026-03-08?"
+    [lookup] Fetching profile for 0x6c979f...a0988c ...
+    [lookup] 0x6c979f...a0988c — "Zigzag-Message", age: 53d 7h
+    [ok] Wallet is 53d 7h old — not flagged
+
+  [90/366] $5,000.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $5,000.00 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0x499f13...37ccaf ...
+    [lookup] 0x499f13...37ccaf — "Overdue-Campaigning", age: 55d 1h
+    [ok] Wallet is 55d 1h old — not flagged
+
+  [91/366] $28,905.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $28,905.00 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0xa49bec...6f4c40
+    [ok] Wallet is 476d 20h old — not flagged
+
+  [92/366] $4,296.29 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $4,296.29 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0x306e06...213a7c ...
+    [lookup] 0x306e06...213a7c — "0x306e06d4457dc86d88671a788c77b17e8c213a7c", age: 763d 18h
+    [ok] Wallet is 763d 18h old — not flagged
+
+  [93/366] $3,015.63 on "Will Athletic Club win on 2026-03-08?"
+  [new_wallet_large_bet] $3,015.63 on "Will Athletic Club win on 2026-03-08?"
+    [cache hit] 0x6c979f...a0988c
+    [ok] Wallet is 53d 7h old — not flagged
+
+  [94/366] $3,900.00 on "Will Athletic Club vs. FC Barcelona end in a draw?"
+  [new_wallet_large_bet] $3,900.00 on "Will Athletic Club vs. FC Barcelona end in a draw?"
+    [cache hit] 0x6c979f...a0988c
+    [ok] Wallet is 53d 7h old — not flagged
+
+  [95/366] $39,874.31 on "Magic vs. Timberwolves"
+  [new_wallet_large_bet] $39,874.31 on "Magic vs. Timberwolves"
+    [cache hit] 0xdb27bf...a6c56e
+    [ok] Wallet is 281d 23h old — not flagged
+
+  [96/366] $12,500.00 on "Newcastle United FC vs. Manchester City FC: O/U 2.5"
+  [new_wallet_large_bet] $12,500.00 on "Newcastle United FC vs. Manchester City FC: O/U 2.5"
+    [cache hit] 0x8a6c68...c30b3f
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 7 times, $304,491 total
+
+  [97/366] $3,900.00 on "Will Athletic Club vs. FC Barcelona end in a draw?"
+  [new_wallet_large_bet] $3,900.00 on "Will Athletic Club vs. FC Barcelona end in a draw?"
+    [cache hit] 0x6c979f...a0988c
+    [ok] Wallet is 53d 7h old — not flagged
+
+  [98/366] $4,050.00 on "Will Athletic Club win on 2026-03-08?"
+  [new_wallet_large_bet] $4,050.00 on "Will Athletic Club win on 2026-03-08?"
+    [cache hit] 0x6c979f...a0988c
+    [ok] Wallet is 53d 7h old — not flagged
+
+  [99/366] $3,596.33 on "Warriors vs. Thunder"
+  [new_wallet_large_bet] $3,596.33 on "Warriors vs. Thunder"
+    [lookup] Fetching profile for 0x8ff300...3f1aa9 ...
+    [lookup] 0x8ff300...3f1aa9 — "Defenseless-Kilt", age: 60d 1h
+    [ok] Wallet is 60d 1h old — not flagged
+
+  [100/366] $18,805.24 on "Will the Fed decrease interest rates by 50+ bps after the March 2026 meeting?"
+  [new_wallet_large_bet] $18,805.24 on "Will the Fed decrease interest rates by 50+ bps after the March 2026 meeting?"
+    [lookup] Fetching profile for 0x82ba53...fb74da ...
+    [lookup] 0x82ba53...fb74da — "Primary-Influx", age: 120d 17h
+    [ok] Wallet is 120d 17h old — not flagged
+
+  [101/366] $4,884.80 on "Magic vs. Timberwolves"
+  [new_wallet_large_bet] $4,884.80 on "Magic vs. Timberwolves"
+    [lookup] Fetching profile for 0x94a5e7...229838 ...
+    [lookup] 0x94a5e7...229838 — "Elegant-Lace", age: 125d 4h
+    [ok] Wallet is 125d 4h old — not flagged
+
+  [102/366] $5,798.44 on "Will FC Nantes vs. Angers SCO end in a draw?"
+  [new_wallet_large_bet] $5,798.44 on "Will FC Nantes vs. Angers SCO end in a draw?"
+    [cache hit] 0x16602a...825598
+    [ok] Wallet is 655d 4h old — not flagged
+
+  [103/366] $3,187.54 on "Spread: Timberwolves (-7.5)"
+  [new_wallet_large_bet] $3,187.54 on "Spread: Timberwolves (-7.5)"
+    [lookup] Fetching profile for 0x351e27...72de8a ...
+    [lookup] 0x351e27...72de8a — "Polite-Interior", age: 77d 12h
+    [ok] Wallet is 77d 12h old — not flagged
+
+  [104/366] $4,789.20 on "Newcastle United FC vs. Manchester City FC: O/U 3.5"
+  [new_wallet_large_bet] $4,789.20 on "Newcastle United FC vs. Manchester City FC: O/U 3.5"
+    [cache hit] 0x204f72...a95e14
+    [ok] Wallet is 221d 5h old — not flagged
+
+  [105/366] $3,900.55 on "Set 1 Winner: Cerundolo vs Bonzi"
+  [new_wallet_large_bet] $3,900.55 on "Set 1 Winner: Cerundolo vs Bonzi"
+    [lookup] Fetching profile for 0xa16a13...e233a1 ...
+    [lookup] 0xa16a13...e233a1 — "Every-Alligator", age: 121d 0h
+    [ok] Wallet is 121d 0h old — not flagged
+
+  [106/366] $3,500.00 on "Magic vs. Timberwolves"
+  [new_wallet_large_bet] $3,500.00 on "Magic vs. Timberwolves"
+    [lookup] Fetching profile for 0xb9b423...0d3111 ...
+    [lookup] 0xb9b423...0d3111 — "Digital-Patina", age: 138d 2h
+    [ok] Wallet is 138d 2h old — not flagged
+
+  [107/366] $12,216.76 on "Magic vs. Timberwolves"
+  [new_wallet_large_bet] $12,216.76 on "Magic vs. Timberwolves"
+    [cache hit] 0xdb27bf...a6c56e
+    [ok] Wallet is 281d 23h old — not flagged
+
+  [108/366] $3,411.53 on "FC Nantes vs. Angers SCO: O/U 2.5"
+  [new_wallet_large_bet] $3,411.53 on "FC Nantes vs. Angers SCO: O/U 2.5"
+    [lookup] Fetching profile for 0xf5d164...61cdc9 ...
+    [lookup] 0xf5d164...61cdc9 — "Tart-Possession", age: 181d 3h
+    [ok] Wallet is 181d 3h old — not flagged
+
+  [109/366] $8,300.00 on "Counter-Strike: FURIA vs 3DMAX (BO3) - ESL Pro League Stage 2"
+  [new_wallet_large_bet] $8,300.00 on "Counter-Strike: FURIA vs 3DMAX (BO3) - ESL Pro League Stage 2"
+    [lookup] Fetching profile for 0x34e440...d36299 ...
+    [lookup] 0x34e440...d36299 — "Secret-Clarity", age: 201d 22h
+    [ok] Wallet is 201d 22h old — not flagged
+
+  [110/366] $4,650.00 on "Will Manchester City FC win on 2026-03-07?"
+  [new_wallet_large_bet] $4,650.00 on "Will Manchester City FC win on 2026-03-07?"
+    [lookup] Fetching profile for 0xead152...30c76a ...
+    [lookup] 0xead152...30c76a — "Unconscious-Penguin", age: 424d 23h
+    [ok] Wallet is 424d 23h old — not flagged
+
+  [111/366] $4,995.00 on "Will Chelsea FC win on 2026-03-07?"
+  [new_wallet_large_bet] $4,995.00 on "Will Chelsea FC win on 2026-03-07?"
+    [lookup] Fetching profile for 0x96020c...bc4d02 ...
+    [lookup] 0x96020c...bc4d02 — "Straight-Gift", age: 488d 21h
+    [ok] Wallet is 488d 21h old — not flagged
+
+  [112/366] $3,849.42 on "Will MrBeast say "Subscribe" during his next YouTube video?"
+  [new_wallet_large_bet] $3,849.42 on "Will MrBeast say "Subscribe" during his next YouTube video?"
+    [lookup] Fetching profile for 0xb03b82...5b6ca1 ...
+    [lookup] 0xb03b82...5b6ca1 — "Mild-Lecture", age: 241d 22h
+    [ok] Wallet is 241d 22h old — not flagged
+
+  [113/366] $18,824.09 on "Will the Fed decrease interest rates by 50+ bps after the March 2026 meeting?"
+  [new_wallet_large_bet] $18,824.09 on "Will the Fed decrease interest rates by 50+ bps after the March 2026 meeting?"
+    [cache hit] 0x82ba53...fb74da
+    [ok] Wallet is 120d 17h old — not flagged
+
+  [114/366] $12,500.00 on "Newcastle United FC vs. Manchester City FC: O/U 2.5"
+  [new_wallet_large_bet] $12,500.00 on "Newcastle United FC vs. Manchester City FC: O/U 2.5"
+    [cache hit] 0x8a6c68...c30b3f
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 8 times, $316,991 total
+
+  [115/366] $7,991.97 on "Arkansas Razorbacks vs. Missouri Tigers"
+  [new_wallet_large_bet] $7,991.97 on "Arkansas Razorbacks vs. Missouri Tigers"
+    [cache hit] 0x026a85...c71381
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 3 times, $33,344 total
+
+  [116/366] $3,699.84 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $3,699.84 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0x39d3c7...779ef0
+    [ok] Wallet is 38d 21h old — not flagged
+
+  [117/366] $8,314.43 on "Will Club Atlético de Madrid win on 2026-03-07?"
+  [new_wallet_large_bet] $8,314.43 on "Will Club Atlético de Madrid win on 2026-03-07?"
+    [cache hit] 0x72b40c...177d67
+    [ok] Wallet is 93d 2h old — not flagged
+
+  [118/366] $3,898.00 on "Spread: Timberwolves (-6.5)"
+  [new_wallet_large_bet] $3,898.00 on "Spread: Timberwolves (-6.5)"
+    [lookup] Fetching profile for 0xaf75a0...0dd56a ...
+    [lookup] 0xaf75a0...0dd56a — "Honorable-War", age: 2h 35m
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 2 times, $8,898 total
+
+  [119/366] $3,464.50 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $3,464.50 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0x39d3c7...779ef0
+    [ok] Wallet is 38d 21h old — not flagged
+
+  [120/366] $24,980.83 on "Athletic Club vs. FC Barcelona: O/U 2.5"
+  [new_wallet_large_bet] $24,980.83 on "Athletic Club vs. FC Barcelona: O/U 2.5"
+    [cache hit] 0x8a6c68...c30b3f
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 9 times, $341,972 total
+
+  [121/366] $50,000.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $50,000.00 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0x8a6c68...c30b3f
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 10 times, $391,972 total
+
+  [122/366] $7,020.90 on "Will Amazon be the largest company in the world by market cap on March 31?"
+  [new_wallet_large_bet] $7,020.90 on "Will Amazon be the largest company in the world by market cap on March 31?"
+    [lookup] Fetching profile for 0x2bffe6...791fbb ...
+    [lookup] 0x2bffe6...791fbb — "Remote-Marines", age: 2d 21h
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 6 times, $42,189 total
+
+  [123/366] $3,246.77 on "Will Athletic Club vs. FC Barcelona end in a draw?"
+  [new_wallet_large_bet] $3,246.77 on "Will Athletic Club vs. FC Barcelona end in a draw?"
+    [lookup] Fetching profile for 0x7ea571...1bde7b ...
+    [lookup] 0x7ea571...1bde7b — "Infamous-Ocelot", age: 59d 4h
+    [ok] Wallet is 59d 4h old — not flagged
+
+  [124/366] $4,630.08 on "Will the highest temperature in Miami be between 88-89°F on March 7?"
+  [new_wallet_large_bet] $4,630.08 on "Will the highest temperature in Miami be between 88-89°F on March 7?"
+    [lookup] Fetching profile for 0x59d7a4...d8ba8e ...
+    [lookup] 0x59d7a4...d8ba8e — "Insubstantial-Belligerency", age: 189d 11h
+    [ok] Wallet is 189d 11h old — not flagged
+
+  [125/366] $6,000.00 on "Will Manchester City FC win on 2026-03-07?"
+  [new_wallet_large_bet] $6,000.00 on "Will Manchester City FC win on 2026-03-07?"
+    [cache hit] 0x86279a...ed5382
+    [ok] Wallet is 655d 4h old — not flagged
+
+  [126/366] $10,030.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $10,030.00 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0xfce17e...8e9ce7 ...
+    [lookup] 0xfce17e...8e9ce7 — "Elastic-Chasm", age: 75d 16h
+    [ok] Wallet is 75d 16h old — not flagged
+
+  [127/366] $5,014.13 on "Will Manchester City FC win on 2026-03-07?"
+  [new_wallet_large_bet] $5,014.13 on "Will Manchester City FC win on 2026-03-07?"
+    [lookup] Fetching profile for 0x5c3a1a...43020b ...
+    [lookup] 0x5c3a1a...43020b — "Immense-Facelift", age: 47d 21h
+    [ok] Wallet is 47d 21h old — not flagged
+
+  [128/366] $5,876.43 on "Will Mojtaba Khamenei be the next Supreme Leader of Iran?"
+  [new_wallet_large_bet] $5,876.43 on "Will Mojtaba Khamenei be the next Supreme Leader of Iran?"
+    [lookup] Fetching profile for 0xedc283...75ad9f ...
+    [lookup] 0xedc283...75ad9f — "Magnificent-Dark", age: 617d 5h
+    [ok] Wallet is 617d 5h old — not flagged
+
+  [129/366] $4,948.10 on "Will Chelsea FC win on 2026-03-07?"
+  [new_wallet_large_bet] $4,948.10 on "Will Chelsea FC win on 2026-03-07?"
+    [cache hit] 0x96020c...bc4d02
+    [ok] Wallet is 488d 21h old — not flagged
+
+  [130/366] $4,767.48 on "Newcastle United FC vs. Manchester City FC: O/U 2.5"
+  [new_wallet_large_bet] $4,767.48 on "Newcastle United FC vs. Manchester City FC: O/U 2.5"
+    [cache hit] 0x204f72...a95e14
+    [ok] Wallet is 221d 5h old — not flagged
+
+  [131/366] $10,620.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $10,620.00 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0xfce17e...8e9ce7
+    [ok] Wallet is 75d 16h old — not flagged
+
+  [132/366] $4,407.33 on "Bitcoin Up or Down - March 7, 2:30PM-2:45PM ET"
+  [new_wallet_large_bet] $4,407.33 on "Bitcoin Up or Down - March 7, 2:30PM-2:45PM ET"
+    [lookup] Fetching profile for 0x0006af...5d8c63 ...
+    [lookup] 0x0006af...5d8c63 — "Empty-Belief", age: 2d 9h
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 2 times, $10,487 total
+
+  [133/366] $3,975.47 on "Brasilia: Adolfo Vallejo vs Eduardo Ribeiro"
+  [new_wallet_large_bet] $3,975.47 on "Brasilia: Adolfo Vallejo vs Eduardo Ribeiro"
+    [lookup] Fetching profile for 0x3b5c62...c7126e ...
+    [lookup] 0x3b5c62...c7126e — "Majestic-Hyena", age: 96d 12h
+    [ok] Wallet is 96d 12h old — not flagged
+
+  [134/366] $4,989.04 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $4,989.04 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0x94a5e7...229838
+    [ok] Wallet is 125d 4h old — not flagged
+
+  [135/366] $4,550.00 on "Bitcoin Up or Down - March 7, 12:00PM-4:00PM ET"
+  [new_wallet_large_bet] $4,550.00 on "Bitcoin Up or Down - March 7, 12:00PM-4:00PM ET"
+    [lookup] Fetching profile for 0xcc500c...644c82 ...
+    [lookup] 0xcc500c...644c82 — "Apprehensive-Breakdown", age: 715d 4h
+    [ok] Wallet is 715d 4h old — not flagged
+
+  [136/366] $5,947.93 on "Bitcoin Up or Down - March 7, 2:40PM-2:45PM ET"
+  [new_wallet_large_bet] $5,947.93 on "Bitcoin Up or Down - March 7, 2:40PM-2:45PM ET"
+    [cache hit] 0xd84c2b...e407b9
+    [ok] Wallet is 46d 17h old — not flagged
+
+  [137/366] $13,491.46 on "Will Wrexham AFC vs. Chelsea FC end in a draw?"
+  [new_wallet_large_bet] $13,491.46 on "Will Wrexham AFC vs. Chelsea FC end in a draw?"
+    [lookup] Fetching profile for 0x3e0a88...67b9cc ...
+    [lookup] 0x3e0a88...67b9cc — "Usable-Linseed", age: 55d 3h
+    [ok] Wallet is 55d 3h old — not flagged
+
+  [138/366] $17,932.08 on "Will the Fed increase interest rates by 25+ bps after the March 2026 meeting?"
+  [new_wallet_large_bet] $17,932.08 on "Will the Fed increase interest rates by 25+ bps after the March 2026 meeting?"
+    [lookup] Fetching profile for 0x5938ce...2cd2a6 ...
+    [lookup] 0x5938ce...2cd2a6 — "Black-And-White-Copyright", age: 120d 17h
+    [ok] Wallet is 120d 17h old — not flagged
+
+  [139/366] $82,075.00 on "Newcastle United FC vs. Manchester City FC: Both Teams to Score"
+  [new_wallet_large_bet] $82,075.00 on "Newcastle United FC vs. Manchester City FC: Both Teams to Score"
+    [lookup] Fetching profile for 0x3cc654...c19df6 ...
+    [lookup] 0x3cc654...c19df6 — "Innocent-Panpipe", age: 38d 7h
+    [ok] Wallet is 38d 7h old — not flagged
+
+  [140/366] $3,922.11 on "Bitcoin Up or Down - March 7, 2:45PM-3:00PM ET"
+  [new_wallet_large_bet] $3,922.11 on "Bitcoin Up or Down - March 7, 2:45PM-3:00PM ET"
+    [cache hit] 0xd84c2b...e407b9
+    [ok] Wallet is 46d 17h old — not flagged
+
+  [141/366] $16,990.00 on "Toulouse FC vs. Olympique de Marseille: O/U 2.5"
+  [new_wallet_large_bet] $16,990.00 on "Toulouse FC vs. Olympique de Marseille: O/U 2.5"
+    [cache hit] 0x8a6c68...c30b3f
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 11 times, $408,962 total
+
+  [142/366] $3,193.02 on "Will Juventus FC win on 2026-03-07?"
+  [new_wallet_large_bet] $3,193.02 on "Will Juventus FC win on 2026-03-07?"
+    [cache hit] 0x204f72...a95e14
+    [ok] Wallet is 221d 5h old — not flagged
+
+  [143/366] $23,790.38 on "BNP Paribas Open: Aleksandar Kovacevic vs Corentin Moutet"
+  [new_wallet_large_bet] $23,790.38 on "BNP Paribas Open: Aleksandar Kovacevic vs Corentin Moutet"
+    [cache hit] 0x1dc810...7cda92
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 3 times, $53,088 total
+
+  [144/366] $25,000.00 on "Will Olympique de Marseille win on 2026-03-07?"
+  [new_wallet_large_bet] $25,000.00 on "Will Olympique de Marseille win on 2026-03-07?"
+    [cache hit] 0x8a6c68...c30b3f
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 12 times, $433,962 total
+
+  [145/366] $25,485.40 on "Magic vs. Timberwolves"
+  [new_wallet_large_bet] $25,485.40 on "Magic vs. Timberwolves"
+    [lookup] Fetching profile for 0x6ac5bb...ab4b6e ...
+    [lookup] 0x6ac5bb...ab4b6e — "Rosy-Trinket", age: 104d 14h
+    [ok] Wallet is 104d 14h old — not flagged
+
+  [146/366] $7,020.90 on "Will Amazon be the largest company in the world by market cap on March 31?"
+  [new_wallet_large_bet] $7,020.90 on "Will Amazon be the largest company in the world by market cap on March 31?"
+    [cache hit] 0x2bffe6...791fbb
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 7 times, $49,210 total
+
+  [147/366] $17,950.07 on "Will the Fed increase interest rates by 25+ bps after the March 2026 meeting?"
+  [new_wallet_large_bet] $17,950.07 on "Will the Fed increase interest rates by 25+ bps after the March 2026 meeting?"
+    [cache hit] 0x5938ce...2cd2a6
+    [ok] Wallet is 120d 17h old — not flagged
+
+  [148/366] $4,100.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $4,100.00 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0x6d3c5b...b3d294
+    [ok] Wallet is 122d 10h old — not flagged
+
+  [149/366] $4,138.81 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $4,138.81 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0xe88b59...ed5250 ...
+    [lookup] 0xe88b59...ed5250 — "Threadbare-Stencil", age: 476d 10h
+    [ok] Wallet is 476d 10h old — not flagged
+
+  [150/366] $3,506.83 on "Will the Los Angeles Clippers win more than 49.5 regular season games in 2025–26?"
+  [new_wallet_large_bet] $3,506.83 on "Will the Los Angeles Clippers win more than 49.5 regular season games in 2025–26?"
+    [lookup] Fetching profile for 0x0b9cae...f87e44 ...
+    [lookup] 0x0b9cae...f87e44 — "Muddy-Nightlight", age: 395d 17h
+    [ok] Wallet is 395d 17h old — not flagged
+
+  [151/366] $34,964.90 on "Will Club Atlético de Madrid win on 2026-03-07?"
+  [new_wallet_large_bet] $34,964.90 on "Will Club Atlético de Madrid win on 2026-03-07?"
+    [lookup] Fetching profile for 0xab828a...1babe5 ...
+    [lookup] 0xab828a...1babe5 — "Pertinent-Concert", age: 652d 21h
+    [ok] Wallet is 652d 21h old — not flagged
+
+  [152/366] $11,545.19 on "Newcastle United FC vs. Manchester City FC: Both Teams to Score"
+  [new_wallet_large_bet] $11,545.19 on "Newcastle United FC vs. Manchester City FC: Both Teams to Score"
+    [cache hit] 0x3cc654...c19df6
+    [ok] Wallet is 38d 7h old — not flagged
+
+  [153/366] $14,226.73 on "Will Bitcoin dip to $65,000 in March?"
+  [new_wallet_large_bet] $14,226.73 on "Will Bitcoin dip to $65,000 in March?"
+    [lookup] Fetching profile for 0x067f7f...8be041 ...
+    [lookup] 0x067f7f...8be041 — "Fragrant-Cockroach", age: 518d 15h
+    [ok] Wallet is 518d 15h old — not flagged
+
+  [154/366] $4,935.26 on "Will RC Strasbourg Alsace win on 2026-03-07?"
+  [new_wallet_large_bet] $4,935.26 on "Will RC Strasbourg Alsace win on 2026-03-07?"
+    [cache hit] 0xb90494...44c255
+    [ok] Wallet is 44d 9h old — not flagged
+
+  [155/366] $5,900.00 on "Will Wrexham AFC vs. Chelsea FC end in a draw?"
+  [new_wallet_large_bet] $5,900.00 on "Will Wrexham AFC vs. Chelsea FC end in a draw?"
+    [lookup] Fetching profile for 0xa8226d...d545c4 ...
+    [lookup] 0xa8226d...d545c4 — "Prime-Expectancy", age: 493d 21h
+    [ok] Wallet is 493d 21h old — not flagged
+
+  [156/366] $6,811.90 on "Will RC Strasbourg Alsace win on 2026-03-07?"
+  [new_wallet_large_bet] $6,811.90 on "Will RC Strasbourg Alsace win on 2026-03-07?"
+    [lookup] Fetching profile for 0xd6a3f0...139489 ...
+    [lookup] 0xd6a3f0...139489 — "Weighty-Rifle", age: 115d 6h
+    [ok] Wallet is 115d 6h old — not flagged
+
+  [157/366] $4,041.11 on "Will RC Strasbourg Alsace win on 2026-03-07?"
+  [new_wallet_large_bet] $4,041.11 on "Will RC Strasbourg Alsace win on 2026-03-07?"
+    [cache hit] 0x204f72...a95e14
+    [ok] Wallet is 221d 5h old — not flagged
+
+  [158/366] $3,015.18 on "Spread: Thunder (-15.5)"
+  [new_wallet_large_bet] $3,015.18 on "Spread: Thunder (-15.5)"
+    [lookup] Fetching profile for 0x78ad03...f745cc ...
+    [lookup] 0x78ad03...f745cc — "Alive-Stuff", age: 139d 9h
+    [ok] Wallet is 139d 9h old — not flagged
+
+  [159/366] $4,175.78 on "Bitcoin Up or Down - March 7, 2:35PM-2:40PM ET"
+  [new_wallet_large_bet] $4,175.78 on "Bitcoin Up or Down - March 7, 2:35PM-2:40PM ET"
+    [lookup] Fetching profile for 0xa16212...44bab2 ...
+    [lookup] 0xa16212...44bab2 — "Only-Teenager", age: 42d 0h
+    [ok] Wallet is 42d 0h old — not flagged
+
+  [160/366] $4,102.95 on "Athletic Club vs. FC Barcelona: O/U 3.5"
+  [new_wallet_large_bet] $4,102.95 on "Athletic Club vs. FC Barcelona: O/U 3.5"
+    [lookup] Fetching profile for 0x887385...2809fc ...
+    [lookup] 0x887385...2809fc — "Acclaimed-Marsh", age: 164d 22h
+    [ok] Wallet is 164d 22h old — not flagged
+
+  [161/366] $67,320.15 on "Will RC Strasbourg Alsace win on 2026-03-07?"
+  [new_wallet_large_bet] $67,320.15 on "Will RC Strasbourg Alsace win on 2026-03-07?"
+    [cache hit] 0x3cc654...c19df6
+    [ok] Wallet is 38d 7h old — not flagged
+
+  [162/366] $6,494.10 on "Magic vs. Timberwolves: O/U 224.5"
+  [new_wallet_large_bet] $6,494.10 on "Magic vs. Timberwolves: O/U 224.5"
+    [lookup] Fetching profile for 0x8f037a...ac64d6 ...
+    [lookup] 0x8f037a...ac64d6 — "Motherly-Insect", age: 157d 23h
+    [ok] Wallet is 157d 23h old — not flagged
+
+  [163/366] $5,641.59 on "Dota 2: Tundra Esports vs Natus Vincere - Game 1 Winner"
+  [new_wallet_large_bet] $5,641.59 on "Dota 2: Tundra Esports vs Natus Vincere - Game 1 Winner"
+    [lookup] Fetching profile for 0xdb63fd...2aa71d ...
+    [lookup] 0xdb63fd...2aa71d — "Reckless-Love", age: 794d 7h
+    [ok] Wallet is 794d 7h old — not flagged
+
+  [164/366] $3,647.40 on "Magic vs. Timberwolves: O/U 225.5"
+  [new_wallet_large_bet] $3,647.40 on "Magic vs. Timberwolves: O/U 225.5"
+    [cache hit] 0x8f037a...ac64d6
+    [ok] Wallet is 157d 23h old — not flagged
+
+  [165/366] $4,884.26 on "Connecticut Huskies vs. Marquette Golden Eagles"
+  [new_wallet_large_bet] $4,884.26 on "Connecticut Huskies vs. Marquette Golden Eagles"
+    [cache hit] 0x636876...696dc8
+    [ok] Wallet is 77d 18h old — not flagged
+
+  [166/366] $6,493.50 on "Will 1. FC Köln win on 2026-03-07?"
+  [new_wallet_large_bet] $6,493.50 on "Will 1. FC Köln win on 2026-03-07?"
+    [lookup] Fetching profile for 0x3505ef...51f7a3 ...
+    [lookup] 0x3505ef...51f7a3 — "Aged-Condition", age: 661d 8h
+    [ok] Wallet is 661d 8h old — not flagged
+
+  [167/366] $4,716.02 on "BNP Paribas Open: Storm Hunter vs Belinda Bencic"
+  [new_wallet_large_bet] $4,716.02 on "BNP Paribas Open: Storm Hunter vs Belinda Bencic"
+    [cache hit] 0xde9f7f...ccd43c
+    [ok] Wallet is 473d 22h old — not flagged
+
+  [168/366] $3,435.15 on "Arkansas Razorbacks vs. Missouri Tigers"
+  [new_wallet_large_bet] $3,435.15 on "Arkansas Razorbacks vs. Missouri Tigers"
+    [cache hit] 0x636876...696dc8
+    [ok] Wallet is 77d 18h old — not flagged
+
+  [169/366] $4,659.84 on "Will RC Strasbourg Alsace win on 2026-03-07?"
+  [new_wallet_large_bet] $4,659.84 on "Will RC Strasbourg Alsace win on 2026-03-07?"
+    [cache hit] 0x204f72...a95e14
+    [ok] Wallet is 221d 5h old — not flagged
+
+  [170/366] $7,027.93 on "Will Amazon be the largest company in the world by market cap on March 31?"
+  [new_wallet_large_bet] $7,027.93 on "Will Amazon be the largest company in the world by market cap on March 31?"
+    [cache hit] 0x2bffe6...791fbb
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 8 times, $56,238 total
+
+  [171/366] $11,941.52 on "UFC 326: Gregory Rodrigues vs. Brunno Ferreira (Middleweight, Main Card)"
+  [new_wallet_large_bet] $11,941.52 on "UFC 326: Gregory Rodrigues vs. Brunno Ferreira (Middleweight, Main Card)"
+    [lookup] Fetching profile for 0x9b379a...af3b3e ...
+    [lookup] 0x9b379a...af3b3e — "Conventional-Command", age: 47d 1h
+    [ok] Wallet is 47d 1h old — not flagged
+
+  [172/366] $42,396.75 on "US forces enter Iran by March 7?"
+  [new_wallet_large_bet] $42,396.75 on "US forces enter Iran by March 7?"
+    [lookup] Fetching profile for 0x06c0d0...20bc23 ...
+    [lookup] 0x06c0d0...20bc23 — "Happy-Go-Lucky-Glockenspiel", age: 338d 12h
+    [ok] Wallet is 338d 12h old — not flagged
+
+  [173/366] $5,994.00 on "Will Club Atlético de Madrid win on 2026-03-07?"
+  [new_wallet_large_bet] $5,994.00 on "Will Club Atlético de Madrid win on 2026-03-07?"
+    [lookup] Fetching profile for 0x2a09f0...d6db1c ...
+    [lookup] 0x2a09f0...d6db1c — "Some-Developing", age: 103d 8h
+    [ok] Wallet is 103d 8h old — not flagged
+
+  [174/366] $18,313.33 on "Will the Fed decrease interest rates by 50+ bps after the March 2026 meeting?"
+  [new_wallet_large_bet] $18,313.33 on "Will the Fed decrease interest rates by 50+ bps after the March 2026 meeting?"
+    [lookup] Fetching profile for 0x63d489...a67061 ...
+    [lookup] 0x63d489...a67061 — "Majestic-Disruption", age: 120d 17h
+    [ok] Wallet is 120d 17h old — not flagged
+
+  [175/366] $3,161.49 on "Dota 2: Tundra Esports vs Natus Vincere - Game 2 Winner"
+  [new_wallet_large_bet] $3,161.49 on "Dota 2: Tundra Esports vs Natus Vincere - Game 2 Winner"
+    [lookup] Fetching profile for 0x3c29ac...6f21aa ...
+    [lookup] 0x3c29ac...6f21aa — "Blank-Employee", age: 78d 12h
+    [ok] Wallet is 78d 12h old — not flagged
+
+  [176/366] $11,683.11 on "Will Club Atlético de Madrid win on 2026-03-07?"
+  [new_wallet_large_bet] $11,683.11 on "Will Club Atlético de Madrid win on 2026-03-07?"
+    [lookup] Fetching profile for 0xc869dc...fe8a6e ...
+    [lookup] 0xc869dc...fe8a6e — "Gleaming-Champagne", age: 186d 18h
+    [ok] Wallet is 186d 18h old — not flagged
+
+  [177/366] $3,071.95 on "Will Germany strike Iran by March 31?"
+  [new_wallet_large_bet] $3,071.95 on "Will Germany strike Iran by March 31?"
+    [lookup] Fetching profile for 0x791976...9b72b2 ...
+    [lookup] 0x791976...9b72b2 — "Watery-Bribery", age: 123d 12h
+    [ok] Wallet is 123d 12h old — not flagged
+
+  [178/366] $18,331.68 on "Will the Fed decrease interest rates by 50+ bps after the March 2026 meeting?"
+  [new_wallet_large_bet] $18,331.68 on "Will the Fed decrease interest rates by 50+ bps after the March 2026 meeting?"
+    [cache hit] 0x63d489...a67061
+    [ok] Wallet is 120d 17h old — not flagged
+
+  [179/366] $5,739.17 on "Will Juventus FC win on 2026-03-07?"
+  [new_wallet_large_bet] $5,739.17 on "Will Juventus FC win on 2026-03-07?"
+    [cache hit] 0x204f72...a95e14
+    [ok] Wallet is 221d 5h old — not flagged
+
+  [180/366] $6,080.08 on "Bitcoin Up or Down - March 7, 2:30PM-2:35PM ET"
+  [new_wallet_large_bet] $6,080.08 on "Bitcoin Up or Down - March 7, 2:30PM-2:35PM ET"
+    [cache hit] 0x0006af...5d8c63
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 3 times, $16,567 total
+
+  [181/366] $6,073.70 on "Will Juventus FC win on 2026-03-07?"
+  [new_wallet_large_bet] $6,073.70 on "Will Juventus FC win on 2026-03-07?"
+    [cache hit] 0x204f72...a95e14
+    [ok] Wallet is 221d 5h old — not flagged
+
+  [182/366] $9,401.35 on "Bitcoin Up or Down - March 7, 2:30PM-2:35PM ET"
+  [new_wallet_large_bet] $9,401.35 on "Bitcoin Up or Down - March 7, 2:30PM-2:35PM ET"
+    [lookup] Fetching profile for 0xfdf5a9...3658b3 ...
+    [lookup] 0xfdf5a9...3658b3 — "Lawful-Venture", age: 9d 21h
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 4 times, $32,213 total
+
+  [183/366] $4,995.00 on "Will Club Atlético de Madrid win on 2026-03-07?"
+  [new_wallet_large_bet] $4,995.00 on "Will Club Atlético de Madrid win on 2026-03-07?"
+    [lookup] Fetching profile for 0x18c465...21f6dc ...
+    [lookup] 0x18c465...21f6dc — "Sinful-Gasp", age: 506d 22h
+    [ok] Wallet is 506d 22h old — not flagged
+
+  [184/366] $42,465.96 on "Will Club Atlético de Madrid win on 2026-03-07?"
+  [new_wallet_large_bet] $42,465.96 on "Will Club Atlético de Madrid win on 2026-03-07?"
+    [cache hit] 0x8a6c68...c30b3f
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 13 times, $476,428 total
+
+  [185/366] $12,487.50 on "Will Club Atlético de Madrid win on 2026-03-07?"
+  [new_wallet_large_bet] $12,487.50 on "Will Club Atlético de Madrid win on 2026-03-07?"
+    [cache hit] 0x86279a...ed5382
+    [ok] Wallet is 655d 4h old — not flagged
+
+  [186/366] $92,108.99 on "Will BV Borussia 09 Dortmund win on 2026-03-07?"
+  [new_wallet_large_bet] $92,108.99 on "Will BV Borussia 09 Dortmund win on 2026-03-07?"
+    [cache hit] 0x8a6c68...c30b3f
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 14 times, $568,537 total
+
+  [187/366] $5,650.51 on "BNP Paribas Open: Francisco Cerundolo vs Benjamin Bonzi"
+  [new_wallet_large_bet] $5,650.51 on "BNP Paribas Open: Francisco Cerundolo vs Benjamin Bonzi"
+    [cache hit] 0xde9f7f...ccd43c
+    [ok] Wallet is 473d 22h old — not flagged
+
+  [188/366] $17,361.72 on "Will the Fed increase interest rates by 25+ bps after the March 2026 meeting?"
+  [new_wallet_large_bet] $17,361.72 on "Will the Fed increase interest rates by 25+ bps after the March 2026 meeting?"
+    [lookup] Fetching profile for 0x177a19...af65eb ...
+    [lookup] 0x177a19...af65eb — "Unsteady-Axis", age: 120d 17h
+    [ok] Wallet is 120d 17h old — not flagged
+
+  [189/366] $3,478.03 on "Will MrBeast say "Subscribe" during his next YouTube video?"
+  [new_wallet_large_bet] $3,478.03 on "Will MrBeast say "Subscribe" during his next YouTube video?"
+    [cache hit] 0xb03b82...5b6ca1
+    [ok] Wallet is 241d 22h old — not flagged
+
+  [190/366] $5,637.91 on "Will Israel launch a major ground offensive in Lebanon by March 31?"
+  [new_wallet_large_bet] $5,637.91 on "Will Israel launch a major ground offensive in Lebanon by March 31?"
+    [lookup] Fetching profile for 0x4c2da4...20f8ae ...
+    [lookup] 0x4c2da4...20f8ae — "Sleepy-Equality", age: 866d 21h
+    [ok] Wallet is 866d 21h old — not flagged
+
+  [191/366] $7,901.00 on "Club Atlético de Madrid vs. Real Sociedad de Fútbol: O/U 3.5"
+  [new_wallet_large_bet] $7,901.00 on "Club Atlético de Madrid vs. Real Sociedad de Fútbol: O/U 3.5"
+    [lookup] Fetching profile for 0xfc25f1...5e1f7f ...
+    [lookup] 0xfc25f1...5e1f7f — "Decent-Armrest", age: 462d 16h
+    [ok] Wallet is 462d 16h old — not flagged
+
+  [192/366] $9,990.00 on "Will the price of Bitcoin be above $60,000 on March 8?"
+  [new_wallet_large_bet] $9,990.00 on "Will the price of Bitcoin be above $60,000 on March 8?"
+    [lookup] Fetching profile for 0x2ef288...047f72 ...
+    [lookup] 0x2ef288...047f72 — "anonymous", age: 1231d 0h
+    [ok] Wallet is 1231d 0h old — not flagged
+
+  [193/366] $12,551.24 on "Will the price of Ethereum be greater than $2,400 on March 8?"
+  [new_wallet_large_bet] $12,551.24 on "Will the price of Ethereum be greater than $2,400 on March 8?"
+    [lookup] Fetching profile for 0x8d0930...20143f ...
+    [lookup] 0x8d0930...20143f — "Lovely-Interconnection", age: 123d 13h
+    [ok] Wallet is 123d 13h old — not flagged
+
+  [194/366] $7,027.93 on "Will Amazon be the largest company in the world by market cap on March 31?"
+  [new_wallet_large_bet] $7,027.93 on "Will Amazon be the largest company in the world by market cap on March 31?"
+    [cache hit] 0x2bffe6...791fbb
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 9 times, $63,265 total
+
+  [195/366] $5,594.27 on "Will MrBeast's next video get between 40 and 45 million views on day 1?"
+  [new_wallet_large_bet] $5,594.27 on "Will MrBeast's next video get between 40 and 45 million views on day 1?"
+    [cache hit] 0x8245ea...57ebed
+    [ok] Wallet is 600d 17h old — not flagged
+
+  [196/366] $9,983.50 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $9,983.50 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0x54d00b...e18e20 ...
+    [lookup] 0x54d00b...e18e20 — "Ultimate-Waterfall", age: 75d 18h
+    [ok] Wallet is 75d 18h old — not flagged
+
+  [197/366] $4,731.68 on "Will Bitcoin reach $75,000 in March?"
+  [new_wallet_large_bet] $4,731.68 on "Will Bitcoin reach $75,000 in March?"
+    [lookup] Fetching profile for 0xf7a19a...909dce ...
+    [lookup] 0xf7a19a...909dce — "Speedy-Recorder", age: 171d 7h
+    [ok] Wallet is 171d 7h old — not flagged
+
+  [198/366] $17,379.14 on "Will the Fed increase interest rates by 25+ bps after the March 2026 meeting?"
+  [new_wallet_large_bet] $17,379.14 on "Will the Fed increase interest rates by 25+ bps after the March 2026 meeting?"
+    [cache hit] 0x177a19...af65eb
+    [ok] Wallet is 120d 17h old — not flagged
+
+  [199/366] $7,078.96 on "Club Atlético de Madrid vs. Real Sociedad de Fútbol: O/U 3.5"
+  [new_wallet_large_bet] $7,078.96 on "Club Atlético de Madrid vs. Real Sociedad de Fútbol: O/U 3.5"
+    [lookup] Fetching profile for 0x719713...1d14c8 ...
+    [lookup] 0x719713...1d14c8 — "Reliable-Exception", age: 190d 22h
+    [ok] Wallet is 190d 22h old — not flagged
+
+  [200/366] $3,696.30 on "Will SC Braga win on 2026-03-07?"
+  [new_wallet_large_bet] $3,696.30 on "Will SC Braga win on 2026-03-07?"
+    [lookup] Fetching profile for 0x59e841...73c5e8 ...
+    [lookup] 0x59e841...73c5e8 — "Fitting-Consequence", age: 172d 23h
+    [ok] Wallet is 172d 23h old — not flagged
+
+  [201/366] $3,509.84 on "Magic vs. Timberwolves"
+  [new_wallet_large_bet] $3,509.84 on "Magic vs. Timberwolves"
+    [lookup] Fetching profile for 0x079e15...ec8254 ...
+    [lookup] 0x079e15...ec8254 — "Mountainous-Tamale", age: 148d 22h
+    [ok] Wallet is 148d 22h old — not flagged
+
+  [202/366] $10,036.32 on "BNP Paribas Open: Alexander Shevchenko vs Casper Ruud"
+  [new_wallet_large_bet] $10,036.32 on "BNP Paribas Open: Alexander Shevchenko vs Casper Ruud"
+    [lookup] Fetching profile for 0x49007e...194a72 ...
+    [lookup] 0x49007e...194a72 — "International-Hackwork", age: 159d 18h
+    [ok] Wallet is 159d 18h old — not flagged
+
+  [203/366] $3,696.30 on "Wrexham AFC vs. Chelsea FC: O/U 1.5"
+  [new_wallet_large_bet] $3,696.30 on "Wrexham AFC vs. Chelsea FC: O/U 1.5"
+    [cache hit] 0x59e841...73c5e8
+    [ok] Wallet is 172d 23h old — not flagged
+
+  [204/366] $8,275.15 on "Will BV Borussia 09 Dortmund win on 2026-03-07?"
+  [new_wallet_large_bet] $8,275.15 on "Will BV Borussia 09 Dortmund win on 2026-03-07?"
+    [lookup] Fetching profile for 0x16c8b7...306632 ...
+    [lookup] 0x16c8b7...306632 — "Only-Law", age: 138d 11h
+    [ok] Wallet is 138d 11h old — not flagged
+
+  [205/366] $7,929.11 on "Will SC Braga win on 2026-03-07?"
+  [new_wallet_large_bet] $7,929.11 on "Will SC Braga win on 2026-03-07?"
+    [cache hit] 0x59e841...73c5e8
+    [ok] Wallet is 172d 23h old — not flagged
+
+  [206/366] $3,143.88 on "Will China invade Taiwan by end of 2026?"
+  [new_wallet_large_bet] $3,143.88 on "Will China invade Taiwan by end of 2026?"
+    [lookup] Fetching profile for 0x3625da...3abdee ...
+    [lookup] 0x3625da...3abdee — "Creepy-Chateau", age: 21d 0h
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 2 times, $6,288 total
+
+  [207/366] $5,078.62 on "LoL: Arctic Pandas vs Verdant (BO5) - NLC Playoffs"
+  [new_wallet_large_bet] $5,078.62 on "LoL: Arctic Pandas vs Verdant (BO5) - NLC Playoffs"
+    [lookup] Fetching profile for 0x58f8f1...10dc70 ...
+    [lookup] 0x58f8f1...10dc70 — "Waterlogged-Flintlock", age: 241d 4h
+    [ok] Wallet is 241d 4h old — not flagged
+
+  [208/366] $9,275.00 on "Will Juventus FC win on 2026-03-07?"
+  [new_wallet_large_bet] $9,275.00 on "Will Juventus FC win on 2026-03-07?"
+    [cache hit] 0x8cdc59...b2b83f
+    [ok] Wallet is 267d 20h old — not flagged
+
+  [209/366] $4,377.01 on "Magic vs. Timberwolves: O/U 225.5"
+  [new_wallet_large_bet] $4,377.01 on "Magic vs. Timberwolves: O/U 225.5"
+    [cache hit] 0x8f037a...ac64d6
+    [ok] Wallet is 157d 23h old — not flagged
+
+  [210/366] $6,681.92 on "Will Mojtaba Khamenei be the next Supreme Leader of Iran?"
+  [new_wallet_large_bet] $6,681.92 on "Will Mojtaba Khamenei be the next Supreme Leader of Iran?"
+    [cache hit] 0xedc283...75ad9f
+    [ok] Wallet is 617d 5h old — not flagged
+
+  [211/366] $5,486.19 on "Will Club Atlético de Madrid win on 2026-03-07?"
+  [new_wallet_large_bet] $5,486.19 on "Will Club Atlético de Madrid win on 2026-03-07?"
+    [cache hit] 0x4173f3...53d3ed
+    [ok] Wallet is 33d 23h old — not flagged
+
+  [212/366] $5,936.46 on "Bitcoin Up or Down - March 7, 2:25PM-2:30PM ET"
+  [new_wallet_large_bet] $5,936.46 on "Bitcoin Up or Down - March 7, 2:25PM-2:30PM ET"
+    [cache hit] 0xfdf5a9...3658b3
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 5 times, $38,149 total
+
+  [213/366] $7,892.10 on "Wrexham AFC vs. Chelsea FC: O/U 2.5"
+  [new_wallet_large_bet] $7,892.10 on "Wrexham AFC vs. Chelsea FC: O/U 2.5"
+    [cache hit] 0x59e841...73c5e8
+    [ok] Wallet is 172d 23h old — not flagged
+
+  [214/366] $8,405.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $8,405.00 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0xc2c89e...bd5471
+    [ok] Wallet is 235d 9h old — not flagged
+
+  [215/366] $4,970.01 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $4,970.01 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0xb0f69d...b2a05f ...
+    [lookup] 0xb0f69d...b2a05f — "Uncomfortable-Pomelo", age: 3d 1h
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 2 times, $9,940 total
+
+  [216/366] $3,198.25 on "Will the price of Bitcoin be above $66,000 on March 9?"
+  [new_wallet_large_bet] $3,198.25 on "Will the price of Bitcoin be above $66,000 on March 9?"
+    [lookup] Fetching profile for 0xe9c631...5995c9 ...
+    [lookup] 0xe9c631...5995c9 — "Disgusting-Answer", age: 200d 5h
+    [ok] Wallet is 200d 5h old — not flagged
+
+  [217/366] $18,186.24 on "Will the Fed increase interest rates by 25+ bps after the March 2026 meeting?"
+  [new_wallet_large_bet] $18,186.24 on "Will the Fed increase interest rates by 25+ bps after the March 2026 meeting?"
+    [lookup] Fetching profile for 0x735a72...1408d9 ...
+    [lookup] 0x735a72...1408d9 — "Self-Assured-Stair", age: 120d 17h
+    [ok] Wallet is 120d 17h old — not flagged
+
+  [218/366] $7,919.83 on "UFC 326: Rodolfo Bellato vs. Luke Fernandez (Light Heavyweight, Early Prelims)"
+  [new_wallet_large_bet] $7,919.83 on "UFC 326: Rodolfo Bellato vs. Luke Fernandez (Light Heavyweight, Early Prelims)"
+    [cache hit] 0x8f037a...ac64d6
+    [ok] Wallet is 157d 23h old — not flagged
+
+  [219/366] $3,161.49 on "Dota 2: Tundra Esports vs Natus Vincere - Game 1 Winner"
+  [new_wallet_large_bet] $3,161.49 on "Dota 2: Tundra Esports vs Natus Vincere - Game 1 Winner"
+    [cache hit] 0x3c29ac...6f21aa
+    [ok] Wallet is 78d 12h old — not flagged
+
+  [220/366] $6,255.77 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $6,255.77 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0x19e27e...8ece3c ...
+    [lookup] 0x19e27e...8ece3c — "Shrill-Picturesque", age: 53d 5h
+    [ok] Wallet is 53d 5h old — not flagged
+
+  [221/366] $5,346.00 on "LoL: Berlin International Gaming vs G2 NORD - Game 4 Winner"
+  [new_wallet_large_bet] $5,346.00 on "LoL: Berlin International Gaming vs G2 NORD - Game 4 Winner"
+    [lookup] Fetching profile for 0x141fd1...de7711 ...
+    [lookup] 0x141fd1...de7711 — "Clean-Surprise", age: 9d 8h
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 2 times, $10,692 total
+
+  [222/366] $18,204.48 on "Will the Fed increase interest rates by 25+ bps after the March 2026 meeting?"
+  [new_wallet_large_bet] $18,204.48 on "Will the Fed increase interest rates by 25+ bps after the March 2026 meeting?"
+    [cache hit] 0x735a72...1408d9
+    [ok] Wallet is 120d 17h old — not flagged
+
+  [223/366] $4,095.68 on "Magic vs. Timberwolves: O/U 224.5"
+  [new_wallet_large_bet] $4,095.68 on "Magic vs. Timberwolves: O/U 224.5"
+    [cache hit] 0x6ade59...73f5b0
+    [ok] Wallet is 126d 23h old — not flagged
+
+  [224/366] $40,832.89 on "1. FC Köln vs. BV Borussia 09 Dortmund: O/U 2.5"
+  [new_wallet_large_bet] $40,832.89 on "1. FC Köln vs. BV Borussia 09 Dortmund: O/U 2.5"
+    [cache hit] 0x8a6c68...c30b3f
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 15 times, $609,370 total
+
+  [225/366] $3,696.30 on "Counter-Strike: MOUZ vs Astralis (BO3) - ESL Pro League Stage 2"
+  [new_wallet_large_bet] $3,696.30 on "Counter-Strike: MOUZ vs Astralis (BO3) - ESL Pro League Stage 2"
+    [lookup] Fetching profile for 0x8e8ccd...da65dd ...
+    [lookup] 0x8e8ccd...da65dd — "Unfolded-Replication", age: 8d 12h
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 3 times, $10,504 total
+
+  [226/366] $6,169.20 on "Will Iran close the Strait of Hormuz by March 31?"
+  [new_wallet_large_bet] $6,169.20 on "Will Iran close the Strait of Hormuz by March 31?"
+    [lookup] Fetching profile for 0x6ea6e1...a39261 ...
+    [lookup] 0x6ea6e1...a39261 — "anonymous", age: 853d 12h
+    [ok] Wallet is 853d 12h old — not flagged
+
+  [227/366] $3,248.98 on "Will Iran strike Israel on March 7?"
+  [new_wallet_large_bet] $3,248.98 on "Will Iran strike Israel on March 7?"
+    [lookup] Fetching profile for 0x92a629...118b84 ...
+    [lookup] 0x92a629...118b84 — "Profitable-Recorder", age: 49d 4h
+    [ok] Wallet is 49d 4h old — not flagged
+
+  [228/366] $5,000.00 on "Russia x Ukraine ceasefire by June 30, 2026?"
+  [new_wallet_large_bet] $5,000.00 on "Russia x Ukraine ceasefire by June 30, 2026?"
+    [lookup] Fetching profile for 0x88c491...f1129a ...
+    [lookup] 0x88c491...f1129a — "Sardonic-Lentil", age: 33d 22h
+    [ok] Wallet is 33d 22h old — not flagged
+
+  [229/366] $4,187.24 on "Nets vs. Pistons"
+  [new_wallet_large_bet] $4,187.24 on "Nets vs. Pistons"
+    [lookup] Fetching profile for 0xafbaca...dfe61b ...
+    [lookup] 0xafbaca...dfe61b — "Elated-Bee", age: 400d 19h
+    [ok] Wallet is 400d 19h old — not flagged
+
+  [230/366] $40,000.00 on "Will Juventus FC win on 2026-03-07?"
+  [new_wallet_large_bet] $40,000.00 on "Will Juventus FC win on 2026-03-07?"
+    [lookup] Fetching profile for 0x87a146...27b6ba ...
+    [lookup] 0x87a146...27b6ba — "Unpleasant-Supermarket", age: 32d 5h
+    [ok] Wallet is 32d 5h old — not flagged
+
+  [231/366] $4,000.00 on "Rangers vs. Devils"
+  [new_wallet_large_bet] $4,000.00 on "Rangers vs. Devils"
+    [cache hit] 0x842ac9...407422
+    [ok] Wallet is 37d 6h old — not flagged
+
+  [232/366] $4,389.46 on "Connecticut Huskies vs. Marquette Golden Eagles"
+  [new_wallet_large_bet] $4,389.46 on "Connecticut Huskies vs. Marquette Golden Eagles"
+    [cache hit] 0x636876...696dc8
+    [ok] Wallet is 77d 18h old — not flagged
+
+  [233/366] $5,109.78 on "Will Al Nassr Saudi Club win on 2026-03-07?"
+  [new_wallet_large_bet] $5,109.78 on "Will Al Nassr Saudi Club win on 2026-03-07?"
+    [cache hit] 0x204f72...a95e14
+    [ok] Wallet is 221d 5h old — not flagged
+
+  [234/366] $12,000.00 on "UFC 326: Gregory Rodrigues vs. Brunno Ferreira (Middleweight, Main Card)"
+  [new_wallet_large_bet] $12,000.00 on "UFC 326: Gregory Rodrigues vs. Brunno Ferreira (Middleweight, Main Card)"
+    [lookup] Fetching profile for 0x14333d...fd56a0 ...
+    [lookup] 0x14333d...fd56a0 — "Ringed-Dynamo", age: 115d 6h
+    [ok] Wallet is 115d 6h old — not flagged
+
+  [235/366] $25,706.40 on "Warriors vs. Thunder"
+  [new_wallet_large_bet] $25,706.40 on "Warriors vs. Thunder"
+    [cache hit] 0xead152...30c76a
+    [ok] Wallet is 424d 23h old — not flagged
+
+  [236/366] $7,034.97 on "Will Amazon be the largest company in the world by market cap on March 31?"
+  [new_wallet_large_bet] $7,034.97 on "Will Amazon be the largest company in the world by market cap on March 31?"
+    [cache hit] 0x2bffe6...791fbb
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 10 times, $70,300 total
+
+  [237/366] $3,460.90 on "Nets vs. Pistons: O/U 215.5"
+  [new_wallet_large_bet] $3,460.90 on "Nets vs. Pistons: O/U 215.5"
+    [lookup] Fetching profile for 0xefd58f...f1f2ea ...
+    [lookup] 0xefd58f...f1f2ea — "Juvenile-App", age: 37d 1h
+    [ok] Wallet is 37d 1h old — not flagged
+
+  [238/366] $4,770.03 on "Will Mojtaba Khamenei be the next Supreme Leader of Iran?"
+  [new_wallet_large_bet] $4,770.03 on "Will Mojtaba Khamenei be the next Supreme Leader of Iran?"
+    [lookup] Fetching profile for 0xe83816...ec92fb ...
+    [lookup] 0xe83816...ec92fb — "Exemplary-Devil", age: 51d 8h
+    [ok] Wallet is 51d 8h old — not flagged
+
+  [239/366] $4,900.00 on "Magic vs. Timberwolves: O/U 224.5"
+  [new_wallet_large_bet] $4,900.00 on "Magic vs. Timberwolves: O/U 224.5"
+    [lookup] Fetching profile for 0x90a141...3673d6 ...
+    [lookup] 0x90a141...3673d6 — "Infamous-Entrepreneur", age: 12d 12h
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 4 times, $18,056 total
+
+  [240/366] $10,449.44 on "Will Club Atlético de Madrid win on 2026-03-07?"
+  [new_wallet_large_bet] $10,449.44 on "Will Club Atlético de Madrid win on 2026-03-07?"
+    [cache hit] 0xc869dc...fe8a6e
+    [ok] Wallet is 186d 18h old — not flagged
+
+  [241/366] $3,881.91 on "Will Japan win the 2026 World Baseball Classic?"
+  [new_wallet_large_bet] $3,881.91 on "Will Japan win the 2026 World Baseball Classic?"
+    [lookup] Fetching profile for 0x2809a6...6610dc ...
+    [lookup] 0x2809a6...6610dc — "Orange-Disarmament", age: 132d 3h
+    [ok] Wallet is 132d 3h old — not flagged
+
+  [242/366] $5,087.71 on "Will Athletic Club vs. FC Barcelona end in a draw?"
+  [new_wallet_large_bet] $5,087.71 on "Will Athletic Club vs. FC Barcelona end in a draw?"
+    [lookup] Fetching profile for 0x4133bc...a65e70 ...
+    [lookup] 0x4133bc...a65e70 — "Bogus-Fix", age: 560d 7h
+    [ok] Wallet is 560d 7h old — not flagged
+
+  [243/366] $19,999.72 on "Nets vs. Pistons: O/U 214.5"
+  [new_wallet_large_bet] $19,999.72 on "Nets vs. Pistons: O/U 214.5"
+    [lookup] Fetching profile for 0x8e433d...b4a3cd ...
+    [lookup] 0x8e433d...b4a3cd — "Confused-Electronics", age: 16d 21h
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 8 times, $136,256 total
+
+  [244/366] $9,254.00 on "Will Juventus FC win on 2026-03-07?"
+  [new_wallet_large_bet] $9,254.00 on "Will Juventus FC win on 2026-03-07?"
+    [lookup] Fetching profile for 0xc2fb28...c6b9f0 ...
+    [lookup] 0xc2fb28...c6b9f0 — "Queasy-Cocoa", age: 68d 8h
+    [ok] Wallet is 68d 8h old — not flagged
+
+  [245/366] $24,999.69 on "Nets vs. Pistons: O/U 214.5"
+  [new_wallet_large_bet] $24,999.69 on "Nets vs. Pistons: O/U 214.5"
+    [cache hit] 0x8e433d...b4a3cd
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 9 times, $161,255 total
+
+  [246/366] $5,580.00 on "BNP Paribas Open: Alexander Shevchenko vs Casper Ruud"
+  [new_wallet_large_bet] $5,580.00 on "BNP Paribas Open: Alexander Shevchenko vs Casper Ruud"
+    [cache hit] 0x49007e...194a72
+    [ok] Wallet is 159d 18h old — not flagged
+
+  [247/366] $3,606.09 on "Spread: Hawks (-6.5)"
+  [new_wallet_large_bet] $3,606.09 on "Spread: Hawks (-6.5)"
+    [lookup] Fetching profile for 0x84dbb7...52aeeb ...
+    [lookup] 0x84dbb7...52aeeb — "Grim-Icon", age: 542d 3h
+    [ok] Wallet is 542d 3h old — not flagged
+
+  [248/366] $18,531.26 on "Will the Fed decrease interest rates by 50+ bps after the March 2026 meeting?"
+  [new_wallet_large_bet] $18,531.26 on "Will the Fed decrease interest rates by 50+ bps after the March 2026 meeting?"
+    [lookup] Fetching profile for 0x0b807c...a73d32 ...
+    [lookup] 0x0b807c...a73d32 — "Vigorous-Praise", age: 120d 17h
+    [ok] Wallet is 120d 17h old — not flagged
+
+  [249/366] $14,874.26 on "Club Atlético de Madrid vs. Real Sociedad de Fútbol: O/U 4.5"
+  [new_wallet_large_bet] $14,874.26 on "Club Atlético de Madrid vs. Real Sociedad de Fútbol: O/U 4.5"
+    [lookup] Fetching profile for 0xb2a3bf...58e321 ...
+    [lookup] 0xb2a3bf...58e321 — "Self-Reliant-Playwright", age: 163d 21h
+    [ok] Wallet is 163d 21h old — not flagged
+
+  [250/366] $5,000.00 on "Will Atalanta win the 2025–26 Champions League?"
+  [new_wallet_large_bet] $5,000.00 on "Will Atalanta win the 2025–26 Champions League?"
+    [lookup] Fetching profile for 0x440a14...16035a ...
+    [lookup] 0x440a14...16035a — "Apprehensive-Boat", age: 53d 0h
+    [ok] Wallet is 53d 0h old — not flagged
+
+  [251/366] $3,826.90 on "Nets vs. Pistons: O/U 215.5"
+  [new_wallet_large_bet] $3,826.90 on "Nets vs. Pistons: O/U 215.5"
+    [cache hit] 0xafbaca...dfe61b
+    [ok] Wallet is 400d 19h old — not flagged
+
+  [252/366] $3,045.09 on "Counter-Strike: MOUZ vs Astralis (BO3) - ESL Pro League Stage 2"
+  [new_wallet_large_bet] $3,045.09 on "Counter-Strike: MOUZ vs Astralis (BO3) - ESL Pro League Stage 2"
+    [cache hit] 0x3a979c...a566f5
+    [ok] Wallet is 67d 2h old — not flagged
+
+  [253/366] $17,067.00 on "UFC 326: Charles Oliveira vs. Max Holloway (Lightweight, Main Card)"
+  [new_wallet_large_bet] $17,067.00 on "UFC 326: Charles Oliveira vs. Max Holloway (Lightweight, Main Card)"
+    [cache hit] 0xdc876e...6d7ab6
+    [ok] Wallet is 64d 4h old — not flagged
+
+  [254/366] $11,787.63 on "Magic vs. Timberwolves: O/U 224.5"
+  [new_wallet_large_bet] $11,787.63 on "Magic vs. Timberwolves: O/U 224.5"
+    [cache hit] 0x93abbc...7a9723
+    [ok] Wallet is 102d 19h old — not flagged
+
+  [255/366] $10,448.97 on "Club Atlético de Madrid vs. Real Sociedad de Fútbol: O/U 4.5"
+  [new_wallet_large_bet] $10,448.97 on "Club Atlético de Madrid vs. Real Sociedad de Fútbol: O/U 4.5"
+    [cache hit] 0x72b40c...177d67
+    [ok] Wallet is 93d 2h old — not flagged
+
+  [256/366] $13,640.00 on "UFC 326: Cody Durden vs. Nyamjargal Tumendemberel (Flyweight, Prelims)"
+  [new_wallet_large_bet] $13,640.00 on "UFC 326: Cody Durden vs. Nyamjargal Tumendemberel (Flyweight, Prelims)"
+    [cache hit] 0x8f037a...ac64d6
+    [ok] Wallet is 157d 23h old — not flagged
+
+  [257/366] $6,797.00 on "Capitals vs. Bruins"
+  [new_wallet_large_bet] $6,797.00 on "Capitals vs. Bruins"
+    [cache hit] 0x2a2c53...fb9bc1
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 7 times, $127,644 total
+
+  [258/366] $7,473.45 on "Bitcoin Up or Down - March 7, 2:15PM-2:20PM ET"
+  [new_wallet_large_bet] $7,473.45 on "Bitcoin Up or Down - March 7, 2:15PM-2:20PM ET"
+    [cache hit] 0xfdf5a9...3658b3
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 6 times, $45,623 total
+
+  [259/366] $7,034.97 on "Will Tesla be the largest company in the world by market cap on March 31?"
+  [new_wallet_large_bet] $7,034.97 on "Will Tesla be the largest company in the world by market cap on March 31?"
+    [cache hit] 0x2bffe6...791fbb
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 11 times, $77,335 total
+
+  [260/366] $23,993.58 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $23,993.58 on "Will FC Barcelona win on 2026-03-08?"
+    [lookup] Fetching profile for 0x183d84...d91270 ...
+    [lookup] 0x183d84...d91270 — "Alarmed-Influence", age: 34d 23h
+    [ok] Wallet is 34d 23h old — not flagged
+
+  [261/366] $18,549.84 on "Will the Fed decrease interest rates by 50+ bps after the March 2026 meeting?"
+  [new_wallet_large_bet] $18,549.84 on "Will the Fed decrease interest rates by 50+ bps after the March 2026 meeting?"
+    [cache hit] 0x0b807c...a73d32
+    [ok] Wallet is 120d 17h old — not flagged
+
+  [262/366] $3,687.85 on "Map Handicap: NRG (-1.5) vs BBL Esports (+1.5)"
+  [new_wallet_large_bet] $3,687.85 on "Map Handicap: NRG (-1.5) vs BBL Esports (+1.5)"
+    [lookup] Fetching profile for 0x54e2b8...0034fb ...
+    [lookup] 0x54e2b8...0034fb — "Trustworthy-Accompanist", age: 61d 4h
+    [ok] Wallet is 61d 4h old — not flagged
+
+  [263/366] $5,843.08 on "Bitcoin Up or Down - March 7, 2:15PM-2:20PM ET"
+  [new_wallet_large_bet] $5,843.08 on "Bitcoin Up or Down - March 7, 2:15PM-2:20PM ET"
+    [cache hit] 0xd84c2b...e407b9
+    [ok] Wallet is 46d 17h old — not flagged
+
+  [264/366] $4,339.66 on "Club Atlético de Madrid vs. Real Sociedad de Fútbol: O/U 3.5"
+  [new_wallet_large_bet] $4,339.66 on "Club Atlético de Madrid vs. Real Sociedad de Fútbol: O/U 3.5"
+    [lookup] Fetching profile for 0x9c0d4e...a947e6 ...
+    [lookup] 0x9c0d4e...a947e6 — "Pleasant-Hexagon", age: 15d 17h
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 2 times, $8,679 total
+
+  [265/366] $42,671.89 on "Club Atlético de Madrid vs. Real Sociedad de Fútbol: O/U 3.5"
+  [new_wallet_large_bet] $42,671.89 on "Club Atlético de Madrid vs. Real Sociedad de Fútbol: O/U 3.5"
+    [cache hit] 0x72b40c...177d67
+    [ok] Wallet is 93d 2h old — not flagged
+
+  [266/366] $5,220.00 on "Will Club Atlético de Madrid win on 2026-03-07?"
+  [new_wallet_large_bet] $5,220.00 on "Will Club Atlético de Madrid win on 2026-03-07?"
+    [cache hit] 0x2a09f0...d6db1c
+    [ok] Wallet is 103d 8h old — not flagged
+
+  [267/366] $3,680.06 on "US x Iran ceasefire by March 15?"
+  [new_wallet_large_bet] $3,680.06 on "US x Iran ceasefire by March 15?"
+    [lookup] Fetching profile for 0x183a2a...37d514 ...
+    [lookup] 0x183a2a...37d514 — "Scornful-Site", age: 988d 21h
+    [ok] Wallet is 988d 21h old — not flagged
+
+  [268/366] $7,254.63 on "Will Juventus FC win on 2026-03-07?"
+  [new_wallet_large_bet] $7,254.63 on "Will Juventus FC win on 2026-03-07?"
+    [lookup] Fetching profile for 0xc1be0f...7bd6a2 ...
+    [lookup] 0xc1be0f...7bd6a2 — "Frozen-Stimulation", age: 487d 3h
+    [ok] Wallet is 487d 3h old — not flagged
+
+  [269/366] $14,956.88 on "Nets vs. Pistons: O/U 214.5"
+  [new_wallet_large_bet] $14,956.88 on "Nets vs. Pistons: O/U 214.5"
+    [cache hit] 0x8e433d...b4a3cd
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 10 times, $176,212 total
+
+  [270/366] $7,966.96 on "Nets vs. Pistons: O/U 215.5"
+  [new_wallet_large_bet] $7,966.96 on "Nets vs. Pistons: O/U 215.5"
+    [cache hit] 0x8e433d...b4a3cd
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 11 times, $184,179 total
+
+  [271/366] $12,073.04 on "Nets vs. Pistons: O/U 216.5"
+  [new_wallet_large_bet] $12,073.04 on "Nets vs. Pistons: O/U 216.5"
+    [cache hit] 0x8e433d...b4a3cd
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 12 times, $196,252 total
+
+  [272/366] $4,543.28 on "Counter-Strike: MOUZ vs Astralis (BO3) - ESL Pro League Stage 2"
+  [new_wallet_large_bet] $4,543.28 on "Counter-Strike: MOUZ vs Astralis (BO3) - ESL Pro League Stage 2"
+    [lookup] Fetching profile for 0x078599...4a81c3 ...
+    [lookup] 0x078599...4a81c3 — "Content-Gammaray", age: 301d 3h
+    [ok] Wallet is 301d 3h old — not flagged
+
+  [273/366] $18,143.38 on "Will the Fed decrease interest rates by 50+ bps after the March 2026 meeting?"
+  [new_wallet_large_bet] $18,143.38 on "Will the Fed decrease interest rates by 50+ bps after the March 2026 meeting?"
+    [lookup] Fetching profile for 0x0b3bb8...4db53e ...
+    [lookup] 0x0b3bb8...4db53e — "Tight-Import", age: 120d 18h
+    [ok] Wallet is 120d 18h old — not flagged
+
+  [274/366] $3,501.23 on "Toulouse FC vs. Olympique de Marseille: O/U 2.5"
+  [new_wallet_large_bet] $3,501.23 on "Toulouse FC vs. Olympique de Marseille: O/U 2.5"
+    [cache hit] 0x90a141...3673d6
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 5 times, $21,558 total
+
+  [275/366] $55,046.41 on "Rangers vs. Devils"
+  [new_wallet_large_bet] $55,046.41 on "Rangers vs. Devils"
+    [cache hit] 0x2a2c53...fb9bc1
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 8 times, $182,690 total
+
+  [276/366] $3,422.97 on "Will Silver (SI) hit (HIGH) $200 by end of March?"
+  [new_wallet_large_bet] $3,422.97 on "Will Silver (SI) hit (HIGH) $200 by end of March?"
+    [lookup] Fetching profile for 0xb7ef58...d3812c ...
+    [lookup] 0xb7ef58...d3812c — "Smoggy-Bribery", age: 39d 5h
+    [ok] Wallet is 39d 5h old — not flagged
+
+  [277/366] $18,161.56 on "Will the Fed decrease interest rates by 50+ bps after the March 2026 meeting?"
+  [new_wallet_large_bet] $18,161.56 on "Will the Fed decrease interest rates by 50+ bps after the March 2026 meeting?"
+    [cache hit] 0x0b3bb8...4db53e
+    [ok] Wallet is 120d 18h old — not flagged
+
+  [278/366] $4,593.20 on "First Round Pool A: Canada vs. Colombia"
+  [new_wallet_large_bet] $4,593.20 on "First Round Pool A: Canada vs. Colombia"
+    [lookup] Fetching profile for 0xd5aff8...a05d38 ...
+    [lookup] 0xd5aff8...a05d38 — "Minor-Applause", age: 35d 10h
+    [ok] Wallet is 35d 10h old — not flagged
+
+  [279/366] $5,000.00 on "Valorant: All Gamers vs G2 Esports (BO3) - VCT Masters Santiago Playoffs"
+  [new_wallet_large_bet] $5,000.00 on "Valorant: All Gamers vs G2 Esports (BO3) - VCT Masters Santiago Playoffs"
+    [lookup] Fetching profile for 0x8247c0...bcee42 ...
+    [lookup] 0x8247c0...bcee42 — "Immediate-Interpretation", age: 40d 12h
+    [ok] Wallet is 40d 12h old — not flagged
+
+  [280/366] $3,380.72 on "Will the highest temperature in Toronto be 16°C or higher on March 7?"
+  [new_wallet_large_bet] $3,380.72 on "Will the highest temperature in Toronto be 16°C or higher on March 7?"
+    [lookup] Fetching profile for 0xcbbc5e...18b5d0 ...
+    [lookup] 0xcbbc5e...18b5d0 — "Unhealthy-Bog", age: 247d 16h
+    [ok] Wallet is 247d 16h old — not flagged
+
+  [281/366] $4,515.00 on "UFC 326: Michael Johnson vs. Drew Dober (Lightweight, Main Card)"
+  [new_wallet_large_bet] $4,515.00 on "UFC 326: Michael Johnson vs. Drew Dober (Lightweight, Main Card)"
+    [lookup] Fetching profile for 0x225647...1d0386 ...
+    [lookup] 0x225647...1d0386 — "Flashy-Ozone", age: 55d 2h
+    [ok] Wallet is 55d 2h old — not flagged
+
+  [282/366] $4,954.96 on "Bitcoin Up or Down - March 7, 2:10PM-2:15PM ET"
+  [new_wallet_large_bet] $4,954.96 on "Bitcoin Up or Down - March 7, 2:10PM-2:15PM ET"
+    [cache hit] 0xd84c2b...e407b9
+    [ok] Wallet is 46d 17h old — not flagged
+
+  [283/366] $7,363.94 on "Bitcoin Up or Down - March 7, 2:10PM-2:15PM ET"
+  [new_wallet_large_bet] $7,363.94 on "Bitcoin Up or Down - March 7, 2:10PM-2:15PM ET"
+    [lookup] Fetching profile for 0xaeb599...7fadcc ...
+    [lookup] 0xaeb599...7fadcc — "Last-Fantasy", age: 1d 9h
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 3 times, $20,499 total
+
+  [284/366] $9,748.43 on "Spread: Timberwolves (-6.5)"
+  [new_wallet_large_bet] $9,748.43 on "Spread: Timberwolves (-6.5)"
+    [lookup] Fetching profile for 0xdcb4a8...bf832b ...
+    [lookup] 0xdcb4a8...bf832b — "Starry-Bolt", age: 486d 15h
+    [ok] Wallet is 486d 15h old — not flagged
+
+  [285/366] $16,475.07 on "Butler Bulldogs vs. DePaul Blue Demons"
+  [new_wallet_large_bet] $16,475.07 on "Butler Bulldogs vs. DePaul Blue Demons"
+    [cache hit] 0x1dc810...7cda92
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 4 times, $69,563 total
+
+  [286/366] $5,381.96 on "Rangers vs. Devils"
+  [new_wallet_large_bet] $5,381.96 on "Rangers vs. Devils"
+    [lookup] Fetching profile for 0xc257ea...fa358e ...
+    [lookup] 0xc257ea...fa358e — "Weepy-Frosting", age: 65d 21h
+    [ok] Wallet is 65d 21h old — not flagged
+
+  [287/366] $17,176.52 on "Davidson Wildcats vs. St. Bonaventure Bonnies"
+  [new_wallet_large_bet] $17,176.52 on "Davidson Wildcats vs. St. Bonaventure Bonnies"
+    [cache hit] 0x026a85...c71381
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 4 times, $50,520 total
+
+  [288/366] $3,268.30 on "BNP Paribas Open: Francisco Cerundolo vs Benjamin Bonzi"
+  [new_wallet_large_bet] $3,268.30 on "BNP Paribas Open: Francisco Cerundolo vs Benjamin Bonzi"
+    [cache hit] 0x204f72...a95e14
+    [ok] Wallet is 221d 5h old — not flagged
+
+  [289/366] $10,000.00 on "Will the Individual taxation referendum be approved in Switzerland’s 8 March 2026 popular vote?"
+  [new_wallet_large_bet] $10,000.00 on "Will the Individual taxation referendum be approved in Switzerland’s 8 March 2026 popular vote?"
+    [lookup] Fetching profile for 0x005a19...748519 ...
+    [lookup] 0x005a19...748519 — "Orderly-Trash", age: 77d 15h
+    [ok] Wallet is 77d 15h old — not flagged
+
+  [290/366] $4,418.47 on "Russia x Ukraine ceasefire by April 30, 2026?"
+  [new_wallet_large_bet] $4,418.47 on "Russia x Ukraine ceasefire by April 30, 2026?"
+    [lookup] Fetching profile for 0xdda3a0...69ba53 ...
+    [lookup] 0xdda3a0...69ba53 — "Tidy-Baby", age: 138d 3h
+    [ok] Wallet is 138d 3h old — not flagged
+
+  [291/366] $22,833.79 on "Toulouse FC vs. Olympique de Marseille: O/U 2.5"
+  [new_wallet_large_bet] $22,833.79 on "Toulouse FC vs. Olympique de Marseille: O/U 2.5"
+    [lookup] Fetching profile for 0x079213...7db778 ...
+    [lookup] 0x079213...7db778 — "Well-Informed-Knitting", age: 14d 9h
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 2 times, $45,668 total
+
+  [292/366] $3,692.74 on "Games Total: O/U 2.5"
+  [new_wallet_large_bet] $3,692.74 on "Games Total: O/U 2.5"
+    [lookup] Fetching profile for 0xb27a1a...a47d3f ...
+    [lookup] 0xb27a1a...a47d3f — "Grotesque-Excursion", age: 130d 21h
+    [ok] Wallet is 130d 21h old — not flagged
+
+  [293/366] $10,671.92 on "Will AJ Auxerre win on 2026-03-07?"
+  [new_wallet_large_bet] $10,671.92 on "Will AJ Auxerre win on 2026-03-07?"
+    [cache hit] 0x204f72...a95e14
+    [ok] Wallet is 221d 5h old — not flagged
+
+  [294/366] $5,709.12 on "Will AJ Auxerre win on 2026-03-07?"
+  [new_wallet_large_bet] $5,709.12 on "Will AJ Auxerre win on 2026-03-07?"
+    [cache hit] 0x204f72...a95e14
+    [ok] Wallet is 221d 5h old — not flagged
+
+  [295/366] $3,459.52 on "Will AJ Auxerre win on 2026-03-07?"
+  [new_wallet_large_bet] $3,459.52 on "Will AJ Auxerre win on 2026-03-07?"
+    [cache hit] 0x204f72...a95e14
+    [ok] Wallet is 221d 5h old — not flagged
+
+  [296/366] $16,116.29 on "Capitals vs. Bruins"
+  [new_wallet_large_bet] $16,116.29 on "Capitals vs. Bruins"
+    [cache hit] 0x2a2c53...fb9bc1
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 9 times, $198,806 total
+
+  [297/366] $9,490.88 on "Will AJ Auxerre win on 2026-03-07?"
+  [new_wallet_large_bet] $9,490.88 on "Will AJ Auxerre win on 2026-03-07?"
+    [cache hit] 0x204f72...a95e14
+    [ok] Wallet is 221d 5h old — not flagged
+
+  [298/366] $17,610.33 on "Will the Fed increase interest rates by 25+ bps after the March 2026 meeting?"
+  [new_wallet_large_bet] $17,610.33 on "Will the Fed increase interest rates by 25+ bps after the March 2026 meeting?"
+    [lookup] Fetching profile for 0x4f4650...5f405c ...
+    [lookup] 0x4f4650...5f405c — "Gorgeous-Group", age: 120d 18h
+    [ok] Wallet is 120d 18h old — not flagged
+
+  [299/366] $15,785.60 on "Clippers vs. Grizzlies"
+  [new_wallet_large_bet] $15,785.60 on "Clippers vs. Grizzlies"
+    [cache hit] 0x6ac5bb...ab4b6e
+    [ok] Wallet is 104d 15h old — not flagged
+
+  [300/366] $14,073.90 on "UFC 326: Gregory Rodrigues vs. Brunno Ferreira (Middleweight, Main Card)"
+  [new_wallet_large_bet] $14,073.90 on "UFC 326: Gregory Rodrigues vs. Brunno Ferreira (Middleweight, Main Card)"
+    [cache hit] 0xafbaca...dfe61b
+    [ok] Wallet is 400d 19h old — not flagged
+
+  [301/366] $5,018.68 on "Will Wrexham AFC win on 2026-03-07?"
+  [new_wallet_large_bet] $5,018.68 on "Will Wrexham AFC win on 2026-03-07?"
+    [cache hit] 0x204f72...a95e14
+    [ok] Wallet is 221d 5h old — not flagged
+
+  [302/366] $5,196.98 on "Iran x Israel/US conflict ends by March 15?"
+  [new_wallet_large_bet] $5,196.98 on "Iran x Israel/US conflict ends by March 15?"
+    [lookup] Fetching profile for 0xc4804c...076c0d ...
+    [lookup] 0xc4804c...076c0d — "Accomplished-Pinstripe", age: 646d 22h
+    [ok] Wallet is 646d 22h old — not flagged
+
+  [303/366] $17,628.00 on "Will the Fed increase interest rates by 25+ bps after the March 2026 meeting?"
+  [new_wallet_large_bet] $17,628.00 on "Will the Fed increase interest rates by 25+ bps after the March 2026 meeting?"
+    [cache hit] 0x4f4650...5f405c
+    [ok] Wallet is 120d 18h old — not flagged
+
+  [304/366] $30,336.93 on "Magic vs. Timberwolves"
+  [new_wallet_large_bet] $30,336.93 on "Magic vs. Timberwolves"
+    [cache hit] 0x6ac5bb...ab4b6e
+    [ok] Wallet is 104d 15h old — not flagged
+
+  [305/366] $6,805.89 on "76ers vs. Hawks"
+  [new_wallet_large_bet] $6,805.89 on "76ers vs. Hawks"
+    [cache hit] 0x6ac5bb...ab4b6e
+    [ok] Wallet is 104d 15h old — not flagged
+
+  [306/366] $3,118.59 on "Will Israel strike Gaza on March 7, 2026?"
+  [new_wallet_large_bet] $3,118.59 on "Will Israel strike Gaza on March 7, 2026?"
+    [lookup] Fetching profile for 0xc8aeea...c8f471 ...
+    [lookup] 0xc8aeea...c8f471 — "Costly-Mall", age: 95d 13h
+    [ok] Wallet is 95d 13h old — not flagged
+
+  [307/366] $3,466.36 on "BNP Paribas Open: Francisco Cerundolo vs Benjamin Bonzi"
+  [new_wallet_large_bet] $3,466.36 on "BNP Paribas Open: Francisco Cerundolo vs Benjamin Bonzi"
+    [cache hit] 0x204f72...a95e14
+    [ok] Wallet is 221d 5h old — not flagged
+
+  [308/366] $7,954.71 on "Bitcoin Up or Down - March 7, 2:05PM-2:10PM ET"
+  [new_wallet_large_bet] $7,954.71 on "Bitcoin Up or Down - March 7, 2:05PM-2:10PM ET"
+    [cache hit] 0xd84c2b...e407b9
+    [ok] Wallet is 46d 17h old — not flagged
+
+  [309/366] $3,675.88 on "Dota 2: Team Liquid vs BetBoom Team - Game 2 Winner"
+  [new_wallet_large_bet] $3,675.88 on "Dota 2: Team Liquid vs BetBoom Team - Game 2 Winner"
+    [lookup] Fetching profile for 0x2f7268...f4adc6 ...
+    [lookup] 0x2f7268...f4adc6 — "Scaly-Firewall", age: 16d 2h
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 2 times, $7,352 total
+
+  [310/366] $6,501.86 on "BNP Paribas Open: Francisco Cerundolo vs Benjamin Bonzi"
+  [new_wallet_large_bet] $6,501.86 on "BNP Paribas Open: Francisco Cerundolo vs Benjamin Bonzi"
+    [cache hit] 0xde9f7f...ccd43c
+    [ok] Wallet is 473d 23h old — not flagged
+
+  [311/366] $5,000.00 on "Will Mojtaba Khamenei be the next Supreme Leader of Iran?"
+  [new_wallet_large_bet] $5,000.00 on "Will Mojtaba Khamenei be the next Supreme Leader of Iran?"
+    [cache hit] 0xe83816...ec92fb
+    [ok] Wallet is 51d 8h old — not flagged
+
+  [312/366] $15,184.30 on "UFC 326: Charles Oliveira vs. Max Holloway (Lightweight, Main Card)"
+  [new_wallet_large_bet] $15,184.30 on "UFC 326: Charles Oliveira vs. Max Holloway (Lightweight, Main Card)"
+    [cache hit] 0xa49bec...6f4c40
+    [ok] Wallet is 476d 20h old — not flagged
+
+  [313/366] $8,000.00 on "Will the Iranian regime fall by June 30?"
+  [new_wallet_large_bet] $8,000.00 on "Will the Iranian regime fall by June 30?"
+    [cache hit] 0x88c491...f1129a
+    [ok] Wallet is 33d 22h old — not flagged
+
+  [314/366] $3,579.45 on "Will D.C. United SC win on 2026-03-07?"
+  [new_wallet_large_bet] $3,579.45 on "Will D.C. United SC win on 2026-03-07?"
+    [lookup] Fetching profile for 0x81f050...82cbb1 ...
+    [lookup] 0x81f050...82cbb1 — "Worthless-Dose", age: 75d 17h
+    [ok] Wallet is 75d 17h old — not flagged
+
+  [315/366] $3,197.16 on "Spread: Juventus FC (-1.5)"
+  [new_wallet_large_bet] $3,197.16 on "Spread: Juventus FC (-1.5)"
+    [cache hit] 0xdc876e...6d7ab6
+    [ok] Wallet is 64d 4h old — not flagged
+
+  [316/366] $14,500.30 on "Magic vs. Timberwolves"
+  [new_wallet_large_bet] $14,500.30 on "Magic vs. Timberwolves"
+    [lookup] Fetching profile for 0x41b48b...74de82 ...
+    [lookup] 0x41b48b...74de82 — "Corny-Rehospitalization", age: 552d 4h
+    [ok] Wallet is 552d 4h old — not flagged
+
+  [317/366] $6,999.98 on "Nets vs. Pistons"
+  [new_wallet_large_bet] $6,999.98 on "Nets vs. Pistons"
+    [cache hit] 0x067f7f...8be041
+    [ok] Wallet is 518d 15h old — not flagged
+
+  [318/366] $7,938.98 on "Magic vs. Timberwolves: O/U 225.5"
+  [new_wallet_large_bet] $7,938.98 on "Magic vs. Timberwolves: O/U 225.5"
+    [lookup] Fetching profile for 0x9cf0b5...f38b2b ...
+    [lookup] 0x9cf0b5...f38b2b — "Dull-Microlending", age: 64d 17h
+    [ok] Wallet is 64d 17h old — not flagged
+
+  [319/366] $7,000.10 on "Nets vs. Pistons"
+  [new_wallet_large_bet] $7,000.10 on "Nets vs. Pistons"
+    [lookup] Fetching profile for 0x91fd9f...e01cde ...
+    [lookup] 0x91fd9f...e01cde — "General-Hide", age: 54d 8h
+    [ok] Wallet is 54d 8h old — not flagged
+
+  [320/366] $6,256.85 on "Spread: Timberwolves (-7.5)"
+  [new_wallet_large_bet] $6,256.85 on "Spread: Timberwolves (-7.5)"
+    [lookup] Fetching profile for 0xb19f7b...06dd0e ...
+    [lookup] 0xb19f7b...06dd0e — "Golden-Chrysalis", age: 93d 1h
+    [ok] Wallet is 93d 1h old — not flagged
+
+  [321/366] $24,675.30 on "Will the price of Bitcoin be above $60,000 on March 8?"
+  [new_wallet_large_bet] $24,675.30 on "Will the price of Bitcoin be above $60,000 on March 8?"
+    [cache hit] 0x78ad03...f745cc
+    [ok] Wallet is 139d 9h old — not flagged
+
+  [322/366] $21,479.47 on "Nothing Ever Happens: MicroStrategy"
+  [new_wallet_large_bet] $21,479.47 on "Nothing Ever Happens: MicroStrategy"
+    [lookup] Fetching profile for 0xc084ec...74c547 ...
+    [lookup] 0xc084ec...74c547 — "Bouncy-Blade", age: 110d 20h
+    [ok] Wallet is 110d 20h old — not flagged
+
+  [323/366] $3,836.57 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $3,836.57 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0x5c3a1a...43020b
+    [ok] Wallet is 47d 21h old — not flagged
+
+  [324/366] $14,749.56 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $14,749.56 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0x5c3a1a...43020b
+    [ok] Wallet is 47d 21h old — not flagged
+
+  [325/366] $4,060.00 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $4,060.00 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0xa49bec...6f4c40
+    [ok] Wallet is 476d 20h old — not flagged
+
+  [326/366] $6,639.83 on "Nets vs. Pistons"
+  [new_wallet_large_bet] $6,639.83 on "Nets vs. Pistons"
+    [cache hit] 0xd10695...5fc79c
+    [ok] Wallet is 54d 7h old — not flagged
+
+  [327/366] $3,809.51 on "Club Atlético de Madrid vs. Real Sociedad de Fútbol: O/U 2.5"
+  [new_wallet_large_bet] $3,809.51 on "Club Atlético de Madrid vs. Real Sociedad de Fútbol: O/U 2.5"
+    [lookup] Fetching profile for 0xedf72b...8b5ac3 ...
+    [lookup] 0xedf72b...8b5ac3 — "Obedient-Treaty", age: 52d 21h
+    [ok] Wallet is 52d 21h old — not flagged
+
+  [328/366] $5,688.64 on "Will FC Barcelona win on 2026-03-08?"
+  [new_wallet_large_bet] $5,688.64 on "Will FC Barcelona win on 2026-03-08?"
+    [cache hit] 0xa49bec...6f4c40
+    [ok] Wallet is 476d 20h old — not flagged
+
+  [329/366] $15,425.40 on "Will the Iranian regime fall by April 30?"
+  [new_wallet_large_bet] $15,425.40 on "Will the Iranian regime fall by April 30?"
+    [cache hit] 0x791976...9b72b2
+    [ok] Wallet is 123d 13h old — not flagged
+
+  [330/366] $5,171.36 on "Spread: Pistons (-14.5)"
+  [new_wallet_large_bet] $5,171.36 on "Spread: Pistons (-14.5)"
+    [lookup] Fetching profile for 0x906fd5...1288b4 ...
+    [lookup] 0x906fd5...1288b4 — "Frayed-Mud", age: 80d 5h
+    [ok] Wallet is 80d 5h old — not flagged
+
+  [331/366] $4,205.14 on "Campbell Fighting Camels vs. Stony Brook Seawolves"
+  [new_wallet_large_bet] $4,205.14 on "Campbell Fighting Camels vs. Stony Brook Seawolves"
+    [lookup] Fetching profile for 0xa4f565...281079 ...
+    [lookup] 0xa4f565...281079 — "Impressionable-Mecca", age: 27d 12h
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 2 times, $8,410 total
+
+  [332/366] $4,016.31 on "Will Iran strike Israel on March 6?"
+  [new_wallet_large_bet] $4,016.31 on "Will Iran strike Israel on March 6?"
+    [lookup] Fetching profile for 0xaf2383...17aa95 ...
+    [lookup] 0xaf2383...17aa95 — "Windy-Jacket", age: 501d 23h
+    [ok] Wallet is 501d 23h old — not flagged
+
+  [333/366] $4,892.51 on "Will the price of Bitcoin be less than $58,000 on March 8?"
+  [new_wallet_large_bet] $4,892.51 on "Will the price of Bitcoin be less than $58,000 on March 8?"
+    [lookup] Fetching profile for 0xe9a29a...677945 ...
+    [lookup] 0xe9a29a...677945 — "Trivial-Bicycle", age: 44d 4h
+    [ok] Wallet is 44d 4h old — not flagged
+
+  [334/366] $5,000.00 on "Will Crude Oil (CL) hit (HIGH) $200 by end of March?"
+  [new_wallet_large_bet] $5,000.00 on "Will Crude Oil (CL) hit (HIGH) $200 by end of March?"
+    [cache hit] 0x88c491...f1129a
+    [ok] Wallet is 33d 22h old — not flagged
+
+  [335/366] $10,268.37 on "Will Newcastle United FC win on 2026-03-07?"
+  [new_wallet_large_bet] $10,268.37 on "Will Newcastle United FC win on 2026-03-07?"
+    [lookup] Fetching profile for 0x759c23...bd5f4b ...
+    [lookup] 0x759c23...bd5f4b — "Unruly-Moonscape", age: 2d 2h
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 3 times, $36,924 total
+
+  [336/366] $3,570.00 on "Will Newcastle United FC win on 2026-03-07?"
+  [new_wallet_large_bet] $3,570.00 on "Will Newcastle United FC win on 2026-03-07?"
+    [lookup] Fetching profile for 0x02b65e...edfbbb ...
+    [lookup] 0x02b65e...edfbbb — "Envious-Veto", age: 56d 20h
+    [ok] Wallet is 56d 20h old — not flagged
+
+  [337/366] $3,592.23 on "Counter-Strike: MOUZ vs Astralis (BO3) - ESL Pro League Stage 2"
+  [new_wallet_large_bet] $3,592.23 on "Counter-Strike: MOUZ vs Astralis (BO3) - ESL Pro League Stage 2"
+    [lookup] Fetching profile for 0xdbb468...7448be ...
+    [lookup] 0xdbb468...7448be — "Jagged-Cayenne", age: 469d 1h
+    [ok] Wallet is 469d 1h old — not flagged
+
+  [338/366] $5,000.00 on "Will Crude Oil (CL) hit (HIGH) $200 by end of March?"
+  [new_wallet_large_bet] $5,000.00 on "Will Crude Oil (CL) hit (HIGH) $200 by end of March?"
+    [cache hit] 0x88c491...f1129a
+    [ok] Wallet is 33d 22h old — not flagged
+
+  [339/366] $6,208.37 on "Will Club Atlético de Madrid vs. Real Sociedad de Fútbol end in a draw?"
+  [new_wallet_large_bet] $6,208.37 on "Will Club Atlético de Madrid vs. Real Sociedad de Fútbol end in a draw?"
+    [cache hit] 0x4133bc...a65e70
+    [ok] Wallet is 560d 7h old — not flagged
+
+  [340/366] $6,433.82 on "Will Club Atlético de Madrid win on 2026-03-07?"
+  [new_wallet_large_bet] $6,433.82 on "Will Club Atlético de Madrid win on 2026-03-07?"
+    [cache hit] 0x4133bc...a65e70
+    [ok] Wallet is 560d 7h old — not flagged
+
+  [341/366] $5,836.41 on "Will Israel strike Gaza on March 7, 2026?"
+  [new_wallet_large_bet] $5,836.41 on "Will Israel strike Gaza on March 7, 2026?"
+    [lookup] Fetching profile for 0xd08e8f...2a2f7c ...
+    [lookup] 0xd08e8f...2a2f7c — "Big-Toenail", age: 329d 15h
+    [ok] Wallet is 329d 15h old — not flagged
+
+  [342/366] $7,042.02 on "Will Tesla be the largest company in the world by market cap on March 31?"
+  [new_wallet_large_bet] $7,042.02 on "Will Tesla be the largest company in the world by market cap on March 31?"
+    [cache hit] 0x2bffe6...791fbb
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 12 times, $84,377 total
+
+  [343/366] $7,645.37 on "Will Mojtaba Khamenei be the next Supreme Leader of Iran?"
+  [new_wallet_large_bet] $7,645.37 on "Will Mojtaba Khamenei be the next Supreme Leader of Iran?"
+    [lookup] Fetching profile for 0xdfb974...97be64 ...
+    [lookup] 0xdfb974...97be64 — "Sarcastic-Algebra", age: 279d 23h
+    [ok] Wallet is 279d 23h old — not flagged
+
+  [344/366] $8,537.70 on "Spread: Clippers (-7.5)"
+  [new_wallet_large_bet] $8,537.70 on "Spread: Clippers (-7.5)"
+    [cache hit] 0x5c3a1a...43020b
+    [ok] Wallet is 47d 21h old — not flagged
+
+  [345/366] $9,068.97 on "Will Mark Kelly win the 2028 Democratic presidential nomination?"
+  [new_wallet_large_bet] $9,068.97 on "Will Mark Kelly win the 2028 Democratic presidential nomination?"
+    [lookup] Fetching profile for 0x0015c5...e4d5b0 ...
+    [lookup] 0x0015c5...e4d5b0 — "Profuse-Sandbar", age: 654d 3h
+    [ok] Wallet is 654d 3h old — not flagged
+
+  [346/366] $5,982.00 on "Will Israel strike Gaza on March 7, 2026?"
+  [new_wallet_large_bet] $5,982.00 on "Will Israel strike Gaza on March 7, 2026?"
+    [lookup] Fetching profile for 0x9e8077...97f694 ...
+    [lookup] 0x9e8077...97f694 — "Squeaky-Monument", age: 616d 5h
+    [ok] Wallet is 616d 5h old — not flagged
+
+  [347/366] $3,311.92 on "Will James Talarico win the 2028 Democratic presidential nomination?"
+  [new_wallet_large_bet] $3,311.92 on "Will James Talarico win the 2028 Democratic presidential nomination?"
+    [cache hit] 0x0015c5...e4d5b0
+    [ok] Wallet is 654d 3h old — not flagged
+
+  [348/366] $6,214.39 on "Nets vs. Pistons: O/U 214.5"
+  [new_wallet_large_bet] $6,214.39 on "Nets vs. Pistons: O/U 214.5"
+    [cache hit] 0x9cf0b5...f38b2b
+    [ok] Wallet is 64d 17h old — not flagged
+
+  [349/366] $3,351.96 on "Will Galatasaray SK win on 2026-03-07?"
+  [new_wallet_large_bet] $3,351.96 on "Will Galatasaray SK win on 2026-03-07?"
+    [lookup] Fetching profile for 0xf0f6b5...54f699 ...
+    [lookup] 0xf0f6b5...54f699 — "Gorgeous-Goat", age: 1031d 7h
+    [ok] Wallet is 1031d 7h old — not flagged
+
+  [350/366] $4,384.44 on "Will Manchester City FC win on 2026-03-07?"
+  [new_wallet_large_bet] $4,384.44 on "Will Manchester City FC win on 2026-03-07?"
+    [cache hit] 0x160bf4...0d4296
+    [ok] Wallet is 236d 6h old — not flagged
+
+  [351/366] $109,980.90 on "Will Manchester City FC win on 2026-03-07?"
+  [new_wallet_large_bet] $109,980.90 on "Will Manchester City FC win on 2026-03-07?"
+    [lookup] Fetching profile for 0x036c15...d4178d ...
+    [lookup] 0x036c15...d4178d — "Clueless-Dissonance", age: 22d 14h
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 2 times, $219,962 total
+
+  [352/366] $3,500.00 on "UFC 326: Charles Oliveira vs. Max Holloway (Lightweight, Main Card)"
+  [new_wallet_large_bet] $3,500.00 on "UFC 326: Charles Oliveira vs. Max Holloway (Lightweight, Main Card)"
+    [cache hit] 0x842ac9...407422
+    [ok] Wallet is 37d 6h old — not flagged
+
+  [353/366] $10,091.19 on "Will Donald Trump visit Delaware in 2026?"
+  [new_wallet_large_bet] $10,091.19 on "Will Donald Trump visit Delaware in 2026?"
+    [lookup] Fetching profile for 0xde3ae3...9287d8 ...
+    [lookup] 0xde3ae3...9287d8 — "Paltry-Waterspout", age: 6h 33m
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 3 times, $24,117 total
+
+  [354/366] $15,762.92 on "UFC 326: Charles Oliveira vs. Max Holloway (Lightweight, Main Card)"
+  [new_wallet_large_bet] $15,762.92 on "UFC 326: Charles Oliveira vs. Max Holloway (Lightweight, Main Card)"
+    [lookup] Fetching profile for 0x07b8e4...638e25 ...
+    [lookup] 0x07b8e4...638e25 — "Puny-Tenor", age: 48d 16h
+    [ok] Wallet is 48d 16h old — not flagged
+
+  [355/366] $3,337.03 on "Juventus FC vs. Pisa SC: O/U 3.5"
+  [new_wallet_large_bet] $3,337.03 on "Juventus FC vs. Pisa SC: O/U 3.5"
+    [cache hit] 0xdc876e...6d7ab6
+    [ok] Wallet is 64d 4h old — not flagged
+
+  [356/366] $17,437.73 on "Will the Fed increase interest rates by 25+ bps after the March 2026 meeting?"
+  [new_wallet_large_bet] $17,437.73 on "Will the Fed increase interest rates by 25+ bps after the March 2026 meeting?"
+    [lookup] Fetching profile for 0x535bd5...6aa4de ...
+    [lookup] 0x535bd5...6aa4de — "Secondary-Winter", age: 120d 18h
+    [ok] Wallet is 120d 18h old — not flagged
+
+  [357/366] $4,755.24 on "Will Bayer 04 Leverkusen win on 2026-03-07?"
+  [new_wallet_large_bet] $4,755.24 on "Will Bayer 04 Leverkusen win on 2026-03-07?"
+    [cache hit] 0x90a141...3673d6
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 6 times, $26,313 total
+
+  [358/366] $3,934.68 on "Will Donald Trump visit Delaware in 2026?"
+  [new_wallet_large_bet] $3,934.68 on "Will Donald Trump visit Delaware in 2026?"
+    [cache hit] 0xde3ae3...9287d8
+    >>> ALERT: New wallet detected!
+    >>> REPEAT OFFENDER: flagged 4 times, $28,052 total
+
+  [359/366] $5,572.11 on "Will Israel strike Gaza on March 7, 2026?"
+  [new_wallet_large_bet] $5,572.11 on "Will Israel strike Gaza on March 7, 2026?"
+    [lookup] Fetching profile for 0x7c3db7...1e5c6b ...
+    [lookup] 0x7c3db7...1e5c6b — "Peppery-Capital", age: 757d 18h
+    [ok] Wallet is 757d 18h old — not flagged
+
+  [360/366] $17,455.22 on "Will the Fed increase interest rates by 25+ bps after the March 2026 meeting?"
+  [new_wallet_large_bet] $17,455.22 on "Will the Fed increase interest rates by 25+ bps after the March 2026 meeting?"
+    [cache hit] 0x535bd5...6aa4de
+    [ok] Wallet is 120d 18h old — not flagged
+
+  [361/366] $13,114.33 on "Clippers vs. Grizzlies"
+  [new_wallet_large_bet] $13,114.33 on "Clippers vs. Grizzlies"
+    [lookup] Fetching profile for 0x6e82b9...4a752c ...
+    [lookup] 0x6e82b9...4a752c — "anonymous", age: 1405d 23h
+    [ok] Wallet is 1405d 23h old — not flagged
+
+  [362/366] $3,112.89 on "Counter-Strike: Spirit vs B8 (BO3) - ESL Pro League Stage 2"
+  [new_wallet_large_bet] $3,112.89 on "Counter-Strike: Spirit vs B8 (BO3) - ESL Pro League Stage 2"
+    [cache hit] 0xe3d4de...fb2bac
+    [ok] Wallet is 494d 2h old — not flagged
+
+  [363/366] $3,745.00 on "Will Bitcoin reach $75,000 on March 7?"
+  [new_wallet_large_bet] $3,745.00 on "Will Bitcoin reach $75,000 on March 7?"
+    [lookup] Fetching profile for 0xe62666...276771 ...
+    [lookup] 0xe62666...276771 — "Hollow-Yang", age: 141d 23h
+    [ok] Wallet is 141d 23h old — not flagged
+
+  [364/366] $10,206.17 on "Counter-Strike: MOUZ vs Astralis (BO3) - ESL Pro League Stage 2"
+  [new_wallet_large_bet] $10,206.17 on "Counter-Strike: MOUZ vs Astralis (BO3) - ESL Pro League Stage 2"
+    [lookup] Fetching profile for 0x2ed085...5fa9c5 ...
+    [lookup] 0x2ed085...5fa9c5 — "Metallic-Anklet", age: 88d 20h
+    [ok] Wallet is 88d 20h old — not flagged
+
+  [365/366] $3,682.05 on "Will Real Sociedad de Fútbol win on 2026-03-07?"
+  [new_wallet_large_bet] $3,682.05 on "Will Real Sociedad de Fútbol win on 2026-03-07?"
+    [cache hit] 0xc1be0f...7bd6a2
+    [ok] Wallet is 487d 3h old — not flagged
+
+  [366/366] $6,704.10 on "Will Newcastle United FC win on 2026-03-07?"
+  [new_wallet_large_bet] $6,704.10 on "Will Newcastle United FC win on 2026-03-07?"
+    [cache hit] 0x204f72...a95e14
+    [ok] Wallet is 221d 5h old — not flagged
+
+[*] Running batch analysis across all 366 trade(s)...
+  [pre_event_volume_spike] Found 130 market(s) with volume spikes
+    [sybil] 0x7af9ba...8db408 funded by 0xe672e7...3cfac0
+    [sybil] 0x762ee1...564bf0 funded by 0xa7be17...6dae26
+    [sybil] 0xb45a79...12192c funded by 0x02a86f...727e23
+    [sybil] 0xd7a589...e47c26 funded by 0x6efdad...de48fc
+    [sybil] 0x86279a...ed5382 funded by 0xae700e...3a52f1 (from DB)
+    [sybil] 0x47f80d...dd6699 funded by 0x4fac06...6daad3
+    [sybil] 0x0e12c4...037ed6 funded by 0xddd8c9...7b2c07
+    [sybil] 0xd10695...5fc79c funded by 0x7bc41f...9054a7 (from DB)
+    [sybil] 0x160bf4...0d4296 funded by 0x1d7ace...b76823 (from DB)
+    [sybil] 0xeb7538...4faaf9 funded by 0x6efdad...de48fc
+    [sybil] 0xa49bec...6f4c40 funded by 0x64131b...e1165a (from DB)
+    [sybil] 0x1e3e27...37a561 funded by 0xf105cd...34709b
+    [sybil] 0xdb27bf...a6c56e funded by 0x4fac06...6daad3
+    [sybil] 0x8a6c68...c30b3f funded by 0x9071c7...05b22e (from DB)
+    [sybil] 0x8cdc59...b2b83f funded by 0x7db63f...fbda6a (from DB)
+    [sybil] 0xd84c2b...e407b9 funded by 0xddafac...6a5b3d (from DB)
+    [sybil] 0xb9e54e...6b1809 funded by 0x72b263...1c1d13
+    [sybil] 0xb6aee7...4e4df8 funded by 0x64131b...e1165a
+    [sybil] 0x03e8a5...af1697 funded by 0x7db63f...fbda6a
+    [sybil] 0x16602a...825598 funded by 0x31cd17...da71c0
+    [sybil] 0x6d3c5b...b3d294 funded by 0x7bc41f...9054a7 (from DB)
+    [sybil] 0x842ac9...407422 funded by 0x7db63f...fbda6a (from DB)
+    [sybil] 0xe3d4de...fb2bac funded by 0x4fac06...6daad3 (from DB)
+    [sybil] 0xf705fa...453ca7 funded by 0xb68a63...33c568
+    [sybil] 0x6c979f...a0988c funded by 0xa7be17...6dae26
+    [sybil] 0x306e06...213a7c funded by 0x4da939...eb9cfb
+    [sybil] 0x8ff300...3f1aa9 funded by 0x981076...7d7630 (from DB)
+    [sybil] 0x82ba53...fb74da funded by 0xf105cd...34709b
+    [sybil] 0xf5d164...61cdc9 funded by 0x02a86f...727e23
+    [sybil] 0x34e440...d36299 funded by 0x02a86f...727e23
+    [sybil] 0x96020c...bc4d02 funded by 0x09583c...ae6fa6
+    [sybil] 0xb03b82...5b6ca1 funded by 0x4da939...eb9cfb (from DB)
+    [sybil] 0xaf75a0...0dd56a funded by 0x43982d...ddb655 (from DB)
+    [sybil] 0x7ea571...1bde7b funded by 0x4da939...eb9cfb (from DB)
+    [sybil] 0x59d7a4...d8ba8e funded by 0x4da939...eb9cfb
+    [sybil] 0xfce17e...8e9ce7 funded by 0xa7be17...6dae26
+    [sybil] 0x5c3a1a...43020b funded by 0x09583c...ae6fa6 (from DB)
+    [sybil] 0x0006af...5d8c63 funded by 0x7bc41f...9054a7 (from DB)
+    [sybil] 0x3e0a88...67b9cc funded by 0xa7be17...6dae26
+    [sybil] 0x5938ce...2cd2a6 funded by 0x02a86f...727e23
+    [sybil] 0xe88b59...ed5250 funded by 0x6efdad...de48fc
+    [sybil] 0x0b9cae...f87e44 funded by 0xe672e7...3cfac0
+    [sybil] 0xab828a...1babe5 funded by 0x7db63f...fbda6a
+    [sybil] 0x067f7f...8be041 funded by 0xe672e7...3cfac0 (from DB)
+    [sybil] 0x78ad03...f745cc funded by 0xf105cd...34709b (from DB)
+    [sybil] 0xa16212...44bab2 funded by 0x249b5e...5e6adf
+    [sybil] 0x8f037a...ac64d6 funded by 0xe672e7...3cfac0 (from DB)
+    [sybil] 0xdb63fd...2aa71d funded by 0x0a16ff...844a62 (from DB)
+    [sybil] 0x3505ef...51f7a3 funded by 0x64131b...e1165a (from DB)
+    [sybil] 0x63d489...a67061 funded by 0x4fac06...6daad3 (from DB)
+    [sybil] 0x3c29ac...6f21aa funded by 0xa7be17...6dae26 (from DB)
+    [sybil] 0xc869dc...fe8a6e funded by 0x02a86f...727e23 (from DB)
+    [sybil] 0xfdf5a9...3658b3 funded by 0x6efdad...de48fc (from DB)
+    [sybil] 0x177a19...af65eb funded by 0xddd8c9...7b2c07 (from DB)
+    [sybil] 0xfc25f1...5e1f7f funded by 0x64131b...e1165a (from DB)
+    [sybil] 0x2ef288...047f72 funded by 0x7bc41f...9054a7 (from DB)
+    [sybil] 0x8d0930...20143f funded by 0x02a86f...727e23 (from DB)
+    [sybil] 0xf7a19a...909dce funded by 0xf105cd...34709b (from DB)
+    [sybil] 0x719713...1d14c8 funded by 0x64131b...e1165a (from DB)
+    [sybil] 0x49007e...194a72 funded by 0x64131b...e1165a (from DB)
+    [sybil] 0x3625da...3abdee funded by 0xd8bc75...2387c8 (from DB)
+    [sybil] 0x58f8f1...10dc70 funded by 0xddd8c9...7b2c07 (from DB)
+    [sybil] 0xb0f69d...b2a05f funded by 0xf4d1a2...7c1d6e (from DB)
+    [sybil] 0x735a72...1408d9 funded by 0x7db63f...fbda6a (from DB)
+    [sybil] 0x6ea6e1...a39261 funded by 0x7db63f...fbda6a (from DB)
+    [sybil] 0x88c491...f1129a funded by 0x714d78...6f4d5f (from DB)
+    [sybil] 0xe83816...ec92fb funded by 0x9f7523...7b8e7b (from DB)
+    [sybil] 0x90a141...3673d6 funded by 0x33662d...e5c7a8 (from DB)
+    [sybil] 0x2809a6...6610dc funded by 0xe672e7...3cfac0 (from DB)
+    [sybil] 0x8e433d...b4a3cd funded by 0x714d78...6f4d5f (from DB)
+    [sybil] 0x0b807c...a73d32 funded by 0x64131b...e1165a (from DB)
+    [sybil] 0xb2a3bf...58e321 funded by 0x4fac06...6daad3 (from DB)
+    [sybil] 0x54e2b8...0034fb funded by 0x64131b...e1165a (from DB)
+    [sybil] 0x0b3bb8...4db53e funded by 0xddd8c9...7b2c07 (from DB)
+    [sybil] 0xb7ef58...d3812c funded by 0xf105cd...34709b (from DB)
+    [sybil] 0xd5aff8...a05d38 funded by 0x7db63f...fbda6a (from DB)
+    [sybil] 0xcbbc5e...18b5d0 funded by 0x4fac06...6daad3 (from DB)
+    [sybil] 0x225647...1d0386 funded by 0xddd8c9...7b2c07 (from DB)
+    [sybil] 0xaeb599...7fadcc funded by 0xacff32...1f1f9a (from DB)
+    [sybil] 0xdda3a0...69ba53 funded by 0x7bc41f...9054a7 (from DB)
+    [sybil] 0xb27a1a...a47d3f funded by 0x4fac06...6daad3 (from DB)
+    [sybil] 0x4f4650...5f405c funded by 0x4fac06...6daad3 (from DB)
+    [sybil] 0xc4804c...076c0d funded by 0x31cd17...da71c0 (from DB)
+    [sybil] 0xc8aeea...c8f471 funded by 0xddafac...6a5b3d (from DB)
+    [sybil] 0x2f7268...f4adc6 funded by 0x6efdad...de48fc (from DB)
+    [sybil] 0x81f050...82cbb1 funded by 0x02a86f...727e23 (from DB)
+    [sybil] 0x9cf0b5...f38b2b funded by 0x710be8...420ff8 (from DB)
+    [sybil] 0x91fd9f...e01cde funded by 0x64131b...e1165a (from DB)
+    [sybil] 0xc084ec...74c547 funded by 0x7bc41f...9054a7 (from DB)
+    [sybil] 0xedf72b...8b5ac3 funded by 0xf105cd...34709b (from DB)
+    [sybil] 0x906fd5...1288b4 funded by 0x6efdad...de48fc (from DB)
+    [sybil] 0xa4f565...281079 funded by 0x3a613c...83b560 (from DB)
+    [sybil] 0xaf2383...17aa95 funded by 0xa7be17...6dae26 (from DB)
+    [sybil] 0x759c23...bd5f4b funded by 0x72b263...1c1d13 (from DB)
+    [sybil] 0x02b65e...edfbbb funded by 0xf105cd...34709b (from DB)
+    [sybil] 0xdbb468...7448be funded by 0xf105cd...34709b (from DB)
+    [sybil] 0xd08e8f...2a2f7c funded by 0x4fac06...6daad3 (from DB)
+    [sybil] 0xf0f6b5...54f699 funded by 0xae700e...3a52f1 (from DB)
+    [sybil] 0xde3ae3...9287d8 funded by 0xe672e7...3cfac0 (from DB)
+    [sybil] 0x07b8e4...638e25 funded by 0xf105cd...34709b (from DB)
+    [sybil] 0x535bd5...6aa4de funded by 0x4fac06...6daad3 (from DB)
+    [sybil] 0x6e82b9...4a752c funded by 0xae700e...3a52f1 (from DB)
+    [sybil] 0xe62666...276771 funded by 0x7db63f...fbda6a (from DB)
+    [sybil] 0x2ed085...5fa9c5 funded by 0x708ea8...910831 (from DB)
+  [wallet_clustering] Found 21 wallet cluster(s)

@@ -20,6 +20,7 @@ from detection_strategies import DetectionStrategy, Signal
 from db import (
     get_flagged_wallet_stats,
     get_wallet_pnl_summary,
+    record_flagged_trade_event,
     record_flagged_wallet,
 )
 
@@ -174,8 +175,20 @@ class NewWalletLargeBetStrategy(DetectionStrategy):
                 else:
                     severity = 1.5
 
-            # Record this flag and check for repeat offender status
-            flag_stats = record_flagged_wallet(wallet, float(usd))
+            # Only increment flag counters if this specific trade hasn't
+            # been flagged before (prevents double-counting on overlapping scans)
+            cid = trade.get("conditionId", "")
+            trade_ts = trade.get("timestamp", 0)
+            is_new_flag = record_flagged_trade_event(wallet, cid, trade_ts, float(usd))
+            if is_new_flag:
+                flag_stats = record_flagged_wallet(wallet, float(usd))
+            else:
+                flag_stats = get_flagged_wallet_stats(wallet) or {
+                    "times_flagged": 1,
+                    "total_usd_flagged": float(usd),
+                    "first_flagged_at": "",
+                    "last_flagged_at": "",
+                }
             headline = f"New wallet ({age})"
 
             if flag_stats["times_flagged"] > 1:
