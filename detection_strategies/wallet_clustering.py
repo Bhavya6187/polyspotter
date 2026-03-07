@@ -23,6 +23,9 @@ import time
 from collections import defaultdict
 
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from detection_strategies import DetectionStrategy, Signal
 from db import (
@@ -35,7 +38,7 @@ from db import (
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-ETHERSCAN_API = "RD5AKGXUBJ2A6ZBJYB8PQKQJFUMCRA6VYY"
+ETHERSCAN_API = "https://api.etherscan.io/v2/api"
 ETHERSCAN_API_KEY = os.environ.get("ETHERSCAN_API_KEY", "")
 POLYGON_CHAIN_ID = 137
 FUNDER_LOOKUP_DELAY = 0.25  # seconds between Etherscan calls
