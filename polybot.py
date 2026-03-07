@@ -1,0 +1,419 @@
+#!/usr/bin/env python3
+"""
+Polymarket Unusual Activity Bot
+
+Monitors Polymarket trades and flags large bets ($1,000+) that match
+one or more detection strategies.  Strategies live in the
+detection_strategies/ package.
+"""
+
+import sys
+from collections import defaultdict
+from datetime import datetime, timezone, timedelta
+
+import requests
+
+from detection_strategies import ALL_STRATEGIES, Signal
+from detection_strategies.db import get_db
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+DATA_API = "https://data-api.polymarket.com"
+
+BET_THRESHOLD_USD = 3000    # minimum USD value to flag
+TRADE_WINDOW_SECONDS = 3600   # how far back to look for trades
+TRADE_PAGE_SIZE = 10000     # trades per API call (API max is 10,000)
+
+
+def fetch_recent_trades(seconds: int = TRADE_WINDOW_SECONDS) -> list[dict]:
+    """Fetch trades from the last *seconds* seconds via the Data API,
+    using server-side CASH filtering to only return trades >= threshold."""
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=seconds)
+    cutoff_ts = cutoff.timestamp()
+    print(f"[*] Fetching trades >= ${BET_THRESHOLD_USD:,} from the last {seconds}s (since {cutoff.strftime('%H:%M:%S UTC')})...")
+
+    all_trades: list[dict] = []
+    offset = 0
+
+    while True:
+        params = {
+            "limit": TRADE_PAGE_SIZE,
+            "offset": offset,
+            "filterType": "CASH",
+            "filterAmount": BET_THRESHOLD_USD,
+        }
+        try:
+            resp = requests.get(f"{DATA_API}/trades", params=params, timeout=15)
+            if resp.status_code == 400:
+                break  # API returns 400 when offset exceeds available data
+            resp.raise_for_status()
+            page = resp.json()
+        except requests.RequestException as e:
+            print(f"[ERROR] Failed to fetch trades (offset={offset}): {e}", file=sys.stderr)
+            break
+
+        if not isinstance(page, list) or not page:
+            break
+
+        for t in page:
+            if t.get("timestamp", 0) >= cutoff_ts:
+                size = float(t.get("size", 0))
+                price = float(t.get("price", 0))
+                t["_usd_value"] = size * price
+                all_trades.append(t)
+
+        offset += TRADE_PAGE_SIZE
+
+    print(f"[*] Received {len(all_trades)} trades >= ${BET_THRESHOLD_USD:,} within the last {seconds}s")
+    return all_trades
+
+
+# ---------------------------------------------------------------------------
+# Composite alert formatting
+# ---------------------------------------------------------------------------
+def _format_one_composite(trade: dict, sigs: list[Signal], total_severity: float) -> str:
+    """Format a single composite alert block."""
+    wallet = trade.get("proxyWallet", "???")
+    short_wallet = f"{wallet[:8]}...{wallet[-6:]}" if len(wallet) > 14 else wallet
+    usd = float(trade.get("_usd_value", 0))
+    ts = trade.get("timestamp", 0)
+    trade_time = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    signal_lines = []
+    for s in sorted(sigs, key=lambda x: -x.severity):
+        signal_lines.append(f"    [{s.severity:.1f}]  {s.strategy}: {s.headline}")
+
+    lines = [
+        "",
+        "=" * 72,
+        f"  COMPOSITE ALERT  [Score: {total_severity:.1f}]",
+        "=" * 72,
+        f"  Market:     {trade.get('title', '?')}",
+        f"  Trade:      ${usd:,.2f} — {trade.get('outcome', '?')} ({trade.get('side', '?')})",
+        f"  Time:       {trade_time}",
+        f"  Wallet:     {short_wallet}",
+        f"  Signals:",
+        *signal_lines,
+        f"  Market Slug: https://polymarket.com/event/{trade.get('eventSlug', '')}",
+        "=" * 72,
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _format_cluster_alert(
+    cluster_sig: Signal,
+    cluster_trades: list[dict],
+    shared_sigs: list[Signal],
+    per_trade_sigs: dict[str, list[Signal]],
+) -> tuple[float, str]:
+    """Format a single cluster alert showing all member trades in one block."""
+    sample = cluster_sig.trade
+    shared_total = sum(s.severity for s in shared_sigs)
+    max_score = shared_total
+
+    trade_rows: list[str] = []
+    for t in sorted(cluster_trades, key=lambda x: -float(x.get("_usd_value", 0))):
+        tx = t.get("transactionHash", "")
+        wallet = t.get("proxyWallet", "???")
+        short_wallet = f"{wallet[:8]}...{wallet[-6:]}" if len(wallet) > 14 else wallet
+        usd = float(t.get("_usd_value", 0))
+        ts = t.get("timestamp", 0)
+        trade_time = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%H:%M:%S UTC")
+
+        extra_sigs = per_trade_sigs.get(tx, [])
+        extra_total = sum(s.severity for s in extra_sigs)
+        max_score = max(max_score, shared_total + extra_total)
+
+        extra_str = ""
+        if extra_sigs:
+            parts = [f"+{s.severity:.1f} {s.headline}" for s in sorted(extra_sigs, key=lambda x: -x.severity)]
+            extra_str = "  (" + ", ".join(parts) + ")"
+
+        trade_rows.append(f"    ${usd:>10,.2f}  {short_wallet}  {trade_time}{extra_str}")
+
+    signal_lines = []
+    for s in sorted(shared_sigs, key=lambda x: -x.severity):
+        signal_lines.append(f"    [{s.severity:.1f}]  {s.strategy}: {s.headline}")
+
+    lines = [
+        "",
+        "=" * 72,
+        f"  CLUSTER ALERT  [Score: {max_score:.1f}]",
+        "=" * 72,
+        f"  Market:     {sample.get('title', '?')}",
+        f"  Cluster:    {cluster_sig.headline}",
+        f"  Signals:",
+        *signal_lines,
+        f"  Trades ({len(cluster_trades)}):",
+        *trade_rows,
+        f"  Market Slug: https://polymarket.com/event/{sample.get('eventSlug', '')}",
+        "=" * 72,
+        "",
+    ]
+    return (max_score, "\n".join(lines))
+
+
+def _format_composite_alerts(signals: list[Signal], trades: list[dict]) -> str:
+    """Group signals by trade, compute composite scores, and format output.
+
+    Per-trade signals are grouped by transaction hash.  Batch signals
+    (those with trade_hashes spanning multiple trades) are grouped once
+    per market (condition_id) and merged into per-trade composites to
+    avoid duplicate alerts.
+
+    concentrated_one_sided signals are rendered as a single cluster alert
+    per market, listing all member trades, instead of repeating the
+    cluster info on every individual trade.
+    """
+    if not signals:
+        return ""
+
+    # Build tx_hash -> actual trade dict lookup from the original trades
+    tx_to_trade: dict[str, dict] = {}
+    for t in trades:
+        tx = t.get("transactionHash", "")
+        if tx:
+            tx_to_trade[tx] = t
+
+    # Separate per-trade signals from batch (market-level) signals
+    per_trade: dict[str, list[Signal]] = defaultdict(list)
+    per_market: dict[str, list[Signal]] = defaultdict(list)
+
+    for sig in signals:
+        if sig.trade_hashes:
+            cid = sig.condition_id or sig.trade.get("conditionId", "")
+            if cid:
+                per_market[cid].append(sig)
+        else:
+            tx = sig.trade.get("transactionHash", "")
+            if tx:
+                per_trade[tx].append(sig)
+
+    # --- Cluster alerts for concentrated_one_sided --------------------------
+    composites: list[tuple[float, str]] = []
+    clustered_tx_hashes: set[str] = set()
+
+    for cid, market_sigs in per_market.items():
+        cluster_sigs = [s for s in market_sigs if s.strategy == "concentrated_one_sided"]
+        if not cluster_sigs:
+            continue
+
+        cluster_sig = cluster_sigs[0]
+        # Shared signals = all batch signals for this market
+        shared_sigs = market_sigs
+
+        # Gather trades in this cluster
+        cluster_trades = [
+            tx_to_trade[tx] for tx in cluster_sig.trade_hashes
+            if tx in tx_to_trade
+        ]
+        clustered_tx_hashes.update(cluster_sig.trade_hashes)
+
+        # Collect per-trade signals for trades in this cluster
+        cluster_per_trade: dict[str, list[Signal]] = {}
+        for tx in cluster_sig.trade_hashes:
+            if tx in per_trade:
+                cluster_per_trade[tx] = per_trade[tx]
+
+        composites.append(_format_cluster_alert(
+            cluster_sig, cluster_trades, shared_sigs, cluster_per_trade,
+        ))
+
+    # --- Individual composites for non-clustered trades ---------------------
+    markets_with_per_trade: set[str] = set()
+
+    for tx_hash, trade_sigs in per_trade.items():
+        if tx_hash in clustered_tx_hashes:
+            continue
+        trade = tx_to_trade.get(tx_hash, trade_sigs[0].trade)
+        cid = trade.get("conditionId", "")
+        markets_with_per_trade.add(cid)
+
+        matching_batch = [
+            s for s in per_market.get(cid, [])
+            if tx_hash in s.trade_hashes
+        ]
+        all_sigs = trade_sigs + matching_batch
+        total_severity = sum(s.severity for s in all_sigs)
+        composites.append((total_severity, _format_one_composite(trade, all_sigs, total_severity)))
+
+    # Markets that ONLY have batch signals (no per-trade or cluster signals)
+    for cid, market_sigs in per_market.items():
+        has_cluster = any(s.strategy == "concentrated_one_sided" for s in market_sigs)
+        if has_cluster or cid in markets_with_per_trade:
+            continue
+        trade = market_sigs[0].trade
+        total_severity = sum(s.severity for s in market_sigs)
+        composites.append((total_severity, _format_one_composite(trade, market_sigs, total_severity)))
+
+    # Sort by severity descending
+    composites.sort(key=lambda x: -x[0])
+    return "\n".join(text for _, text in composites)
+
+
+def _format_summary(trades: list[dict], signals: list[Signal], strategy_names: str) -> str:
+    """Format a ranked summary of the most suspicious activity."""
+    # Build tx_hash -> actual trade dict lookup
+    tx_to_trade: dict[str, dict] = {}
+    for t in trades:
+        tx = t.get("transactionHash", "")
+        if tx:
+            tx_to_trade[tx] = t
+
+    # Separate per-trade signals from batch signals (same logic as composites)
+    per_trade: dict[str, list[Signal]] = defaultdict(list)
+    per_market: dict[str, list[Signal]] = defaultdict(list)
+
+    for sig in signals:
+        if sig.trade_hashes:
+            cid = sig.condition_id or sig.trade.get("conditionId", "")
+            if cid:
+                per_market[cid].append(sig)
+        else:
+            tx = sig.trade.get("transactionHash", "")
+            if tx:
+                per_trade[tx].append(sig)
+
+    # --- Cluster entries for concentrated_one_sided -------------------------
+    ranked_entries: list[tuple[float, str]] = []
+    clustered_tx_hashes: set[str] = set()
+
+    for cid, market_sigs in per_market.items():
+        cluster_sigs = [s for s in market_sigs if s.strategy == "concentrated_one_sided"]
+        if not cluster_sigs:
+            continue
+        cluster_sig = cluster_sigs[0]
+        shared_total = sum(s.severity for s in market_sigs)
+        # Find max score across cluster trades (shared + per-trade)
+        max_score = shared_total
+        for tx in cluster_sig.trade_hashes:
+            extra = sum(s.severity for s in per_trade.get(tx, []))
+            max_score = max(max_score, shared_total + extra)
+
+        total_usd = sum(
+            float(tx_to_trade[tx].get("_usd_value", 0))
+            for tx in cluster_sig.trade_hashes if tx in tx_to_trade
+        )
+        n_trades = len(cluster_sig.trade_hashes)
+        title = cluster_sig.trade.get("title", "?")
+        n_sigs = len(market_sigs)
+        ranked_entries.append((
+            max_score,
+            f"    [{max_score:.1f}]  CLUSTER: ${total_usd:,.2f} across {n_trades} trades on \"{title}\" ({n_sigs} signal{'s' if n_sigs != 1 else ''})",
+        ))
+        clustered_tx_hashes.update(cluster_sig.trade_hashes)
+
+    # --- Individual trade entries -------------------------------------------
+    markets_with_per_trade: set[str] = set()
+
+    for tx_hash, trade_sigs in per_trade.items():
+        if tx_hash in clustered_tx_hashes:
+            continue
+        trade = tx_to_trade.get(tx_hash, trade_sigs[0].trade)
+        cid = trade.get("conditionId", "")
+        markets_with_per_trade.add(cid)
+
+        matching_batch = [
+            s for s in per_market.get(cid, [])
+            if tx_hash in s.trade_hashes
+        ]
+        all_sigs = trade_sigs + matching_batch
+        score = sum(s.severity for s in all_sigs)
+        n = len(all_sigs)
+        title = trade.get("title", "?")
+        usd = float(trade.get("_usd_value", 0))
+        ranked_entries.append((
+            score,
+            f"    [{score:.1f}]  ${usd:,.2f} on \"{title}\" ({n} signal{'s' if n != 1 else ''})",
+        ))
+
+    # Batch-only markets (no cluster, no per-trade)
+    for cid, market_sigs in per_market.items():
+        has_cluster = any(s.strategy == "concentrated_one_sided" for s in market_sigs)
+        if has_cluster or cid in markets_with_per_trade:
+            continue
+        score = sum(s.severity for s in market_sigs)
+        n = len(market_sigs)
+        trade = market_sigs[0].trade
+        title = trade.get("title", "?")
+        usd = float(trade.get("_usd_value", 0))
+        ranked_entries.append((
+            score,
+            f"    [{score:.1f}]  ${usd:,.2f} on \"{title}\" ({n} signal{'s' if n != 1 else ''})",
+        ))
+
+    ranked_entries.sort(key=lambda x: -x[0])
+    unique_alerts = len(ranked_entries)
+
+    lines = [
+        "",
+        "-" * 72,
+        "  Summary",
+        f"    Trades scanned:       {len(trades)}",
+        f"    Signals raised:       {len(signals)}",
+        f"    Unique alerts:        {unique_alerts}",
+        f"    Strategies used:      {strategy_names}",
+    ]
+
+    if ranked_entries:
+        lines.append("")
+        lines.append("  Top suspicious activity (by composite score):")
+        for _, text in ranked_entries[:5]:
+            lines.append(text)
+
+    lines.append("-" * 72)
+    return "\n".join(lines)
+
+
+def run():
+    strategies = ALL_STRATEGIES
+    strategy_names = ", ".join(s.name for s in strategies)
+
+    # Ensure the database is initialized before strategies run
+    get_db()
+
+    print("=" * 72)
+    print("  Polymarket Unusual Activity Scanner (single run)")
+    print("=" * 72)
+    print(f"  Bet threshold:  ${BET_THRESHOLD_USD:,}")
+    print(f"  Trade window:   last {TRADE_WINDOW_SECONDS}s")
+    print(f"  Strategies:     {strategy_names}")
+    print()
+
+    trades = fetch_recent_trades()
+
+    if not trades:
+        print("\n[*] No trades above threshold found. Done.")
+        return
+
+    print(f"\n[*] Running {len(strategies)} strategy(ies) on {len(trades)} trade(s)...")
+    all_signals: list[Signal] = []
+
+    # -- per-trade analysis ----------------------------------------------------
+    for i, trade in enumerate(trades, 1):
+        usd = trade.get("_usd_value", 0)
+        title = trade.get("title", "?")
+        print(f"\n  [{i}/{len(trades)}] ${usd:,.2f} on \"{title}\"")
+
+        for strategy in strategies:
+            signal = strategy.check_trade(trade)
+            if signal:
+                all_signals.append(signal)
+
+    # -- batch analysis --------------------------------------------------------
+    print(f"\n[*] Running batch analysis across all {len(trades)} trade(s)...")
+    for strategy in strategies:
+        batch_signals = strategy.analyze_all(trades)
+        all_signals.extend(batch_signals)
+
+    # -- composite output ------------------------------------------------------
+    print(f"\n[*] Compositing {len(all_signals)} signal(s) into deduplicated alerts...")
+    print(_format_composite_alerts(all_signals, trades))
+    print(_format_summary(trades, all_signals, strategy_names))
+    print("Done.")
+
+
+if __name__ == "__main__":
+    run()
