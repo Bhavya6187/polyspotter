@@ -48,6 +48,7 @@ from db import (
     record_price_observation,
     record_timing_flag,
     record_flagged_wallet,
+    record_flagged_trade_event,
     record_volume_snapshot,
     save_funder,
     get_cached_funder,
@@ -432,10 +433,16 @@ def backfill_flagged_wallets(trades: list[dict], skip_profiles: bool) -> None:
                 if age_at_trade <= 30:
                     is_new = True
 
-            if is_new and wallet not in existing:
-                record_flagged_wallet(wallet, usd)
-                existing.add(wallet)
-                flagged += 1
+            if is_new:
+                # Record per-trade dedup entry so live runs don't
+                # double-count this trade when incrementing flagged_wallets
+                cid = t.get("conditionId", "")
+                record_flagged_trade_event(wallet, cid, trade_ts, usd)
+
+                if wallet not in existing:
+                    record_flagged_wallet(wallet, usd)
+                    existing.add(wallet)
+                    flagged += 1
 
     print(f"  Flagged {flagged} wallets\n")
 
@@ -509,7 +516,9 @@ def backfill_wallet_activity(trades: list[dict]) -> None:
 
     This enriches tracked_bets, wallet_event_history, price_history, and
     timing_flags with trades that fell below the size threshold or outside
-    the time window.
+    the time window. Timing flags are checked against _market_cache
+    (populated by step 4) — only markets already cached get timing checks,
+    avoiding extra API calls.
     """
     print("[7/11] Backfilling wallet activity (full history per wallet)...")
 
@@ -536,9 +545,16 @@ def backfill_wallet_activity(trades: list[dict]) -> None:
     ).fetchall():
         existing_prices.add((r[0], r[1], r[2]))
 
+    existing_timing = set()
+    for r in conn.execute(
+        "SELECT wallet, condition_id, trade_timestamp FROM timing_flags"
+    ).fetchall():
+        existing_timing.add((r[0], r[1], r[2]))
+
     bets_added = 0
     events_added = 0
     prices_added = 0
+    timing_added = 0
     activity_total = 0
 
     for i, wallet in enumerate(wallets):
@@ -608,6 +624,26 @@ def backfill_wallet_activity(trades: list[dict]) -> None:
                     existing_prices.add((cid, outcome, ts))
                     prices_added += 1
 
+                # timing_flags — use market cache from step 4 (no extra API calls)
+                if (wallet and cid and cid in _market_cache
+                        and (wallet, cid, ts) not in existing_timing):
+                    m = _market_cache[cid]
+                    end_str = m.get("endDate")
+                    if end_str:
+                        try:
+                            end_dt = datetime.fromisoformat(
+                                end_str.replace("Z", "+00:00"))
+                            trade_dt = datetime.fromtimestamp(
+                                ts, tz=timezone.utc)
+                            minutes_to = (end_dt - trade_dt).total_seconds() / 60
+                            if 0 <= minutes_to <= 60:
+                                record_timing_flag(
+                                    wallet, cid, minutes_to, usdc_size, ts)
+                                existing_timing.add((wallet, cid, ts))
+                                timing_added += 1
+                        except ValueError:
+                            pass
+
             if len(page) < 500:
                 break
             offset += 500
@@ -615,7 +651,8 @@ def backfill_wallet_activity(trades: list[dict]) -> None:
     print(f"  Total activity records processed: {activity_total}")
     print(f"  tracked_bets added:        {bets_added}")
     print(f"  wallet_event_history added: {events_added}")
-    print(f"  price_history added:        {prices_added}\n")
+    print(f"  price_history added:        {prices_added}")
+    print(f"  timing_flags added:        {timing_added}\n")
 
 
 # ---------------------------------------------------------------------------
