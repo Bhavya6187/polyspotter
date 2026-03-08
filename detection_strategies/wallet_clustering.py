@@ -28,6 +28,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from detection_strategies import DetectionStrategy, Signal
+import config
 from db import (
     get_cached_funder,
     get_known_sybil_funders,
@@ -65,7 +66,8 @@ def _get_first_funder(address: str) -> str | None:
     if db_funder is not None:
         short = f"{address[:8]}...{address[-6:]}"
         short_f = f"{db_funder[:8]}...{db_funder[-6:]}" if db_funder else "?"
-        print(f"    [sybil] {short} funded by {short_f} (from DB)")
+        if config.VERBOSE:
+            print(f"    [sybil] {short} funded by {short_f} (from DB)")
         _funder_cache[address] = db_funder
         return db_funder
 
@@ -101,7 +103,8 @@ def _get_first_funder(address: str) -> str | None:
             save_funder(address, funder)
             short = f"{address[:8]}...{address[-6:]}"
             short_f = f"{funder[:8]}...{funder[-6:]}" if funder else "?"
-            print(f"    [sybil] {short} funded by {short_f}")
+            if config.VERBOSE:
+                print(f"    [sybil] {short} funded by {short_f}")
             return funder
     except requests.RequestException as e:
         print(f"[WARN] Etherscan lookup failed for {address}: {e}",

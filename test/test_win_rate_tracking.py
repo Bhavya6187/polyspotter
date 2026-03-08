@@ -125,8 +125,8 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
                 position_type TEXT, recorded_at TEXT
             )
         """)
-        # Pre-populate with winning resolved bets
-        for i in range(4):
+        # Pre-populate with winning resolved bets (>= MIN_RESOLVED_BETS)
+        for i in range(6):
             conn.execute("""
                 INSERT INTO tracked_bets
                 (wallet, condition_id, outcome, side, usd_value, trade_timestamp, recorded_at, resolved, won)

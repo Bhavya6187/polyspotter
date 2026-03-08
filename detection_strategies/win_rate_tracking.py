@@ -34,13 +34,16 @@ from db import (
 # ---------------------------------------------------------------------------
 GAMMA_API = "https://gamma-api.polymarket.com"
 DATA_API = "https://data-api.polymarket.com"
-WIN_RATE_ALERT_THRESHOLD = 0.70   # flag if win rate >= 70%
-MIN_RESOLVED_BETS = 3             # need at least N resolved bets to judge
+WIN_RATE_ALERT_THRESHOLD = 0.75   # flag if win rate >= 75%
+MIN_RESOLVED_BETS = 5             # need at least N resolved bets to judge
 LOOKUP_DELAY = 0.15
 PNL_FETCH_DELAY = 0.1
 
 # Wallets whose P&L has already been fetched this run
 _pnl_fetched: set[str] = set()
+
+# Wallets that have already emitted a win_rate signal this run (one per wallet)
+_win_rate_signaled: set[str] = set()
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +158,10 @@ class WinRateTrackingStrategy(DetectionStrategy):
         record_tracked_bet(trade)
         _fetch_wallet_pnl(wallet)
 
+        # Only emit one win_rate signal per wallet per run
+        if wallet.lower() in _win_rate_signaled:
+            return None
+
         stats = get_wallet_stats(wallet)
         pnl = get_wallet_pnl_summary(wallet)
 
@@ -177,7 +184,7 @@ class WinRateTrackingStrategy(DetectionStrategy):
         if win_rate is None or win_rate < WIN_RATE_ALERT_THRESHOLD:
             return None
 
-        severity = 4.0 if win_rate >= 0.90 else 3.0
+        severity = 3.0 if win_rate >= 0.90 else 2.0
 
         headline = f"{win_rate:.0%} win rate ({wins}/{resolved} {source})"
 
@@ -188,6 +195,7 @@ class WinRateTrackingStrategy(DetectionStrategy):
                 severity = min(6.0, severity + 1.0)
                 headline += f", ${pnl['total_pnl']:+,.0f} P&L ({profit_ratio:.0%} ROI)"
 
+        _win_rate_signaled.add(wallet.lower())
         return Signal(
             strategy=self.name,
             severity=severity,

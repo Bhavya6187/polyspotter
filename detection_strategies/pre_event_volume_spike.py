@@ -25,8 +25,9 @@ from gamma_cache import get_market_by_condition
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-SPIKE_THRESHOLD_X = 5.0  # flag if window volume >= 5x the normalised average
+SPIKE_THRESHOLD_X = 10.0  # flag if window volume >= 10x the normalised average
 MIN_SNAPSHOTS_FOR_HISTORICAL = 3  # need at least N snapshots to use historical baseline
+MIN_WINDOW_VOLUME_USD = 10000  # ignore spikes below this absolute volume
 
 
 # ---------------------------------------------------------------------------
@@ -36,8 +37,8 @@ class PreEventVolumeSpikeStrategy(DetectionStrategy):
     name = "pre_event_volume_spike"
     description = (
         "Flags markets where trade volume in the scan window is "
-        f">= {SPIKE_THRESHOLD_X}x the normalised average (using historical "
-        "baselines when available)."
+        f">= {SPIKE_THRESHOLD_X}x the normalised average and >= "
+        f"${MIN_WINDOW_VOLUME_USD:,} (using historical baselines when available)."
     )
     window_seconds = 300
 
@@ -102,7 +103,7 @@ class PreEventVolumeSpikeStrategy(DetectionStrategy):
 
             ratio = window_vol / normalised_avg
 
-            if ratio >= SPIKE_THRESHOLD_X:
+            if ratio >= SPIKE_THRESHOLD_X and window_vol >= MIN_WINDOW_VOLUME_USD:
                 sample = trades_by_market[cid][0]
                 n_trades = len(trades_by_market[cid])
 

@@ -17,6 +17,7 @@ from datetime import datetime, timezone, timedelta
 import requests
 
 from detection_strategies import DetectionStrategy, Signal
+import config
 from db import (
     get_flagged_wallet_stats,
     get_wallet_pnl_summary,
@@ -45,10 +46,12 @@ def get_wallet_profile(address: str) -> tuple[datetime | None, dict]:
     Results are cached."""
     short = f"{address[:8]}...{address[-6:]}"
     if address in _wallet_cache:
-        print(f"    [cache hit] {short}")
+        if config.VERBOSE:
+            print(f"    [cache hit] {short}")
         return _wallet_cache[address]
 
-    print(f"    [lookup] Fetching profile for {short} ...")
+    if config.VERBOSE:
+        print(f"    [lookup] Fetching profile for {short} ...")
     time.sleep(PROFILE_LOOKUP_DELAY)
 
     try:
@@ -78,7 +81,8 @@ def get_wallet_profile(address: str) -> tuple[datetime | None, dict]:
 
     pseudonym = profile.get("pseudonym", "anonymous")
     age = wallet_age_str(created_at)
-    print(f"    [lookup] {short} — \"{pseudonym}\", age: {age}")
+    if config.VERBOSE:
+        print(f"    [lookup] {short} — \"{pseudonym}\", age: {age}")
     _wallet_cache[address] = (created_at, profile)
     return (created_at, profile)
 
@@ -225,8 +229,9 @@ class NewWalletLargeBetStrategy(DetectionStrategy):
             # previously flagged — could be a wallet that aged out
             prior_stats = get_flagged_wallet_stats(wallet)
             if prior_stats and prior_stats["times_flagged"] >= 2:
-                print(f"    [note] Wallet is {age} old but was previously flagged "
-                      f"{prior_stats['times_flagged']} times")
+                if config.VERBOSE:
+                    print(f"    [note] Wallet is {age} old but was previously flagged "
+                          f"{prior_stats['times_flagged']} times")
                 return Signal(
                     strategy=self.name,
                     severity=1.0,
@@ -238,5 +243,6 @@ class NewWalletLargeBetStrategy(DetectionStrategy):
                     condition_id=trade.get("conditionId", ""),
                 )
 
-            print(f"    [ok] Wallet is {age} old — not flagged")
+            if config.VERBOSE:
+                print(f"    [ok] Wallet is {age} old — not flagged")
             return None
