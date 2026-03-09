@@ -252,9 +252,11 @@ def _format_composite_alerts(signals: list[Signal], trades: list[dict]) -> str:
         ))
 
     # --- Individual composites for non-clustered trades ---------------------
-    # Group by (wallet, conditionId) to consolidate same-wallet-same-market
+    # Group by (wallet, eventSlug) to consolidate same-wallet-same-event
+    # This merges trades across related markets (e.g., spread lines for the
+    # same game) into a single alert instead of fragmenting them.
     markets_with_per_trade: set[str] = set()
-    wallet_market_groups: dict[tuple[str, str], list[tuple[str, dict, list[Signal]]]] = defaultdict(list)
+    wallet_event_groups: dict[tuple[str, str], list[tuple[str, dict, list[Signal]]]] = defaultdict(list)
 
     for tx_hash, trade_sigs in per_trade.items():
         if tx_hash in clustered_tx_hashes:
@@ -262,6 +264,7 @@ def _format_composite_alerts(signals: list[Signal], trades: list[dict]) -> str:
         trade = tx_to_trade.get(tx_hash, trade_sigs[0].trade)
         cid = trade.get("conditionId", "")
         wallet = trade.get("proxyWallet", "")
+        event_slug = trade.get("eventSlug", cid)  # fall back to cid
         markets_with_per_trade.add(cid)
 
         matching_batch = [
@@ -269,9 +272,9 @@ def _format_composite_alerts(signals: list[Signal], trades: list[dict]) -> str:
             if tx_hash in s.trade_hashes
         ]
         all_sigs = trade_sigs + matching_batch
-        wallet_market_groups[(wallet, cid)].append((tx_hash, trade, all_sigs))
+        wallet_event_groups[(wallet, event_slug)].append((tx_hash, trade, all_sigs))
 
-    for (wallet, cid), entries in wallet_market_groups.items():
+    for (wallet, _evt), entries in wallet_event_groups.items():
         # Deduplicate signals: keep highest severity per (strategy, headline)
         seen_sigs: dict[tuple[str, str], Signal] = {}
         for _, _, sigs in entries:
@@ -353,9 +356,9 @@ def _format_summary(trades: list[dict], signals: list[Signal], strategy_names: s
         ))
         clustered_tx_hashes.update(cluster_sig.trade_hashes)
 
-    # --- Individual trade entries (grouped by wallet + market) ---------------
+    # --- Individual trade entries (grouped by wallet + event) ----------------
     markets_with_per_trade: set[str] = set()
-    wallet_market_groups: dict[tuple[str, str], list[tuple[str, dict, list[Signal]]]] = defaultdict(list)
+    wallet_event_groups: dict[tuple[str, str], list[tuple[str, dict, list[Signal]]]] = defaultdict(list)
 
     for tx_hash, trade_sigs in per_trade.items():
         if tx_hash in clustered_tx_hashes:
@@ -363,6 +366,7 @@ def _format_summary(trades: list[dict], signals: list[Signal], strategy_names: s
         trade = tx_to_trade.get(tx_hash, trade_sigs[0].trade)
         cid = trade.get("conditionId", "")
         wallet = trade.get("proxyWallet", "")
+        event_slug = trade.get("eventSlug", cid)
         markets_with_per_trade.add(cid)
 
         matching_batch = [
@@ -370,10 +374,10 @@ def _format_summary(trades: list[dict], signals: list[Signal], strategy_names: s
             if tx_hash in s.trade_hashes
         ]
         all_sigs = trade_sigs + matching_batch
-        wallet_market_groups[(wallet, cid)].append((tx_hash, trade, all_sigs))
+        wallet_event_groups[(wallet, event_slug)].append((tx_hash, trade, all_sigs))
 
     individual_entries: list[tuple[float, str]] = []
-    for (wallet, cid), entries in wallet_market_groups.items():
+    for (wallet, _evt), entries in wallet_event_groups.items():
         seen_sigs: dict[tuple[str, str], Signal] = {}
         for _, _, sigs in entries:
             for s in sigs:

@@ -36,6 +36,8 @@ GAMMA_API = "https://gamma-api.polymarket.com"
 DATA_API = "https://data-api.polymarket.com"
 WIN_RATE_ALERT_THRESHOLD = 0.75   # flag if win rate >= 75%
 MIN_RESOLVED_BETS = 5             # need at least N resolved bets to judge
+# Minimum edge (actual win% - implied win%) to consider suspicious
+MIN_EDGE_THRESHOLD = 0.15
 LOOKUP_DELAY = 0.15
 PNL_FETCH_DELAY = 0.1
 
@@ -184,9 +186,41 @@ class WinRateTrackingStrategy(DetectionStrategy):
         if win_rate is None or win_rate < WIN_RATE_ALERT_THRESHOLD:
             return None
 
-        severity = 3.0 if win_rate >= 0.90 else 2.0
+        # --- Odds-adjusted edge calculation ---
+        # avg_closed_price approximates implied win probability.
+        # A 100% win rate at avg_price=0.92 is unremarkable (expected 92%).
+        # A 100% win rate at avg_price=0.40 is extraordinary (edge = 60%).
+        avg_price = pnl.get("avg_win_price", 0) or pnl.get("avg_closed_price", 0)
+        implied_win_rate = avg_price if 0 < avg_price < 1 else 0
 
-        headline = f"{win_rate:.0%} win rate ({wins}/{resolved} {source})"
+        if implied_win_rate > 0:
+            edge = win_rate - implied_win_rate
+        else:
+            # No price data — fall back to raw win rate but discount severity
+            edge = win_rate - 0.5
+
+        # Skip if edge is too small (winning on heavy favorites isn't suspicious)
+        if edge < MIN_EDGE_THRESHOLD:
+            return None
+
+        # Severity scales with edge magnitude
+        if edge >= 0.50:
+            severity = 4.0     # extraordinary edge (50%+ above implied)
+        elif edge >= 0.30:
+            severity = 3.0     # strong edge
+        elif edge >= 0.15:
+            severity = 2.0     # moderate edge
+        else:
+            severity = 1.0
+
+        if implied_win_rate > 0:
+            headline = (
+                f"{win_rate:.0%} win rate ({wins}/{resolved} {source}) "
+                f"at avg odds {implied_win_rate:.0%} "
+                f"(+{edge:.0%} edge)"
+            )
+        else:
+            headline = f"{win_rate:.0%} win rate ({wins}/{resolved} {source})"
 
         # Boost severity if P&L data confirms profitability
         if pnl["closed_positions"] >= MIN_RESOLVED_BETS and pnl["total_pnl"] > 0:

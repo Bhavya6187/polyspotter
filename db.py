@@ -703,7 +703,12 @@ def record_wallet_pnl(wallet: str, position: dict, position_type: str) -> None:
 
 
 def get_wallet_pnl_summary(wallet: str) -> dict:
-    """Get aggregate P&L summary for a wallet."""
+    """Get aggregate P&L summary for a wallet, including odds-adjusted stats.
+
+    Returns avg_buy_price for closed positions so callers can compare actual
+    win rate against the implied probability (avg price paid).  Winning 10/10
+    bets bought at 0.90 is unremarkable; winning 10/10 at 0.40 is extraordinary.
+    """
     conn = get_db()
     row = conn.execute(
         """SELECT
@@ -712,7 +717,10 @@ def get_wallet_pnl_summary(wallet: str) -> dict:
                SUM(CASE WHEN position_type='closed' AND realized_pnl > 0 THEN 1 ELSE 0 END) as wins,
                SUM(CASE WHEN position_type='closed' AND realized_pnl <= 0 THEN 1 ELSE 0 END) as losses,
                SUM(realized_pnl) as total_pnl,
-               SUM(total_bought) as total_invested
+               SUM(total_bought) as total_invested,
+               AVG(CASE WHEN position_type='closed' THEN avg_price END) as avg_closed_price,
+               AVG(CASE WHEN position_type='closed' AND realized_pnl > 0 THEN avg_price END) as avg_win_price,
+               AVG(CASE WHEN position_type='closed' AND realized_pnl <= 0 THEN avg_price END) as avg_loss_price
            FROM wallet_pnl WHERE wallet = ?""",
         (wallet.lower(),),
     ).fetchone()
@@ -723,6 +731,9 @@ def get_wallet_pnl_summary(wallet: str) -> dict:
         "losses": row[3] or 0,
         "total_pnl": row[4] or 0.0,
         "total_invested": row[5] or 0.0,
+        "avg_closed_price": row[6] or 0.0,
+        "avg_win_price": row[7] or 0.0,
+        "avg_loss_price": row[8] or 0.0,
     }
 
 

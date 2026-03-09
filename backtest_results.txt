@@ -1,0 +1,2843 @@
+========================================================================
+  BACKTEST: US Strikes Iran Event
+  Window: 2026-02-26 00:00 UTC to 2026-03-01 00:00 UTC
+  Threshold: $1,000
+========================================================================
+
+[1/3] Fetching historical trades...
+
+  Fetching trades for: US strikes Iran by February 28, 2026?
+    condition_id: 0x3488f31e6449f9803f99a8b5dd232c7ad883637f1c86e6953305a2ef19c77f20
+    Page 1: 1000 trades, 1000 in window
+    Page 2: 1000 trades, 1000 in window
+    Page 3: 1000 trades, 1000 in window
+    Page 4: 1000 trades, 1000 in window
+    Total in window: 4000 trades
+
+  Fetching trades for: US strikes Iran by March 31, 2026?
+    condition_id: 0x4b02efe53e631ada84681303fd66d79ad615f3d2b6a28b4633d43d935f89af58
+    Page 1: 1000 trades, 1000 in window
+    Page 2: 1000 trades, 1000 in window
+    Page 3: 1000 trades, 1000 in window
+    Page 4: 1000 trades, 1000 in window
+    Total in window: 4000 trades
+
+  Fetching trades for: US strikes Iran by June 30, 2026?
+    condition_id: 0x797d586ad45522306490b0cc9b2f21bdf957f3843476fae99f3bcc2cec83b74b
+    Page 1: 1000 trades, 1000 in window
+    Page 2: 1000 trades, 1000 in window
+    Page 3: 1000 trades, 1000 in window
+    Page 4: 1000 trades, 412 in window
+    Total in window: 3412 trades
+
+[2/3] Trade overview...
+
+========================================================================
+  TRADE OVERVIEW: us-strikes-iran-by
+========================================================================
+  Window:         2026-02-26 to 2026-03-01
+  Total trades:   11412
+  Total volume:   $5,956,826.38
+  Unique wallets: 5527
+
+  By market:
+    US strikes Iran by February 28, 2026?
+      4000 trades, $3,508,830 volume
+      YES buys: 829 ($2,001,272)
+      NO buys:  1171 ($33,973)
+    US strikes Iran by March 31, 2026?
+      4000 trades, $1,676,302 volume
+      YES buys: 1295 ($721,357)
+      NO buys:  663 ($105,531)
+    US strikes Iran by June 30, 2026?
+      3412 trades, $771,694 volume
+      YES buys: 1458 ($291,847)
+      NO buys:  585 ($59,111)
+
+  By day:
+    2026-02-26: 1202 trades, $177,521, 692 wallets, 13 >= $3k
+    2026-02-27: 3660 trades, $1,084,814, 1574 wallets, 68 >= $3k
+    2026-02-28: 6550 trades, $4,694,491, 3801 wallets, 253 >= $3k
+
+  Top 20 largest trades:
+     1. $477,238.36  Yes/BUY  02-28 08:20  0xe90bec...7d5da2  US strikes Iran by February 28, 2026?
+     2. $222,033.72  Yes/BUY  02-28 08:58  0xadc2ef...7cd1c9  US strikes Iran by February 28, 2026?
+     3. $203,839.62  Yes/SELL  02-28 07:54  0x1abe13...cb6497  US strikes Iran by February 28, 2026?
+     4. $106,031.32  Yes/SELL  02-28 07:55  0x1abe13...cb6497  US strikes Iran by March 31, 2026?
+     5. $ 89,203.32  Yes/SELL  02-28 08:07  0x8f42ae...74b88f  US strikes Iran by February 28, 2026?
+     6. $ 76,002.11  Yes/BUY  02-28 07:45  0xf67f72...4a31cf  US strikes Iran by February 28, 2026?
+     7. $ 62,336.87  Yes/SELL  02-27 15:52  0x35417b...d7462e  US strikes Iran by June 30, 2026?
+     8. $ 60,778.33  Yes/BUY  02-28 07:33  0x7d0a77...b38c6c  US strikes Iran by February 28, 2026?
+     9. $ 57,438.42  Yes/SELL  02-28 07:18  0xa2a2bc...26b04d  US strikes Iran by February 28, 2026?
+    10. $ 53,495.33  Yes/BUY  02-28 07:34  0xbacd00...b0ab35  US strikes Iran by February 28, 2026?
+    11. $ 53,371.02  Yes/BUY  02-28 07:55  0x69aa9f...5e8847  US strikes Iran by February 28, 2026?
+    12. $ 52,843.95  Yes/BUY  02-28 07:18  0x92a629...118b84  US strikes Iran by February 28, 2026?
+    13. $ 51,814.64  Yes/SELL  02-28 07:30  0xa69d0c...0d509b  US strikes Iran by March 31, 2026?
+    14. $ 51,451.26  Yes/SELL  02-28 07:25  0x55dbfa...fc2031  US strikes Iran by February 28, 2026?
+    15. $ 49,225.86  Yes/BUY  02-28 07:34  0x2616d3...798d3c  US strikes Iran by February 28, 2026?
+    16. $ 44,955.00  Yes/BUY  02-28 07:35  0x44ef50...32ff3d  US strikes Iran by March 31, 2026?
+    17. $ 40,282.29  Yes/BUY  02-28 07:34  0x06c0d0...20bc23  US strikes Iran by March 31, 2026?
+    18. $ 39,920.00  Yes/SELL  02-28 08:09  0x4bbe10...562cf3  US strikes Iran by February 28, 2026?
+    19. $ 39,296.99  Yes/SELL  02-28 09:10  0x52b744...b54597  US strikes Iran by February 28, 2026?
+    20. $ 38,811.57  Yes/SELL  02-28 08:06  0xbc43a2...911540  US strikes Iran by March 31, 2026?
+========================================================================
+
+[3/3] Running detection strategies...
+
+[*] Running strategies on 693 trades >= $1,000...
+  Processing trade 1/693...
+  Processing trade 50/693...
+  Processing trade 100/693...
+  Processing trade 150/693...
+  Processing trade 200/693...
+  Processing trade 250/693...
+  Processing trade 300/693...
+  Processing trade 350/693...
+[WARN] Profile lookup failed for 0xf4539ba8595cf26b372630215a545297f0a02547: ('Connection aborted.', ConnectionResetError(54, 'Connection reset by peer'))
+  Processing trade 400/693...
+  Processing trade 450/693...
+  Processing trade 500/693...
+  Processing trade 550/693...
+  Processing trade 600/693...
+  Processing trade 650/693...
+
+[*] Running batch strategies across 693 trades...
+  [concentrated_one_sided] Found 10 suspicious cluster(s)
+  [correlated_cross_market] Found 45 correlated position(s)
+
+========================================================================
+  DETECTION RESULTS
+========================================================================
+  Total signals: 476
+
+  By strategy:
+    win_rate_tracking: 266 signals (max severity: 5.0)
+    new_wallet_large_bet: 155 signals (max severity: 7.0)
+    correlated_cross_market: 45 signals (max severity: 2.5)
+    concentrated_one_sided: 10 signals (max severity: 3.5)
+
+  All signals (sorted by severity):
+
+    [7.0] new_wallet_large_bet
+         New wallet (unknown (no profile)) — REPEAT x4 ($11,804 total flagged), 12 positions already, $+44,815 P&L
+         $1,783.71 | 02-27 11:21 | 0x8150e3...18d03f
+         US strikes Iran by March 31, 2026?
+
+    [7.0] new_wallet_large_bet
+         New wallet (unknown (no profile)) — REPEAT x5 ($13,782 total flagged), 12 positions already, $+44,815 P&L
+         $1,978.47 | 02-27 11:22 | 0x8150e3...18d03f
+         US strikes Iran by March 31, 2026?
+
+    [6.5] new_wallet_large_bet
+         New wallet (unknown (no profile)) — REPEAT x3 ($10,020 total flagged), 12 positions already, $+44,815 P&L
+         $2,682.14 | 02-27 11:20 | 0x8150e3...18d03f
+         US strikes Iran by March 31, 2026?
+
+    [6.5] new_wallet_large_bet
+         New wallet (unknown (no profile)) — REPEAT x3 ($8,149 total flagged), 110 positions already, $+599,079 P&L
+         $4,446.05 | 02-28 07:33 | 0x4e2560...5cd7a7
+         US strikes Iran by March 31, 2026?
+
+    [6.0] new_wallet_large_bet
+         New wallet (unknown (no profile)) — REPEAT x2 ($7,338 total flagged), 12 positions already, $+44,815 P&L
+         $3,639.87 | 02-27 11:20 | 0x8150e3...18d03f
+         US strikes Iran by March 31, 2026?
+
+    [6.0] new_wallet_large_bet
+         New wallet (11d 13h) — REPEAT x4 ($14,130 total flagged), 14 positions already, $+1,304 P&L
+         $4,691.64 | 02-27 15:09 | 0x53c2c7...f86758
+         US strikes Iran by June 30, 2026?
+
+    [6.0] new_wallet_large_bet
+         New wallet (8d 4h) — REPEAT x4 ($11,825 total flagged), 9 positions already, $+7,115 P&L
+         $2,133.00 | 02-28 01:04 | 0xae4c91...a9d114
+         US strikes Iran by June 30, 2026?
+
+    [6.0] new_wallet_large_bet
+         New wallet (8d 4h) — REPEAT x5 ($19,411 total flagged), 9 positions already, $+7,115 P&L
+         $7,585.66 | 02-28 01:07 | 0xae4c91...a9d114
+         US strikes Iran by June 30, 2026?
+
+    [6.0] new_wallet_large_bet
+         New wallet (8d 4h) — REPEAT x6 ($21,351 total flagged), 9 positions already, $+7,115 P&L
+         $1,940.41 | 02-28 01:07 | 0xae4c91...a9d114
+         US strikes Iran by June 30, 2026?
+
+    [6.0] new_wallet_large_bet
+         New wallet (unknown (no profile)) — REPEAT x2 ($7,809 total flagged), 16 positions already, $+290 P&L
+         $5,590.22 | 02-28 06:41 | 0xc4e52e...19fb30
+         US strikes Iran by March 31, 2026?
+
+    [6.0] new_wallet_large_bet
+         New wallet (unknown (no profile)) — REPEAT x2 ($3,703 total flagged), 110 positions already, $+599,079 P&L
+         $2,359.96 | 02-28 07:18 | 0x4e2560...5cd7a7
+         US strikes Iran by June 30, 2026?
+
+    [6.0] new_wallet_large_bet
+         New wallet (8d 9h) — REPEAT x4 ($28,900 total flagged), 13 positions already, $+521 P&L
+         $4,363.92 | 02-28 07:41 | 0x28b340...a730c8
+         US strikes Iran by February 28, 202
+
+    [6.0] new_wallet_large_bet
+         New wallet (8d 9h) — REPEAT x5 ($33,889 total flagged), 13 positions already, $+521 P&L
+         $4,989.00 | 02-28 07:42 | 0x28b340...a730c8
+         US strikes Iran by February 28, 202
+
+    [6.0] new_wallet_large_bet
+         New wallet (8d 9h) — REPEAT x6 ($43,869 total flagged), 13 positions already, $+521 P&L
+         $9,980.00 | 02-28 07:43 | 0x28b340...a730c8
+         US strikes Iran by February 28, 202
+
+    [6.0] new_wallet_large_bet
+         New wallet (8d 9h) — REPEAT x7 ($63,829 total flagged), 13 positions already, $+521 P&L
+         $19,960.00 | 02-28 07:45 | 0x28b340...a730c8
+         US strikes Iran by February 28, 202
+
+    [6.0] new_wallet_large_bet
+         New wallet (unknown (no profile)) — REPEAT x2 ($309,871 total flagged), 55 positions already, $+476,753 P&L
+         $106,031.32 | 02-28 07:55 | 0x1abe13...cb6497
+         US strikes Iran by March 31, 2026?
+
+    [6.0] new_wallet_large_bet
+         New wallet (unknown (no profile)) — REPEAT x2 ($29,902 total flagged), 13 positions already, $+24,963 P&L
+         $19,126.82 | 02-28 09:10 | 0x20feb9...ebf411
+         US strikes Iran by June 30, 2026?
+
+    [5.5] new_wallet_large_bet
+         New wallet (unknown (no profile)) — REPEAT x2 ($2,474 total flagged), 11 positions already
+         $1,224.00 | 02-27 13:47 | 0x7420b5...1426e2
+         US strikes Iran by March 31, 2026?
+
+    [5.5] new_wallet_large_bet
+         New wallet (11d 13h) — REPEAT x3 ($9,439 total flagged), 14 positions already, $+1,304 P&L
+         $4,158.24 | 02-27 15:06 | 0x53c2c7...f86758
+         US strikes Iran by June 30, 2026?
+
+    [5.5] new_wallet_large_bet
+         New wallet (8d 4h) — REPEAT x3 ($9,692 total flagged), 9 positions already, $+7,115 P&L
+         $2,184.11 | 02-28 01:04 | 0xae4c91...a9d114
+         US strikes Iran by June 30, 2026?
+
+    [5.5] new_wallet_large_bet
+         New wallet (8d 9h) — REPEAT x3 ($24,536 total flagged), 13 positions already, $+521 P&L
+         $11,325.13 | 02-28 07:40 | 0x28b340...a730c8
+         US strikes Iran by February 28, 202
+
+    [5.0] new_wallet_large_bet
+         New wallet (11d 13h) — REPEAT x2 ($5,280 total flagged), 14 positions already, $+1,304 P&L
+         $2,349.33 | 02-26 18:53 | 0x53c2c7...f86758
+         US strikes Iran by June 30, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (unknown (no profile)), 12 positions already, $+44,815 P&L
+         $3,697.82 | 02-27 11:19 | 0x8150e3...18d03f
+         US strikes Iran by March 31, 2026?
+
+    [5.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 32% (+68% edge), $+497,202 P&L (72% ROI)
+         $2,419.38 | 02-27 12:03 | 0x514550...b71f46
+         US strikes Iran by March 31, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (6d 15h), 22 positions already, $+6,258 P&L
+         $2,000.00 | 02-27 13:48 | 0xd74293...5379e4
+         US strikes Iran by June 30, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (unknown (no profile)), 16 positions already, $+290 P&L
+         $2,218.84 | 02-27 14:26 | 0xc4e52e...19fb30
+         US strikes Iran by March 31, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (unknown (no profile)), 110 positions already, $+599,079 P&L
+         $1,343.35 | 02-27 15:11 | 0x4e2560...5cd7a7
+         US strikes Iran by March 31, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (8d 4h) — REPEAT x2 ($7,508 total flagged), 9 positions already, $+7,115 P&L
+         $2,735.91 | 02-28 01:01 | 0xae4c91...a9d114
+         US strikes Iran by June 30, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (19d 6h) — REPEAT x4 ($20,641 total flagged), 6 positions already, $+8,124 P&L
+         $1,869.51 | 02-28 02:57 | 0xdd9d65...1429bf
+         US strikes Iran by June 30, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (26d 10h) — REPEAT x4 ($13,548 total flagged), 58 positions already, $+98,703 P&L
+         $3,120.00 | 02-28 03:23 | 0x3a8aa3...be7699
+         US strikes Iran by June 30, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (26d 10h) — REPEAT x5 ($15,498 total flagged), 58 positions already, $+98,703 P&L
+         $1,950.00 | 02-28 03:24 | 0x3a8aa3...be7699
+         US strikes Iran by June 30, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (26d 10h) — REPEAT x6 ($17,450 total flagged), 58 positions already, $+98,703 P&L
+         $1,952.34 | 02-28 03:25 | 0x3a8aa3...be7699
+         US strikes Iran by June 30, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (26d 10h) — REPEAT x7 ($21,116 total flagged), 58 positions already, $+98,703 P&L
+         $3,666.00 | 02-28 03:33 | 0x3a8aa3...be7699
+         US strikes Iran by June 30, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (26d 10h) — REPEAT x8 ($24,236 total flagged), 58 positions already, $+98,703 P&L
+         $3,120.00 | 02-28 03:35 | 0x3a8aa3...be7699
+         US strikes Iran by June 30, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (26d 10h) — REPEAT x9 ($25,796 total flagged), 58 positions already, $+98,703 P&L
+         $1,560.00 | 02-28 03:42 | 0x3a8aa3...be7699
+         US strikes Iran by June 30, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (26d 10h) — REPEAT x10 ($27,746 total flagged), 58 positions already, $+98,703 P&L
+         $1,950.00 | 02-28 03:43 | 0x3a8aa3...be7699
+         US strikes Iran by June 30, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (26d 10h) — REPEAT x11 ($32,033 total flagged), 58 positions already, $+98,703 P&L
+         $4,286.98 | 02-28 03:56 | 0x3a8aa3...be7699
+         US strikes Iran by June 30, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (26d 10h) — REPEAT x12 ($33,986 total flagged), 58 positions already, $+98,703 P&L
+         $1,952.96 | 02-28 03:57 | 0x3a8aa3...be7699
+         US strikes Iran by June 30, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (26d 10h) — REPEAT x13 ($37,886 total flagged), 58 positions already, $+98,703 P&L
+         $3,900.00 | 02-28 03:58 | 0x3a8aa3...be7699
+         US strikes Iran by June 30, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (26d 10h) — REPEAT x14 ($39,836 total flagged), 58 positions already, $+98,703 P&L
+         $1,950.00 | 02-28 04:00 | 0x3a8aa3...be7699
+         US strikes Iran by June 30, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (26d 10h) — REPEAT x15 ($42,176 total flagged), 58 positions already, $+98,703 P&L
+         $2,340.00 | 02-28 04:01 | 0x3a8aa3...be7699
+         US strikes Iran by June 30, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (26d 10h) — REPEAT x16 ($47,636 total flagged), 58 positions already, $+98,703 P&L
+         $5,460.00 | 02-28 04:02 | 0x3a8aa3...be7699
+         US strikes Iran by June 30, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (19d 6h) — REPEAT x5 ($22,119 total flagged), 6 positions already, $+8,124 P&L
+         $1,477.45 | 02-28 05:12 | 0xdd9d65...1429bf
+         US strikes Iran by June 30, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (19d 6h) — REPEAT x6 ($25,259 total flagged), 6 positions already, $+8,124 P&L
+         $3,140.37 | 02-28 05:34 | 0xdd9d65...1429bf
+         US strikes Iran by June 30, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (19d 6h) — REPEAT x7 ($27,375 total flagged), 6 positions already, $+8,124 P&L
+         $2,115.68 | 02-28 06:03 | 0xdd9d65...1429bf
+         US strikes Iran by June 30, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (19d 6h) — REPEAT x8 ($30,115 total flagged), 6 positions already, $+8,124 P&L
+         $2,739.97 | 02-28 06:04 | 0xdd9d65...1429bf
+         US strikes Iran by June 30, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (unknown (no profile)), 15 positions already, $+2,115 P&L
+         $1,454.54 | 02-28 06:54 | 0x855c4d...edd9ef
+         US strikes Iran by March 31, 2026?
+
+    [5.0] new_wallet_large_bet
+         New wallet (unknown (no profile)), 13 positions already, $+13,780 P&L
+         $3,703.14 | 02-28 07:34 | 0x6539b5...00ad73
+         US strikes Iran by February 28, 202
+
+    [5.0] new_wallet_large_bet
+         New wallet (8d 9h) — REPEAT x2 ($13,211 total flagged), 13 positions already, $+521 P&L
+         $9,980.00 | 02-28 07:40 | 0x28b340...a730c8
+         US strikes Iran by February 28, 202
+
+    [5.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 46% (+54% edge), $+163,368 P&L (53% ROI)
+         $3,878.50 | 02-28 07:40 | 0xcccc22...13dbdd
+         US strikes Iran by February 28, 202
+
+    [5.0] new_wallet_large_bet
+         New wallet (unknown (no profile)), 17 positions already, $+3,109 P&L
+         $3,497.02 | 02-28 07:54 | 0xd2b785...221622
+         US strikes Iran by February 28, 202
+
+    [5.0] new_wallet_large_bet
+         New wallet (unknown (no profile)), 55 positions already, $+476,753 P&L
+         $203,839.62 | 02-28 07:54 | 0x1abe13...cb6497
+         US strikes Iran by February 28, 202
+
+    [5.0] new_wallet_large_bet
+         New wallet (8d 19h) — REPEAT x2 ($10,518 total flagged), 38 positions already, $+16,010 P&L
+         $3,839.12 | 02-28 08:08 | 0xdae634...7ce440
+         US strikes Iran by February 28, 202
+
+    [5.0] new_wallet_large_bet
+         New wallet (unknown (no profile)), 16 positions already, $+847 P&L
+         $1,027.94 | 02-28 08:17 | 0x813a8e...e30637
+         US strikes Iran by February 28, 202
+
+    [5.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 7% (+93% edge), $+5,673,746 P&L (93% ROI)
+         $18,981.00 | 02-28 08:56 | 0x0f37cb...371410
+         US strikes Iran by February 28, 202
+
+    [5.0] new_wallet_large_bet
+         New wallet (unknown (no profile)), 9 positions already, $+4,160 P&L
+         $1,242.85 | 02-28 09:05 | 0xb88138...b258fa
+         US strikes Iran by February 28, 202
+
+    [5.0] new_wallet_large_bet
+         New wallet (unknown (no profile)), 13 positions already, $+24,963 P&L
+         $10,774.83 | 02-28 09:10 | 0x20feb9...ebf411
+         US strikes Iran by March 31, 2026?
+
+    [5.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 23% (+77% edge), $+38,994 P&L (65% ROI)
+         $3,685.34 | 02-28 09:20 | 0xa7c1f9...8e0193
+         US strikes Iran by February 28, 202
+
+    [5.0] new_wallet_large_bet
+         New wallet (unknown (no profile)), 12 positions already, $+81,015 P&L
+         $3,863.58 | 02-28 09:28 | 0x4d1de1...e75aa0
+         US strikes Iran by February 28, 202
+
+    [4.5] new_wallet_large_bet
+         New wallet (unknown (no profile)), 11 positions already
+         $1,250.00 | 02-27 13:43 | 0x7420b5...1426e2
+         US strikes Iran by June 30, 2026?
+
+    [4.5] new_wallet_large_bet
+         New wallet (19d 6h) — REPEAT x3 ($18,772 total flagged), 6 positions already, $+8,124 P&L
+         $1,618.59 | 02-28 01:15 | 0xdd9d65...1429bf
+         US strikes Iran by June 30, 2026?
+
+    [4.5] new_wallet_large_bet
+         New wallet (26d 10h) — REPEAT x3 ($10,428 total flagged), 58 positions already, $+98,703 P&L
+         $1,950.00 | 02-28 03:22 | 0x3a8aa3...be7699
+         US strikes Iran by June 30, 2026?
+
+    [4.5] new_wallet_large_bet
+         New wallet (17d 7h) — REPEAT x3 ($26,796 total flagged), 17 positions already, $+1,353 P&L
+         $9,185.70 | 02-28 07:20 | 0xd26385...1027d8
+         US strikes Iran by February 28, 202
+
+    [4.5] new_wallet_large_bet
+         New wallet (unknown (no profile)), 12 positions already
+         $10,259.53 | 02-28 07:20 | 0xf4539b...a02547
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 46% (+54% edge)
+         $1,240.00 | 02-26 01:36 | 0xfc2f4f...6610c7
+         US strikes Iran by June 30, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 34% (+66% edge)
+         $1,340.00 | 02-26 09:45 | 0xc4086b...0f4675
+         US strikes Iran by June 30, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 23% (+77% edge)
+         $2,345.46 | 02-26 10:11 | 0x12d6cc...2cf2a8
+         US strikes Iran by June 30, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 14% (+86% edge)
+         $2,991.62 | 02-26 16:04 | 0xbacd00...b0ab35
+         US strikes Iran by June 30, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 44% (+56% edge)
+         $5,526.02 | 02-26 16:11 | 0x52b744...b54597
+         US strikes Iran by June 30, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 49% (+51% edge)
+         $2,976.14 | 02-26 17:24 | 0xbaa2bc...b92c73
+         US strikes Iran by June 30, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 44% (+56% edge)
+         $12,462.00 | 02-26 17:41 | 0x35417b...d7462e
+         US strikes Iran by June 30, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 49% (+51% edge)
+         $1,840.17 | 02-26 18:43 | 0xab4f78...42552f
+         US strikes Iran by June 30, 2026?
+
+    [4.0] new_wallet_large_bet
+         New wallet (11d 13h), 14 positions already, $+1,304 P&L
+         $2,931.12 | 02-26 18:45 | 0x53c2c7...f86758
+         US strikes Iran by June 30, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 44% (+56% edge)
+         $13,750.00 | 02-27 09:32 | 0x7523ca...a54c4c
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 42% (+58% edge)
+         $1,848.99 | 02-27 09:53 | 0x68c24b...fd1711
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 1% (+99% edge)
+         $4,924.08 | 02-27 10:20 | 0x24c8cf...e823e1
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 42% (+58% edge)
+         $1,849.32 | 02-27 10:30 | 0xe1b361...9e1426
+         US strikes Iran by June 30, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 40% (+60% edge)
+         $15,688.38 | 02-27 11:40 | 0xacbfc1...410c9a
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 47% (+53% edge)
+         $3,788.51 | 02-27 11:41 | 0x340265...8c9446
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 46% (+54% edge)
+         $2,317.98 | 02-27 11:49 | 0x75253f...52cde1
+         US strikes Iran by June 30, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 42% (+58% edge)
+         $1,785.99 | 02-27 12:32 | 0xf1b29b...0fa321
+         US strikes Iran by June 30, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 37% (+63% edge)
+         $1,080.00 | 02-27 12:36 | 0x59432f...402ef2
+         US strikes Iran by June 30, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 48% (+52% edge)
+         $1,136.46 | 02-27 12:55 | 0x6195e4...c54570
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 40% (+60% edge)
+         $1,300.63 | 02-27 14:11 | 0xe85f3d...3a7f69
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 19% (+81% edge)
+         $1,343.35 | 02-27 15:11 | 0x4e2560...5cd7a7
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 47% (+53% edge)
+         $17,763.19 | 02-27 15:46 | 0x4dfd48...9f6e4a
+         US strikes Iran by March 31, 2026?
+
+    [4.0] new_wallet_large_bet
+         New wallet (12d 11h), 16 positions already, $+13,899 P&L
+         $4,155.00 | 02-27 16:51 | 0x2881b6...912091
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 49% (+51% edge)
+         $1,355.89 | 02-27 17:01 | 0x8b9e53...9e6838
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 47% (+53% edge)
+         $3,200.00 | 02-27 18:08 | 0x7c3db7...1e5c6b
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 10% (+90% edge)
+         $1,054.56 | 02-27 21:03 | 0x9d84ce...dc1344
+         US strikes Iran by June 30, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 49% (+51% edge)
+         $3,313.47 | 02-27 21:04 | 0xf74ed8...0ddda4
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 11% (+89% edge)
+         $1,123.74 | 02-27 21:41 | 0xfcf237...cea469
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 20% (+80% edge)
+         $1,240.00 | 02-27 22:13 | 0xf0ed9e...7d47d8
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 47% (+53% edge)
+         $1,004.20 | 02-27 22:28 | 0x6139c4...336b7a
+         US strikes Iran by March 31, 2026?
+
+    [4.0] new_wallet_large_bet
+         New wallet (19d 6h) — REPEAT x2 ($17,153 total flagged), 6 positions already, $+8,124 P&L
+         $11,644.03 | 02-27 22:31 | 0xdd9d65...1429bf
+         US strikes Iran by June 30, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 48% (+52% edge)
+         $1,044.92 | 02-27 23:01 | 0x200e51...1728f9
+         US strikes Iran by March 31, 2026?
+
+    [4.0] new_wallet_large_bet
+         New wallet (25d 9h) — REPEAT x2 ($2,111 total flagged), 65 positions already, $+58,807 P&L
+         $1,086.68 | 02-27 23:59 | 0x747943...3cd35f
+         US strikes Iran by March 31, 2026?
+
+    [4.0] new_wallet_large_bet
+         New wallet (8d 4h), 9 positions already, $+7,115 P&L
+         $4,772.14 | 02-28 01:00 | 0xae4c91...a9d114
+         US strikes Iran by June 30, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 49% (+51% edge)
+         $2,211.00 | 02-28 01:25 | 0xc37fac...3b1144
+         US strikes Iran by March 31, 2026?
+
+    [4.0] new_wallet_large_bet
+         New wallet (26d 10h) — REPEAT x2 ($8,478 total flagged), 58 positions already, $+98,703 P&L
+         $4,680.00 | 02-28 03:21 | 0x3a8aa3...be7699
+         US strikes Iran by June 30, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 48% (+52% edge)
+         $2,030.32 | 02-28 04:02 | 0x1bc191...8989e0
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 48% (+52% edge)
+         $4,625.39 | 02-28 06:16 | 0x5f45b6...e0a77a
+         US strikes Iran by March 31, 2026?
+
+    [4.0] new_wallet_large_bet
+         New wallet (9d 15h), 25 positions already, $+1,062 P&L
+         $1,381.53 | 02-28 06:27 | 0xea25b2...5a1b18
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 50% (+50% edge)
+         $1,341.94 | 02-28 06:29 | 0x2a6db5...fdcbac
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 42% (+58% edge)
+         $3,875.91 | 02-28 06:35 | 0xf3e79d...2da536
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 48% (+52% edge)
+         $2,118.51 | 02-28 06:43 | 0x6bab66...830fe5
+         US strikes Iran by June 30, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 36% (+64% edge)
+         $1,009.82 | 02-28 06:44 | 0xf66bb1...95b1d1
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (5/5 P&L) at avg odds 34% (+66% edge)
+         $2,755.00 | 02-28 06:46 | 0x191391...46b494
+         US strikes Iran by June 30, 2026?
+
+    [4.0] new_wallet_large_bet
+         New wallet (17d 4h) — REPEAT x2 ($3,825 total flagged), 31 positions already, $+5,981 P&L
+         $2,374.83 | 02-28 06:48 | 0x441d58...e2544d
+         US strikes Iran by June 30, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 48% (+52% edge)
+         $2,156.00 | 02-28 06:54 | 0x45a227...b13c01
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 50% (+50% edge)
+         $1,187.97 | 02-28 07:00 | 0x8f037a...ac64d6
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 40% (+60% edge)
+         $1,090.92 | 02-28 07:12 | 0x2dae4c...8284ad
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 44% (+56% edge)
+         $1,930.00 | 02-28 07:12 | 0x404479...818de5
+         US strikes Iran by February 28, 202
+
+    [4.0] new_wallet_large_bet
+         New wallet (11d 3h), 12 positions already, $+516 P&L
+         $1,356.95 | 02-28 07:13 | 0xd5544a...7da3f6
+         US strikes Iran by June 30, 2026?
+
+    [4.0] new_wallet_large_bet
+         New wallet (11d 22h), 9 positions already, $+1,432 P&L
+         $1,878.14 | 02-28 07:13 | 0xf9e900...fdc2ee
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 47% (+53% edge)
+         $2,042.64 | 02-28 07:14 | 0x38b2ca...231a2d
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (7/7 P&L) at avg odds 40% (+60% edge)
+         $8,837.53 | 02-28 07:15 | 0x2dc1b8...7608e1
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (5/5 P&L) at avg odds 38% (+62% edge)
+         $11,119.18 | 02-28 07:16 | 0xa25c6a...026430
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 49% (+51% edge)
+         $2,069.47 | 02-28 07:17 | 0x7fb88c...65d906
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 27% (+73% edge)
+         $57,438.42 | 02-28 07:18 | 0xa2a2bc...26b04d
+         US strikes Iran by February 28, 202
+
+    [4.0] new_wallet_large_bet
+         New wallet (17d 7h) — REPEAT x2 ($17,611 total flagged), 17 positions already, $+1,353 P&L
+         $9,148.28 | 02-28 07:18 | 0xd26385...1027d8
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 44% (+56% edge)
+         $1,031.70 | 02-28 07:18 | 0x0e4034...68f622
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 46% (+54% edge)
+         $5,246.85 | 02-28 07:18 | 0xc4de5b...6a424c
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 21% (+79% edge)
+         $1,211.04 | 02-28 07:20 | 0x5bb3c0...794268
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 32% (+68% edge)
+         $2,024.28 | 02-28 07:20 | 0x140d67...7ca937
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 19% (+81% edge)
+         $10,799.36 | 02-28 07:21 | 0xe59843...80a0a8
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 37% (+63% edge)
+         $5,040.49 | 02-28 07:23 | 0x58f505...e3be7b
+         US strikes Iran by March 31, 2026?
+
+    [4.0] new_wallet_large_bet
+         New wallet (15d 0h) — REPEAT x2 ($2,974 total flagged), 44 positions already, $+646 P&L
+         $1,496.00 | 02-28 07:23 | 0xebb705...4a01f5
+         US strikes Iran by March 31, 2026?
+
+    [4.0] new_wallet_large_bet
+         New wallet (12d 8h), 10 positions already, $+4,839 P&L
+         $6,033.81 | 02-28 07:24 | 0x43886f...7be9a1
+         US strikes Iran by February 28, 202
+
+    [4.0] new_wallet_large_bet
+         New wallet (9d 14h), 10 positions already, $+97 P&L
+         $1,078.87 | 02-28 07:24 | 0xb2e24b...37ab51
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 30% (+70% edge)
+         $11,908.68 | 02-28 07:26 | 0x0b9168...85ae77
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 27% (+73% edge)
+         $20,527.58 | 02-28 07:26 | 0x2d4e90...70edb0
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 46% (+54% edge)
+         $5,000.00 | 02-28 07:26 | 0x842ac9...407422
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 47% (+53% edge)
+         $8,595.18 | 02-28 07:31 | 0x8f42ae...74b88f
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 44% (+56% edge)
+         $1,467.33 | 02-28 07:31 | 0x11de66...cd38c3
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 13% (+87% edge)
+         $9,980.00 | 02-28 07:34 | 0xa6d9b5...50fd2f
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 43% (+57% edge)
+         $29,940.00 | 02-28 07:35 | 0xcf6c54...e47e66
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 35% (+65% edge)
+         $3,217.42 | 02-28 07:35 | 0xaa3b27...a11e2e
+         US strikes Iran by June 30, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 27% (+73% edge)
+         $3,750.54 | 02-28 07:35 | 0x0c4b64...92f6db
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 23% (+77% edge)
+         $1,876.54 | 02-28 07:36 | 0x9e5c74...7fd8e6
+         US strikes Iran by February 28, 202
+
+    [4.0] new_wallet_large_bet
+         New wallet (23d 17h) — REPEAT x2 ($6,116 total flagged), 16 positions already, $+4,782 P&L
+         $4,986.33 | 02-28 07:36 | 0x872e0b...b5e58f
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 36% (+64% edge)
+         $2,495.25 | 02-28 07:37 | 0x241f84...56ef50
+         US strikes Iran by March 31, 2026?
+
+    [4.0] new_wallet_large_bet
+         New wallet (8d 9h), 13 positions already, $+521 P&L
+         $3,230.94 | 02-28 07:39 | 0x28b340...a730c8
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 39% (+61% edge)
+         $1,375.86 | 02-28 07:42 | 0x142ee9...fbf6e4
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 40% (+60% edge)
+         $2,256.42 | 02-28 07:43 | 0x8e579d...4afc66
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 41% (+59% edge)
+         $2,025.97 | 02-28 07:43 | 0x21c52a...5e3533
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 30% (+70% edge)
+         $1,331.56 | 02-28 07:43 | 0x78048a...2d7025
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 45% (+55% edge)
+         $5,628.37 | 02-28 07:44 | 0xc3e451...415bf6
+         US strikes Iran by March 31, 2026?
+
+    [4.0] new_wallet_large_bet
+         New wallet (8d 11h), 10 positions already, $+437 P&L
+         $1,287.05 | 02-28 07:46 | 0xcdef21...576cfc
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 41% (+59% edge)
+         $1,996.00 | 02-28 07:52 | 0xeeea97...1aa889
+         US strikes Iran by February 28, 202
+
+    [4.0] new_wallet_large_bet
+         New wallet (8d 16h), 42 positions already, $+3,337 P&L
+         $1,996.00 | 02-28 07:52 | 0xeeea97...1aa889
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 41% (+59% edge)
+         $3,497.02 | 02-28 07:54 | 0xd2b785...221622
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 30% (+70% edge)
+         $203,839.62 | 02-28 07:54 | 0x1abe13...cb6497
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 26% (+74% edge)
+         $9,990.00 | 02-28 07:55 | 0xa0c37c...ba5b9a
+         US strikes Iran by February 28, 202
+
+    [4.0] new_wallet_large_bet
+         New wallet (8d 19h), 23 positions already, $+519 P&L
+         $1,106.48 | 02-28 07:55 | 0xdfd3b8...5ac3c0
+         US strikes Iran by February 28, 202
+
+    [4.0] new_wallet_large_bet
+         New wallet (unknown (no profile)), $+18,888 P&L
+         $15,461.45 | 02-28 07:57 | 0x28b7c2...418b2a
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 33% (+67% edge)
+         $7,983.66 | 02-28 08:00 | 0xa268d4...66d60b
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 35% (+65% edge)
+         $15,294.03 | 02-28 08:02 | 0xbc43a2...911540
+         US strikes Iran by February 28, 202
+
+    [4.0] new_wallet_large_bet
+         New wallet (8d 19h), 38 positions already, $+16,010 P&L
+         $6,679.26 | 02-28 08:07 | 0xdae634...7ce440
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 31% (+69% edge)
+         $2,569.12 | 02-28 08:10 | 0x8f0485...37d82e
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 41% (+59% edge)
+         $3,493.00 | 02-28 08:12 | 0x09318b...c5c3ae
+         US strikes Iran by February 28, 202
+
+    [4.0] new_wallet_large_bet
+         New wallet (8d 1h), 41 positions already, $+9,610 P&L
+         $3,493.00 | 02-28 08:12 | 0x09318b...c5c3ae
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 45% (+55% edge)
+         $2,398.52 | 02-28 08:13 | 0x3596dc...4631c9
+         US strikes Iran by February 28, 202
+
+    [4.0] new_wallet_large_bet
+         New wallet (13d 8h), 110 positions already, $+3,157 P&L
+         $2,398.52 | 02-28 08:13 | 0x3596dc...4631c9
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 41% (+59% edge)
+         $1,086.89 | 02-28 08:14 | 0x486323...5d121f
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 43% (+57% edge)
+         $1,237.52 | 02-28 08:15 | 0xf756de...3a29e6
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 36% (+64% edge)
+         $477,238.36 | 02-28 08:20 | 0xe90bec...7d5da2
+         US strikes Iran by February 28, 202
+
+    [4.0] new_wallet_large_bet
+         New wallet (unknown (no profile)), $+2,363 P&L
+         $2,655.27 | 02-28 08:23 | 0x0ff8c8...87423d
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 46% (+54% edge)
+         $1,218.73 | 02-28 08:24 | 0x21af26...cef272
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 49% (+51% edge)
+         $3,222.58 | 02-28 08:26 | 0xfc6dfe...799f36
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 46% (+54% edge)
+         $1,584.85 | 02-28 08:29 | 0xed3aad...e19b17
+         US strikes Iran by February 28, 202
+
+    [4.0] new_wallet_large_bet
+         New wallet (11d 23h), 12 positions already, $+1,314 P&L
+         $3,356.67 | 02-28 08:37 | 0x94336f...a951f3
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 44% (+56% edge)
+         $4,309.30 | 02-28 08:42 | 0xd624b3...76a0f8
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 29% (+71% edge)
+         $4,303.83 | 02-28 08:45 | 0x40cfb2...ccd21d
+         US strikes Iran by February 28, 202
+
+    [4.0] new_wallet_large_bet
+         New wallet (9d 7h), 23 positions already, $+2,225 P&L
+         $1,327.59 | 02-28 08:47 | 0xa8c251...e16b54
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 47% (+53% edge)
+         $7,086.14 | 02-28 08:47 | 0x695048...ebb32a
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 48% (+52% edge)
+         $19,980.00 | 02-28 08:50 | 0xecfce3...b9cd05
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 38% (+62% edge)
+         $1,189.84 | 02-28 08:51 | 0x72b12f...df4f69
+         US strikes Iran by February 28, 202
+
+    [4.0] new_wallet_large_bet
+         New wallet (11d 17h), 67 positions already, $+1,501 P&L
+         $1,189.84 | 02-28 08:51 | 0x72b12f...df4f69
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 21% (+79% edge)
+         $3,132.10 | 02-28 08:57 | 0x514cf9...d52485
+         US strikes Iran by February 28, 202
+
+    [4.0] new_wallet_large_bet
+         New wallet (9d 12h), 17 positions already, $+26,523 P&L
+         $222,033.72 | 02-28 08:58 | 0xadc2ef...7cd1c9
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 48% (+52% edge)
+         $5,994.00 | 02-28 09:01 | 0xe73874...9edf65
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 32% (+68% edge)
+         $4,172.70 | 02-28 09:02 | 0x3b5ba6...b526fa
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 39% (+61% edge)
+         $6,780.37 | 02-28 09:04 | 0xa7e96e...d94f6c
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         83% win rate (5/6 P&L) at avg odds 20% (+64% edge)
+         $1,242.85 | 02-28 09:05 | 0xb88138...b258fa
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 27% (+73% edge)
+         $2,219.27 | 02-28 09:13 | 0xe74619...0aff6a
+         US strikes Iran by February 28, 202
+
+    [4.0] win_rate_tracking
+         90% win rate (9/10 P&L) at avg odds 26% (+64% edge)
+         $1,070.97 | 02-28 09:13 | 0x130708...1bbd75
+         US strikes Iran by March 31, 2026?
+
+    [4.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 22% (+78% edge)
+         $3,863.58 | 02-28 09:28 | 0x4d1de1...e75aa0
+         US strikes Iran by February 28, 202
+
+    [4.0] new_wallet_large_bet
+         New wallet (7d 18h), 45 positions already, $+31,349 P&L
+         $4,055.94 | 02-28 09:32 | 0x3fb5fe...6b4f02
+         US strikes Iran by February 28, 202
+
+    [3.5] new_wallet_large_bet
+         New wallet (12d 2h), 11 positions already
+         $2,372.17 | 02-27 06:07 | 0x457582...5238d1
+         US strikes Iran by March 31, 2026?
+
+    [3.5] new_wallet_large_bet
+         New wallet (10d 8h), 7 positions already
+         $1,998.00 | 02-27 15:29 | 0x9dfed1...0da5d6
+         US strikes Iran by March 31, 2026?
+
+    [3.5] new_wallet_large_bet
+         New wallet (unknown (no profile))
+         $1,490.00 | 02-28 03:42 | 0x757a11...c3842b
+         US strikes Iran by March 31, 2026?
+
+    [3.5] new_wallet_large_bet
+         New wallet (unknown (no profile))
+         $1,281.33 | 02-28 07:12 | 0x23a5c1...f6cd10
+         US strikes Iran by February 28, 202
+
+    [3.5] new_wallet_large_bet
+         New wallet (7d 22h), 11 positions already
+         $13,024.13 | 02-28 07:32 | 0xe0097b...7fecf8
+         US strikes Iran by February 28, 202
+
+    [3.5] new_wallet_large_bet
+         New wallet (8d 15h) — REPEAT x2 ($10,976 total flagged)
+         $5,993.57 | 02-28 09:11 | 0xc6ecd0...96f735
+         US strikes Iran by February 28, 202
+
+    [3.5] concentrated_one_sided
+         7 wallets, same direction (No/SELL), $21,713
+         $1,240.00 | 02-26 01:36 | 0xfc2f4f...6610c7
+         US strikes Iran by June 30, 2026?
+
+    [3.5] concentrated_one_sided
+         47 wallets, same direction (Yes/SELL), $327,304
+         $1,584.05 | 02-26 01:47 | 0x9261bd...aa83d4
+         US strikes Iran by June 30, 2026?
+
+    [3.5] concentrated_one_sided
+         32 wallets, same direction (Yes/BUY), $238,258
+         $1,526.83 | 02-26 02:54 | 0x4bfcf7...80f43d
+         US strikes Iran by June 30, 2026?
+
+    [3.5] concentrated_one_sided
+         8 wallets, same direction (No/BUY), $30,246
+         $4,988.10 | 02-26 13:07 | 0x7b02b2...2a4991
+         US strikes Iran by June 30, 2026?
+
+    [3.5] concentrated_one_sided
+         19 wallets, same direction (No/BUY), $56,646
+         $1,380.00 | 02-27 05:02 | 0xf9009e...96cd0c
+         US strikes Iran by March 31, 2026?
+
+    [3.5] concentrated_one_sided
+         76 wallets, same direction (Yes/SELL), $640,844
+         $1,080.00 | 02-27 06:12 | 0x6cb819...36a1f7
+         US strikes Iran by March 31, 2026?
+
+    [3.5] concentrated_one_sided
+         73 wallets, same direction (Yes/BUY), $607,640
+         $1,100.00 | 02-27 06:41 | 0xf9d535...ebfba3
+         US strikes Iran by March 31, 2026?
+
+    [3.5] concentrated_one_sided
+         16 wallets, same direction (No/SELL), $77,970
+         $1,565.30 | 02-27 09:25 | 0x6d8281...d07d33
+         US strikes Iran by March 31, 2026?
+
+    [3.5] concentrated_one_sided
+         158 wallets, same direction (Yes/SELL), $1,290,688
+         $1,446.00 | 02-28 07:12 | 0x0784cc...7fda34
+         US strikes Iran by February 28, 202
+
+    [3.5] concentrated_one_sided
+         90 wallets, same direction (Yes/BUY), $1,941,332
+         $1,719.70 | 02-28 07:12 | 0x20275a...ae6d60
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 53% (+47% edge)
+         $1,584.05 | 02-26 01:47 | 0x9261bd...aa83d4
+         US strikes Iran by June 30, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 53% (+47% edge)
+         $1,326.00 | 02-26 09:04 | 0xa8af4c...3a325e
+         US strikes Iran by June 30, 2026?
+
+    [3.0] new_wallet_large_bet
+         New wallet (18d 15h), 14 positions already, $+28,176 P&L
+         $7,808.00 | 02-26 14:52 | 0x5307e5...347621
+         US strikes Iran by June 30, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 61% (+39% edge)
+         $2,100.00 | 02-26 18:32 | 0xff72a6...a4cdaa
+         US strikes Iran by June 30, 2026?
+
+    [3.0] new_wallet_large_bet
+         New wallet (19d 6h), 6 positions already, $+8,124 P&L
+         $5,509.35 | 02-26 18:37 | 0xdd9d65...1429bf
+         US strikes Iran by June 30, 2026?
+
+    [3.0] win_rate_tracking
+         80% win rate (4/5 P&L) at avg odds 34% (+46% edge)
+         $1,080.00 | 02-27 06:12 | 0x6cb819...36a1f7
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 62% (+38% edge)
+         $1,100.00 | 02-27 06:41 | 0xf9d535...ebfba3
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 68% (+32% edge)
+         $2,300.00 | 02-27 07:51 | 0x1604b1...ebff0e
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 52% (+48% edge)
+         $1,565.30 | 02-27 09:25 | 0x6d8281...d07d33
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 68% (+32% edge)
+         $15,533.37 | 02-27 09:32 | 0x1cc167...73b8df
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 57% (+43% edge)
+         $30,573.02 | 02-27 09:58 | 0x614dc8...1d1546
+         US strikes Iran by March 31, 2026?
+
+    [3.0] new_wallet_large_bet
+         New wallet (18d 17h), 54 positions already, $+1,595 P&L
+         $2,385.33 | 02-27 10:34 | 0x34ab67...063eb5
+         US strikes Iran by June 30, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 68% (+32% edge)
+         $1,136.88 | 02-27 10:35 | 0x35bbba...22009b
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 59% (+41% edge)
+         $1,000.00 | 02-27 10:40 | 0xda9ed0...e1ac09
+         US strikes Iran by March 31, 2026?
+
+    [3.0] new_wallet_large_bet
+         New wallet (26d 16h), 23 positions already, $+48,544 P&L
+         $1,000.00 | 02-27 10:40 | 0xda9ed0...e1ac09
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 53% (+47% edge)
+         $6,672.99 | 02-27 10:49 | 0x25257a...4eb919
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 57% (+43% edge)
+         $16,379.55 | 02-27 10:58 | 0xfd8fcd...64a3b1
+         US strikes Iran by June 30, 2026?
+
+    [3.0] new_wallet_large_bet
+         New wallet (26d 2h), 40 positions already, $+201,672 P&L
+         $2,317.98 | 02-27 11:49 | 0x75253f...52cde1
+         US strikes Iran by June 30, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 67% (+33% edge)
+         $1,901.11 | 02-27 11:50 | 0xce89af...c26ea5
+         US strikes Iran by March 31, 2026?
+
+    [3.0] new_wallet_large_bet
+         New wallet (22d 5h), 11 positions already, $+497,202 P&L
+         $2,419.38 | 02-27 12:03 | 0x514550...b71f46
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 52% (+48% edge)
+         $6,085.27 | 02-27 12:14 | 0x37d10f...fb4e28
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         90% win rate (9/10 P&L) at avg odds 42% (+48% edge)
+         $5,338.43 | 02-27 12:39 | 0x96f452...d7edc5
+         US strikes Iran by June 30, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 69% (+31% edge)
+         $1,062.21 | 02-27 12:58 | 0xd16549...3df2b8
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (8/8 P&L) at avg odds 56% (+44% edge)
+         $2,000.00 | 02-27 13:48 | 0xd74293...5379e4
+         US strikes Iran by June 30, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 52% (+48% edge)
+         $1,276.25 | 02-27 14:11 | 0x5caa4a...f7953f
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 63% (+37% edge)
+         $2,500.00 | 02-27 14:16 | 0x1398c3...81a875
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 60% (+40% edge)
+         $1,382.01 | 02-27 14:31 | 0xe168b5...3ee559
+         US strikes Iran by March 31, 2026?
+
+    [3.0] new_wallet_large_bet
+         New wallet (22d 14h), 11 positions already, $+7,099 P&L
+         $1,382.01 | 02-27 14:31 | 0xe168b5...3ee559
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 63% (+37% edge)
+         $1,287.16 | 02-27 14:39 | 0xa69d0c...0d509b
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 51% (+49% edge)
+         $1,297.45 | 02-27 14:48 | 0xb00570...a5e690
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 52% (+48% edge)
+         $3,994.75 | 02-27 14:57 | 0x9f0968...932848
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 62% (+38% edge)
+         $2,083.31 | 02-27 15:05 | 0x21ba7e...e34372
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 66% (+34% edge)
+         $1,964.62 | 02-27 15:29 | 0x381f4b...40bc99
+         US strikes Iran by June 30, 2026?
+
+    [3.0] new_wallet_large_bet
+         New wallet (18d 4h), 7 positions already, $+3,442 P&L
+         $1,555.78 | 02-27 15:45 | 0x25bf39...44825a
+         US strikes Iran by June 30, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 64% (+36% edge)
+         $17,824.21 | 02-27 17:04 | 0x68fe49...f28792
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 53% (+47% edge)
+         $1,024.00 | 02-27 18:08 | 0x747943...3cd35f
+         US strikes Iran by March 31, 2026?
+
+    [3.0] new_wallet_large_bet
+         New wallet (25d 9h), 65 positions already, $+58,807 P&L
+         $1,024.00 | 02-27 18:08 | 0x747943...3cd35f
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 57% (+43% edge)
+         $1,000.00 | 02-27 18:16 | 0x8d3297...d8563a
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 63% (+37% edge)
+         $1,499.00 | 02-27 18:35 | 0x592550...9f00b4
+         US strikes Iran by June 30, 2026?
+
+    [3.0] new_wallet_large_bet
+         New wallet (20d 7h), 22 positions already, $+1,189 P&L
+         $1,499.00 | 02-27 18:35 | 0x592550...9f00b4
+         US strikes Iran by June 30, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 55% (+45% edge)
+         $1,710.53 | 02-27 19:32 | 0xa52ff0...ad8897
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 63% (+37% edge)
+         $35,709.53 | 02-27 21:02 | 0x183a2a...37d514
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 66% (+34% edge)
+         $9,854.87 | 02-27 21:33 | 0x616d9d...19bf7d
+         US strikes Iran by March 31, 2026?
+
+    [3.0] new_wallet_large_bet
+         New wallet (22d 8h), 19 positions already, $+11,994 P&L
+         $9,854.87 | 02-27 21:33 | 0x616d9d...19bf7d
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 58% (+42% edge)
+         $2,702.49 | 02-27 23:28 | 0xd1f2a3...f0e9da
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 65% (+35% edge)
+         $1,360.00 | 02-27 23:33 | 0xdd0891...ef5ee9
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (5/5 P&L) at avg odds 69% (+31% edge)
+         $1,798.72 | 02-28 00:20 | 0x68f517...5c37ad
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 64% (+36% edge)
+         $2,040.00 | 02-28 00:25 | 0xd62840...e243c1
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 61% (+39% edge)
+         $3,797.78 | 02-28 02:01 | 0x3a8aa3...be7699
+         US strikes Iran by June 30, 2026?
+
+    [3.0] new_wallet_large_bet
+         New wallet (26d 10h), 58 positions already, $+98,703 P&L
+         $3,797.78 | 02-28 02:01 | 0x3a8aa3...be7699
+         US strikes Iran by June 30, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 56% (+44% edge)
+         $2,000.00 | 02-28 06:23 | 0xe342a9...d81f86
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 63% (+37% edge)
+         $7,938.67 | 02-28 06:35 | 0x3e2489...76f1bd
+         US strikes Iran by March 31, 2026?
+
+    [3.0] new_wallet_large_bet
+         New wallet (26d 5h), 34 positions already, $+613 P&L
+         $1,010.53 | 02-28 06:37 | 0x68e6c1...26707b
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 64% (+36% edge)
+         $1,450.53 | 02-28 06:40 | 0x441d58...e2544d
+         US strikes Iran by June 30, 2026?
+
+    [3.0] new_wallet_large_bet
+         New wallet (17d 4h), 31 positions already, $+5,981 P&L
+         $1,450.53 | 02-28 06:40 | 0x441d58...e2544d
+         US strikes Iran by June 30, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 59% (+41% edge)
+         $3,832.08 | 02-28 06:44 | 0x52f518...7119da
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 53% (+47% edge)
+         $1,152.00 | 02-28 06:55 | 0xfe0c8c...0004b6
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 59% (+41% edge)
+         $2,546.75 | 02-28 06:58 | 0xb26bff...99033b
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 60% (+40% edge)
+         $1,719.70 | 02-28 07:12 | 0x20275a...ae6d60
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 54% (+46% edge)
+         $3,016.29 | 02-28 07:13 | 0x47387a...58df78
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 50% (+50% edge)
+         $3,352.84 | 02-28 07:13 | 0x145a5b...a95e86
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 69% (+31% edge)
+         $1,071.85 | 02-28 07:13 | 0xb8fe80...64ce76
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         80% win rate (4/5 P&L) at avg odds 56% (+24% edge), $+1,432 P&L (63% ROI)
+         $1,878.14 | 02-28 07:13 | 0xf9e900...fdc2ee
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 64% (+36% edge)
+         $1,966.30 | 02-28 07:14 | 0x5bcd01...07fa31
+         US strikes Iran by February 28, 202
+
+    [3.0] new_wallet_large_bet
+         New wallet (16d 6h), 12 positions already, $+8,302 P&L
+         $9,731.17 | 02-28 07:14 | 0x45fb8b...25aad0
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 64% (+36% edge)
+         $1,164.86 | 02-28 07:15 | 0x9baebe...e95d34
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 65% (+35% edge)
+         $1,197.78 | 02-28 07:15 | 0xe89a50...2216a3
+         US strikes Iran by February 28, 202
+
+    [3.0] new_wallet_large_bet
+         New wallet (17d 7h), 17 positions already, $+1,353 P&L
+         $8,462.27 | 02-28 07:16 | 0xd26385...1027d8
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 66% (+34% edge)
+         $7,285.91 | 02-28 07:16 | 0xa8f878...fe0e46
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 56% (+44% edge)
+         $2,489.62 | 02-28 07:17 | 0x71ed0b...ddd9eb
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 67% (+33% edge)
+         $27,754.49 | 02-28 07:17 | 0x410aa3...2b2643
+         US strikes Iran by February 28, 202
+
+    [3.0] new_wallet_large_bet
+         New wallet (26d 16h), 15 positions already, $+426 P&L
+         $1,296.06 | 02-28 07:17 | 0xdee02d...6eb4a1
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 59% (+41% edge)
+         $1,087.84 | 02-28 07:20 | 0x9ad091...a5bf3d
+         US strikes Iran by March 31, 2026?
+
+    [3.0] new_wallet_large_bet
+         New wallet (17d 14h), 110 positions already, $+3,592 P&L
+         $2,024.28 | 02-28 07:20 | 0x140d67...7ca937
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 67% (+33% edge)
+         $2,328.73 | 02-28 07:21 | 0x69ea0d...4215cd
+         US strikes Iran by February 28, 202
+
+    [3.0] new_wallet_large_bet
+         New wallet (15d 0h), 44 positions already, $+646 P&L
+         $1,477.50 | 02-28 07:21 | 0xebb705...4a01f5
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 60% (+40% edge)
+         $18,088.45 | 02-28 07:22 | 0x88ae6c...fb809a
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 51% (+49% edge)
+         $3,535.39 | 02-28 07:23 | 0xcd95eb...d28c17
+         US strikes Iran by June 30, 2026?
+
+    [3.0] win_rate_tracking
+         90% win rate (9/10 P&L) at avg odds 61% (+29% edge), $+15,399 P&L (60% ROI)
+         $14,139.11 | 02-28 07:23 | 0x500058...c566e1
+         US strikes Iran by February 28, 202
+
+    [3.0] new_wallet_large_bet
+         New wallet (20d 23h), 13 positions already, $+15,399 P&L
+         $14,139.11 | 02-28 07:23 | 0x500058...c566e1
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 68% (+32% edge)
+         $2,670.54 | 02-28 07:23 | 0xaec386...6222df
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 53% (+47% edge)
+         $1,754.66 | 02-28 07:25 | 0xc34170...7c9a9f
+         US strikes Iran by February 28, 202
+
+    [3.0] new_wallet_large_bet
+         New wallet (24d 15h), 26 positions already, $+2,101 P&L
+         $1,754.66 | 02-28 07:25 | 0xc34170...7c9a9f
+         US strikes Iran by February 28, 202
+
+    [3.0] new_wallet_large_bet
+         New wallet (14d 4h), 11 positions already, $+61,187 P&L
+         $51,451.26 | 02-28 07:25 | 0x55dbfa...fc2031
+         US strikes Iran by February 28, 202
+
+    [3.0] new_wallet_large_bet
+         New wallet (26d 18h), 11 positions already, $+962 P&L
+         $1,635.17 | 02-28 07:25 | 0xb36608...96122f
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 66% (+34% edge)
+         $2,964.00 | 02-28 07:28 | 0xdb1b12...66efb5
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         75% win rate (6/8 P&L) at avg odds 40% (+35% edge)
+         $1,191.60 | 02-28 07:30 | 0x38b650...317bac
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 59% (+41% edge)
+         $3,463.94 | 02-28 07:30 | 0x2d39c5...e7fa04
+         US strikes Iran by June 30, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 62% (+38% edge)
+         $7,288.79 | 02-28 07:32 | 0x66e837...5d0838
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 56% (+44% edge)
+         $1,980.05 | 02-28 07:32 | 0xfe032d...64f14f
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 59% (+41% edge)
+         $1,778.35 | 02-28 07:33 | 0xc1db6a...56838d
+         US strikes Iran by February 28, 202
+
+    [3.0] new_wallet_large_bet
+         New wallet (23d 17h), 16 positions already, $+4,782 P&L
+         $1,130.13 | 02-28 07:34 | 0x872e0b...b5e58f
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 52% (+48% edge)
+         $1,066.26 | 02-28 07:37 | 0x990655...61c0ae
+         US strikes Iran by February 28, 202
+
+    [3.0] new_wallet_large_bet
+         New wallet (19d 10h), 20 positions already, $+567 P&L
+         $1,649.46 | 02-28 07:37 | 0x5f82d8...51463b
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 67% (+33% edge)
+         $1,816.09 | 02-28 07:40 | 0xe1ae4b...65a9dc
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         83% win rate (5/6 P&L) at avg odds 44% (+39% edge)
+         $1,025.34 | 02-28 07:42 | 0x377d17...7ef71b
+         US strikes Iran by February 28, 202
+
+    [3.0] new_wallet_large_bet
+         New wallet (19d 9h), 8 positions already, $+215 P&L
+         $1,025.34 | 02-28 07:42 | 0x377d17...7ef71b
+         US strikes Iran by February 28, 202
+
+    [3.0] new_wallet_large_bet
+         New wallet (26d 9h), 12 positions already, $+1,412 P&L
+         $5,720.81 | 02-28 07:42 | 0x8250e5...f5743f
+         US strikes Iran by February 28, 202
+
+    [3.0] new_wallet_large_bet
+         New wallet (19d 6h), 30 positions already, $+20,787 P&L
+         $2,256.42 | 02-28 07:43 | 0x8e579d...4afc66
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 61% (+39% edge)
+         $4,526.93 | 02-28 07:44 | 0x701187...75c6da
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 68% (+32% edge)
+         $5,184.23 | 02-28 07:45 | 0x3f18a8...f02080
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 65% (+35% edge)
+         $76,002.11 | 02-28 07:45 | 0xf67f72...4a31cf
+         US strikes Iran by February 28, 202
+
+    [3.0] new_wallet_large_bet
+         New wallet (7d 23h), $+755 P&L
+         $1,672.14 | 02-28 07:46 | 0x7d8846...a94af7
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         80% win rate (4/5 P&L) at avg odds 47% (+33% edge)
+         $3,757.06 | 02-28 07:47 | 0x39fd1a...d35013
+         US strikes Iran by June 30, 2026?
+
+    [3.0] new_wallet_large_bet
+         New wallet (27d 23h), 10 positions already, $+13,001 P&L
+         $5,528.92 | 02-28 07:47 | 0xeeb8c4...cfcab5
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 50% (+50% edge)
+         $7,967.80 | 02-28 07:48 | 0x4478d7...2102a4
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 52% (+48% edge)
+         $8,487.99 | 02-28 07:50 | 0x0a2605...0d1851
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 50% (+50% edge)
+         $3,122.53 | 02-28 07:52 | 0xdec710...40f536
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 53% (+47% edge)
+         $2,692.22 | 02-28 07:53 | 0x8bc84f...4597dc
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (5/5 P&L) at avg odds 60% (+40% edge)
+         $1,118.47 | 02-28 07:53 | 0x779fa1...745971
+         US strikes Iran by June 30, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 64% (+36% edge)
+         $4,149.86 | 02-28 07:55 | 0x562bc8...f9dc09
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 59% (+41% edge)
+         $2,867.32 | 02-28 07:56 | 0x5cc9cd...d632ce
+         US strikes Iran by February 28, 202
+
+    [3.0] new_wallet_large_bet
+         New wallet (18d 21h), 13 positions already, $+1,692 P&L
+         $1,904.04 | 02-28 07:56 | 0x2ea0b1...353ec2
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 57% (+43% edge)
+         $2,633.47 | 02-28 07:57 | 0x35b10c...8a8962
+         US strikes Iran by February 28, 202
+
+    [3.0] new_wallet_large_bet
+         New wallet (22d 14h), 78 positions already, $+9,256 P&L
+         $2,633.47 | 02-28 07:57 | 0x35b10c...8a8962
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         80% win rate (4/5 P&L) at avg odds 39% (+41% edge)
+         $2,605.46 | 02-28 07:57 | 0x49ef5a...b5fcf5
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 65% (+35% edge)
+         $9,980.00 | 02-28 07:59 | 0x25590b...6f2032
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 58% (+42% edge)
+         $29,942.78 | 02-28 08:04 | 0xdd6784...2cfb31
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 60% (+40% edge)
+         $6,679.26 | 02-28 08:07 | 0xdae634...7ce440
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 66% (+34% edge)
+         $1,497.00 | 02-28 08:10 | 0x2d73f7...3b9aad
+         US strikes Iran by February 28, 202
+
+    [3.0] new_wallet_large_bet
+         New wallet (23d 8h), 13 positions already, $+2,482 P&L
+         $1,841.77 | 02-28 08:14 | 0xb3b31b...aec4ef
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 64% (+36% edge)
+         $1,441.71 | 02-28 08:16 | 0x9d799d...c6b212
+         US strikes Iran by February 28, 202
+
+    [3.0] new_wallet_large_bet
+         New wallet (26d 9h), 12 positions already, $+1,434 P&L
+         $1,441.71 | 02-28 08:16 | 0x9d799d...c6b212
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 59% (+41% edge)
+         $2,804.97 | 02-28 08:17 | 0xa2848a...cf49ed
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 66% (+34% edge)
+         $1,996.00 | 02-28 08:18 | 0x991b8c...a4f19a
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 52% (+48% edge)
+         $1,074.17 | 02-28 08:20 | 0x9cdda4...3d3e97
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 63% (+37% edge)
+         $1,798.19 | 02-28 08:20 | 0x7b05f8...956180
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 59% (+41% edge)
+         $1,332.00 | 02-28 08:21 | 0x30544f...ac69c5
+         US strikes Iran by June 30, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 60% (+40% edge)
+         $1,085.69 | 02-28 08:26 | 0x8711c5...851d81
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 58% (+42% edge)
+         $1,216.89 | 02-28 08:44 | 0xfe6b34...9abc2a
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 52% (+48% edge)
+         $2,930.76 | 02-28 08:47 | 0xeade74...8ef26d
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         89% win rate (8/9 P&L) at avg odds 56% (+33% edge)
+         $4,294.49 | 02-28 08:55 | 0x081514...c43eb1
+         US strikes Iran by June 30, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 64% (+36% edge)
+         $1,079.18 | 02-28 08:56 | 0x731a17...8ab53d
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 62% (+38% edge)
+         $1,237.96 | 02-28 08:56 | 0x9aeb53...5b2729
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 56% (+44% edge)
+         $22,875.48 | 02-28 08:56 | 0x7addce...7ff9f4
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 50% (+50% edge)
+         $8,203.79 | 02-28 09:01 | 0x29d337...2cb2ed
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 65% (+35% edge)
+         $10,774.83 | 02-28 09:10 | 0x20feb9...ebf411
+         US strikes Iran by March 31, 2026?
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 52% (+48% edge)
+         $3,330.00 | 02-28 09:19 | 0xcddc2d...b1217c
+         US strikes Iran by February 28, 202
+
+    [3.0] new_wallet_large_bet
+         New wallet (14d 19h), 31 positions already, $+5,158 P&L
+         $3,330.00 | 02-28 09:19 | 0xcddc2d...b1217c
+         US strikes Iran by February 28, 202
+
+    [3.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 53% (+47% edge)
+         $3,948.26 | 02-28 09:21 | 0x5f8a94...899506
+         US strikes Iran by February 28, 202
+
+    [2.5] new_wallet_large_bet
+         New wallet (14d 6h), 21 positions already
+         $3,147.00 | 02-26 14:45 | 0x9f49c3...26a184
+         US strikes Iran by June 30, 2026?
+
+    [2.5] new_wallet_large_bet
+         New wallet (8d 6h)
+         $2,800.00 | 02-27 22:29 | 0x3bb7aa...bd785f
+         US strikes Iran by March 31, 2026?
+
+    [2.5] new_wallet_large_bet
+         New wallet (12d 20h)
+         $1,421.30 | 02-28 00:53 | 0xedc273...6691fd
+         US strikes Iran by March 31, 2026?
+
+    [2.5] new_wallet_large_bet
+         New wallet (9d 7h)
+         $1,446.00 | 02-28 07:12 | 0x0784cc...7fda34
+         US strikes Iran by February 28, 202
+
+    [2.5] new_wallet_large_bet
+         New wallet (8d 9h)
+         $2,919.51 | 02-28 07:14 | 0x6a1e30...af328c
+         US strikes Iran by February 28, 202
+
+    [2.5] new_wallet_large_bet
+         New wallet (7d 21h)
+         $9,964.17 | 02-28 07:15 | 0x4166fd...e9b3c7
+         US strikes Iran by February 28, 202
+
+    [2.5] new_wallet_large_bet
+         New wallet (8d 11h)
+         $3,081.25 | 02-28 07:25 | 0x160e45...3040f2
+         US strikes Iran by February 28, 202
+
+    [2.5] new_wallet_large_bet
+         New wallet (11d 23h)
+         $3,339.54 | 02-28 07:45 | 0xd28961...388f77
+         US strikes Iran by March 31, 2026?
+
+    [2.5] new_wallet_large_bet
+         New wallet (19d 18h) — REPEAT x2 ($9,242 total flagged)
+         $2,639.90 | 02-28 07:48 | 0x3b1a87...63cad7
+         US strikes Iran by March 31, 2026?
+
+    [2.5] new_wallet_large_bet
+         New wallet (7d 23h)
+         $3,999.52 | 02-28 07:51 | 0xfc4afa...19126f
+         US strikes Iran by February 28, 202
+
+    [2.5] new_wallet_large_bet
+         New wallet (16d 14h), 7 positions already
+         $6,574.99 | 02-28 08:09 | 0x0b330e...bc9a34
+         US strikes Iran by February 28, 202
+
+    [2.5] new_wallet_large_bet
+         New wallet (8d 6h)
+         $20,923.60 | 02-28 08:25 | 0x6b6157...c2532e
+         US strikes Iran by February 28, 202
+
+    [2.5] new_wallet_large_bet
+         New wallet (8d 15h)
+         $4,982.39 | 02-28 08:53 | 0xc6ecd0...96f735
+         US strikes Iran by February 28, 202
+
+    [2.5] new_wallet_large_bet
+         New wallet (8d 20h)
+         $6,653.33 | 02-28 08:55 | 0xfe240a...9fff73
+         US strikes Iran by February 28, 202
+
+    [2.5] correlated_cross_market
+         3 markets in same event, $31,677
+         $1,240.00 | 02-26 01:36 | 0xfc2f4f...6610c7
+         US strikes Iran by June 30, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $18,846
+         $8,846.37 | 02-26 03:38 | 0xa9e64c...b91dc2
+         US strikes Iran by June 30, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $12,959
+         $2,345.46 | 02-26 10:11 | 0x12d6cc...2cf2a8
+         US strikes Iran by June 30, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $56,487
+         $2,991.62 | 02-26 16:04 | 0xbacd00...b0ab35
+         US strikes Iran by June 30, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $44,823
+         $5,526.02 | 02-26 16:11 | 0x52b744...b54597
+         US strikes Iran by June 30, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $134,800
+         $12,462.00 | 02-26 17:41 | 0x35417b...d7462e
+         US strikes Iran by June 30, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $11,153
+         $9,392.41 | 02-26 19:31 | 0x13ce9e...76bf33
+         US strikes Iran by June 30, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $16,656
+         $1,100.00 | 02-27 06:41 | 0xf9d535...ebfba3
+         US strikes Iran by March 31, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $8,380
+         $2,090.00 | 02-27 09:34 | 0x0b219c...b8deb6
+         US strikes Iran by March 31, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $41,143
+         $30,573.02 | 02-27 09:58 | 0x614dc8...1d1546
+         US strikes Iran by March 31, 2026?
+
+    [2.5] correlated_cross_market
+         3 markets in same event, $11,309
+         $1,800.00 | 02-27 10:23 | 0xeec50e...7fb6fe
+         US strikes Iran by March 31, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $19,772
+         $4,341.98 | 02-27 10:33 | 0x86cd93...37504c
+         US strikes Iran by March 31, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $28,921
+         $1,136.88 | 02-27 10:35 | 0x35bbba...22009b
+         US strikes Iran by March 31, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $6,490
+         $1,160.66 | 02-27 10:52 | 0x30201d...a458f9
+         US strikes Iran by March 31, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $4,295
+         $1,901.11 | 02-27 11:50 | 0xce89af...c26ea5
+         US strikes Iran by March 31, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $7,743
+         $1,940.88 | 02-27 12:12 | 0x963137...3289a1
+         US strikes Iran by June 30, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $6,027
+         $1,785.99 | 02-27 12:32 | 0xf1b29b...0fa321
+         US strikes Iran by June 30, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $33,479
+         $10,202.78 | 02-27 12:39 | 0x9e0357...c66f34
+         US strikes Iran by June 30, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $2,474
+         $1,250.00 | 02-27 13:43 | 0x7420b5...1426e2
+         US strikes Iran by June 30, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $4,062
+         $2,986.81 | 02-27 14:40 | 0xc682d7...7817bb
+         US strikes Iran by June 30, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $12,693
+         $3,994.75 | 02-27 14:57 | 0x9f0968...932848
+         US strikes Iran by March 31, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $8,149
+         $1,343.35 | 02-27 15:11 | 0x4e2560...5cd7a7
+         US strikes Iran by March 31, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $14,000
+         $2,000.00 | 02-27 17:34 | 0x682e38...2b70bd
+         US strikes Iran by March 31, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $39,271
+         $35,709.53 | 02-27 21:02 | 0x183a2a...37d514
+         US strikes Iran by March 31, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $35,880
+         $1,054.56 | 02-27 21:03 | 0x9d84ce...dc1344
+         US strikes Iran by June 30, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $13,594
+         $1,123.74 | 02-27 21:41 | 0xfcf237...cea469
+         US strikes Iran by March 31, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $5,999
+         $1,004.20 | 02-27 22:28 | 0x6139c4...336b7a
+         US strikes Iran by March 31, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $31,311
+         $2,755.00 | 02-28 06:46 | 0x191391...46b494
+         US strikes Iran by June 30, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $46,425
+         $1,470.18 | 02-28 06:52 | 0x44ef50...32ff3d
+         US strikes Iran by June 30, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $14,318
+         $1,187.97 | 02-28 07:00 | 0x8f037a...ac64d6
+         US strikes Iran by March 31, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $43,194
+         $4,403.28 | 02-28 07:16 | 0xc8ab97...946418
+         US strikes Iran by February 28, 202
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $53,212
+         $2,919.00 | 02-28 07:17 | 0x2a019d...4b6397
+         US strikes Iran by February 28, 202
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $2,974
+         $1,477.50 | 02-28 07:21 | 0xebb705...4a01f5
+         US strikes Iran by February 28, 202
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $19,530
+         $18,088.45 | 02-28 07:22 | 0x88ae6c...fb809a
+         US strikes Iran by February 28, 202
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $4,299
+         $3,190.32 | 02-28 07:33 | 0xe53711...111eeb
+         US strikes Iran by March 31, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $6,116
+         $1,130.13 | 02-28 07:34 | 0x872e0b...b5e58f
+         US strikes Iran by February 28, 202
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $10,665
+         $5,000.00 | 02-28 07:40 | 0x5fa03d...9dc20f
+         US strikes Iran by February 28, 202
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $9,242
+         $6,602.42 | 02-28 07:48 | 0x3b1a87...63cad7
+         US strikes Iran by June 30, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $309,871
+         $203,839.62 | 02-28 07:54 | 0x1abe13...cb6497
+         US strikes Iran by February 28, 202
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $7,745
+         $2,605.46 | 02-28 07:57 | 0x49ef5a...b5fcf5
+         US strikes Iran by March 31, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $54,106
+         $15,294.03 | 02-28 08:02 | 0xbc43a2...911540
+         US strikes Iran by February 28, 202
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $5,929
+         $1,218.73 | 02-28 08:24 | 0x21af26...cef272
+         US strikes Iran by March 31, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $10,091
+         $3,222.58 | 02-28 08:26 | 0xfc6dfe...799f36
+         US strikes Iran by March 31, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $22,465
+         $7,086.14 | 02-28 08:47 | 0x695048...ebb32a
+         US strikes Iran by March 31, 2026?
+
+    [2.5] correlated_cross_market
+         2 markets in same event, $29,902
+         $10,774.83 | 02-28 09:10 | 0x20feb9...ebf411
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 79% (+21% edge)
+         $1,526.83 | 02-26 02:54 | 0x4bfcf7...80f43d
+         US strikes Iran by June 30, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 77% (+23% edge)
+         $8,846.37 | 02-26 03:38 | 0xa9e64c...b91dc2
+         US strikes Iran by June 30, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 80% (+20% edge)
+         $1,084.47 | 02-26 11:34 | 0xa39c48...9908bc
+         US strikes Iran by June 30, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 75% (+25% edge)
+         $4,988.10 | 02-26 13:07 | 0x7b02b2...2a4991
+         US strikes Iran by June 30, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 85% (+15% edge)
+         $9,392.41 | 02-26 19:31 | 0x13ce9e...76bf33
+         US strikes Iran by June 30, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 84% (+16% edge)
+         $1,380.00 | 02-27 05:02 | 0xf9009e...96cd0c
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 79% (+21% edge)
+         $4,279.96 | 02-27 06:51 | 0x8c9233...2bebd9
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 82% (+18% edge)
+         $2,090.00 | 02-27 09:34 | 0x0b219c...b8deb6
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 71% (+29% edge)
+         $1,541.15 | 02-27 09:49 | 0x4c2da4...20f8ae
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 73% (+27% edge)
+         $1,101.15 | 02-27 09:54 | 0xb4923a...e31df3
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 82% (+18% edge)
+         $6,600.00 | 02-27 10:13 | 0x476dcb...6267c6
+         US strikes Iran by June 30, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 74% (+26% edge)
+         $4,341.98 | 02-27 10:33 | 0x86cd93...37504c
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 77% (+23% edge)
+         $2,385.33 | 02-27 10:34 | 0x34ab67...063eb5
+         US strikes Iran by June 30, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 80% (+20% edge)
+         $1,940.88 | 02-27 12:12 | 0x963137...3289a1
+         US strikes Iran by June 30, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 74% (+26% edge)
+         $1,500.00 | 02-27 12:36 | 0x665b39...5873ba
+         US strikes Iran by June 30, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 70% (+30% edge)
+         $10,202.78 | 02-27 12:39 | 0x9e0357...c66f34
+         US strikes Iran by June 30, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 82% (+18% edge)
+         $10,685.35 | 02-27 15:02 | 0xca765a...d428b3
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 76% (+24% edge)
+         $2,000.00 | 02-27 17:34 | 0x682e38...2b70bd
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 73% (+27% edge)
+         $2,000.00 | 02-27 17:38 | 0x449c74...20879e
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 80% (+20% edge)
+         $1,890.00 | 02-27 17:46 | 0xfffadf...08864b
+         US strikes Iran by June 30, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 84% (+16% edge)
+         $2,049.52 | 02-27 18:06 | 0x96489a...a86825
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 75% (+25% edge)
+         $1,478.42 | 02-27 18:27 | 0x56ebe2...5e076a
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         83% win rate (5/6 P&L) at avg odds 65% (+18% edge)
+         $1,266.54 | 02-27 19:58 | 0xd6cf0f...a3b3f4
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 71% (+29% edge)
+         $1,397.42 | 02-27 23:27 | 0x5739dd...075f1a
+         US strikes Iran by March 31, 2026?
+
+    [2.0] new_wallet_large_bet
+         New wallet (27d 1h), $+9,736 P&L
+         $5,820.07 | 02-28 00:27 | 0x557694...c05bf1
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 79% (+21% edge)
+         $2,000.00 | 02-28 04:14 | 0x8159e5...eff32b
+         US strikes Iran by June 30, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 75% (+25% edge)
+         $1,381.53 | 02-28 06:27 | 0xea25b2...5a1b18
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         80% win rate (8/10 P&L) at avg odds 63% (+17% edge)
+         $1,010.53 | 02-28 06:37 | 0x68e6c1...26707b
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 83% (+17% edge)
+         $1,090.24 | 02-28 07:08 | 0x4b6f41...b9fcdb
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 73% (+27% edge)
+         $6,091.94 | 02-28 07:08 | 0x7acff9...cef67b
+         US strikes Iran by June 30, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 76% (+24% edge)
+         $4,949.80 | 02-28 07:13 | 0x47ab02...d795df
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 76% (+24% edge)
+         $1,706.69 | 02-28 07:14 | 0xc6dd72...604b9f
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 71% (+29% edge)
+         $4,403.28 | 02-28 07:16 | 0xc8ab97...946418
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 80% (+20% edge)
+         $2,000.00 | 02-28 07:16 | 0x73d225...34f9b7
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         90% win rate (9/10 P&L) at avg odds 74% (+16% edge)
+         $1,296.06 | 02-28 07:17 | 0xdee02d...6eb4a1
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 76% (+24% edge)
+         $2,919.00 | 02-28 07:17 | 0x2a019d...4b6397
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 81% (+19% edge)
+         $15,026.75 | 02-28 07:18 | 0x8b4bca...ab541b
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 80% (+20% edge)
+         $52,843.95 | 02-28 07:18 | 0x92a629...118b84
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 83% (+17% edge)
+         $24,873.00 | 02-28 07:19 | 0xecefc7...f0558a
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 78% (+22% edge)
+         $1,966.90 | 02-28 07:19 | 0x3ffe17...7ae125
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 84% (+16% edge)
+         $4,925.00 | 02-28 07:22 | 0xd3acfb...11c991
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 79% (+21% edge)
+         $6,746.36 | 02-28 07:25 | 0xc2db1b...300cf3
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 75% (+25% edge)
+         $2,000.00 | 02-28 07:25 | 0xd48a81...366e90
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 75% (+25% edge)
+         $1,280.42 | 02-28 07:26 | 0xbd712f...f2215d
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 82% (+18% edge)
+         $7,968.27 | 02-28 07:27 | 0x9d7369...53216b
+         US strikes Iran by June 30, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 76% (+24% edge)
+         $31,807.62 | 02-28 07:28 | 0xc6587b...33b784
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 78% (+22% edge)
+         $3,952.85 | 02-28 07:32 | 0xa0fe8b...28b4a2
+         US strikes Iran by June 30, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 82% (+18% edge)
+         $40,282.29 | 02-28 07:34 | 0x06c0d0...20bc23
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 70% (+30% edge)
+         $49,225.86 | 02-28 07:34 | 0x2616d3...798d3c
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 80% (+20% edge)
+         $4,491.00 | 02-28 07:45 | 0xd9ad84...606e72
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 81% (+19% edge)
+         $2,199.38 | 02-28 07:45 | 0x3b61eb...472fd2
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 75% (+25% edge)
+         $2,383.03 | 02-28 07:46 | 0xe4b341...c0eddc
+         US strikes Iran by February 28, 202
+
+    [2.0] new_wallet_large_bet
+         New wallet (18d 7h), $+9,323 P&L
+         $11,138.00 | 02-28 07:50 | 0x2d5aab...293507
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 74% (+26% edge)
+         $1,632.17 | 02-28 07:51 | 0x01a4b8...4d4967
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 77% (+23% edge)
+         $53,371.02 | 02-28 07:55 | 0x69aa9f...5e8847
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 70% (+30% edge)
+         $2,985.01 | 02-28 08:02 | 0x1b7343...999e2a
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 84% (+16% edge)
+         $2,246.25 | 02-28 08:11 | 0x6d859a...cdeec7
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 79% (+21% edge)
+         $27,486.34 | 02-28 08:15 | 0x2123ba...2827a2
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 80% (+20% edge)
+         $10,924.84 | 02-28 08:17 | 0x2eeb77...23bd84
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 81% (+19% edge)
+         $8,039.52 | 02-28 08:46 | 0xb71064...8d6639
+         US strikes Iran by March 31, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 74% (+26% edge)
+         $9,990.00 | 02-28 08:49 | 0x99dd40...544303
+         US strikes Iran by February 28, 202
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 84% (+16% edge)
+         $2,847.14 | 02-28 09:26 | 0x5d8954...6d3ba2
+         US strikes Iran by June 30, 2026?
+
+    [2.0] win_rate_tracking
+         100% win rate (10/10 P&L) at avg odds 76% (+24% edge)
+         $3,496.50 | 02-28 09:30 | 0x8597ca...49daee
+         US strikes Iran by June 30, 2026?
+
+    [1.5] new_wallet_large_bet
+         New wallet (15d 19h)
+         $6,533.33 | 02-28 07:15 | 0x405d10...19025e
+         US strikes Iran by February 28, 202
+
+    [1.5] new_wallet_large_bet
+         New wallet (16d 18h)
+         $7,046.44 | 02-28 07:27 | 0xa010e4...a5a439
+         US strikes Iran by February 28, 202
+
+    [1.5] new_wallet_large_bet
+         New wallet (19d 18h)
+         $6,602.42 | 02-28 07:48 | 0x3b1a87...63cad7
+         US strikes Iran by June 30, 2026?
+
+    [1.5] new_wallet_large_bet
+         New wallet (16d 7h)
+         $3,522.39 | 02-28 07:52 | 0x3a8ba6...14ffbe
+         US strikes Iran by February 28, 202
+
+    [1.5] new_wallet_large_bet
+         New wallet (20d 16h)
+         $4,788.78 | 02-28 08:30 | 0x2476cb...abc49e
+         US strikes Iran by February 28, 202
+
+    [1.5] new_wallet_large_bet
+         New wallet (15d 11h)
+         $7,457.48 | 02-28 08:41 | 0xd01c01...bf28a6
+         US strikes Iran by February 28, 202
+
+    [1.5] new_wallet_large_bet
+         New wallet (17d 21h)
+         $1,599.73 | 02-28 08:45 | 0xe1aade...715a8f
+         US strikes Iran by February 28, 202
+
+    [1.5] new_wallet_large_bet
+         New wallet (29d 20h)
+         $2,186.02 | 02-28 08:51 | 0xc53cc6...98bf59
+         US strikes Iran by February 28, 202
+
+    [1.5] new_wallet_large_bet
+         New wallet (18d 10h)
+         $1,998.00 | 02-28 09:28 | 0x5b4925...445781
+         US strikes Iran by February 28, 202
+
+  Unique wallets flagged: 338
+    0x01a4b8...4d4967  score=2.0  strategies=win_rate_tracking
+    0x06c0d0...20bc23  score=2.0  strategies=win_rate_tracking
+    0x0784cc...7fda34  score=6.0  strategies=concentrated_one_sided, new_wallet_large_bet
+    0x081514...c43eb1  score=3.0  strategies=win_rate_tracking
+    0x09318b...c5c3ae  score=8.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0x0a2605...0d1851  score=3.0  strategies=win_rate_tracking
+    0x0b219c...b8deb6  score=4.5  strategies=correlated_cross_market, win_rate_tracking
+    0x0b330e...bc9a34  score=2.5  strategies=new_wallet_large_bet
+    0x0b9168...85ae77  score=4.0  strategies=win_rate_tracking
+    0x0c4b64...92f6db  score=4.0  strategies=win_rate_tracking
+    0x0e4034...68f622  score=4.0  strategies=win_rate_tracking
+    0x0f37cb...371410  score=5.0  strategies=win_rate_tracking
+    0x0ff8c8...87423d  score=4.0  strategies=new_wallet_large_bet
+    0x11de66...cd38c3  score=4.0  strategies=win_rate_tracking
+    0x12d6cc...2cf2a8  score=6.5  strategies=correlated_cross_market, win_rate_tracking
+    0x130708...1bbd75  score=4.0  strategies=win_rate_tracking
+    0x1398c3...81a875  score=3.0  strategies=win_rate_tracking
+    0x13ce9e...76bf33  score=4.5  strategies=correlated_cross_market, win_rate_tracking
+    0x140d67...7ca937  score=7.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0x142ee9...fbf6e4  score=4.0  strategies=win_rate_tracking
+    0x145a5b...a95e86  score=3.0  strategies=win_rate_tracking
+    0x1604b1...ebff0e  score=3.0  strategies=win_rate_tracking
+    0x160e45...3040f2  score=2.5  strategies=new_wallet_large_bet
+    0x183a2a...37d514  score=5.5  strategies=correlated_cross_market, win_rate_tracking
+    0x191391...46b494  score=6.5  strategies=correlated_cross_market, win_rate_tracking
+    0x1abe13...cb6497  score=17.5  strategies=correlated_cross_market, new_wallet_large_bet, win_rate_tracking
+    0x1b7343...999e2a  score=2.0  strategies=win_rate_tracking
+    0x1bc191...8989e0  score=4.0  strategies=win_rate_tracking
+    0x1cc167...73b8df  score=3.0  strategies=win_rate_tracking
+    0x200e51...1728f9  score=4.0  strategies=win_rate_tracking
+    0x20275a...ae6d60  score=6.5  strategies=concentrated_one_sided, win_rate_tracking
+    0x20feb9...ebf411  score=16.5  strategies=correlated_cross_market, new_wallet_large_bet, win_rate_tracking
+    0x2123ba...2827a2  score=2.0  strategies=win_rate_tracking
+    0x21af26...cef272  score=6.5  strategies=correlated_cross_market, win_rate_tracking
+    0x21ba7e...e34372  score=3.0  strategies=win_rate_tracking
+    0x21c52a...5e3533  score=4.0  strategies=win_rate_tracking
+    0x23a5c1...f6cd10  score=3.5  strategies=new_wallet_large_bet
+    0x241f84...56ef50  score=4.0  strategies=win_rate_tracking
+    0x2476cb...abc49e  score=1.5  strategies=new_wallet_large_bet
+    0x24c8cf...e823e1  score=4.0  strategies=win_rate_tracking
+    0x25257a...4eb919  score=3.0  strategies=win_rate_tracking
+    0x25590b...6f2032  score=3.0  strategies=win_rate_tracking
+    0x25bf39...44825a  score=3.0  strategies=new_wallet_large_bet
+    0x2616d3...798d3c  score=2.0  strategies=win_rate_tracking
+    0x2881b6...912091  score=4.0  strategies=new_wallet_large_bet
+    0x28b340...a730c8  score=38.5  strategies=new_wallet_large_bet
+    0x28b7c2...418b2a  score=4.0  strategies=new_wallet_large_bet
+    0x29d337...2cb2ed  score=3.0  strategies=win_rate_tracking
+    0x2a019d...4b6397  score=4.5  strategies=correlated_cross_market, win_rate_tracking
+    0x2a6db5...fdcbac  score=4.0  strategies=win_rate_tracking
+    0x2d39c5...e7fa04  score=3.0  strategies=win_rate_tracking
+    0x2d4e90...70edb0  score=4.0  strategies=win_rate_tracking
+    0x2d5aab...293507  score=2.0  strategies=new_wallet_large_bet
+    0x2d73f7...3b9aad  score=3.0  strategies=win_rate_tracking
+    0x2dae4c...8284ad  score=4.0  strategies=win_rate_tracking
+    0x2dc1b8...7608e1  score=4.0  strategies=win_rate_tracking
+    0x2ea0b1...353ec2  score=3.0  strategies=new_wallet_large_bet
+    0x2eeb77...23bd84  score=2.0  strategies=win_rate_tracking
+    0x30201d...a458f9  score=2.5  strategies=correlated_cross_market
+    0x30544f...ac69c5  score=3.0  strategies=win_rate_tracking
+    0x340265...8c9446  score=4.0  strategies=win_rate_tracking
+    0x34ab67...063eb5  score=5.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0x35417b...d7462e  score=6.5  strategies=correlated_cross_market, win_rate_tracking
+    0x3596dc...4631c9  score=8.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0x35b10c...8a8962  score=6.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0x35bbba...22009b  score=5.5  strategies=correlated_cross_market, win_rate_tracking
+    0x377d17...7ef71b  score=6.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0x37d10f...fb4e28  score=3.0  strategies=win_rate_tracking
+    0x381f4b...40bc99  score=3.0  strategies=win_rate_tracking
+    0x38b2ca...231a2d  score=4.0  strategies=win_rate_tracking
+    0x38b650...317bac  score=3.0  strategies=win_rate_tracking
+    0x39fd1a...d35013  score=3.0  strategies=win_rate_tracking
+    0x3a8aa3...be7699  score=79.5  strategies=new_wallet_large_bet, win_rate_tracking
+    0x3a8ba6...14ffbe  score=1.5  strategies=new_wallet_large_bet
+    0x3b1a87...63cad7  score=6.5  strategies=correlated_cross_market, new_wallet_large_bet
+    0x3b5ba6...b526fa  score=4.0  strategies=win_rate_tracking
+    0x3b61eb...472fd2  score=2.0  strategies=win_rate_tracking
+    0x3bb7aa...bd785f  score=2.5  strategies=new_wallet_large_bet
+    0x3e2489...76f1bd  score=3.0  strategies=win_rate_tracking
+    0x3f18a8...f02080  score=3.0  strategies=win_rate_tracking
+    0x3fb5fe...6b4f02  score=4.0  strategies=new_wallet_large_bet
+    0x3ffe17...7ae125  score=2.0  strategies=win_rate_tracking
+    0x404479...818de5  score=4.0  strategies=win_rate_tracking
+    0x405d10...19025e  score=1.5  strategies=new_wallet_large_bet
+    0x40cfb2...ccd21d  score=4.0  strategies=win_rate_tracking
+    0x410aa3...2b2643  score=3.0  strategies=win_rate_tracking
+    0x4166fd...e9b3c7  score=2.5  strategies=new_wallet_large_bet
+    0x43886f...7be9a1  score=4.0  strategies=new_wallet_large_bet
+    0x441d58...e2544d  score=10.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0x4478d7...2102a4  score=3.0  strategies=win_rate_tracking
+    0x449c74...20879e  score=2.0  strategies=win_rate_tracking
+    0x44ef50...32ff3d  score=2.5  strategies=correlated_cross_market
+    0x457582...5238d1  score=3.5  strategies=new_wallet_large_bet
+    0x45a227...b13c01  score=4.0  strategies=win_rate_tracking
+    0x45fb8b...25aad0  score=3.0  strategies=new_wallet_large_bet
+    0x47387a...58df78  score=3.0  strategies=win_rate_tracking
+    0x476dcb...6267c6  score=2.0  strategies=win_rate_tracking
+    0x47ab02...d795df  score=2.0  strategies=win_rate_tracking
+    0x486323...5d121f  score=4.0  strategies=win_rate_tracking
+    0x49ef5a...b5fcf5  score=5.5  strategies=correlated_cross_market, win_rate_tracking
+    0x4b6f41...b9fcdb  score=2.0  strategies=win_rate_tracking
+    0x4bfcf7...80f43d  score=5.5  strategies=concentrated_one_sided, win_rate_tracking
+    0x4c2da4...20f8ae  score=2.0  strategies=win_rate_tracking
+    0x4d1de1...e75aa0  score=9.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0x4dfd48...9f6e4a  score=4.0  strategies=win_rate_tracking
+    0x4e2560...5cd7a7  score=24.0  strategies=correlated_cross_market, new_wallet_large_bet, win_rate_tracking
+    0x500058...c566e1  score=6.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0x514550...b71f46  score=8.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0x514cf9...d52485  score=4.0  strategies=win_rate_tracking
+    0x52b744...b54597  score=6.5  strategies=correlated_cross_market, win_rate_tracking
+    0x52f518...7119da  score=3.0  strategies=win_rate_tracking
+    0x5307e5...347621  score=3.0  strategies=new_wallet_large_bet
+    0x53c2c7...f86758  score=20.5  strategies=new_wallet_large_bet
+    0x557694...c05bf1  score=2.0  strategies=new_wallet_large_bet
+    0x55dbfa...fc2031  score=3.0  strategies=new_wallet_large_bet
+    0x562bc8...f9dc09  score=3.0  strategies=win_rate_tracking
+    0x56ebe2...5e076a  score=2.0  strategies=win_rate_tracking
+    0x5739dd...075f1a  score=2.0  strategies=win_rate_tracking
+    0x58f505...e3be7b  score=4.0  strategies=win_rate_tracking
+    0x592550...9f00b4  score=6.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0x59432f...402ef2  score=4.0  strategies=win_rate_tracking
+    0x5b4925...445781  score=1.5  strategies=new_wallet_large_bet
+    0x5bb3c0...794268  score=4.0  strategies=win_rate_tracking
+    0x5bcd01...07fa31  score=3.0  strategies=win_rate_tracking
+    0x5caa4a...f7953f  score=3.0  strategies=win_rate_tracking
+    0x5cc9cd...d632ce  score=3.0  strategies=win_rate_tracking
+    0x5d8954...6d3ba2  score=2.0  strategies=win_rate_tracking
+    0x5f45b6...e0a77a  score=4.0  strategies=win_rate_tracking
+    0x5f82d8...51463b  score=3.0  strategies=new_wallet_large_bet
+    0x5f8a94...899506  score=3.0  strategies=win_rate_tracking
+    0x5fa03d...9dc20f  score=2.5  strategies=correlated_cross_market
+    0x6139c4...336b7a  score=6.5  strategies=correlated_cross_market, win_rate_tracking
+    0x614dc8...1d1546  score=5.5  strategies=correlated_cross_market, win_rate_tracking
+    0x616d9d...19bf7d  score=6.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0x6195e4...c54570  score=4.0  strategies=win_rate_tracking
+    0x6539b5...00ad73  score=5.0  strategies=new_wallet_large_bet
+    0x665b39...5873ba  score=2.0  strategies=win_rate_tracking
+    0x66e837...5d0838  score=3.0  strategies=win_rate_tracking
+    0x682e38...2b70bd  score=4.5  strategies=correlated_cross_market, win_rate_tracking
+    0x68c24b...fd1711  score=4.0  strategies=win_rate_tracking
+    0x68e6c1...26707b  score=5.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0x68f517...5c37ad  score=3.0  strategies=win_rate_tracking
+    0x68fe49...f28792  score=3.0  strategies=win_rate_tracking
+    0x695048...ebb32a  score=6.5  strategies=correlated_cross_market, win_rate_tracking
+    0x69aa9f...5e8847  score=2.0  strategies=win_rate_tracking
+    0x69ea0d...4215cd  score=3.0  strategies=win_rate_tracking
+    0x6a1e30...af328c  score=2.5  strategies=new_wallet_large_bet
+    0x6b6157...c2532e  score=2.5  strategies=new_wallet_large_bet
+    0x6bab66...830fe5  score=4.0  strategies=win_rate_tracking
+    0x6cb819...36a1f7  score=6.5  strategies=concentrated_one_sided, win_rate_tracking
+    0x6d8281...d07d33  score=6.5  strategies=concentrated_one_sided, win_rate_tracking
+    0x6d859a...cdeec7  score=2.0  strategies=win_rate_tracking
+    0x701187...75c6da  score=3.0  strategies=win_rate_tracking
+    0x71ed0b...ddd9eb  score=3.0  strategies=win_rate_tracking
+    0x72b12f...df4f69  score=8.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0x731a17...8ab53d  score=3.0  strategies=win_rate_tracking
+    0x73d225...34f9b7  score=2.0  strategies=win_rate_tracking
+    0x7420b5...1426e2  score=12.5  strategies=correlated_cross_market, new_wallet_large_bet
+    0x747943...3cd35f  score=10.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0x7523ca...a54c4c  score=4.0  strategies=win_rate_tracking
+    0x75253f...52cde1  score=7.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0x757a11...c3842b  score=3.5  strategies=new_wallet_large_bet
+    0x779fa1...745971  score=3.0  strategies=win_rate_tracking
+    0x78048a...2d7025  score=4.0  strategies=win_rate_tracking
+    0x7acff9...cef67b  score=2.0  strategies=win_rate_tracking
+    0x7addce...7ff9f4  score=3.0  strategies=win_rate_tracking
+    0x7b02b2...2a4991  score=5.5  strategies=concentrated_one_sided, win_rate_tracking
+    0x7b05f8...956180  score=3.0  strategies=win_rate_tracking
+    0x7c3db7...1e5c6b  score=4.0  strategies=win_rate_tracking
+    0x7d8846...a94af7  score=3.0  strategies=new_wallet_large_bet
+    0x7fb88c...65d906  score=4.0  strategies=win_rate_tracking
+    0x813a8e...e30637  score=5.0  strategies=new_wallet_large_bet
+    0x8150e3...18d03f  score=31.5  strategies=new_wallet_large_bet
+    0x8159e5...eff32b  score=2.0  strategies=win_rate_tracking
+    0x8250e5...f5743f  score=3.0  strategies=new_wallet_large_bet
+    0x842ac9...407422  score=4.0  strategies=win_rate_tracking
+    0x855c4d...edd9ef  score=5.0  strategies=new_wallet_large_bet
+    0x8597ca...49daee  score=2.0  strategies=win_rate_tracking
+    0x86cd93...37504c  score=4.5  strategies=correlated_cross_market, win_rate_tracking
+    0x8711c5...851d81  score=3.0  strategies=win_rate_tracking
+    0x872e0b...b5e58f  score=9.5  strategies=correlated_cross_market, new_wallet_large_bet
+    0x88ae6c...fb809a  score=5.5  strategies=correlated_cross_market, win_rate_tracking
+    0x8b4bca...ab541b  score=2.0  strategies=win_rate_tracking
+    0x8b9e53...9e6838  score=4.0  strategies=win_rate_tracking
+    0x8bc84f...4597dc  score=3.0  strategies=win_rate_tracking
+    0x8c9233...2bebd9  score=2.0  strategies=win_rate_tracking
+    0x8d3297...d8563a  score=3.0  strategies=win_rate_tracking
+    0x8e579d...4afc66  score=7.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0x8f037a...ac64d6  score=6.5  strategies=correlated_cross_market, win_rate_tracking
+    0x8f0485...37d82e  score=4.0  strategies=win_rate_tracking
+    0x8f42ae...74b88f  score=4.0  strategies=win_rate_tracking
+    0x9261bd...aa83d4  score=6.5  strategies=concentrated_one_sided, win_rate_tracking
+    0x92a629...118b84  score=2.0  strategies=win_rate_tracking
+    0x94336f...a951f3  score=4.0  strategies=new_wallet_large_bet
+    0x963137...3289a1  score=4.5  strategies=correlated_cross_market, win_rate_tracking
+    0x96489a...a86825  score=2.0  strategies=win_rate_tracking
+    0x96f452...d7edc5  score=3.0  strategies=win_rate_tracking
+    0x990655...61c0ae  score=3.0  strategies=win_rate_tracking
+    0x991b8c...a4f19a  score=3.0  strategies=win_rate_tracking
+    0x99dd40...544303  score=2.0  strategies=win_rate_tracking
+    0x9ad091...a5bf3d  score=3.0  strategies=win_rate_tracking
+    0x9aeb53...5b2729  score=3.0  strategies=win_rate_tracking
+    0x9baebe...e95d34  score=3.0  strategies=win_rate_tracking
+    0x9cdda4...3d3e97  score=3.0  strategies=win_rate_tracking
+    0x9d7369...53216b  score=2.0  strategies=win_rate_tracking
+    0x9d799d...c6b212  score=6.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0x9d84ce...dc1344  score=6.5  strategies=correlated_cross_market, win_rate_tracking
+    0x9dfed1...0da5d6  score=3.5  strategies=new_wallet_large_bet
+    0x9e0357...c66f34  score=4.5  strategies=correlated_cross_market, win_rate_tracking
+    0x9e5c74...7fd8e6  score=4.0  strategies=win_rate_tracking
+    0x9f0968...932848  score=5.5  strategies=correlated_cross_market, win_rate_tracking
+    0x9f49c3...26a184  score=2.5  strategies=new_wallet_large_bet
+    0xa010e4...a5a439  score=1.5  strategies=new_wallet_large_bet
+    0xa0c37c...ba5b9a  score=4.0  strategies=win_rate_tracking
+    0xa0fe8b...28b4a2  score=2.0  strategies=win_rate_tracking
+    0xa25c6a...026430  score=4.0  strategies=win_rate_tracking
+    0xa268d4...66d60b  score=4.0  strategies=win_rate_tracking
+    0xa2848a...cf49ed  score=3.0  strategies=win_rate_tracking
+    0xa2a2bc...26b04d  score=4.0  strategies=win_rate_tracking
+    0xa39c48...9908bc  score=2.0  strategies=win_rate_tracking
+    0xa52ff0...ad8897  score=3.0  strategies=win_rate_tracking
+    0xa69d0c...0d509b  score=3.0  strategies=win_rate_tracking
+    0xa6d9b5...50fd2f  score=4.0  strategies=win_rate_tracking
+    0xa7c1f9...8e0193  score=5.0  strategies=win_rate_tracking
+    0xa7e96e...d94f6c  score=4.0  strategies=win_rate_tracking
+    0xa8af4c...3a325e  score=3.0  strategies=win_rate_tracking
+    0xa8c251...e16b54  score=4.0  strategies=new_wallet_large_bet
+    0xa8f878...fe0e46  score=3.0  strategies=win_rate_tracking
+    0xa9e64c...b91dc2  score=4.5  strategies=correlated_cross_market, win_rate_tracking
+    0xaa3b27...a11e2e  score=4.0  strategies=win_rate_tracking
+    0xab4f78...42552f  score=4.0  strategies=win_rate_tracking
+    0xacbfc1...410c9a  score=4.0  strategies=win_rate_tracking
+    0xadc2ef...7cd1c9  score=4.0  strategies=new_wallet_large_bet
+    0xae4c91...a9d114  score=32.5  strategies=new_wallet_large_bet
+    0xaec386...6222df  score=3.0  strategies=win_rate_tracking
+    0xb00570...a5e690  score=3.0  strategies=win_rate_tracking
+    0xb26bff...99033b  score=3.0  strategies=win_rate_tracking
+    0xb2e24b...37ab51  score=4.0  strategies=new_wallet_large_bet
+    0xb36608...96122f  score=3.0  strategies=new_wallet_large_bet
+    0xb3b31b...aec4ef  score=3.0  strategies=new_wallet_large_bet
+    0xb4923a...e31df3  score=2.0  strategies=win_rate_tracking
+    0xb71064...8d6639  score=2.0  strategies=win_rate_tracking
+    0xb88138...b258fa  score=9.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0xb8fe80...64ce76  score=3.0  strategies=win_rate_tracking
+    0xbaa2bc...b92c73  score=4.0  strategies=win_rate_tracking
+    0xbacd00...b0ab35  score=6.5  strategies=correlated_cross_market, win_rate_tracking
+    0xbc43a2...911540  score=6.5  strategies=correlated_cross_market, win_rate_tracking
+    0xbd712f...f2215d  score=2.0  strategies=win_rate_tracking
+    0xc1db6a...56838d  score=3.0  strategies=win_rate_tracking
+    0xc2db1b...300cf3  score=2.0  strategies=win_rate_tracking
+    0xc34170...7c9a9f  score=6.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0xc37fac...3b1144  score=4.0  strategies=win_rate_tracking
+    0xc3e451...415bf6  score=4.0  strategies=win_rate_tracking
+    0xc4086b...0f4675  score=4.0  strategies=win_rate_tracking
+    0xc4de5b...6a424c  score=4.0  strategies=win_rate_tracking
+    0xc4e52e...19fb30  score=11.0  strategies=new_wallet_large_bet
+    0xc53cc6...98bf59  score=1.5  strategies=new_wallet_large_bet
+    0xc6587b...33b784  score=2.0  strategies=win_rate_tracking
+    0xc682d7...7817bb  score=2.5  strategies=correlated_cross_market
+    0xc6dd72...604b9f  score=2.0  strategies=win_rate_tracking
+    0xc6ecd0...96f735  score=6.0  strategies=new_wallet_large_bet
+    0xc8ab97...946418  score=4.5  strategies=correlated_cross_market, win_rate_tracking
+    0xca765a...d428b3  score=2.0  strategies=win_rate_tracking
+    0xcccc22...13dbdd  score=5.0  strategies=win_rate_tracking
+    0xcd95eb...d28c17  score=3.0  strategies=win_rate_tracking
+    0xcddc2d...b1217c  score=6.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0xcdef21...576cfc  score=4.0  strategies=new_wallet_large_bet
+    0xce89af...c26ea5  score=5.5  strategies=correlated_cross_market, win_rate_tracking
+    0xcf6c54...e47e66  score=4.0  strategies=win_rate_tracking
+    0xd01c01...bf28a6  score=1.5  strategies=new_wallet_large_bet
+    0xd16549...3df2b8  score=3.0  strategies=win_rate_tracking
+    0xd1f2a3...f0e9da  score=3.0  strategies=win_rate_tracking
+    0xd26385...1027d8  score=11.5  strategies=new_wallet_large_bet
+    0xd28961...388f77  score=2.5  strategies=new_wallet_large_bet
+    0xd2b785...221622  score=9.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0xd3acfb...11c991  score=2.0  strategies=win_rate_tracking
+    0xd48a81...366e90  score=2.0  strategies=win_rate_tracking
+    0xd5544a...7da3f6  score=4.0  strategies=new_wallet_large_bet
+    0xd624b3...76a0f8  score=4.0  strategies=win_rate_tracking
+    0xd62840...e243c1  score=3.0  strategies=win_rate_tracking
+    0xd6cf0f...a3b3f4  score=2.0  strategies=win_rate_tracking
+    0xd74293...5379e4  score=8.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0xd9ad84...606e72  score=2.0  strategies=win_rate_tracking
+    0xda9ed0...e1ac09  score=6.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0xdae634...7ce440  score=12.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0xdb1b12...66efb5  score=3.0  strategies=win_rate_tracking
+    0xdd0891...ef5ee9  score=3.0  strategies=win_rate_tracking
+    0xdd6784...2cfb31  score=3.0  strategies=win_rate_tracking
+    0xdd9d65...1429bf  score=36.5  strategies=new_wallet_large_bet
+    0xdec710...40f536  score=3.0  strategies=win_rate_tracking
+    0xdee02d...6eb4a1  score=5.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0xdfd3b8...5ac3c0  score=4.0  strategies=new_wallet_large_bet
+    0xe0097b...7fecf8  score=3.5  strategies=new_wallet_large_bet
+    0xe168b5...3ee559  score=6.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0xe1aade...715a8f  score=1.5  strategies=new_wallet_large_bet
+    0xe1ae4b...65a9dc  score=3.0  strategies=win_rate_tracking
+    0xe1b361...9e1426  score=4.0  strategies=win_rate_tracking
+    0xe342a9...d81f86  score=3.0  strategies=win_rate_tracking
+    0xe4b341...c0eddc  score=2.0  strategies=win_rate_tracking
+    0xe53711...111eeb  score=2.5  strategies=correlated_cross_market
+    0xe59843...80a0a8  score=4.0  strategies=win_rate_tracking
+    0xe73874...9edf65  score=4.0  strategies=win_rate_tracking
+    0xe74619...0aff6a  score=4.0  strategies=win_rate_tracking
+    0xe85f3d...3a7f69  score=4.0  strategies=win_rate_tracking
+    0xe89a50...2216a3  score=3.0  strategies=win_rate_tracking
+    0xe90bec...7d5da2  score=4.0  strategies=win_rate_tracking
+    0xea25b2...5a1b18  score=6.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0xeade74...8ef26d  score=3.0  strategies=win_rate_tracking
+    0xebb705...4a01f5  score=9.5  strategies=correlated_cross_market, new_wallet_large_bet
+    0xecefc7...f0558a  score=2.0  strategies=win_rate_tracking
+    0xecfce3...b9cd05  score=4.0  strategies=win_rate_tracking
+    0xed3aad...e19b17  score=4.0  strategies=win_rate_tracking
+    0xedc273...6691fd  score=2.5  strategies=new_wallet_large_bet
+    0xeeb8c4...cfcab5  score=3.0  strategies=new_wallet_large_bet
+    0xeec50e...7fb6fe  score=2.5  strategies=correlated_cross_market
+    0xeeea97...1aa889  score=8.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0xf0ed9e...7d47d8  score=4.0  strategies=win_rate_tracking
+    0xf1b29b...0fa321  score=6.5  strategies=correlated_cross_market, win_rate_tracking
+    0xf3e79d...2da536  score=4.0  strategies=win_rate_tracking
+    0xf4539b...a02547  score=4.5  strategies=new_wallet_large_bet
+    0xf66bb1...95b1d1  score=4.0  strategies=win_rate_tracking
+    0xf67f72...4a31cf  score=3.0  strategies=win_rate_tracking
+    0xf74ed8...0ddda4  score=4.0  strategies=win_rate_tracking
+    0xf756de...3a29e6  score=4.0  strategies=win_rate_tracking
+    0xf9009e...96cd0c  score=5.5  strategies=concentrated_one_sided, win_rate_tracking
+    0xf9d535...ebfba3  score=9.0  strategies=concentrated_one_sided, correlated_cross_market, win_rate_tracking
+    0xf9e900...fdc2ee  score=7.0  strategies=new_wallet_large_bet, win_rate_tracking
+    0xfc2f4f...6610c7  score=10.0  strategies=concentrated_one_sided, correlated_cross_market, win_rate_tracking
+    0xfc4afa...19126f  score=2.5  strategies=new_wallet_large_bet
+    0xfc6dfe...799f36  score=6.5  strategies=correlated_cross_market, win_rate_tracking
+    0xfcf237...cea469  score=6.5  strategies=correlated_cross_market, win_rate_tracking
+    0xfd8fcd...64a3b1  score=3.0  strategies=win_rate_tracking
+    0xfe032d...64f14f  score=3.0  strategies=win_rate_tracking
+    0xfe0c8c...0004b6  score=3.0  strategies=win_rate_tracking
+    0xfe240a...9fff73  score=2.5  strategies=new_wallet_large_bet
+    0xfe6b34...9abc2a  score=3.0  strategies=win_rate_tracking
+    0xff72a6...a4cdaa  score=3.0  strategies=win_rate_tracking
+    0xfffadf...08864b  score=2.0  strategies=win_rate_tracking
+
+========================================================================
+
+Backtest complete.

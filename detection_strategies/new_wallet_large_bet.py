@@ -61,7 +61,8 @@ def get_wallet_profile(address: str) -> tuple[datetime | None, dict]:
             timeout=10,
         )
         if resp.status_code == 404:
-            print(f"    [lookup] {short} — no profile found (treating as new)")
+            if config.VERBOSE:
+                print(f"    [lookup] {short} — no profile found (treating as new)")
             _wallet_cache[address] = (None, {})
             return (None, {})
         resp.raise_for_status()
@@ -155,17 +156,20 @@ class NewWalletLargeBetStrategy(DetectionStrategy):
         wallet = trade.get("proxyWallet", "")
         usd = trade.get("_usd_value", 0)
         title = trade.get("title", "?")
-        print(f"  [new_wallet_large_bet] ${usd:,.2f} on \"{title}\"")
+        if config.VERBOSE:
+            print(f"  [new_wallet_large_bet] ${usd:,.2f} on \"{title}\"")
 
         if not wallet:
-            print(f"    [skip] No wallet address on this trade")
+            if config.VERBOSE:
+                print(f"    [skip] No wallet address on this trade")
             return None
 
         created_at, _profile = get_wallet_profile(wallet)
 
         if is_new_wallet(created_at):
             age = wallet_age_str(created_at)
-            print(f"    >>> ALERT: New wallet detected!")
+            if config.VERBOSE:
+                print(f"    >>> ALERT: New wallet detected!")
 
             # Base severity scales with how new the wallet is
             if created_at is None:
@@ -202,8 +206,9 @@ class NewWalletLargeBetStrategy(DetectionStrategy):
                     f" — REPEAT x{flag_stats['times_flagged']} "
                     f"(${flag_stats['total_usd_flagged']:,.0f} total flagged)"
                 )
-                print(f"    >>> REPEAT OFFENDER: flagged {flag_stats['times_flagged']} times, "
-                      f"${flag_stats['total_usd_flagged']:,.0f} total")
+                if config.VERBOSE:
+                    print(f"    >>> REPEAT OFFENDER: flagged {flag_stats['times_flagged']} times, "
+                          f"${flag_stats['total_usd_flagged']:,.0f} total")
 
             # Cross-reference with P&L data: a "new" wallet that already
             # has many positions or high profitability is very suspicious
