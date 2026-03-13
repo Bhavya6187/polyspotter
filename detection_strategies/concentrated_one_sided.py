@@ -10,6 +10,7 @@ cluster exceeds configured thresholds.
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 
 from detection_strategies import DetectionStrategy, Signal
@@ -66,8 +67,18 @@ class ConcentratedOneSidedStrategy(DetectionStrategy):
             sample = cluster_trades[0]
             tx_hashes = [t.get("transactionHash", "") for t in cluster_trades if t.get("transactionHash")]
 
-            severity = 3.5
-            headline = f"{len(wallets)} wallets, same direction ({outcome}/{side}), ${total_usd:,.0f}"
+            # Base severity scales with cluster size and volume:
+            #   3 wallets -> 3.5, 5 -> 4.2, 10 -> 5.0, 20 -> 5.8
+            n_wallets = len(wallets)
+            severity = min(6.0, 2.5 + math.log2(n_wallets))
+
+            # Volume boost: +0.5 for $50k+, +1.0 for $100k+
+            if total_usd >= 100_000:
+                severity = min(7.0, severity + 1.0)
+            elif total_usd >= 50_000:
+                severity = min(6.5, severity + 0.5)
+
+            headline = f"{n_wallets} wallets, same direction ({outcome}/{side}), ${total_usd:,.0f}"
 
             # Cross-reference with wallet_clustering: check if any wallets
             # in this cluster share a common funder (Sybil indicator)
@@ -80,7 +91,7 @@ class ConcentratedOneSidedStrategy(DetectionStrategy):
             shared_funders = {f: ws for f, ws in funders.items() if len(ws) >= 2}
             if shared_funders:
                 n_shared = sum(len(ws) for ws in shared_funders.values())
-                severity = min(6.0, severity + 1.5)
+                severity = min(8.0, severity + 1.5)
                 headline += f" — {n_shared} share funder (Sybil?)"
 
             signals.append(

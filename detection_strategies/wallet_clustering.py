@@ -17,6 +17,7 @@ variable (free tier is fine — 5 calls/sec).
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 import time
@@ -194,8 +195,11 @@ class WalletClusteringStrategy(DetectionStrategy):
             if extra_historical:
                 headline += f" (+{len(extra_historical)} from prior runs)"
 
-            # Higher severity for known Sybil funders
-            severity = 6.0 if funder in known_sybils else 5.0
+            # Severity scales with cluster size:
+            #   2 wallets -> 5.0, 4 -> 6.0, 8 -> 7.0, 16 -> 8.0
+            # Known Sybil funders get +1.0 boost
+            base = 4.0 + math.log2(n_total)
+            severity = min(8.0, base + (1.0 if funder in known_sybils else 0.0))
 
             signals.append(
                 Signal(

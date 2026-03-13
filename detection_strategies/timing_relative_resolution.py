@@ -27,6 +27,8 @@ from gamma_cache import get_market_by_condition
 # ---------------------------------------------------------------------------
 CLOSE_MINUTES = 60  # trades within this many minutes of endDate are flagged
 REPEAT_TIMING_THRESHOLD = 3  # flag wallet as serial timer if >= N historical timing flags
+SHORT_MARKET_HOURS = 2  # markets shorter than this are "short-duration" (e.g., 5-min BTC binary options)
+SHORT_MARKET_SEVERITY_CAP = 1.0  # max severity for short-duration markets (suppress noise)
 
 
 def _parse_datetime(s: str | None) -> datetime | None:
@@ -71,6 +73,18 @@ class TimingRelativeResolutionStrategy(DetectionStrategy):
         if minutes_to_resolution < 0 or minutes_to_resolution > CLOSE_MINUTES:
             return None
 
+        # Determine if this is a short-duration market (e.g., 5-min BTC binary
+        # options).  Betting near resolution on these is *expected behavior*,
+        # not suspicious — the entire market lifespan is minutes.
+        start_date = _parse_datetime(market.get("startDate"))
+        market_duration_hours = None
+        if start_date and end_date:
+            market_duration_hours = (end_date - start_date).total_seconds() / 3600
+        is_short_market = (
+            market_duration_hours is not None
+            and market_duration_hours < SHORT_MARKET_HOURS
+        )
+
         wallet = trade.get("proxyWallet", "")
         usd = float(trade.get("_usd_value", 0))
 
@@ -101,6 +115,11 @@ class TimingRelativeResolutionStrategy(DetectionStrategy):
                     win_pct = pnl["wins"] / pnl["closed_positions"] if pnl["closed_positions"] > 0 else 0
                     severity = min(8.0, severity + 1.0)
                     headline += f" + PROFITABLE: {win_pct:.0%} wins, ${pnl['total_pnl']:+,.0f} P&L"
+
+        # Cap severity for short-duration markets — last-minute bets are normal
+        # on 5-min/15-min binary options, so only retain a small signal
+        if is_short_market:
+            severity = min(severity, SHORT_MARKET_SEVERITY_CAP)
 
         return Signal(
             strategy=self.name,

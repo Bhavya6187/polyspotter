@@ -35,9 +35,13 @@ from db import (
 GAMMA_API = "https://gamma-api.polymarket.com"
 DATA_API = "https://data-api.polymarket.com"
 WIN_RATE_ALERT_THRESHOLD = 0.75  # flag if win rate >= 75%
-MIN_RESOLVED_BETS = 5  # need at least N resolved bets to judge
+MIN_RESOLVED_BETS = 10  # need at least N resolved bets to judge
 # Minimum edge (actual win% - implied win%) to consider suspicious
 MIN_EDGE_THRESHOLD = 0.15
+# If wallet has zero losses in the P&L data, require this many closed
+# positions before trusting the 100% win rate (avoids false positives
+# from the Data API returning only a page of winners)
+MIN_PERFECT_RECORD_POSITIONS = 20
 LOOKUP_DELAY = 0
 PNL_FETCH_DELAY = 0.1
 
@@ -189,12 +193,24 @@ class WinRateTrackingStrategy(DetectionStrategy):
 
         if resolved >= MIN_RESOLVED_BETS:
             win_rate = wins / resolved
-            source = "resolved"
+            source = f"{wins}/{resolved} resolved"
         elif pnl["closed_positions"] >= MIN_RESOLVED_BETS:
             resolved = pnl["closed_positions"]
             wins = pnl["wins"]
+            losses = pnl["losses"]
             win_rate = wins / resolved if resolved > 0 else 0
-            source = "P&L"
+
+            # The Data API returns at most 50 closed positions per call.
+            # A wallet showing 50/50 wins with 0 losses likely just has
+            # all winners on page 1 — we can't see losses beyond that.
+            # Require a higher bar before trusting a perfect record from P&L.
+            if losses == 0 and resolved < MIN_PERFECT_RECORD_POSITIONS:
+                return None
+
+            source = f"{wins}/{resolved} P&L"
+        else:
+            # Not enough data from either source
+            return None
 
         if win_rate is None or win_rate < WIN_RATE_ALERT_THRESHOLD:
             return None
@@ -228,12 +244,12 @@ class WinRateTrackingStrategy(DetectionStrategy):
 
         if implied_win_rate > 0:
             headline = (
-                f"{win_rate:.0%} win rate ({wins}/{resolved} {source}) "
+                f"{win_rate:.0%} win rate ({source}) "
                 f"at avg odds {implied_win_rate:.0%} "
                 f"(+{edge:.0%} edge)"
             )
         else:
-            headline = f"{win_rate:.0%} win rate ({wins}/{resolved} {source})"
+            headline = f"{win_rate:.0%} win rate ({source})"
 
         # Boost severity if P&L data confirms profitability
         if pnl["closed_positions"] >= MIN_RESOLVED_BETS and pnl["total_pnl"] > 0:
