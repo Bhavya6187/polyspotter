@@ -28,7 +28,7 @@ from gamma_cache import get_market_by_condition
 CLOSE_MINUTES = 60  # trades within this many minutes of endDate are flagged
 REPEAT_TIMING_THRESHOLD = 3  # flag wallet as serial timer if >= N historical timing flags
 SHORT_MARKET_HOURS = 2  # markets shorter than this are "short-duration" (e.g., 5-min BTC binary options)
-SHORT_MARKET_SEVERITY_CAP = 1.0  # max severity for short-duration markets (suppress noise)
+SHORT_MARKET_SEVERITY_CAP = 0  # fully suppress short-duration markets (near-resolution bets are expected)
 
 
 def _parse_datetime(s: str | None) -> datetime | None:
@@ -85,12 +85,20 @@ class TimingRelativeResolutionStrategy(DetectionStrategy):
             and market_duration_hours < SHORT_MARKET_HOURS
         )
 
+        # Short-duration markets (e.g., 5-min BTC binary options): near-resolution
+        # bets are expected behavior — suppress entirely.
+        if is_short_market:
+            return None
+
         wallet = trade.get("proxyWallet", "")
         usd = float(trade.get("_usd_value", 0))
 
-        # Record this timing flag for future pattern detection
+        # Record this timing flag for future pattern detection.
+        # Store market_duration_hours so serial-timer queries can exclude
+        # short-duration markets from the historical count.
         if wallet:
-            record_timing_flag(wallet, cid, minutes_to_resolution, usd, trade_ts)
+            record_timing_flag(wallet, cid, minutes_to_resolution, usd, trade_ts,
+                               market_duration_hours=market_duration_hours)
 
         # Continuous severity: higher as trade gets closer to resolution
         # 5.0 at 0 min, ~4.0 at 1 min, ~2.5 at 10 min, ~1.0 at 60 min
@@ -98,9 +106,13 @@ class TimingRelativeResolutionStrategy(DetectionStrategy):
 
         headline = f"{minutes_to_resolution:.1f} min before resolution"
 
-        # Check if this wallet is a serial "timer" — repeatedly bets near resolution
+        # Check if this wallet is a serial "timer" — repeatedly bets near resolution.
+        # Only count flags from long-duration markets (>= SHORT_MARKET_HOURS) so
+        # that 5-min/15-min binary option trades don't inflate the serial-timer count.
         if wallet:
-            timing_stats = get_wallet_timing_stats(wallet)
+            timing_stats = get_wallet_timing_stats(
+                wallet, min_market_duration_hours=SHORT_MARKET_HOURS
+            )
             if timing_stats["total_flags"] >= REPEAT_TIMING_THRESHOLD:
                 severity = min(7.0, severity + 1.5)
                 headline += (
@@ -115,11 +127,6 @@ class TimingRelativeResolutionStrategy(DetectionStrategy):
                     win_pct = pnl["wins"] / pnl["closed_positions"] if pnl["closed_positions"] > 0 else 0
                     severity = min(8.0, severity + 1.0)
                     headline += f" + PROFITABLE: {win_pct:.0%} wins, ${pnl['total_pnl']:+,.0f} P&L"
-
-        # Cap severity for short-duration markets — last-minute bets are normal
-        # on 5-min/15-min binary options, so only retain a small signal
-        if is_short_market:
-            severity = min(severity, SHORT_MARKET_SEVERITY_CAP)
 
         return Signal(
             strategy=self.name,

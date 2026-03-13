@@ -31,6 +31,7 @@ from detection_strategies.low_activity_large_bet import LowActivityLargeBetStrat
 from detection_strategies.correlated_cross_market import CorrelatedCrossMarketStrategy
 import config
 from db import get_db
+from seeder import push_to_backend
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -551,6 +552,10 @@ def run():
     print(f"\n[*] Compositing {len(all_signals)} signal(s) into deduplicated alerts...", flush=True)
     print(_format_composite_alerts(all_signals, trades))
     print(_format_summary(trades, all_signals, strategy_names))
+
+    # -- push to backend -------------------------------------------------------
+    push_to_backend(all_signals, trades)
+
     print("Done.")
 
 

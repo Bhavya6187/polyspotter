@@ -93,6 +93,35 @@ class TestTimingRelativeResolutionStrategy(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertLessEqual(result.severity, 5.0)
 
+    @patch("detection_strategies.timing_relative_resolution.get_market_by_condition")
+    def test_short_duration_market_suppressed(self, mock_market, *mocks):
+        """Short-duration markets (< 2h) should return None — near-resolution bets are expected."""
+        trade_ts = 1700000000
+        # Market lasts 30 minutes total, trade is 5 min before end
+        start_dt = datetime.fromtimestamp(trade_ts - 25 * 60, tz=timezone.utc)
+        end_dt = datetime.fromtimestamp(trade_ts + 5 * 60, tz=timezone.utc)
+        mock_market.return_value = {
+            "startDate": start_dt.isoformat(),
+            "endDate": end_dt.isoformat(),
+        }
+        result = self.strategy.check_trade(self._make_trade(ts=trade_ts))
+        self.assertIsNone(result)
+
+    @patch("detection_strategies.timing_relative_resolution.get_market_by_condition")
+    def test_long_duration_market_not_suppressed(self, mock_market, *mocks):
+        """Markets >= 2h should still fire normally."""
+        trade_ts = 1700000000
+        # Market lasts 4 hours, trade is 10 min before end
+        start_dt = datetime.fromtimestamp(trade_ts - 230 * 60, tz=timezone.utc)
+        end_dt = datetime.fromtimestamp(trade_ts + 10 * 60, tz=timezone.utc)
+        mock_market.return_value = {
+            "startDate": start_dt.isoformat(),
+            "endDate": end_dt.isoformat(),
+        }
+        result = self.strategy.check_trade(self._make_trade(ts=trade_ts))
+        self.assertIsNotNone(result)
+        self.assertIn("min before resolution", result.headline)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -39,9 +39,9 @@ MIN_RESOLVED_BETS = 10  # need at least N resolved bets to judge
 # Minimum edge (actual win% - implied win%) to consider suspicious
 MIN_EDGE_THRESHOLD = 0.15
 # If wallet has zero losses in the P&L data, require this many closed
-# positions before trusting the 100% win rate (avoids false positives
-# from the Data API returning only a page of winners)
+# positions before trusting the 100% win rate
 MIN_PERFECT_RECORD_POSITIONS = 20
+MAX_PNL_POSITIONS = 200  # cap total positions fetched per endpoint
 LOOKUP_DELAY = 0
 PNL_FETCH_DELAY = 0.1
 
@@ -65,21 +65,30 @@ def _fetch_wallet_pnl(wallet: str) -> None:
     clear_wallet_pnl(wallet)
 
     for position_type, endpoint in [("open", "positions"), ("closed", "closed-positions")]:
-        time.sleep(PNL_FETCH_DELAY)
-        try:
-            resp = requests.get(
-                f"{DATA_API}/{endpoint}",
-                params={"user": wallet, "limit": 50},
-                timeout=15,
-            )
-            if resp.status_code != 200:
-                continue
-            positions = resp.json()
-            if isinstance(positions, list):
+        offset = 0
+        page_size = 50
+        fetched = 0
+        while fetched < MAX_PNL_POSITIONS:
+            time.sleep(PNL_FETCH_DELAY)
+            try:
+                resp = requests.get(
+                    f"{DATA_API}/{endpoint}",
+                    params={"user": wallet, "limit": page_size, "offset": offset},
+                    timeout=15,
+                )
+                if resp.status_code != 200:
+                    break
+                positions = resp.json()
+                if not isinstance(positions, list) or len(positions) == 0:
+                    break
                 for pos in positions:
                     record_wallet_pnl(wallet, pos, position_type)
-        except requests.RequestException:
-            pass
+                fetched += len(positions)
+                if len(positions) < page_size:
+                    break  # last page
+                offset += page_size
+            except requests.RequestException:
+                break
 
 
 # ---------------------------------------------------------------------------
@@ -200,10 +209,8 @@ class WinRateTrackingStrategy(DetectionStrategy):
             losses = pnl["losses"]
             win_rate = wins / resolved if resolved > 0 else 0
 
-            # The Data API returns at most 50 closed positions per call.
-            # A wallet showing 50/50 wins with 0 losses likely just has
-            # all winners on page 1 — we can't see losses beyond that.
-            # Require a higher bar before trusting a perfect record from P&L.
+            # Even with pagination (up to MAX_PNL_POSITIONS), a wallet
+            # showing zero losses on a small sample is unreliable.
             if losses == 0 and resolved < MIN_PERFECT_RECORD_POSITIONS:
                 return None
 

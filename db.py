@@ -154,7 +154,8 @@ def _init_tables(conn: sqlite3.Connection) -> None:
             minutes_to_resolution REAL NOT NULL,
             usd_value REAL NOT NULL,
             trade_timestamp REAL NOT NULL,
-            recorded_at TEXT NOT NULL
+            recorded_at TEXT NOT NULL,
+            market_duration_hours REAL
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tf_wallet ON timing_flags(wallet)")
@@ -621,14 +622,16 @@ def get_historical_price_range(condition_id: str, outcome: str) -> tuple[float, 
 
 
 def record_timing_flag(
-    wallet: str, condition_id: str, minutes_to_resolution: float, usd_value: float, trade_timestamp: float
+    wallet: str, condition_id: str, minutes_to_resolution: float, usd_value: float, trade_timestamp: float,
+    *, market_duration_hours: float | None = None,
 ) -> None:
     """Record that a wallet bet close to market resolution."""
     conn = get_db()
     conn.execute(
         """INSERT OR IGNORE INTO timing_flags
-           (wallet, condition_id, minutes_to_resolution, usd_value, trade_timestamp, recorded_at)
-           VALUES (?, ?, ?, ?, ?, ?)""",
+           (wallet, condition_id, minutes_to_resolution, usd_value, trade_timestamp, recorded_at,
+            market_duration_hours)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
         (
             wallet.lower(),
             condition_id,
@@ -636,25 +639,51 @@ def record_timing_flag(
             usd_value,
             trade_timestamp,
             datetime.now(timezone.utc).isoformat(),
+            market_duration_hours,
         ),
     )
     conn.commit()
 
 
-def get_wallet_timing_stats(wallet: str) -> dict:
-    """Get stats on how often a wallet bets near resolution."""
+def get_wallet_timing_stats(
+    wallet: str, *, min_market_duration_hours: float | None = None
+) -> dict:
+    """Get stats on how often a wallet bets near resolution.
+
+    If *min_market_duration_hours* is set, only flags from markets with
+    duration >= that value are counted.  This excludes short-duration
+    markets (e.g. 5-min BTC binary options) whose near-resolution bets
+    are expected and shouldn't inflate the serial-timer count.
+    """
     conn = get_db()
-    row = conn.execute(
-        """SELECT
-               COUNT(*) as total_flags,
-               COUNT(DISTINCT condition_id) as distinct_markets,
-               AVG(minutes_to_resolution) as avg_minutes,
-               MIN(minutes_to_resolution) as min_minutes,
-               SUM(usd_value) as total_usd
-           FROM timing_flags
-           WHERE wallet = ?""",
-        (wallet.lower(),),
-    ).fetchone()
+    if min_market_duration_hours is not None:
+        # Exclude short markets; also include rows where duration is NULL
+        # (old data without the column populated) to avoid under-counting.
+        row = conn.execute(
+            """SELECT
+                   COUNT(*) as total_flags,
+                   COUNT(DISTINCT condition_id) as distinct_markets,
+                   AVG(minutes_to_resolution) as avg_minutes,
+                   MIN(minutes_to_resolution) as min_minutes,
+                   SUM(usd_value) as total_usd
+               FROM timing_flags
+               WHERE wallet = ?
+                 AND (market_duration_hours IS NULL
+                      OR market_duration_hours >= ?)""",
+            (wallet.lower(), min_market_duration_hours),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            """SELECT
+                   COUNT(*) as total_flags,
+                   COUNT(DISTINCT condition_id) as distinct_markets,
+                   AVG(minutes_to_resolution) as avg_minutes,
+                   MIN(minutes_to_resolution) as min_minutes,
+                   SUM(usd_value) as total_usd
+               FROM timing_flags
+               WHERE wallet = ?""",
+            (wallet.lower(),),
+        ).fetchone()
     return {
         "total_flags": row[0] or 0,
         "distinct_markets": row[1] or 0,
