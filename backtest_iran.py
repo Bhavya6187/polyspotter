@@ -52,6 +52,7 @@ _db_module.get_db = _backtest_get_db
 _db_module._conn = None  # reset so our patched version gets called
 
 import config
+
 config.VERBOSE = False
 
 # Import strategy modules WITHOUT triggering detection_strategies/__init__.py
@@ -65,6 +66,7 @@ from dataclasses import dataclass, field
 @dataclass
 class Signal:
     """Mirror of detection_strategies.Signal for backtest isolation."""
+
     strategy: str
     severity: float
     headline: str
@@ -79,6 +81,7 @@ def _load_strategy_module(name: str):
     # so that `from detection_strategies import ...` works inside the modules
     if "detection_strategies" not in sys.modules:
         import types
+
         pkg = types.ModuleType("detection_strategies")
         pkg.__path__ = [os.path.join(os.path.dirname(__file__), "detection_strategies")]
         pkg.__package__ = "detection_strategies"
@@ -88,9 +91,9 @@ def _load_strategy_module(name: str):
         class DetectionStrategy(ABC):
             name: str = "unnamed"
             description: str = ""
+
             @abstractmethod
-            def check_trade(self, trade: dict):
-                ...
+            def check_trade(self, trade: dict): ...
             def analyze_all(self, trades: list[dict]) -> list:
                 return []
 
@@ -284,8 +287,7 @@ def print_trade_summary(trades: list[dict]):
         vol = sum(t.get("_usd_value", 0) for t in day_trades)
         day_wallets = {t.get("proxyWallet", "") for t in day_trades} - {""}
         large = [t for t in day_trades if t.get("_usd_value", 0) >= 3000]
-        print(f"    {day}: {len(day_trades)} trades, ${vol:,.0f}, "
-              f"{len(day_wallets)} wallets, {len(large)} >= $3k")
+        print(f"    {day}: {len(day_trades)} trades, ${vol:,.0f}, {len(day_wallets)} wallets, {len(large)} >= $3k")
 
     # Show the largest individual trades
     print(f"\n  Top 20 largest trades:")
@@ -312,9 +314,9 @@ def run_strategies(trades: list[dict]) -> list[Signal]:
 
     # Per-trade strategies
     per_trade_strategies = [
-        WinRateTrackingStrategy(),          # populates wallet_pnl
-        NewWalletLargeBetStrategy(),        # reads wallet_pnl
-        TimingRelativeResolutionStrategy(), # reads wallet_pnl
+        WinRateTrackingStrategy(),  # populates wallet_pnl
+        NewWalletLargeBetStrategy(),  # reads wallet_pnl
+        TimingRelativeResolutionStrategy(),  # reads wallet_pnl
     ]
 
     # Batch strategies

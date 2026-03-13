@@ -16,10 +16,11 @@ from dataclasses import dataclass, field
 @dataclass
 class Signal:
     """A single detection signal emitted by a strategy."""
-    strategy: str          # strategy name, e.g. "new_wallet_large_bet"
-    severity: float        # 0.0 to 10.0
-    headline: str          # short description, e.g. "New wallet (4d 22h)"
-    trade: dict            # representative trade dict
+
+    strategy: str  # strategy name, e.g. "new_wallet_large_bet"
+    severity: float  # 0.0 to 10.0
+    headline: str  # short description, e.g. "New wallet (4d 22h)"
+    trade: dict  # representative trade dict
     condition_id: str = ""
     trade_hashes: list[str] = field(default_factory=list)
 
@@ -55,15 +56,3 @@ from detection_strategies.price_impact import PriceImpactStrategy  # noqa: E402
 from detection_strategies.win_rate_tracking import WinRateTrackingStrategy  # noqa: E402
 from detection_strategies.low_activity_large_bet import LowActivityLargeBetStrategy  # noqa: E402
 from detection_strategies.correlated_cross_market import CorrelatedCrossMarketStrategy  # noqa: E402
-
-ALL_STRATEGIES: list[DetectionStrategy] = [
-    WinRateTrackingStrategy(),          # must be first: populates wallet_pnl used by later strategies
-    NewWalletLargeBetStrategy(),        # reads wallet_pnl (from win_rate_tracking)
-    TimingRelativeResolutionStrategy(), # reads wallet_pnl (from win_rate_tracking)
-    PreEventVolumeSpikeStrategy(),
-    WalletClusteringStrategy(),         # writes funder data (used by concentrated_one_sided)
-    ConcentratedOneSidedStrategy(),     # reads funder data (from wallet_clustering)
-    PriceImpactStrategy(),
-    LowActivityLargeBetStrategy(),
-    CorrelatedCrossMarketStrategy(),
-]

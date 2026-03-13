@@ -101,8 +101,7 @@ def get_market(condition_id: str) -> dict | None:
             _market_cache[condition_id] = markets[0]
             return markets[0]
     except requests.RequestException as e:
-        print(f"  [WARN] Market lookup failed for {condition_id[:12]}...: {e}",
-              file=sys.stderr)
+        print(f"  [WARN] Market lookup failed for {condition_id[:12]}...: {e}", file=sys.stderr)
     return None
 
 
@@ -190,8 +189,7 @@ def fetch_trades(days: int, threshold: int) -> list[dict]:
                 # ordering isn't perfectly strict)
                 done = True
 
-        print(f"  offset {offset}: {page_added} trades in window "
-              f"({len(all_trades)} total)")
+        print(f"  offset {offset}: {page_added} trades in window ({len(all_trades)} total)")
         offset += PAGE_SIZE
 
     print(f"  Fetched {len(all_trades)} trades total\n")
@@ -207,9 +205,7 @@ def backfill_tracked_bets(trades: list[dict]) -> None:
 
     # Get existing (wallet, condition_id, trade_timestamp) to avoid duplicates
     existing = set()
-    rows = conn.execute(
-        "SELECT wallet, condition_id, trade_timestamp FROM tracked_bets"
-    ).fetchall()
+    rows = conn.execute("SELECT wallet, condition_id, trade_timestamp FROM tracked_bets").fetchall()
     for r in rows:
         existing.add((r[0], r[1], r[2]))
 
@@ -237,17 +233,14 @@ def resolve_tracked_bets() -> None:
     conn = get_db()
 
     unresolved_cids = [
-        r[0] for r in conn.execute(
-            "SELECT DISTINCT condition_id FROM tracked_bets WHERE resolved = 0"
-        ).fetchall()
+        r[0] for r in conn.execute("SELECT DISTINCT condition_id FROM tracked_bets WHERE resolved = 0").fetchall()
     ]
     print(f"  {len(unresolved_cids)} unresolved condition(s) to check")
 
     resolved_count = 0
     for i, cid in enumerate(unresolved_cids):
         if (i + 1) % 50 == 0:
-            print(f"  checked {i + 1}/{len(unresolved_cids)} conditions "
-                  f"({resolved_count} bets resolved)...")
+            print(f"  checked {i + 1}/{len(unresolved_cids)} conditions ({resolved_count} bets resolved)...")
 
         market = get_market(cid)
         if not market or not market.get("closed"):
@@ -289,30 +282,23 @@ def resolve_tracked_bets() -> None:
 #         + timing_flags (timing_relative_resolution)
 # ---------------------------------------------------------------------------
 def backfill_event_price_timing_volume(trades: list[dict]) -> None:
-    print("[4/11] Backfilling wallet_event_history, price_history, "
-          "timing_flags, and volume snapshots...")
+    print("[4/11] Backfilling wallet_event_history, price_history, timing_flags, and volume snapshots...")
 
     conn = get_db()
 
     # --- Dedup sets ---
     existing_events = set()
-    rows = conn.execute(
-        "SELECT wallet, condition_id, trade_timestamp FROM wallet_event_history"
-    ).fetchall()
+    rows = conn.execute("SELECT wallet, condition_id, trade_timestamp FROM wallet_event_history").fetchall()
     for r in rows:
         existing_events.add((r[0], r[1], r[2]))
 
     existing_prices = set()
-    rows = conn.execute(
-        "SELECT condition_id, outcome, trade_timestamp FROM price_history"
-    ).fetchall()
+    rows = conn.execute("SELECT condition_id, outcome, trade_timestamp FROM price_history").fetchall()
     for r in rows:
         existing_prices.add((r[0], r[1], r[2]))
 
     existing_timing = set()
-    rows = conn.execute(
-        "SELECT wallet, condition_id, trade_timestamp FROM timing_flags"
-    ).fetchall()
+    rows = conn.execute("SELECT wallet, condition_id, trade_timestamp FROM timing_flags").fetchall()
     for r in rows:
         existing_timing.add((r[0], r[1], r[2]))
 
@@ -501,8 +487,7 @@ def backfill_wallet_funders(trades: list[dict], skip_etherscan: bool) -> None:
             else:
                 save_funder(wallet, None)
         except requests.RequestException as e:
-            print(f"  [WARN] Etherscan failed for {wallet[:10]}...: {e}",
-                  file=sys.stderr)
+            print(f"  [WARN] Etherscan failed for {wallet[:10]}...: {e}", file=sys.stderr)
             save_funder(wallet, None)
 
     print(f"  Looked up {looked_up} funder(s)\n")
@@ -528,27 +513,19 @@ def backfill_wallet_activity(trades: list[dict]) -> None:
 
     # Load existing dedup keys
     existing_bets = set()
-    for r in conn.execute(
-        "SELECT wallet, condition_id, trade_timestamp FROM tracked_bets"
-    ).fetchall():
+    for r in conn.execute("SELECT wallet, condition_id, trade_timestamp FROM tracked_bets").fetchall():
         existing_bets.add((r[0], r[1], r[2]))
 
     existing_events = set()
-    for r in conn.execute(
-        "SELECT wallet, condition_id, trade_timestamp FROM wallet_event_history"
-    ).fetchall():
+    for r in conn.execute("SELECT wallet, condition_id, trade_timestamp FROM wallet_event_history").fetchall():
         existing_events.add((r[0], r[1], r[2]))
 
     existing_prices = set()
-    for r in conn.execute(
-        "SELECT condition_id, outcome, trade_timestamp FROM price_history"
-    ).fetchall():
+    for r in conn.execute("SELECT condition_id, outcome, trade_timestamp FROM price_history").fetchall():
         existing_prices.add((r[0], r[1], r[2]))
 
     existing_timing = set()
-    for r in conn.execute(
-        "SELECT wallet, condition_id, trade_timestamp FROM timing_flags"
-    ).fetchall():
+    for r in conn.execute("SELECT wallet, condition_id, trade_timestamp FROM timing_flags").fetchall():
         existing_timing.add((r[0], r[1], r[2]))
 
     bets_added = 0
@@ -559,8 +536,7 @@ def backfill_wallet_activity(trades: list[dict]) -> None:
 
     for i, wallet in enumerate(wallets):
         if (i + 1) % 20 == 0:
-            print(f"  processed {i + 1}/{len(wallets)} wallets "
-                  f"({activity_total} activity records)...")
+            print(f"  processed {i + 1}/{len(wallets)} wallets ({activity_total} activity records)...")
 
         # Paginate through /activity
         offset = 0
@@ -625,20 +601,16 @@ def backfill_wallet_activity(trades: list[dict]) -> None:
                     prices_added += 1
 
                 # timing_flags — use market cache from step 4 (no extra API calls)
-                if (wallet and cid and cid in _market_cache
-                        and (wallet, cid, ts) not in existing_timing):
+                if wallet and cid and cid in _market_cache and (wallet, cid, ts) not in existing_timing:
                     m = _market_cache[cid]
                     end_str = m.get("endDate")
                     if end_str:
                         try:
-                            end_dt = datetime.fromisoformat(
-                                end_str.replace("Z", "+00:00"))
-                            trade_dt = datetime.fromtimestamp(
-                                ts, tz=timezone.utc)
+                            end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
+                            trade_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
                             minutes_to = (end_dt - trade_dt).total_seconds() / 60
                             if 0 <= minutes_to <= 60:
-                                record_timing_flag(
-                                    wallet, cid, minutes_to, usdc_size, ts)
+                                record_timing_flag(wallet, cid, minutes_to, usdc_size, ts)
                                 existing_timing.add((wallet, cid, ts))
                                 timing_added += 1
                         except ValueError:
@@ -675,8 +647,7 @@ def backfill_wallet_pnl(trades: list[dict]) -> None:
 
     for i, wallet in enumerate(wallets):
         if (i + 1) % 20 == 0:
-            print(f"  processed {i + 1}/{len(wallets)} wallets "
-                  f"({open_count} open, {closed_count} closed)...")
+            print(f"  processed {i + 1}/{len(wallets)} wallets ({open_count} open, {closed_count} closed)...")
 
         # Open positions
         time.sleep(DATA_API_DELAY)
@@ -755,8 +726,7 @@ def backfill_price_candles(trades: list[dict]) -> None:
     total_candles = 0
     for i, (token_id, (cid, outcome)) in enumerate(tokens.items()):
         if (i + 1) % 50 == 0:
-            print(f"  fetched {i + 1}/{len(tokens)} tokens "
-                  f"({total_candles} candle points)...")
+            print(f"  fetched {i + 1}/{len(tokens)} tokens ({total_candles} candle points)...")
 
         time.sleep(CLOB_DELAY)
         try:
@@ -851,11 +821,9 @@ def print_summary() -> None:
         print(f"  {table:30s} {count:>8,} rows  ({strategy})")
 
     # Win rate stats
-    row = conn.execute(
-        "SELECT COUNT(*), SUM(CASE WHEN resolved=1 THEN 1 ELSE 0 END) FROM tracked_bets"
-    ).fetchone()
+    row = conn.execute("SELECT COUNT(*), SUM(CASE WHEN resolved=1 THEN 1 ELSE 0 END) FROM tracked_bets").fetchone()
     total, resolved = row[0] or 0, row[1] or 0
-    pct = f"{resolved/total:.0%}" if total > 0 else "n/a"
+    pct = f"{resolved / total:.0%}" if total > 0 else "n/a"
     print(f"\n  Tracked bets: {total} total, {resolved} resolved ({pct})")
 
     # P&L stats
@@ -870,8 +838,7 @@ def print_summary() -> None:
     wins = row[1] or 0
     losses = row[2] or 0
     total_pnl = row[3] or 0
-    print(f"  Closed positions: {closed} ({wins} wins, {losses} losses, "
-          f"${total_pnl:+,.0f} total P&L)")
+    print(f"  Closed positions: {closed} ({wins} wins, {losses} losses, ${total_pnl:+,.0f} total P&L)")
     print()
 
 
@@ -880,14 +847,10 @@ def print_summary() -> None:
 # ---------------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(description="Backfill polybot database")
-    parser.add_argument("--days", type=int, default=30,
-                        help="Days of history to backfill (default: 30)")
-    parser.add_argument("--threshold", type=int, default=3000,
-                        help="Min USD trade size (default: 3000)")
-    parser.add_argument("--skip-etherscan", action="store_true",
-                        help="Skip Etherscan funder lookups")
-    parser.add_argument("--skip-profiles", action="store_true",
-                        help="Skip Gamma profile age lookups")
+    parser.add_argument("--days", type=int, default=30, help="Days of history to backfill (default: 30)")
+    parser.add_argument("--threshold", type=int, default=3000, help="Min USD trade size (default: 3000)")
+    parser.add_argument("--skip-etherscan", action="store_true", help="Skip Etherscan funder lookups")
+    parser.add_argument("--skip-profiles", action="store_true", help="Skip Gamma profile age lookups")
     args = parser.parse_args()
 
     print("=" * 60)

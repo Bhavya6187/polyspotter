@@ -117,25 +117,22 @@ class PreEventVolumeSpikeStrategy(DetectionStrategy):
                     if ratio_24h >= SPIKE_THRESHOLD_X:
                         severity = min(max_severity, severity + 0.5)
 
-                tx_hashes = [
-                    t.get("transactionHash", "")
-                    for t in trades_by_market[cid]
-                    if t.get("transactionHash")
-                ]
+                tx_hashes = [t.get("transactionHash", "") for t in trades_by_market[cid] if t.get("transactionHash")]
 
                 headline = (
-                    f"{ratio:.1f}x spike vs {baseline_source} avg "
-                    f"({n_trades} trade{'s' if n_trades != 1 else ''})"
+                    f"{ratio:.1f}x spike vs {baseline_source} avg ({n_trades} trade{'s' if n_trades != 1 else ''})"
                 )
 
-                signals.append(Signal(
-                    strategy=self.name,
-                    severity=severity,
-                    headline=headline,
-                    trade=sample,
-                    condition_id=cid,
-                    trade_hashes=tx_hashes,
-                ))
+                signals.append(
+                    Signal(
+                        strategy=self.name,
+                        severity=severity,
+                        headline=headline,
+                        trade=sample,
+                        condition_id=cid,
+                        trade_hashes=tx_hashes,
+                    )
+                )
 
         if signals:
             print(f"  [pre_event_volume_spike] Found {len(signals)} market(s) with volume spikes")

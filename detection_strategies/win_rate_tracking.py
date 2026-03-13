@@ -34,11 +34,11 @@ from db import (
 # ---------------------------------------------------------------------------
 GAMMA_API = "https://gamma-api.polymarket.com"
 DATA_API = "https://data-api.polymarket.com"
-WIN_RATE_ALERT_THRESHOLD = 0.75   # flag if win rate >= 75%
-MIN_RESOLVED_BETS = 5             # need at least N resolved bets to judge
+WIN_RATE_ALERT_THRESHOLD = 0.75  # flag if win rate >= 75%
+MIN_RESOLVED_BETS = 5  # need at least N resolved bets to judge
 # Minimum edge (actual win% - implied win%) to consider suspicious
 MIN_EDGE_THRESHOLD = 0.15
-LOOKUP_DELAY = 0.15
+LOOKUP_DELAY = 0
 PNL_FETCH_DELAY = 0.1
 
 # Wallets whose P&L has already been fetched this run
@@ -65,7 +65,7 @@ def _fetch_wallet_pnl(wallet: str) -> None:
         try:
             resp = requests.get(
                 f"{DATA_API}/{endpoint}",
-                params={"user": wallet},
+                params={"user": wallet, "limit": 50},
                 timeout=15,
             )
             if resp.status_code != 200:
@@ -81,56 +81,69 @@ def _fetch_wallet_pnl(wallet: str) -> None:
 # ---------------------------------------------------------------------------
 # Resolution updates
 # ---------------------------------------------------------------------------
+_RESOLUTION_BATCH_SIZE = 100  # condition_ids per Gamma API request
+
+
 def _update_resolutions() -> int:
     """Check unresolved bets against Gamma API to see if markets have
-    resolved.  Returns count of newly resolved bets."""
+    resolved.  Returns count of newly resolved bets.
+
+    Batches condition_ids into single API calls for efficiency."""
     unresolved_cids = get_unresolved_condition_ids()
+    if not unresolved_cids:
+        return 0
+    total = len(unresolved_cids)
+    print(f"  [win_rate_tracking] Checking {total} unresolved market(s) for resolution...", flush=True)
     updated = 0
 
-    for cid in unresolved_cids:
+    for batch_start in range(0, total, _RESOLUTION_BATCH_SIZE):
+        batch = unresolved_cids[batch_start : batch_start + _RESOLUTION_BATCH_SIZE]
+        if batch_start > 0:
+            print(f"  [win_rate_tracking] {batch_start}/{total} checked ({updated} resolved so far)", flush=True)
         time.sleep(LOOKUP_DELAY)
         try:
+            params = [("condition_ids", cid) for cid in batch]
+            params.append(("limit", len(batch)))
             resp = requests.get(
                 f"{GAMMA_API}/markets",
-                params={"condition_ids": cid},
-                timeout=10,
+                params=params,
+                timeout=30,
             )
             resp.raise_for_status()
             markets = resp.json()
-            if not markets:
-                continue
-            market = markets[0]
         except requests.RequestException:
             continue
 
-        if not market.get("closed"):
-            continue
+        for market in markets:
+            if not market.get("closed"):
+                continue
 
-        outcome_prices_str = market.get("outcomePrices", "")
-        outcomes_str = market.get("outcomes", "")
+            cid = market.get("conditionId", "")
+            outcome_prices_str = market.get("outcomePrices", "")
+            outcomes_str = market.get("outcomes", "")
 
-        winning_outcome_name = None
-        try:
-            prices = json.loads(outcome_prices_str) if isinstance(outcome_prices_str, str) else outcome_prices_str
-            outcomes = json.loads(outcomes_str) if isinstance(outcomes_str, str) else outcomes_str
-            if prices and outcomes and len(prices) == len(outcomes):
-                max_idx = prices.index(max(prices))
-                if float(prices[max_idx]) >= 0.99:
-                    winning_outcome_name = outcomes[max_idx]
-        except (json.JSONDecodeError, ValueError, IndexError):
-            pass
+            winning_outcome_name = None
+            try:
+                prices = json.loads(outcome_prices_str) if isinstance(outcome_prices_str, str) else outcome_prices_str
+                outcomes = json.loads(outcomes_str) if isinstance(outcomes_str, str) else outcomes_str
+                if prices and outcomes and len(prices) == len(outcomes):
+                    max_idx = prices.index(max(prices))
+                    if float(prices[max_idx]) >= 0.99:
+                        winning_outcome_name = outcomes[max_idx]
+            except (json.JSONDecodeError, ValueError, IndexError):
+                pass
 
-        if not winning_outcome_name:
-            continue
+            if not winning_outcome_name:
+                continue
 
-        bets = get_unresolved_bets_for_condition(cid)
-        for bet_id, bet_outcome, bet_side in bets:
-            if bet_side == "BUY":
-                won = 1 if bet_outcome == winning_outcome_name else 0
-            else:
-                won = 1 if bet_outcome != winning_outcome_name else 0
-            mark_bet_resolved(bet_id, won)
-            updated += 1
+            bets = get_unresolved_bets_for_condition(cid)
+            for bet_id, bet_outcome, bet_side in bets:
+                if bet_side == "BUY":
+                    won = 1 if bet_outcome == winning_outcome_name else 0
+                else:
+                    won = 1 if bet_outcome != winning_outcome_name else 0
+                mark_bet_resolved(bet_id, won)
+                updated += 1
 
     return updated
 
@@ -205,11 +218,11 @@ class WinRateTrackingStrategy(DetectionStrategy):
 
         # Severity scales with edge magnitude
         if edge >= 0.50:
-            severity = 4.0     # extraordinary edge (50%+ above implied)
+            severity = 4.0  # extraordinary edge (50%+ above implied)
         elif edge >= 0.30:
-            severity = 3.0     # strong edge
+            severity = 3.0  # strong edge
         elif edge >= 0.15:
-            severity = 2.0     # moderate edge
+            severity = 2.0  # moderate edge
         else:
             severity = 1.0
 

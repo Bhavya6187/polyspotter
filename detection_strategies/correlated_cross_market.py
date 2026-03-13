@@ -28,8 +28,8 @@ from db import (
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-MIN_MARKETS = 2              # wallet must bet on >= N markets in the same event
-MIN_TOTAL_USD = 2000         # minimum combined USD across the correlated bets
+MIN_MARKETS = 2  # wallet must bet on >= N markets in the same event
+MIN_TOTAL_USD = 2000  # minimum combined USD across the correlated bets
 REPEAT_CROSS_EVENT_THRESHOLD = 3  # flag if wallet has cross-market bets on >= N events historically
 
 
@@ -57,9 +57,7 @@ class CorrelatedCrossMarketStrategy(DetectionStrategy):
             record_wallet_event_trade(t)
 
         # Build: wallet -> event -> list of trades (current window)
-        wallet_events: dict[str, dict[str, list[dict]]] = defaultdict(
-            lambda: defaultdict(list)
-        )
+        wallet_events: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
 
         for t in trades:
             wallet = t.get("proxyWallet", "")
@@ -92,26 +90,23 @@ class CorrelatedCrossMarketStrategy(DetectionStrategy):
                     cid = h["condition_id"]
                     if cid and cid not in current_cids:
                         historical_only_cids.add(cid)
-                        markets_hit[cid].append({
-                            "conditionId": cid,
-                            "outcome": h["outcome"],
-                            "side": h["side"],
-                            "_usd_value": h["usd_value"],
-                            "timestamp": h["trade_timestamp"],
-                            "_historical": True,
-                        })
+                        markets_hit[cid].append(
+                            {
+                                "conditionId": cid,
+                                "outcome": h["outcome"],
+                                "side": h["side"],
+                                "_usd_value": h["usd_value"],
+                                "timestamp": h["trade_timestamp"],
+                                "_historical": True,
+                            }
+                        )
 
                 if len(markets_hit) < MIN_MARKETS:
                     continue
 
-                total_usd = sum(
-                    float(t.get("_usd_value", 0)) for t in event_trades
-                )
+                total_usd = sum(float(t.get("_usd_value", 0)) for t in event_trades)
                 # Include historical USD for threshold check
-                historical_usd = sum(
-                    h["usd_value"] for h in historical
-                    if h["condition_id"] in historical_only_cids
-                )
+                historical_usd = sum(h["usd_value"] for h in historical if h["condition_id"] in historical_only_cids)
                 combined_usd = total_usd + historical_usd
 
                 if combined_usd < MIN_TOTAL_USD:
@@ -119,11 +114,7 @@ class CorrelatedCrossMarketStrategy(DetectionStrategy):
 
                 wallets_with_cross_market.add(wallet.lower())
 
-                tx_hashes = [
-                    t.get("transactionHash", "")
-                    for t in event_trades
-                    if t.get("transactionHash")
-                ]
+                tx_hashes = [t.get("transactionHash", "") for t in event_trades if t.get("transactionHash")]
 
                 sample = event_trades[0]
 
@@ -135,14 +126,16 @@ class CorrelatedCrossMarketStrategy(DetectionStrategy):
                     headline += f" ({len(historical_only_cids)} market(s) from prior runs)"
                     severity = 3.5
 
-                signals.append(Signal(
-                    strategy=self.name,
-                    severity=severity,
-                    headline=headline,
-                    trade=sample,
-                    condition_id=sample.get("conditionId", ""),
-                    trade_hashes=tx_hashes,
-                ))
+                signals.append(
+                    Signal(
+                        strategy=self.name,
+                        severity=severity,
+                        headline=headline,
+                        trade=sample,
+                        condition_id=sample.get("conditionId", ""),
+                        trade_hashes=tx_hashes,
+                    )
+                )
 
         # Check for wallets that repeatedly do cross-market positioning
         # across multiple events (serial informed trader pattern)
@@ -158,16 +151,18 @@ class CorrelatedCrossMarketStrategy(DetectionStrategy):
                 if not rep_trade:
                     continue
 
-                signals.append(Signal(
-                    strategy=self.name,
-                    severity=4.0,
-                    headline=(
-                        f"Serial cross-market trader: {stats['distinct_events']} events, "
-                        f"{stats['distinct_markets']} markets, ${stats['total_usd']:,.0f} total"
-                    ),
-                    trade=rep_trade,
-                    condition_id=rep_trade.get("conditionId", ""),
-                ))
+                signals.append(
+                    Signal(
+                        strategy=self.name,
+                        severity=4.0,
+                        headline=(
+                            f"Serial cross-market trader: {stats['distinct_events']} events, "
+                            f"{stats['distinct_markets']} markets, ${stats['total_usd']:,.0f} total"
+                        ),
+                        trade=rep_trade,
+                        condition_id=rep_trade.get("conditionId", ""),
+                    )
+                )
 
         if signals:
             print(f"  [correlated_cross_market] Found {len(signals)} correlated position(s)")

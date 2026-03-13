@@ -18,8 +18,8 @@ from db import get_cached_funder
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-MIN_WALLETS = 3          # minimum distinct wallets to flag
-MIN_CLUSTER_USD = 5000   # minimum total USD in the cluster to flag
+MIN_WALLETS = 3  # minimum distinct wallets to flag
+MIN_CLUSTER_USD = 5000  # minimum total USD in the cluster to flag
 MAX_WINDOW_SECONDS = 300  # trades must fall within this window
 
 
@@ -64,11 +64,7 @@ class ConcentratedOneSidedStrategy(DetectionStrategy):
                 continue
 
             sample = cluster_trades[0]
-            tx_hashes = [
-                t.get("transactionHash", "")
-                for t in cluster_trades
-                if t.get("transactionHash")
-            ]
+            tx_hashes = [t.get("transactionHash", "") for t in cluster_trades if t.get("transactionHash")]
 
             severity = 3.5
             headline = f"{len(wallets)} wallets, same direction ({outcome}/{side}), ${total_usd:,.0f}"
@@ -87,14 +83,16 @@ class ConcentratedOneSidedStrategy(DetectionStrategy):
                 severity = min(6.0, severity + 1.5)
                 headline += f" — {n_shared} share funder (Sybil?)"
 
-            signals.append(Signal(
-                strategy=self.name,
-                severity=severity,
-                headline=headline,
-                trade=sample,
-                condition_id=cid,
-                trade_hashes=tx_hashes,
-            ))
+            signals.append(
+                Signal(
+                    strategy=self.name,
+                    severity=severity,
+                    headline=headline,
+                    trade=sample,
+                    condition_id=cid,
+                    trade_hashes=tx_hashes,
+                )
+            )
 
         if signals:
             print(f"  [concentrated_one_sided] Found {len(signals)} suspicious cluster(s)")

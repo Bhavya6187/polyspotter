@@ -127,15 +127,19 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
         """)
         # Pre-populate with winning resolved bets (>= MIN_RESOLVED_BETS)
         for i in range(6):
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO tracked_bets
                 (wallet, condition_id, outcome, side, usd_value, trade_timestamp, recorded_at, resolved, won)
                 VALUES ('0xwallet1', ?, 'Yes', 'BUY', 5000, 1700000000, '2024-01-01', 1, 1)
-            """, (f"cond_{i}",))
+            """,
+                (f"cond_{i}",),
+            )
         conn.commit()
         mock_get_db.return_value = conn
 
         from detection_strategies.win_rate_tracking import WinRateTrackingStrategy
+
         strategy = WinRateTrackingStrategy()
 
         trade = {
@@ -187,15 +191,19 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
             VALUES ('0xwallet1', 'c1', 'Yes', 'BUY', 5000, 1700000000, '2024-01-01', 1, 1)
         """)
         for i in range(3):
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO tracked_bets
                 (wallet, condition_id, outcome, side, usd_value, trade_timestamp, recorded_at, resolved, won)
                 VALUES ('0xwallet1', ?, 'Yes', 'BUY', 5000, 1700000000, '2024-01-01', 1, 0)
-            """, (f"cond_loss_{i}",))
+            """,
+                (f"cond_loss_{i}",),
+            )
         conn.commit()
         mock_get_db.return_value = conn
 
         from detection_strategies.win_rate_tracking import WinRateTrackingStrategy
+
         strategy = WinRateTrackingStrategy()
 
         trade = {
@@ -241,15 +249,19 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
         """)
         # Only 2 resolved (below threshold of 3)
         for i in range(2):
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO tracked_bets
                 (wallet, condition_id, outcome, side, usd_value, trade_timestamp, recorded_at, resolved, won)
                 VALUES ('0xwallet1', ?, 'Yes', 'BUY', 5000, 1700000000, '2024-01-01', 1, 1)
-            """, (f"cond_{i}",))
+            """,
+                (f"cond_{i}",),
+            )
         conn.commit()
         mock_get_db.return_value = conn
 
         from detection_strategies.win_rate_tracking import WinRateTrackingStrategy
+
         strategy = WinRateTrackingStrategy()
 
         trade = {

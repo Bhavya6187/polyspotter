@@ -8,8 +8,13 @@ detection_strategies/ package.
 """
 
 import argparse
+import os
 import sys
 from collections import defaultdict
+
+# Force unbuffered stdout so progress prints appear immediately
+if not os.environ.get("PYTHONUNBUFFERED"):
+    sys.stdout.reconfigure(line_buffering=True)
 from datetime import datetime, timezone, timedelta
 
 import requests
@@ -32,9 +37,9 @@ from db import get_db
 # ---------------------------------------------------------------------------
 DATA_API = "https://data-api.polymarket.com"
 
-BET_THRESHOLD_USD = 3000    # minimum USD value to flag
-TRADE_WINDOW_SECONDS = 3600   # how far back to look for trades
-TRADE_PAGE_SIZE = 10000     # trades per API call (API max is 10,000)
+BET_THRESHOLD_USD = 3000  # minimum USD value to flag
+TRADE_WINDOW_SECONDS = 3600  # how far back to look for trades
+TRADE_PAGE_SIZE = 10000  # trades per API call (API max is 10,000)
 
 
 def fetch_recent_trades(seconds: int = TRADE_WINDOW_SECONDS) -> list[dict]:
@@ -42,7 +47,10 @@ def fetch_recent_trades(seconds: int = TRADE_WINDOW_SECONDS) -> list[dict]:
     using server-side CASH filtering to only return trades >= threshold."""
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=seconds)
     cutoff_ts = cutoff.timestamp()
-    print(f"[*] Fetching trades >= ${BET_THRESHOLD_USD:,} from the last {seconds}s (since {cutoff.strftime('%H:%M:%S UTC')})...")
+    print(
+        f"[*] Fetching trades >= ${BET_THRESHOLD_USD:,} from the last {seconds}s (since {cutoff.strftime('%H:%M:%S UTC')})...",
+        flush=True,
+    )
 
     all_trades: list[dict] = []
     offset = 0
@@ -76,15 +84,16 @@ def fetch_recent_trades(seconds: int = TRADE_WINDOW_SECONDS) -> list[dict]:
 
         offset += TRADE_PAGE_SIZE
 
-    print(f"[*] Received {len(all_trades)} trades >= ${BET_THRESHOLD_USD:,} within the last {seconds}s")
+    print(f"[*] Received {len(all_trades)} trades >= ${BET_THRESHOLD_USD:,} within the last {seconds}s", flush=True)
     return all_trades
 
 
 # ---------------------------------------------------------------------------
 # Composite alert formatting
 # ---------------------------------------------------------------------------
-def _format_one_composite(trade: dict, sigs: list[Signal], total_severity: float,
-                          extra_trades: list[dict] | None = None) -> str:
+def _format_one_composite(
+    trade: dict, sigs: list[Signal], total_severity: float, extra_trades: list[dict] | None = None
+) -> str:
     """Format a single composite alert block.
 
     If extra_trades is provided, shows a consolidated view of multiple trades
@@ -121,14 +130,16 @@ def _format_one_composite(trade: dict, sigs: list[Signal], total_severity: float
             t_time = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%H:%M:%S UTC")
             lines.append(f"    ${usd:>10,.2f}  {t.get('outcome', '?')} ({t.get('side', '?')})  {t_time}")
 
-    lines.extend([
-        f"  Wallet:     {short_wallet}",
-        f"  Signals:",
-        *signal_lines,
-        f"  Market Slug: https://polymarket.com/event/{trade.get('eventSlug', '')}",
-        "=" * 72,
-        "",
-    ])
+    lines.extend(
+        [
+            f"  Wallet:     {short_wallet}",
+            f"  Signals:",
+            *signal_lines,
+            f"  Market Slug: https://polymarket.com/event/{trade.get('eventSlug', '')}",
+            "=" * 72,
+            "",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -235,10 +246,7 @@ def _format_composite_alerts(signals: list[Signal], trades: list[dict]) -> str:
         shared_sigs = market_sigs
 
         # Gather trades in this cluster
-        cluster_trades = [
-            tx_to_trade[tx] for tx in cluster_sig.trade_hashes
-            if tx in tx_to_trade
-        ]
+        cluster_trades = [tx_to_trade[tx] for tx in cluster_sig.trade_hashes if tx in tx_to_trade]
         clustered_tx_hashes.update(cluster_sig.trade_hashes)
 
         # Collect per-trade signals for trades in this cluster
@@ -247,9 +255,14 @@ def _format_composite_alerts(signals: list[Signal], trades: list[dict]) -> str:
             if tx in per_trade:
                 cluster_per_trade[tx] = per_trade[tx]
 
-        composites.append(_format_cluster_alert(
-            cluster_sig, cluster_trades, shared_sigs, cluster_per_trade,
-        ))
+        composites.append(
+            _format_cluster_alert(
+                cluster_sig,
+                cluster_trades,
+                shared_sigs,
+                cluster_per_trade,
+            )
+        )
 
     # --- Individual composites for non-clustered trades ---------------------
     # Group by (wallet, eventSlug) to consolidate same-wallet-same-event
@@ -267,10 +280,7 @@ def _format_composite_alerts(signals: list[Signal], trades: list[dict]) -> str:
         event_slug = trade.get("eventSlug", cid)  # fall back to cid
         markets_with_per_trade.add(cid)
 
-        matching_batch = [
-            s for s in per_market.get(cid, [])
-            if tx_hash in s.trade_hashes
-        ]
+        matching_batch = [s for s in per_market.get(cid, []) if tx_hash in s.trade_hashes]
         all_sigs = trade_sigs + matching_batch
         wallet_event_groups[(wallet, event_slug)].append((tx_hash, trade, all_sigs))
 
@@ -287,8 +297,9 @@ def _format_composite_alerts(signals: list[Signal], trades: list[dict]) -> str:
 
         primary_trade = entries[0][1]
         extra_trades = [e[1] for e in entries[1:]] if len(entries) > 1 else None
-        composites.append((total_severity, _format_one_composite(
-            primary_trade, deduped_sigs, total_severity, extra_trades)))
+        composites.append(
+            (total_severity, _format_one_composite(primary_trade, deduped_sigs, total_severity, extra_trades))
+        )
 
     # Markets that ONLY have batch signals (no per-trade or cluster signals)
     for cid, market_sigs in per_market.items():
@@ -344,16 +355,17 @@ def _format_summary(trades: list[dict], signals: list[Signal], strategy_names: s
             max_score = max(max_score, shared_total + extra)
 
         total_usd = sum(
-            float(tx_to_trade[tx].get("_usd_value", 0))
-            for tx in cluster_sig.trade_hashes if tx in tx_to_trade
+            float(tx_to_trade[tx].get("_usd_value", 0)) for tx in cluster_sig.trade_hashes if tx in tx_to_trade
         )
         n_trades = len(cluster_sig.trade_hashes)
         title = cluster_sig.trade.get("title", "?")
         n_sigs = len(market_sigs)
-        ranked_entries.append((
-            max_score,
-            f"    [{max_score:.1f}]  CLUSTER: ${total_usd:,.2f} across {n_trades} trades on \"{title}\" ({n_sigs} signal{'s' if n_sigs != 1 else ''})",
-        ))
+        ranked_entries.append(
+            (
+                max_score,
+                f'    [{max_score:.1f}]  CLUSTER: ${total_usd:,.2f} across {n_trades} trades on "{title}" ({n_sigs} signal{"s" if n_sigs != 1 else ""})',
+            )
+        )
         clustered_tx_hashes.update(cluster_sig.trade_hashes)
 
     # --- Individual trade entries (grouped by wallet + event) ----------------
@@ -369,10 +381,7 @@ def _format_summary(trades: list[dict], signals: list[Signal], strategy_names: s
         event_slug = trade.get("eventSlug", cid)
         markets_with_per_trade.add(cid)
 
-        matching_batch = [
-            s for s in per_market.get(cid, [])
-            if tx_hash in s.trade_hashes
-        ]
+        matching_batch = [s for s in per_market.get(cid, []) if tx_hash in s.trade_hashes]
         all_sigs = trade_sigs + matching_batch
         wallet_event_groups[(wallet, event_slug)].append((tx_hash, trade, all_sigs))
 
@@ -391,10 +400,12 @@ def _format_summary(trades: list[dict], signals: list[Signal], strategy_names: s
         title = entries[0][1].get("title", "?")
         n_trades = len(entries)
         trade_str = f" ({n_trades} trades)" if n_trades > 1 else ""
-        individual_entries.append((
-            score,
-            f"    [{score:.1f}]  ${total_usd:,.2f}{trade_str} on \"{title}\" ({n} signal{'s' if n != 1 else ''})",
-        ))
+        individual_entries.append(
+            (
+                score,
+                f'    [{score:.1f}]  ${total_usd:,.2f}{trade_str} on "{title}" ({n} signal{"s" if n != 1 else ""})',
+            )
+        )
 
     # Batch-only markets (no cluster, no per-trade)
     for cid, market_sigs in per_market.items():
@@ -406,10 +417,12 @@ def _format_summary(trades: list[dict], signals: list[Signal], strategy_names: s
         trade = market_sigs[0].trade
         title = trade.get("title", "?")
         usd = float(trade.get("_usd_value", 0))
-        individual_entries.append((
-            score,
-            f"    [{score:.1f}]  ${usd:,.2f} on \"{title}\" ({n} signal{'s' if n != 1 else ''})",
-        ))
+        individual_entries.append(
+            (
+                score,
+                f'    [{score:.1f}]  ${usd:,.2f} on "{title}" ({n} signal{"s" if n != 1 else ""})',
+            )
+        )
 
     ranked_entries.sort(key=lambda x: -x[0])
     individual_entries.sort(key=lambda x: -x[0])
@@ -443,8 +456,12 @@ def _format_summary(trades: list[dict], signals: list[Signal], strategy_names: s
 
 def run():
     parser = argparse.ArgumentParser(description="Polymarket Unusual Activity Scanner")
-    parser.add_argument("--verbose", "-v", action="store_true",
-                        help="Show per-trade detail logging (cache hits, ok results, sybil lines)")
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Show per-trade detail logging (cache hits, ok results, sybil lines)",
+    )
     args = parser.parse_args()
 
     config.VERBOSE = args.verbose
@@ -469,17 +486,17 @@ def run():
     #   9. correlated_cross_market    — independent
     # -------------------------------------------------------------------------
     per_trade_strategies = [
-        WinRateTrackingStrategy(),          # 1. writes wallet_pnl
-        NewWalletLargeBetStrategy(),        # 2. reads wallet_pnl
-        TimingRelativeResolutionStrategy(), # 3. reads wallet_pnl
-        LowActivityLargeBetStrategy(),      # 4. independent
+        WinRateTrackingStrategy(),  # 1. writes wallet_pnl
+        NewWalletLargeBetStrategy(),  # 2. reads wallet_pnl
+        TimingRelativeResolutionStrategy(),  # 3. reads wallet_pnl
+        LowActivityLargeBetStrategy(),  # 4. independent
     ]
     batch_strategies = [
-        PreEventVolumeSpikeStrategy(),      # 5. independent
-        WalletClusteringStrategy(),         # 6. writes wallet_funders
-        ConcentratedOneSidedStrategy(),     # 7. reads wallet_funders
-        PriceImpactStrategy(),              # 8. independent
-        CorrelatedCrossMarketStrategy(),    # 9. independent
+        PreEventVolumeSpikeStrategy(),  # 5. independent
+        WalletClusteringStrategy(),  # 6. writes wallet_funders
+        ConcentratedOneSidedStrategy(),  # 7. reads wallet_funders
+        PriceImpactStrategy(),  # 8. independent
+        CorrelatedCrossMarketStrategy(),  # 9. independent
     ]
 
     all_strategies = per_trade_strategies + batch_strategies
@@ -499,29 +516,39 @@ def run():
         print("\n[*] No trades above threshold found. Done.")
         return
 
-    print(f"\n[*] Running {len(all_strategies)} strategy(ies) on {len(trades)} trade(s)...")
+    print(f"\n[*] Running {len(all_strategies)} strategy(ies) on {len(trades)} trade(s)...", flush=True)
     all_signals: list[Signal] = []
 
     # -- per-trade analysis ----------------------------------------------------
+    per_trade_signal_count = 0
     for i, trade in enumerate(trades, 1):
         usd = trade.get("_usd_value", 0)
         title = trade.get("title", "?")
         if config.VERBOSE:
-            print(f"\n  [{i}/{len(trades)}] ${usd:,.2f} on \"{title}\"")
+            print(f'\n  [{i}/{len(trades)}] ${usd:,.2f} on "{title}"')
+        elif i == 1 or i % 25 == 0 or i == len(trades):
+            print(
+                f"  Per-trade analysis: {i}/{len(trades)} trades processed ({per_trade_signal_count} signals so far)",
+                flush=True,
+            )
 
         for strategy in per_trade_strategies:
             signal = strategy.check_trade(trade)
             if signal:
                 all_signals.append(signal)
+                per_trade_signal_count += 1
 
     # -- batch analysis --------------------------------------------------------
-    print(f"\n[*] Running batch analysis across all {len(trades)} trade(s)...")
+    print(f"\n[*] Running batch analysis across all {len(trades)} trade(s)...", flush=True)
     for strategy in batch_strategies:
+        print(f"  Running {strategy.name}...", flush=True)
         batch_signals = strategy.analyze_all(trades)
+        if batch_signals:
+            print(f"    -> {len(batch_signals)} signal(s)")
         all_signals.extend(batch_signals)
 
     # -- composite output ------------------------------------------------------
-    print(f"\n[*] Compositing {len(all_signals)} signal(s) into deduplicated alerts...")
+    print(f"\n[*] Compositing {len(all_signals)} signal(s) into deduplicated alerts...", flush=True)
     print(_format_composite_alerts(all_signals, trades))
     print(_format_summary(trades, all_signals, strategy_names))
     print("Done.")

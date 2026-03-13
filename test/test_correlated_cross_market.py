@@ -4,7 +4,10 @@ from unittest.mock import patch
 from detection_strategies.correlated_cross_market import CorrelatedCrossMarketStrategy
 
 
-@patch("detection_strategies.correlated_cross_market.get_wallet_cross_event_stats", return_value={"distinct_events": 0, "distinct_markets": 0, "total_usd": 0, "total_trades": 0})
+@patch(
+    "detection_strategies.correlated_cross_market.get_wallet_cross_event_stats",
+    return_value={"distinct_events": 0, "distinct_markets": 0, "total_usd": 0, "total_trades": 0},
+)
 @patch("detection_strategies.correlated_cross_market.get_wallet_event_history", return_value=[])
 @patch("detection_strategies.correlated_cross_market.record_wallet_event_trade")
 class TestCorrelatedCrossMarketStrategy(unittest.TestCase):

@@ -83,7 +83,7 @@ def get_wallet_profile(address: str) -> tuple[datetime | None, dict]:
     pseudonym = profile.get("pseudonym", "anonymous")
     age = wallet_age_str(created_at)
     if config.VERBOSE:
-        print(f"    [lookup] {short} — \"{pseudonym}\", age: {age}")
+        print(f'    [lookup] {short} — "{pseudonym}", age: {age}')
     _wallet_cache[address] = (created_at, profile)
     return (created_at, profile)
 
@@ -157,7 +157,7 @@ class NewWalletLargeBetStrategy(DetectionStrategy):
         usd = trade.get("_usd_value", 0)
         title = trade.get("title", "?")
         if config.VERBOSE:
-            print(f"  [new_wallet_large_bet] ${usd:,.2f} on \"{title}\"")
+            print(f'  [new_wallet_large_bet] ${usd:,.2f} on "{title}"')
 
         if not wallet:
             if config.VERBOSE:
@@ -203,12 +203,13 @@ class NewWalletLargeBetStrategy(DetectionStrategy):
                 repeat_bonus = min(2.0, flag_stats["times_flagged"] * 0.5)
                 severity = min(7.0, severity + repeat_bonus)
                 headline += (
-                    f" — REPEAT x{flag_stats['times_flagged']} "
-                    f"(${flag_stats['total_usd_flagged']:,.0f} total flagged)"
+                    f" — REPEAT x{flag_stats['times_flagged']} (${flag_stats['total_usd_flagged']:,.0f} total flagged)"
                 )
                 if config.VERBOSE:
-                    print(f"    >>> REPEAT OFFENDER: flagged {flag_stats['times_flagged']} times, "
-                          f"${flag_stats['total_usd_flagged']:,.0f} total")
+                    print(
+                        f"    >>> REPEAT OFFENDER: flagged {flag_stats['times_flagged']} times, "
+                        f"${flag_stats['total_usd_flagged']:,.0f} total"
+                    )
 
             # Cross-reference with P&L data: a "new" wallet that already
             # has many positions or high profitability is very suspicious
@@ -235,14 +236,15 @@ class NewWalletLargeBetStrategy(DetectionStrategy):
             prior_stats = get_flagged_wallet_stats(wallet)
             if prior_stats and prior_stats["times_flagged"] >= 2:
                 if config.VERBOSE:
-                    print(f"    [note] Wallet is {age} old but was previously flagged "
-                          f"{prior_stats['times_flagged']} times")
+                    print(
+                        f"    [note] Wallet is {age} old but was previously flagged "
+                        f"{prior_stats['times_flagged']} times"
+                    )
                 return Signal(
                     strategy=self.name,
                     severity=1.0,
                     headline=(
-                        f"Previously flagged wallet ({age} old), "
-                        f"flagged {prior_stats['times_flagged']}x historically"
+                        f"Previously flagged wallet ({age} old), flagged {prior_stats['times_flagged']}x historically"
                     ),
                     trade=trade,
                     condition_id=trade.get("conditionId", ""),

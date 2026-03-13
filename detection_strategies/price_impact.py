@@ -35,15 +35,15 @@ CLOB_API = "https://clob.polymarket.com"
 CLOB_DELAY = 0.1
 
 # Tokens/conditions already fetched this run (avoid redundant API calls)
-_candles_fetched: set[str] = set()       # token_ids
-_orderbook_fetched: set[str] = set()     # condition_ids
+_candles_fetched: set[str] = set()  # token_ids
+_orderbook_fetched: set[str] = set()  # condition_ids
 
 PRICE_SHIFT_THRESHOLD = 0.15  # flag if price moved >= 15 percentage points
 HISTORICAL_SHIFT_THRESHOLD = 0.25  # flag if price moved >= 25pp from historical range
-MIN_TRADES_FOR_SIGNAL = 2      # need at least this many trades to measure shift
-VELOCITY_WINDOW_SEC = 300      # 5-minute window for velocity calculation
-VELOCITY_THRESHOLD = 0.10      # 10pp move in 5 minutes = fast
-THIN_BOOK_DEPTH_USD = 5000     # orderbook with < $5k depth is considered thin
+MIN_TRADES_FOR_SIGNAL = 2  # need at least this many trades to measure shift
+VELOCITY_WINDOW_SEC = 300  # 5-minute window for velocity calculation
+VELOCITY_THRESHOLD = 0.10  # 10pp move in 5 minutes = fast
+THIN_BOOK_DEPTH_USD = 5000  # orderbook with < $5k depth is considered thin
 
 
 # ---------------------------------------------------------------------------
@@ -68,8 +68,7 @@ def _fetch_price_candles(condition_id: str, token_id: str, outcome: str) -> None
         if history:
             record_price_candles_batch(condition_id, token_id, outcome, history)
     except requests.RequestException as e:
-        print(f"[WARN] CLOB candles fetch failed for {condition_id[:12]}...: {e}",
-              file=sys.stderr)
+        print(f"[WARN] CLOB candles fetch failed for {condition_id[:12]}...: {e}", file=sys.stderr)
 
 
 def _fetch_orderbook(condition_id: str, token_id: str, outcome: str) -> None:
@@ -92,8 +91,7 @@ def _fetch_orderbook(condition_id: str, token_id: str, outcome: str) -> None:
         if bids or asks:
             record_orderbook_snapshot(condition_id, token_id, outcome, bids, asks)
     except requests.RequestException as e:
-        print(f"[WARN] CLOB book fetch failed for {condition_id[:12]}...: {e}",
-              file=sys.stderr)
+        print(f"[WARN] CLOB book fetch failed for {condition_id[:12]}...: {e}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -160,22 +158,20 @@ class PriceImpactStrategy(DetectionStrategy):
                     sample = t_sorted[0]
                     direction = "UP" if shift > 0 else "DOWN"
 
-                    tx_hashes = [
-                        t.get("transactionHash", "")
-                        for t in t_list
-                        if t.get("transactionHash")
-                    ]
+                    tx_hashes = [t.get("transactionHash", "") for t in t_list if t.get("transactionHash")]
 
                     severity = min(3.0, abs_shift * 10.0)
 
-                    signals.append(Signal(
-                        strategy=self.name,
-                        severity=severity,
-                        headline=f"price {direction} {abs_shift:.2%} ({outcome})",
-                        trade=sample,
-                        condition_id=cid,
-                        trade_hashes=tx_hashes,
-                    ))
+                    signals.append(
+                        Signal(
+                            strategy=self.name,
+                            severity=severity,
+                            headline=f"price {direction} {abs_shift:.2%} ({outcome})",
+                            trade=sample,
+                            condition_id=cid,
+                            trade_hashes=tx_hashes,
+                        )
+                    )
 
             # --- Cross-window shift detection (historical) ---
             historical_range = get_historical_price_range(cid, outcome)
@@ -208,25 +204,23 @@ class PriceImpactStrategy(DetectionStrategy):
             sample = t_sorted[-1]
             direction = "UP" if current_price > hist_max else "DOWN"
 
-            tx_hashes = [
-                t.get("transactionHash", "")
-                for t in t_list
-                if t.get("transactionHash")
-            ]
+            tx_hashes = [t.get("transactionHash", "") for t in t_list if t.get("transactionHash")]
 
             severity = min(4.0, breakout * 10.0)
 
-            signals.append(Signal(
-                strategy=self.name,
-                severity=severity,
-                headline=(
-                    f"price {direction} {breakout:.2%} beyond historical range "
-                    f"[{hist_min:.2f}-{hist_max:.2f}] ({outcome})"
-                ),
-                trade=sample,
-                condition_id=cid,
-                trade_hashes=tx_hashes,
-            ))
+            signals.append(
+                Signal(
+                    strategy=self.name,
+                    severity=severity,
+                    headline=(
+                        f"price {direction} {breakout:.2%} beyond historical range "
+                        f"[{hist_min:.2f}-{hist_max:.2f}] ({outcome})"
+                    ),
+                    trade=sample,
+                    condition_id=cid,
+                    trade_hashes=tx_hashes,
+                )
+            )
 
         # --- Velocity detection using CLOB price candles ---
         for (cid, outcome), t_list in token_trades.items():
@@ -266,21 +260,20 @@ class PriceImpactStrategy(DetectionStrategy):
                         severity = min(5.0, severity + 1.0)
 
                     tx_hashes = [t.get("transactionHash", "") for t in t_list if t.get("transactionHash")]
-                    headline = (
-                        f"rapid price {direction} {velocity:.2%} in "
-                        f"{dt:.0f}s ({outcome})"
-                    )
+                    headline = f"rapid price {direction} {velocity:.2%} in {dt:.0f}s ({outcome})"
                     if ob and ob["spread"] > 0:
                         headline += f", spread {ob['spread']:.2%}"
 
-                    signals.append(Signal(
-                        strategy=self.name,
-                        severity=severity,
-                        headline=headline,
-                        trade=sample,
-                        condition_id=cid,
-                        trade_hashes=tx_hashes,
-                    ))
+                    signals.append(
+                        Signal(
+                            strategy=self.name,
+                            severity=severity,
+                            headline=headline,
+                            trade=sample,
+                            condition_id=cid,
+                            trade_hashes=tx_hashes,
+                        )
+                    )
                     break  # one velocity signal per token
 
         if signals:

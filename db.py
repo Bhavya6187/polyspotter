@@ -126,9 +126,7 @@ def _init_tables(conn: sqlite3.Connection) -> None:
             snapshot_at TEXT NOT NULL
         )
     """)
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_mvs_cid ON market_volume_snapshots(condition_id)"
-    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_mvs_cid ON market_volume_snapshots(condition_id)")
 
     # -- price_impact (historical price observations) --------------------------
     conn.execute("""
@@ -141,9 +139,7 @@ def _init_tables(conn: sqlite3.Connection) -> None:
             recorded_at TEXT NOT NULL
         )
     """)
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_ph_token ON price_history(condition_id, outcome)"
-    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ph_token ON price_history(condition_id, outcome)")
     conn.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS idx_ph_dedup
         ON price_history(condition_id, outcome, trade_timestamp)
@@ -203,9 +199,7 @@ def _init_tables(conn: sqlite3.Connection) -> None:
             recorded_at TEXT NOT NULL
         )
     """)
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_pc_token ON price_candles(condition_id, token_id)"
-    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pc_token ON price_candles(condition_id, token_id)")
     conn.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS idx_pc_dedup
         ON price_candles(token_id, t)
@@ -227,9 +221,7 @@ def _init_tables(conn: sqlite3.Connection) -> None:
             snapshot_at TEXT NOT NULL
         )
     """)
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_obs_cid ON orderbook_snapshots(condition_id)"
-    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_cid ON orderbook_snapshots(condition_id)")
 
     conn.commit()
 
@@ -237,6 +229,7 @@ def _init_tables(conn: sqlite3.Connection) -> None:
 # ===========================================================================
 # tracked_bets operations (win_rate_tracking)
 # ===========================================================================
+
 
 def record_tracked_bet(trade: dict) -> None:
     """Insert a trade into tracked_bets for win/loss tracking."""
@@ -264,9 +257,7 @@ def record_tracked_bet(trade: dict) -> None:
 def get_unresolved_condition_ids() -> list[str]:
     """Return distinct condition_ids with unresolved bets."""
     conn = get_db()
-    rows = conn.execute(
-        "SELECT DISTINCT condition_id FROM tracked_bets WHERE resolved = 0"
-    ).fetchall()
+    rows = conn.execute("SELECT DISTINCT condition_id FROM tracked_bets WHERE resolved = 0").fetchall()
     return [r[0] for r in rows]
 
 
@@ -312,6 +303,7 @@ def get_wallet_stats(wallet: str) -> dict:
 # ===========================================================================
 # wallet_funders operations (wallet_clustering)
 # ===========================================================================
+
 
 def get_cached_funder(wallet: str) -> str | None:
     """Look up a cached funder for a wallet. Returns None if not cached."""
@@ -361,6 +353,7 @@ def get_known_sybil_funders(min_wallets: int = 2) -> dict[str, list[str]]:
 # ===========================================================================
 # flagged_wallets operations (new_wallet_large_bet)
 # ===========================================================================
+
 
 def record_flagged_wallet(wallet: str, usd_value: float) -> dict:
     """Record that a wallet was flagged. Returns updated stats.
@@ -429,8 +422,8 @@ def get_flagged_wallet_stats(wallet: str) -> dict | None:
 # flagged_trade_events operations (dedup for flagged_wallets counting)
 # ===========================================================================
 
-def record_flagged_trade_event(wallet: str, condition_id: str,
-                                trade_timestamp: float, usd_value: float) -> bool:
+
+def record_flagged_trade_event(wallet: str, condition_id: str, trade_timestamp: float, usd_value: float) -> bool:
     """Record a specific trade flagging event. Returns True if this is a new
     event (not previously seen), False if it was already recorded."""
     conn = get_db()
@@ -439,7 +432,10 @@ def record_flagged_trade_event(wallet: str, condition_id: str,
            (wallet, condition_id, trade_timestamp, usd_value, recorded_at)
            VALUES (?, ?, ?, ?, ?)""",
         (
-            wallet.lower(), condition_id, trade_timestamp, usd_value,
+            wallet.lower(),
+            condition_id,
+            trade_timestamp,
+            usd_value,
             datetime.now(timezone.utc).isoformat(),
         ),
     )
@@ -450,6 +446,7 @@ def record_flagged_trade_event(wallet: str, condition_id: str,
 # ===========================================================================
 # wallet_event_history operations (correlated_cross_market)
 # ===========================================================================
+
 
 def record_wallet_event_trade(trade: dict) -> None:
     """Record a trade for cross-run event correlation."""
@@ -578,22 +575,20 @@ def get_average_volume(condition_id: str) -> float | None:
 # price_history operations (price_impact)
 # ===========================================================================
 
-def record_price_observation(condition_id: str, outcome: str, price: float,
-                             trade_timestamp: float) -> None:
+
+def record_price_observation(condition_id: str, outcome: str, price: float, trade_timestamp: float) -> None:
     """Record a price observation for a token."""
     conn = get_db()
     conn.execute(
         """INSERT OR IGNORE INTO price_history
            (condition_id, outcome, price, trade_timestamp, recorded_at)
            VALUES (?, ?, ?, ?, ?)""",
-        (condition_id, outcome, price, trade_timestamp,
-         datetime.now(timezone.utc).isoformat()),
+        (condition_id, outcome, price, trade_timestamp, datetime.now(timezone.utc).isoformat()),
     )
     conn.commit()
 
 
-def get_price_history(condition_id: str, outcome: str,
-                      limit: int = 100) -> list[tuple[float, float]]:
+def get_price_history(condition_id: str, outcome: str, limit: int = 100) -> list[tuple[float, float]]:
     """Return recent price observations as (price, trade_timestamp) pairs,
     ordered oldest first."""
     conn = get_db()
@@ -624,8 +619,10 @@ def get_historical_price_range(condition_id: str, outcome: str) -> tuple[float, 
 # timing_flags operations (timing_relative_resolution)
 # ===========================================================================
 
-def record_timing_flag(wallet: str, condition_id: str, minutes_to_resolution: float,
-                       usd_value: float, trade_timestamp: float) -> None:
+
+def record_timing_flag(
+    wallet: str, condition_id: str, minutes_to_resolution: float, usd_value: float, trade_timestamp: float
+) -> None:
     """Record that a wallet bet close to market resolution."""
     conn = get_db()
     conn.execute(
@@ -633,8 +630,11 @@ def record_timing_flag(wallet: str, condition_id: str, minutes_to_resolution: fl
            (wallet, condition_id, minutes_to_resolution, usd_value, trade_timestamp, recorded_at)
            VALUES (?, ?, ?, ?, ?, ?)""",
         (
-            wallet.lower(), condition_id, minutes_to_resolution,
-            usd_value, trade_timestamp,
+            wallet.lower(),
+            condition_id,
+            minutes_to_resolution,
+            usd_value,
+            trade_timestamp,
             datetime.now(timezone.utc).isoformat(),
         ),
     )
@@ -667,6 +667,7 @@ def get_wallet_timing_stats(wallet: str) -> dict:
 # ===========================================================================
 # wallet_pnl operations (enriched win_rate_tracking / position analysis)
 # ===========================================================================
+
 
 def clear_wallet_pnl(wallet: str) -> None:
     """Delete all cached P&L records for a wallet so fresh data can replace them.
@@ -741,22 +742,20 @@ def get_wallet_pnl_summary(wallet: str) -> dict:
 # price_candles operations (CLOB price history)
 # ===========================================================================
 
-def record_price_candle(condition_id: str, token_id: str, outcome: str,
-                        t: float, p: float) -> None:
+
+def record_price_candle(condition_id: str, token_id: str, outcome: str, t: float, p: float) -> None:
     """Record a single price candle point."""
     conn = get_db()
     conn.execute(
         """INSERT OR IGNORE INTO price_candles
            (condition_id, token_id, outcome, t, p, recorded_at)
            VALUES (?, ?, ?, ?, ?, ?)""",
-        (condition_id, token_id, outcome, t, p,
-         datetime.now(timezone.utc).isoformat()),
+        (condition_id, token_id, outcome, t, p, datetime.now(timezone.utc).isoformat()),
     )
     conn.commit()
 
 
-def record_price_candles_batch(condition_id: str, token_id: str, outcome: str,
-                               candles: list[dict]) -> int:
+def record_price_candles_batch(condition_id: str, token_id: str, outcome: str, candles: list[dict]) -> int:
     """Batch-insert price candle data. Returns count inserted."""
     conn = get_db()
     now = datetime.now(timezone.utc).isoformat()
@@ -776,8 +775,7 @@ def record_price_candles_batch(condition_id: str, token_id: str, outcome: str,
     return inserted
 
 
-def get_price_candles(condition_id: str, token_id: str,
-                      limit: int = 500) -> list[tuple[float, float]]:
+def get_price_candles(condition_id: str, token_id: str, limit: int = 500) -> list[tuple[float, float]]:
     """Return recent price candles as (timestamp, price) pairs, oldest first."""
     conn = get_db()
     rows = conn.execute(
@@ -796,8 +794,9 @@ def get_price_candles(condition_id: str, token_id: str,
 ORDERBOOK_SNAPSHOT_MIN_INTERVAL_SEC = 600  # 10 minutes between snapshots per condition
 
 
-def record_orderbook_snapshot(condition_id: str, token_id: str, outcome: str,
-                              bids: list[dict], asks: list[dict]) -> None:
+def record_orderbook_snapshot(
+    condition_id: str, token_id: str, outcome: str, bids: list[dict], asks: list[dict]
+) -> None:
     """Record an order book snapshot with computed depth metrics.
     Skips if a snapshot for this condition was recorded less than
     ORDERBOOK_SNAPSHOT_MIN_INTERVAL_SEC ago to prevent table bloat."""
@@ -826,9 +825,18 @@ def record_orderbook_snapshot(condition_id: str, token_id: str, outcome: str,
            (condition_id, token_id, outcome, best_bid, best_ask, spread,
             bid_depth, ask_depth, mid_price, snapshot_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (condition_id, token_id, outcome, best_bid, best_ask, spread,
-         bid_depth, ask_depth, mid_price,
-         datetime.now(timezone.utc).isoformat()),
+        (
+            condition_id,
+            token_id,
+            outcome,
+            best_bid,
+            best_ask,
+            spread,
+            bid_depth,
+            ask_depth,
+            mid_price,
+            datetime.now(timezone.utc).isoformat(),
+        ),
     )
     conn.commit()
 

@@ -25,7 +25,7 @@ from gamma_cache import get_market_by_condition
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-CLOSE_MINUTES = 60         # trades within this many minutes of endDate are flagged
+CLOSE_MINUTES = 60  # trades within this many minutes of endDate are flagged
 REPEAT_TIMING_THRESHOLD = 3  # flag wallet as serial timer if >= N historical timing flags
 
 
@@ -100,10 +100,7 @@ class TimingRelativeResolutionStrategy(DetectionStrategy):
                 if pnl["closed_positions"] >= 3 and pnl["total_pnl"] > 0:
                     win_pct = pnl["wins"] / pnl["closed_positions"] if pnl["closed_positions"] > 0 else 0
                     severity = min(8.0, severity + 1.0)
-                    headline += (
-                        f" + PROFITABLE: {win_pct:.0%} wins, "
-                        f"${pnl['total_pnl']:+,.0f} P&L"
-                    )
+                    headline += f" + PROFITABLE: {win_pct:.0%} wins, ${pnl['total_pnl']:+,.0f} P&L"
 
         return Signal(
             strategy=self.name,

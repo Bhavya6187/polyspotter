@@ -38,6 +38,5 @@ def get_market_by_condition(condition_id: str) -> dict | None:
             _market_cache[condition_id] = markets[0]
             return markets[0]
     except requests.RequestException as e:
-        print(f"[WARN] Market lookup failed for condition {condition_id}: {e}",
-              file=sys.stderr)
+        print(f"[WARN] Market lookup failed for condition {condition_id}: {e}", file=sys.stderr)
     return None

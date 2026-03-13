@@ -5,8 +5,10 @@ from datetime import datetime, timezone
 from detection_strategies.timing_relative_resolution import TimingRelativeResolutionStrategy
 
 
-@patch("detection_strategies.timing_relative_resolution.get_wallet_timing_stats",
-       return_value={"total_flags": 0, "distinct_markets": 0, "avg_minutes": 0, "min_minutes": 0, "total_usd": 0})
+@patch(
+    "detection_strategies.timing_relative_resolution.get_wallet_timing_stats",
+    return_value={"total_flags": 0, "distinct_markets": 0, "avg_minutes": 0, "min_minutes": 0, "total_usd": 0},
+)
 @patch("detection_strategies.timing_relative_resolution.record_timing_flag")
 class TestTimingRelativeResolutionStrategy(unittest.TestCase):
     def setUp(self):

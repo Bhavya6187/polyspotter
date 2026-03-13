@@ -70,9 +70,15 @@ class TestNewWalletLargeBetStrategy(unittest.TestCase):
         result = self.strategy.check_trade(trade)
         self.assertIsNone(result)
 
-    @patch("detection_strategies.new_wallet_large_bet.record_flagged_wallet",
-           return_value={"times_flagged": 1, "total_usd_flagged": 5000,
-                         "first_flagged_at": "2024-01-01", "last_flagged_at": "2024-01-01"})
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_wallet",
+        return_value={
+            "times_flagged": 1,
+            "total_usd_flagged": 5000,
+            "first_flagged_at": "2024-01-01",
+            "last_flagged_at": "2024-01-01",
+        },
+    )
     @patch("detection_strategies.new_wallet_large_bet.get_wallet_profile")
     def test_new_wallet_returns_signal(self, mock_profile, mock_record):
         created = datetime.now(timezone.utc) - timedelta(days=3)
@@ -92,9 +98,15 @@ class TestNewWalletLargeBetStrategy(unittest.TestCase):
         result = self.strategy.check_trade(trade)
         self.assertIsNone(result)
 
-    @patch("detection_strategies.new_wallet_large_bet.record_flagged_wallet",
-           return_value={"times_flagged": 1, "total_usd_flagged": 5000,
-                         "first_flagged_at": "2024-01-01", "last_flagged_at": "2024-01-01"})
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_wallet",
+        return_value={
+            "times_flagged": 1,
+            "total_usd_flagged": 5000,
+            "first_flagged_at": "2024-01-01",
+            "last_flagged_at": "2024-01-01",
+        },
+    )
     @patch("detection_strategies.new_wallet_large_bet.get_wallet_profile")
     def test_no_profile_returns_signal(self, mock_profile, mock_record):
         mock_profile.return_value = (None, {})
@@ -103,9 +115,15 @@ class TestNewWalletLargeBetStrategy(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result.severity, 3.5)
 
-    @patch("detection_strategies.new_wallet_large_bet.record_flagged_wallet",
-           return_value={"times_flagged": 1, "total_usd_flagged": 5000,
-                         "first_flagged_at": "2024-01-01", "last_flagged_at": "2024-01-01"})
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_wallet",
+        return_value={
+            "times_flagged": 1,
+            "total_usd_flagged": 5000,
+            "first_flagged_at": "2024-01-01",
+            "last_flagged_at": "2024-01-01",
+        },
+    )
     @patch("detection_strategies.new_wallet_large_bet.get_wallet_profile")
     def test_severity_scales_with_age(self, mock_profile, mock_record):
         # 10-day old wallet -> severity 2.5
@@ -116,9 +134,15 @@ class TestNewWalletLargeBetStrategy(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result.severity, 2.5)
 
-    @patch("detection_strategies.new_wallet_large_bet.record_flagged_wallet",
-           return_value={"times_flagged": 1, "total_usd_flagged": 5000,
-                         "first_flagged_at": "2024-01-01", "last_flagged_at": "2024-01-01"})
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_wallet",
+        return_value={
+            "times_flagged": 1,
+            "total_usd_flagged": 5000,
+            "first_flagged_at": "2024-01-01",
+            "last_flagged_at": "2024-01-01",
+        },
+    )
     @patch("detection_strategies.new_wallet_large_bet.get_wallet_profile")
     def test_severity_20_day_wallet(self, mock_profile, mock_record):
         created = datetime.now(timezone.utc) - timedelta(days=20)

@@ -43,10 +43,11 @@ ETHERSCAN_API = "https://api.etherscan.io/v2/api"
 ETHERSCAN_API_KEY = os.environ.get("ETHERSCAN_API_KEY", "")
 POLYGON_CHAIN_ID = 137
 FUNDER_LOOKUP_DELAY = 0.25  # seconds between Etherscan calls
-MIN_SHARED_WALLETS = 2       # flag when >= N wallets share the same funder
+MIN_SHARED_WALLETS = 2  # flag when >= N wallets share the same funder
 
 # In-memory cache for the current run (avoids repeated DB reads within a run)
 _funder_cache: dict[str, str | None] = {}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -107,8 +108,7 @@ def _get_first_funder(address: str) -> str | None:
                 print(f"    [sybil] {short} funded by {short_f}")
             return funder
     except requests.RequestException as e:
-        print(f"[WARN] Etherscan lookup failed for {address}: {e}",
-              file=sys.stderr)
+        print(f"[WARN] Etherscan lookup failed for {address}: {e}", file=sys.stderr)
 
     _funder_cache[address] = None
     save_funder(address, None)
@@ -184,11 +184,7 @@ class WalletClusteringStrategy(DetectionStrategy):
 
             total_usd = sum(float(t.get("_usd_value", 0)) for t in all_cluster_trades)
 
-            tx_hashes = [
-                t.get("transactionHash", "")
-                for t in all_cluster_trades
-                if t.get("transactionHash")
-            ]
+            tx_hashes = [t.get("transactionHash", "") for t in all_cluster_trades if t.get("transactionHash")]
 
             short_funder = f"{funder[:8]}...{funder[-6:]}"
             sample = all_cluster_trades[0] if all_cluster_trades else trades[0]
@@ -201,14 +197,16 @@ class WalletClusteringStrategy(DetectionStrategy):
             # Higher severity for known Sybil funders
             severity = 6.0 if funder in known_sybils else 5.0
 
-            signals.append(Signal(
-                strategy=self.name,
-                severity=severity,
-                headline=headline,
-                trade=sample,
-                condition_id=sample.get("conditionId", ""),
-                trade_hashes=tx_hashes,
-            ))
+            signals.append(
+                Signal(
+                    strategy=self.name,
+                    severity=severity,
+                    headline=headline,
+                    trade=sample,
+                    condition_id=sample.get("conditionId", ""),
+                    trade_hashes=tx_hashes,
+                )
+            )
 
         # Second: check if any current-window wallet belongs to a known
         # Sybil funder that wasn't already caught above
@@ -225,27 +223,25 @@ class WalletClusteringStrategy(DetectionStrategy):
 
             total_usd = sum(float(t.get("_usd_value", 0)) for t in all_cluster_trades)
 
-            tx_hashes = [
-                t.get("transactionHash", "")
-                for t in all_cluster_trades
-                if t.get("transactionHash")
-            ]
+            tx_hashes = [t.get("transactionHash", "") for t in all_cluster_trades if t.get("transactionHash")]
 
             short_funder = f"{funder[:8]}...{funder[-6:]}"
             sample = all_cluster_trades[0] if all_cluster_trades else trades[0]
 
-            signals.append(Signal(
-                strategy=self.name,
-                severity=6.0,
-                headline=(
-                    f"Known Sybil funder {short_funder}: "
-                    f"{len(current_wallets)} wallet(s) active, "
-                    f"{len(historical_wallets)} total known, ${total_usd:,.0f}"
-                ),
-                trade=sample,
-                condition_id=sample.get("conditionId", ""),
-                trade_hashes=tx_hashes,
-            ))
+            signals.append(
+                Signal(
+                    strategy=self.name,
+                    severity=6.0,
+                    headline=(
+                        f"Known Sybil funder {short_funder}: "
+                        f"{len(current_wallets)} wallet(s) active, "
+                        f"{len(historical_wallets)} total known, ${total_usd:,.0f}"
+                    ),
+                    trade=sample,
+                    condition_id=sample.get("conditionId", ""),
+                    trade_hashes=tx_hashes,
+                )
+            )
 
         if signals:
             print(f"  [wallet_clustering] Found {len(signals)} wallet cluster(s)")
