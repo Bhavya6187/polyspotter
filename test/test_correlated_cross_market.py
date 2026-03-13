@@ -14,12 +14,13 @@ class TestCorrelatedCrossMarketStrategy(unittest.TestCase):
     def setUp(self):
         self.strategy = CorrelatedCrossMarketStrategy()
 
-    def _make_trade(self, wallet, event_slug, cid, usd=1500):
+    def _make_trade(self, wallet, event_slug, cid, usd=1500, side="BUY"):
         return {
             "proxyWallet": wallet,
             "eventSlug": event_slug,
             "conditionId": cid,
             "_usd_value": usd,
+            "side": side,
             "transactionHash": f"0xtx_{wallet}_{cid}",
         }
 
@@ -37,15 +38,25 @@ class TestCorrelatedCrossMarketStrategy(unittest.TestCase):
         signals = self.strategy.analyze_all(trades)
         self.assertEqual(len(signals), 0)
 
-    def test_two_markets_same_event_triggers(self, *mocks):
+    def test_two_markets_consistent_no_signal(self, *mocks):
+        """2 markets, same direction (both BUY) = consistent view, no signal."""
         trades = [
-            self._make_trade("w1", "event1", "cond1", usd=1500),
-            self._make_trade("w1", "event1", "cond2", usd=1500),
+            self._make_trade("w1", "event1", "cond1", usd=1500, side="BUY"),
+            self._make_trade("w1", "event1", "cond2", usd=1500, side="BUY"),
+        ]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 0)
+
+    def test_two_markets_mixed_triggers(self, *mocks):
+        """2 markets, mixed directions (BUY + SELL) = suspicious, triggers signal."""
+        trades = [
+            self._make_trade("w1", "event1", "cond1", usd=1500, side="BUY"),
+            self._make_trade("w1", "event1", "cond2", usd=1500, side="SELL"),
         ]
         signals = self.strategy.analyze_all(trades)
         self.assertEqual(len(signals), 1)
         self.assertEqual(signals[0].strategy, "correlated_cross_market")
-        self.assertIn("2 markets", signals[0].headline)
+        self.assertIn("mixed directions", signals[0].headline)
 
     def test_below_min_usd_no_signal(self, *mocks):
         trades = [
@@ -71,20 +82,35 @@ class TestCorrelatedCrossMarketStrategy(unittest.TestCase):
         signals = self.strategy.analyze_all(trades)
         self.assertEqual(len(signals), 0)
 
-    def test_three_markets_same_event(self, *mocks):
+    def test_three_markets_consistent_lower_severity(self, *mocks):
+        """3+ markets consistent direction still triggers but at lower severity."""
         trades = [
-            self._make_trade("w1", "event1", "cond1", usd=1000),
-            self._make_trade("w1", "event1", "cond2", usd=1000),
-            self._make_trade("w1", "event1", "cond3", usd=1000),
+            self._make_trade("w1", "event1", "cond1", usd=1000, side="BUY"),
+            self._make_trade("w1", "event1", "cond2", usd=1000, side="BUY"),
+            self._make_trade("w1", "event1", "cond3", usd=1000, side="BUY"),
         ]
         signals = self.strategy.analyze_all(trades)
         self.assertEqual(len(signals), 1)
         self.assertIn("3 markets", signals[0].headline)
+        self.assertIn("consistent bullish", signals[0].headline)
+        self.assertEqual(signals[0].severity, 1.5)
+
+    def test_three_markets_mixed_higher_severity(self, *mocks):
+        """3 markets with mixed directions gets higher severity."""
+        trades = [
+            self._make_trade("w1", "event1", "cond1", usd=1000, side="BUY"),
+            self._make_trade("w1", "event1", "cond2", usd=1000, side="SELL"),
+            self._make_trade("w1", "event1", "cond3", usd=1000, side="BUY"),
+        ]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 1)
+        self.assertIn("mixed directions", signals[0].headline)
+        self.assertEqual(signals[0].severity, 3.0)
 
     def test_trade_hashes_collected(self, *mocks):
         trades = [
-            self._make_trade("w1", "event1", "cond1", usd=1500),
-            self._make_trade("w1", "event1", "cond2", usd=1500),
+            self._make_trade("w1", "event1", "cond1", usd=1500, side="BUY"),
+            self._make_trade("w1", "event1", "cond2", usd=1500, side="SELL"),
         ]
         signals = self.strategy.analyze_all(trades)
         self.assertEqual(len(signals[0].trade_hashes), 2)

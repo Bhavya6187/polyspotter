@@ -10,6 +10,12 @@ Related markets are identified by belonging to the same Polymarket event
 (same eventSlug).  Within an event, opposing positions across different
 markets by the same wallet are flagged.
 
+Positions are classified as "bullish" or "bearish" on each market's
+primary outcome.  If all positions across markets point the same
+direction (e.g., all bullish on BTC), the wallet has a consistent view
+and severity is discounted.  Mixed/opposing positions across markets
+are more suspicious as they suggest nuanced informed positioning.
+
 Historical trades are persisted so that cross-market positioning over
 days/weeks is detected even if bets happen in separate scan windows.
 """
@@ -31,6 +37,15 @@ from db import (
 MIN_MARKETS = 2  # wallet must bet on >= N markets in the same event
 MIN_TOTAL_USD = 2000  # minimum combined USD across the correlated bets
 REPEAT_CROSS_EVENT_THRESHOLD = 3  # flag if wallet has cross-market bets on >= N events historically
+
+
+def _is_bullish(trade: dict) -> bool:
+    """Determine if a position is bullish on its outcome.
+
+    BUY on an outcome means you're betting it will happen (bullish).
+    SELL on an outcome means you're betting against it (bearish).
+    """
+    return trade.get("side", "") == "BUY"
 
 
 # ---------------------------------------------------------------------------
@@ -112,19 +127,47 @@ class CorrelatedCrossMarketStrategy(DetectionStrategy):
                 if combined_usd < MIN_TOTAL_USD:
                     continue
 
+                # --- Outcome correlation analysis ---
+                # Classify each market position as bullish or bearish.
+                # If all markets show the same direction, this is a
+                # consistent view (e.g., all bullish on BTC) — less
+                # suspicious.  Mixed directions suggest nuanced informed
+                # positioning and warrant higher severity.
+                market_directions: dict[str, bool] = {}  # cid -> is_bullish
+                for cid, cid_trades in markets_hit.items():
+                    # Use the largest trade to determine the dominant direction
+                    dominant = max(cid_trades, key=lambda t: float(t.get("_usd_value", 0)))
+                    market_directions[cid] = _is_bullish(dominant)
+
+                all_bullish = all(market_directions.values())
+                all_bearish = not any(market_directions.values())
+                is_consistent = all_bullish or all_bearish
+
                 wallets_with_cross_market.add(wallet.lower())
 
                 tx_hashes = [t.get("transactionHash", "") for t in event_trades if t.get("transactionHash")]
 
                 sample = event_trades[0]
 
-                headline = f"{len(markets_hit)} markets in same event, ${combined_usd:,.0f}"
-                severity = 2.5
+                n_markets = len(markets_hit)
+
+                if is_consistent:
+                    # Consistent directional view — lower severity
+                    # Skip entirely for 2-market consistent positions (very common)
+                    if n_markets <= 2:
+                        continue
+                    severity = 1.5
+                    direction = "bullish" if all_bullish else "bearish"
+                    headline = f"{n_markets} markets in same event (consistent {direction}), ${combined_usd:,.0f}"
+                else:
+                    # Mixed directions across markets — more suspicious
+                    severity = 3.0
+                    headline = f"{n_markets} markets in same event (mixed directions), ${combined_usd:,.0f}"
 
                 # Escalate if some markets were from prior runs
                 if historical_only_cids:
                     headline += f" ({len(historical_only_cids)} market(s) from prior runs)"
-                    severity = 3.5
+                    severity += 1.0
 
                 signals.append(
                     Signal(
