@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Polymarket Unusual Activity Bot
+Polymarket Notable Trade Scanner
 
-Monitors Polymarket trades and flags large bets ($1,000+) that match
-one or more detection strategies.  Strategies live in the
+Monitors Polymarket trades and surfaces large bets ($3,000+) that show
+signals of informed edge — sharp bettors, coordinated flow, and
+high-conviction positioning.  Strategies live in the
 detection_strategies/ package.
 """
 
@@ -290,7 +291,7 @@ def _format_composite_alerts(signals: list[Signal], trades: list[dict]) -> str:
         seen_sigs: dict[tuple[str, str], Signal] = {}
         for _, _, sigs in entries:
             for s in sigs:
-                key = (s.strategy, s.headline)
+                key = s.dedup_key
                 if key not in seen_sigs or s.severity > seen_sigs[key].severity:
                     seen_sigs[key] = s
         deduped_sigs = list(seen_sigs.values())
@@ -317,7 +318,7 @@ def _format_composite_alerts(signals: list[Signal], trades: list[dict]) -> str:
 
 
 def _format_summary(trades: list[dict], signals: list[Signal], strategy_names: str) -> str:
-    """Format a ranked summary of the most suspicious activity."""
+    """Format a ranked summary of the most notable activity."""
     # Build tx_hash -> actual trade dict lookup
     tx_to_trade: dict[str, dict] = {}
     for t in trades:
@@ -391,7 +392,7 @@ def _format_summary(trades: list[dict], signals: list[Signal], strategy_names: s
         seen_sigs: dict[tuple[str, str], Signal] = {}
         for _, _, sigs in entries:
             for s in sigs:
-                key = (s.strategy, s.headline)
+                key = s.dedup_key
                 if key not in seen_sigs or s.severity > seen_sigs[key].severity:
                     seen_sigs[key] = s
         deduped_sigs = list(seen_sigs.values())
@@ -456,12 +457,12 @@ def _format_summary(trades: list[dict], signals: list[Signal], strategy_names: s
 
 
 def run():
-    parser = argparse.ArgumentParser(description="Polymarket Unusual Activity Scanner")
+    parser = argparse.ArgumentParser(description="Polymarket Notable Trade Scanner")
     parser.add_argument(
         "--verbose",
         "-v",
         action="store_true",
-        help="Show per-trade detail logging (cache hits, ok results, sybil lines)",
+        help="Show per-trade detail logging (cache hits, ok results, cluster lines)",
     )
     args = parser.parse_args()
 
@@ -504,7 +505,7 @@ def run():
     strategy_names = ", ".join(s.name for s in all_strategies)
 
     print("=" * 72)
-    print("  Polymarket Unusual Activity Scanner (single run)")
+    print("  Polymarket Notable Trade Scanner (single run)")
     print("=" * 72)
     print(f"  Bet threshold:  ${BET_THRESHOLD_USD:,}")
     print(f"  Trade window:   last {TRADE_WINDOW_SECONDS}s")

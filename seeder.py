@@ -127,10 +127,10 @@ def build_alerts_payload(
         # Collect all unique signals for this cluster
         all_sigs: dict[tuple[str, str], Signal] = {}
         for s in shared_sigs:
-            all_sigs[(s.strategy, s.headline)] = s
+            all_sigs[s.dedup_key] = s
         for tx in cluster_sig.trade_hashes:
             for s in per_trade.get(tx, []):
-                key = (s.strategy, s.headline)
+                key = s.dedup_key
                 if key not in all_sigs or s.severity > all_sigs[key].severity:
                     all_sigs[key] = s
 
@@ -181,7 +181,7 @@ def build_alerts_payload(
         seen_sigs: dict[tuple[str, str], Signal] = {}
         for _, _, sigs in entries:
             for s in sigs:
-                key = (s.strategy, s.headline)
+                key = s.dedup_key
                 if key not in seen_sigs or s.severity > seen_sigs[key].severity:
                     seen_sigs[key] = s
         deduped_sigs = list(seen_sigs.values())

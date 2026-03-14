@@ -1,6 +1,6 @@
 """
-Strategy: flag markets where recent trade volume spikes far above
-the historical average, suggesting informed pre-event trading.
+Strategy: surface markets where recent trade volume spikes far above
+the historical average, suggesting informed traders are positioning.
 
 Compares the window volume (from the trades batch) against:
 1. The market's rolling 24-hour volume from the Gamma API (single-run baseline)

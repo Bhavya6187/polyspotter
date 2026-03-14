@@ -1,10 +1,10 @@
 # Polybot
 
-Polymarket Unusual Activity Scanner — monitors Polymarket trades in real-time and flags large bets ($3,000+) that match one or more detection strategies for suspicious activity.
+Polymarket Notable Trade Scanner — monitors Polymarket trades and surfaces large bets ($3,000+) that show signals of informed edge: sharp bettors, coordinated flow, and high-conviction positioning.
 
 ## What This Project Does
 
-Polybot fetches recent trades from the Polymarket Data API, runs them through 9 detection strategies, and produces composite alerts ranking the most suspicious activity. It uses a local SQLite database (`polybot.db`) to track wallet history, P&L, price data, and other state across runs.
+Polybot fetches recent trades from the Polymarket Data API, runs them through 9 detection strategies, and produces composite alerts ranking the most interesting trades — copy-worthy bets from sharp bettors, informed wallets, and coordinated flow. It uses a local SQLite database (`polybot.db`) to track wallet history, P&L, price data, and other state across runs.
 
 ### Detection Strategies
 
@@ -12,16 +12,16 @@ Strategies live in `detection_strategies/` and fall into two phases:
 
 **Per-trade** (run on each trade individually, in order):
 1. `win_rate_tracking` — fetches wallet P&L from Data API, populates `wallet_pnl` table
-2. `new_wallet_large_bet` — flags new/young wallets making large bets (reads `wallet_pnl`)
-3. `timing_relative_resolution` — flags bets placed close to market resolution (reads `wallet_pnl`)
-4. `low_activity_large_bet` — flags low-activity wallets with outsized bets
+2. `new_wallet_large_bet` — surfaces new wallets making large, confident bets (reads `wallet_pnl`)
+3. `timing_relative_resolution` — surfaces bets placed close to market resolution (reads `wallet_pnl`)
+4. `low_activity_large_bet` — surfaces large bets on quiet markets
 
 **Batch** (run once across all trades, in order):
-5. `pre_event_volume_spike` — detects unusual volume surges
-6. `wallet_clustering` — identifies sybil clusters via shared funders (writes `wallet_funders`)
-7. `concentrated_one_sided` — flags coordinated one-sided betting (reads `wallet_funders`)
-8. `price_impact` — detects trades causing abnormal price movement
-9. `correlated_cross_market` — flags wallets trading correlated outcomes across markets
+5. `pre_event_volume_spike` — detects volume surges signaling informed positioning
+6. `wallet_clustering` — identifies linked wallets via shared funders (writes `wallet_funders`)
+7. `concentrated_one_sided` — surfaces coordinated one-sided flow (reads `wallet_funders`)
+8. `price_impact` — detects trades causing significant price movement
+9. `correlated_cross_market` — surfaces wallets expressing a thesis across related markets
 
 Order matters — some strategies depend on data written by earlier ones.
 

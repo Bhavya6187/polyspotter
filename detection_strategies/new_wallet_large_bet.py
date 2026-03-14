@@ -1,11 +1,12 @@
 """
-Strategy: flag large bets placed by newly created wallets.
+Strategy: surface large bets placed by newly created wallets.
 
 A wallet is considered "new" if its Gamma-API profile was created fewer
 than WALLET_AGE_DAYS ago (or has no profile at all).
 
-Tracks flagged wallets in the database so repeat offenders are escalated
-with higher severity on subsequent runs.
+New wallets betting big with early profitability often signal informed
+conviction. Tracks flagged wallets in the database so repeat bettors
+are escalated with higher severity on subsequent runs.
 """
 
 from __future__ import annotations
@@ -148,8 +149,8 @@ def format_alert(trade: dict, created_at: datetime | None, profile: dict) -> str
 class NewWalletLargeBetStrategy(DetectionStrategy):
     name = "new_wallet_large_bet"
     description = (
-        "Flags large bets placed by wallets younger than "
-        f"{WALLET_AGE_DAYS} days. Escalates repeat offenders from DB history."
+        "Surfaces large bets placed by wallets younger than "
+        f"{WALLET_AGE_DAYS} days. Escalates repeat bettors from DB history."
     )
 
     def check_trade(self, trade: dict) -> Signal | None:
@@ -207,12 +208,12 @@ class NewWalletLargeBetStrategy(DetectionStrategy):
                 )
                 if config.VERBOSE:
                     print(
-                        f"    >>> REPEAT OFFENDER: flagged {flag_stats['times_flagged']} times, "
+                        f"    >>> REPEAT BETTOR: flagged {flag_stats['times_flagged']} times, "
                         f"${flag_stats['total_usd_flagged']:,.0f} total"
                     )
 
             # Cross-reference with P&L data: a "new" wallet that already
-            # has many positions or high profitability is very suspicious
+            # has many positions or high profitability is very notable
             pnl = get_wallet_pnl_summary(wallet)
             if pnl["total_positions"] > 5:
                 severity = min(7.0, severity + 1.0)

@@ -1,11 +1,11 @@
 """
-Strategy: flag when multiple large bets within the scan window all take
-the same side of a market.
+Strategy: surface coordinated one-sided flow — multiple wallets all
+betting the same direction on a market.
 
 A single large bet is one thing; several different wallets each placing
-large bets on the same outcome within minutes is much more suspicious.
-Trades are grouped by (conditionId, outcome, side) and flagged when the
-cluster exceeds configured thresholds.
+large bets on the same outcome within minutes is a strong directional
+signal.  Trades are grouped by (conditionId, outcome, side) and flagged
+when the cluster exceeds configured thresholds.
 """
 
 from __future__ import annotations
@@ -81,7 +81,7 @@ class ConcentratedOneSidedStrategy(DetectionStrategy):
             headline = f"{n_wallets} wallets, same direction ({outcome}/{side}), ${total_usd:,.0f}"
 
             # Cross-reference with wallet_clustering: check if any wallets
-            # in this cluster share a common funder (Sybil indicator)
+            # in this cluster share a common funder (linked wallets)
             funders: dict[str, list[str]] = {}
             for w in wallets:
                 funder = get_cached_funder(w)
@@ -92,7 +92,7 @@ class ConcentratedOneSidedStrategy(DetectionStrategy):
             if shared_funders:
                 n_shared = sum(len(ws) for ws in shared_funders.values())
                 severity = min(8.0, severity + 1.5)
-                headline += f" — {n_shared} share funder (Sybil?)"
+                headline += f" — {n_shared} share funder (linked)"
 
             signals.append(
                 Signal(
@@ -106,5 +106,5 @@ class ConcentratedOneSidedStrategy(DetectionStrategy):
             )
 
         if signals:
-            print(f"  [concentrated_one_sided] Found {len(signals)} suspicious cluster(s)")
+            print(f"  [concentrated_one_sided] Found {len(signals)} notable cluster(s)")
         return signals

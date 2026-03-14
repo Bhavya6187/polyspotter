@@ -5,7 +5,7 @@ flagging the trades that drove the movement.
 Operates in two modes:
 1. Within-window: compares earliest and latest prices in the current batch
 2. Cross-window: compares current prices against historical price observations
-   from the database to detect gradual manipulation across multiple runs
+   from the database to detect gradual shifts across multiple runs
 
 Price observations are persisted to the database on every run.
 """

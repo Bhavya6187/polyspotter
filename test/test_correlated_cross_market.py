@@ -48,7 +48,7 @@ class TestCorrelatedCrossMarketStrategy(unittest.TestCase):
         self.assertEqual(len(signals), 0)
 
     def test_two_markets_mixed_triggers(self, *mocks):
-        """2 markets, mixed directions (BUY + SELL) = suspicious, triggers signal."""
+        """2 markets, mixed directions (BUY + SELL) = notable, triggers signal."""
         trades = [
             self._make_trade("w1", "event1", "cond1", usd=1500, side="BUY"),
             self._make_trade("w1", "event1", "cond2", usd=1500, side="SELL"),

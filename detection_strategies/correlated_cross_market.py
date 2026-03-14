@@ -4,7 +4,8 @@ wallet within the scan window AND across historical runs.
 
 If someone bets "Yes" on "Will X resign?" and simultaneously bets "No"
 on "Will X win election?", that's a correlated position suggesting
-conviction based on private information.
+a strong thesis — the trader has a view and is positioning across
+multiple markets to express it.
 
 Related markets are identified by belonging to the same Polymarket event
 (same eventSlug).  Within an event, opposing positions across different
@@ -14,7 +15,7 @@ Positions are classified as "bullish" or "bearish" on each market's
 primary outcome.  If all positions across markets point the same
 direction (e.g., all bullish on BTC), the wallet has a consistent view
 and severity is discounted.  Mixed/opposing positions across markets
-are more suspicious as they suggest nuanced informed positioning.
+are more notable as they suggest a nuanced, hedged thesis.
 
 Historical trades are persisted so that cross-market positioning over
 days/weeks is detected even if bets happen in separate scan windows.
@@ -131,8 +132,8 @@ class CorrelatedCrossMarketStrategy(DetectionStrategy):
                 # Classify each market position as bullish or bearish.
                 # If all markets show the same direction, this is a
                 # consistent view (e.g., all bullish on BTC) — less
-                # suspicious.  Mixed directions suggest nuanced informed
-                # positioning and warrant higher severity.
+                # notable.  Mixed directions suggest a nuanced hedged
+                # thesis and warrant higher severity.
                 market_directions: dict[str, bool] = {}  # cid -> is_bullish
                 for cid, cid_trades in markets_hit.items():
                     # Use the largest trade to determine the dominant direction
@@ -160,7 +161,7 @@ class CorrelatedCrossMarketStrategy(DetectionStrategy):
                     direction = "bullish" if all_bullish else "bearish"
                     headline = f"{n_markets} markets in same event (consistent {direction}), ${combined_usd:,.0f}"
                 else:
-                    # Mixed directions across markets — more suspicious
+                    # Mixed directions across markets — more notable
                     severity = 3.0
                     headline = f"{n_markets} markets in same event (mixed directions), ${combined_usd:,.0f}"
 

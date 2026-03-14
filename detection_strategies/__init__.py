@@ -1,5 +1,5 @@
 """
-Detection strategies for flagging suspicious Polymarket activity.
+Detection strategies for surfacing notable Polymarket trades.
 
 Each strategy is a subclass of DetectionStrategy and implements the
 `check_trade` method and/or the `analyze_all` method for batch analysis.
@@ -24,6 +24,24 @@ class Signal:
     condition_id: str = ""
     trade_hashes: list[str] = field(default_factory=list)
 
+    @property
+    def dedup_key(self) -> tuple[str, str]:
+        """Key used for deduplication when compositing signals.
+
+        Per-trade strategies that fire once per trade for the same wallet
+        (like new_wallet_large_bet) use just the strategy name so that
+        only the highest-severity instance survives dedup within a
+        wallet+event group.  Other strategies use (strategy, headline)
+        to preserve legitimately distinct signals (e.g., two different
+        wallet_clustering funders).
+        """
+        # Strategies whose signals are inherently per-wallet, not per-trade.
+        # Within a (wallet, event) group these should collapse to one signal.
+        PER_WALLET_STRATEGIES = {"new_wallet_large_bet"}
+        if self.strategy in PER_WALLET_STRATEGIES:
+            return (self.strategy, "")
+        return (self.strategy, self.headline)
+
 
 class DetectionStrategy(ABC):
     """Base class for all detection strategies."""
@@ -34,7 +52,7 @@ class DetectionStrategy(ABC):
     @abstractmethod
     def check_trade(self, trade: dict) -> Signal | None:
         """Examine a single trade and return a Signal if it looks
-        suspicious, or None to skip it."""
+        notable, or None to skip it."""
         ...
 
     def analyze_all(self, trades: list[dict]) -> list[Signal]:

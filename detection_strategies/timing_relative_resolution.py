@@ -1,10 +1,11 @@
 """
-Strategy: weight suspicion higher when large bets land close to a
-market's expected resolution time.
+Strategy: surface large bets that land close to a market's expected
+resolution time.
 
 Fetches endDate from the Gamma API market metadata and compares it
 to the trade timestamp.  Trades landing within CLOSE_MINUTES of
-resolution are flagged with higher urgency.
+resolution are flagged — late bets with conviction suggest a
+real-time information edge.
 
 Timing flags are persisted to the database so wallets that repeatedly
 bet near resolution across many markets are detected and escalated.
@@ -75,7 +76,7 @@ class TimingRelativeResolutionStrategy(DetectionStrategy):
 
         # Determine if this is a short-duration market (e.g., 5-min BTC binary
         # options).  Betting near resolution on these is *expected behavior*,
-        # not suspicious — the entire market lifespan is minutes.
+        # not notable — the entire market lifespan is minutes.
         start_date = _parse_datetime(market.get("startDate"))
         market_duration_hours = None
         if start_date and end_date:

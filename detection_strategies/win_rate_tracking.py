@@ -1,8 +1,8 @@
 """
 Strategy: maintain a persistent store of flagged wallets and track
 their historical accuracy.  A wallet that repeatedly places large,
-correct bets just before resolution is far more suspicious than one
-that's wrong half the time.
+correct bets is a sharp bettor worth following — especially if
+they consistently beat implied odds.
 
 Uses the centralized polybot.db database for persistence across runs.
 On each run, records flagged trades.  Also checks resolved markets to
@@ -36,7 +36,7 @@ GAMMA_API = "https://gamma-api.polymarket.com"
 DATA_API = "https://data-api.polymarket.com"
 WIN_RATE_ALERT_THRESHOLD = 0.75  # flag if win rate >= 75%
 MIN_RESOLVED_BETS = 10  # need at least N resolved bets to judge
-# Minimum edge (actual win% - implied win%) to consider suspicious
+# Minimum edge (actual win% - implied win%) to consider notable
 MIN_EDGE_THRESHOLD = 0.15
 # If wallet has zero losses in the P&L data, require this many closed
 # positions before trusting the 100% win rate
@@ -178,7 +178,7 @@ class WinRateTrackingStrategy(DetectionStrategy):
 
     def check_trade(self, trade: dict) -> Signal | None:
         """Record every large trade and check if the wallet has a
-        suspiciously high historical win rate."""
+        notably high historical win rate."""
         wallet = trade.get("proxyWallet", "")
         if not wallet:
             return None
@@ -235,7 +235,7 @@ class WinRateTrackingStrategy(DetectionStrategy):
             # No price data — fall back to raw win rate but discount severity
             edge = win_rate - 0.5
 
-        # Skip if edge is too small (winning on heavy favorites isn't suspicious)
+        # Skip if edge is too small (winning on heavy favorites isn't notable)
         if edge < MIN_EDGE_THRESHOLD:
             return None
 

@@ -1,14 +1,15 @@
 """
-Strategy: detect multiple "new" wallets that were funded by the same
-source address on Polygon (Sybil detection).
+Strategy: detect multiple wallets that were funded by the same source
+address on Polygon (linked-wallet detection).
 
 For each flagged wallet, queries the Etherscan V2 API for the first
 inbound transfer.  If several wallets in the current scan share a common
-funder, it suggests a single actor splitting bets across wallets.
+funder, it signals a single actor deploying capital across wallets —
+high conviction worth tracking.
 
 Funder relationships are persisted in the database so that:
 - Etherscan lookups are cached across runs (avoids redundant API calls)
-- Known Sybil funders are auto-escalated when new wallets appear
+- Known linked funders are auto-escalated when new wallets appear
 - Clusters that span multiple scan windows are detected
 
 Requires an Etherscan API key in the ETHERSCAN_API_KEY environment
@@ -69,7 +70,7 @@ def _get_first_funder(address: str) -> str | None:
         short = f"{address[:8]}...{address[-6:]}"
         short_f = f"{db_funder[:8]}...{db_funder[-6:]}" if db_funder else "?"
         if config.VERBOSE:
-            print(f"    [sybil] {short} funded by {short_f} (from DB)")
+            print(f"    [cluster] {short} funded by {short_f} (from DB)")
         _funder_cache[address] = db_funder
         return db_funder
 
@@ -106,7 +107,7 @@ def _get_first_funder(address: str) -> str | None:
             short = f"{address[:8]}...{address[-6:]}"
             short_f = f"{funder[:8]}...{funder[-6:]}" if funder else "?"
             if config.VERBOSE:
-                print(f"    [sybil] {short} funded by {short_f}")
+                print(f"    [cluster] {short} funded by {short_f}")
             return funder
     except requests.RequestException as e:
         print(f"[WARN] Etherscan lookup failed for {address}: {e}", file=sys.stderr)
@@ -123,7 +124,7 @@ class WalletClusteringStrategy(DetectionStrategy):
     name = "wallet_clustering"
     description = (
         "Detects multiple wallets in the scan window that were funded by "
-        "the same source address on Polygon (Sybil indicator). Persists "
+        "the same source address on Polygon (linked wallets). Persists "
         "funder relationships across runs for cross-window cluster detection."
     )
 
@@ -153,7 +154,7 @@ class WalletClusteringStrategy(DetectionStrategy):
             if funder:
                 funder_to_wallets[funder].append(wallet)
 
-        # Also check historical DB for known Sybil funders that have wallets
+        # Also check historical DB for known linked funders that have wallets
         # in the current scan, even if those wallets' co-funded siblings
         # aren't in this window
         known_sybils = get_known_sybil_funders(MIN_SHARED_WALLETS)
@@ -197,7 +198,7 @@ class WalletClusteringStrategy(DetectionStrategy):
 
             # Severity scales with cluster size:
             #   2 wallets -> 5.0, 4 -> 6.0, 8 -> 7.0, 16 -> 8.0
-            # Known Sybil funders get +1.0 boost
+            # Known linked funders get +1.0 boost
             base = 4.0 + math.log2(n_total)
             severity = min(8.0, base + (1.0 if funder in known_sybils else 0.0))
 
@@ -213,7 +214,7 @@ class WalletClusteringStrategy(DetectionStrategy):
             )
 
         # Second: check if any current-window wallet belongs to a known
-        # Sybil funder that wasn't already caught above
+        # linked funder that wasn't already caught above
         for funder, historical_wallets in known_sybils.items():
             if funder in seen_funders:
                 continue
@@ -237,7 +238,7 @@ class WalletClusteringStrategy(DetectionStrategy):
                     strategy=self.name,
                     severity=6.0,
                     headline=(
-                        f"Known Sybil funder {short_funder}: "
+                        f"Known linked funder {short_funder}: "
                         f"{len(current_wallets)} wallet(s) active, "
                         f"{len(historical_wallets)} total known, ${total_usd:,.0f}"
                     ),

@@ -1,11 +1,11 @@
 """
-Strategy: flag when a large bet lands on a market that has had very
-low trading activity recently.
+Strategy: surface large bets on markets with very low recent trading
+activity.
 
-Thinly-traded markets are easier targets for insiders since fewer
-people are watching.  Uses the Gamma API 24h volume to determine
-if a market is low-activity, then flags large bets relative to that
-baseline.
+Large confident bets on quiet markets often signal that the trader
+has information others don't.  Uses the Gamma API 24h volume to
+determine if a market is low-activity, then flags large bets
+relative to that baseline.
 """
 
 from __future__ import annotations
