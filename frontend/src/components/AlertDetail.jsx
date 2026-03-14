@@ -80,6 +80,15 @@ export default function AlertDetail({ alertId, wallet }) {
     <tr>
       <td colSpan="7" className="border-b border-gray-700 bg-gray-900/80 p-0">
         <div className="p-6">
+          {/* LLM Summary */}
+          {detail.llm_summary && (
+            <div className="mb-6 rounded-lg border border-amber-700/50 bg-amber-900/20 p-4">
+              <h3 className="mb-1 text-sm font-semibold uppercase tracking-wider text-amber-400">
+                AI Analysis
+              </h3>
+              <p className="text-sm text-amber-100">{detail.llm_summary}</p>
+            </div>
+          )}
           <div className="flex flex-col gap-6 lg:flex-row">
             {/* Signals */}
             <div className="flex-1">

@@ -224,6 +224,16 @@ def _init_tables(conn: sqlite3.Connection) -> None:
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_cid ON orderbook_snapshots(condition_id)")
 
+    # -- llm_evaluations (cache LLM verdicts by dedup_key) --------------------
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS llm_evaluations (
+            dedup_key TEXT PRIMARY KEY,
+            interesting INTEGER NOT NULL,
+            summary TEXT,
+            evaluated_at TEXT NOT NULL
+        )
+    """)
+
     conn.commit()
 
 
@@ -898,3 +908,33 @@ def get_orderbook_stats(condition_id: str) -> dict | None:
         "mid_price": row[5],
         "snapshot_at": row[6],
     }
+
+
+# ===========================================================================
+# llm_evaluations operations (LLM verdict cache)
+# ===========================================================================
+
+
+def get_llm_evaluation(dedup_key: str) -> dict | None:
+    """Look up a cached LLM evaluation by dedup_key.
+    Returns dict with interesting (bool) and summary, or None if not cached."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT interesting, summary FROM llm_evaluations WHERE dedup_key = ?",
+        (dedup_key,),
+    ).fetchone()
+    if not row:
+        return None
+    return {"interesting": bool(row[0]), "summary": row[1]}
+
+
+def save_llm_evaluation(dedup_key: str, interesting: bool, summary: str | None) -> None:
+    """Cache an LLM evaluation result."""
+    conn = get_db()
+    conn.execute(
+        """INSERT OR REPLACE INTO llm_evaluations
+           (dedup_key, interesting, summary, evaluated_at)
+           VALUES (?, ?, ?, ?)""",
+        (dedup_key, int(interesting), summary, datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()

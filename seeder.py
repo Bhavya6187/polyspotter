@@ -13,9 +13,12 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 import requests
+from dotenv import load_dotenv
 
 from detection_strategies import Signal
 from db import get_wallet_pnl_summary, get_flagged_wallet_stats
+
+load_dotenv()
 
 BACKEND_URL = os.environ.get("POLYBOT_BACKEND_URL", "http://localhost:8000")
 
@@ -273,6 +276,19 @@ def push_to_backend(signals: list[Signal], trades: list[dict]) -> None:
         return
 
     payload = build_alerts_payload(signals, trades)
+
+    # -- LLM filter: evaluate each alert and discard uninteresting ones --------
+    # Verdicts are cached locally in polybot.db (llm_evaluations table),
+    # so previously-seen alerts are resolved from cache without an API call.
+    from llm_filter import filter_alerts
+
+    print(f"[seeder] Running LLM filter on {len(payload['alerts'])} alert(s)...")
+    payload["alerts"] = filter_alerts(payload["alerts"])
+
+    if not payload["alerts"]:
+        print("[seeder] All alerts discarded by LLM filter. Nothing to push.")
+        return
+
     n_alerts = len(payload["alerts"])
     n_profiles = len(payload["wallet_profiles"])
     print(f"[seeder] Pushing {n_alerts} alert(s) and {n_profiles} wallet profile(s) to {BACKEND_URL}...")

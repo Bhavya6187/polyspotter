@@ -23,6 +23,9 @@ CREATE TABLE IF NOT EXISTS alerts (
     -- cluster-specific
     cluster_headline TEXT,
 
+    -- LLM evaluation summary (why the alert is interesting)
+    llm_summary     TEXT,
+
     -- timestamps
     scanned_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),  -- when polybot produced this
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
