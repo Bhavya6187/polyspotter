@@ -44,6 +44,7 @@ BET_THRESHOLD_USD = 3000  # minimum USD value to flag
 TRADE_WINDOW_SECONDS = 3600  # how far back to look for trades
 TRADE_PAGE_SIZE = 10000  # trades per API call (API max is 10,000)
 MIN_MARKET_DURATION_HOURS = 1  # skip markets shorter than this (e.g., 5-min BTC binary options)
+EXTREME_ODDS_THRESHOLD = 0.90  # skip trades at price > this or < (1 - this)
 
 
 def fetch_recent_trades(seconds: int = TRADE_WINDOW_SECONDS) -> list[dict]:
@@ -126,6 +127,20 @@ def filter_short_markets(trades: list[dict]) -> list[dict]:
     filtered = [t for t in trades if t.get("conditionId", "") not in short_cids]
     removed = len(trades) - len(filtered)
     print(f"[*] Filtered {removed} trade(s) on {len(short_cids)} short-duration market(s) (< {MIN_MARKET_DURATION_HOURS}h)", flush=True)
+    return filtered
+
+
+def filter_extreme_odds(trades: list[dict]) -> list[dict]:
+    """Remove trades at extreme odds (penny-collecting on near-certain outcomes).
+
+    Trades at price > EXTREME_ODDS_THRESHOLD or < (1 - threshold) are buying
+    or selling near-certainties for tiny returns — not informed positioning."""
+    lo = 1 - EXTREME_ODDS_THRESHOLD
+    hi = EXTREME_ODDS_THRESHOLD
+    filtered = [t for t in trades if lo <= float(t.get("price", 0.5)) <= hi]
+    removed = len(trades) - len(filtered)
+    if removed:
+        print(f"[*] Filtered {removed} trade(s) at extreme odds (price > {hi:.2f} or < {lo:.2f})", flush=True)
     return filtered
 
 
@@ -559,6 +574,7 @@ def run():
         return
 
     trades = filter_short_markets(trades)
+    trades = filter_extreme_odds(trades)
 
     print(f"\n[*] Running {len(all_strategies)} strategy(ies) on {len(trades)} trade(s)...", flush=True)
     all_signals: list[Signal] = []
