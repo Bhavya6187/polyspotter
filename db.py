@@ -740,25 +740,32 @@ def get_wallet_pnl_summary(wallet: str) -> dict:
     bets bought at 0.90 is unremarkable; winning 10/10 at 0.40 is extraordinary.
     """
     conn = get_db()
+    # Use cur_price to determine wins/losses based on market resolution
+    # rather than realized_pnl, which reflects trading profit and is biased
+    # toward winners (losing positions often expire without appearing as
+    # "closed").  cur_price ~1.0 means the held outcome won; ~0.0 means it lost.
+    # Positions with cur_price in between are unresolved or sold before resolution.
     row = conn.execute(
         """SELECT
                COUNT(*) as total_positions,
                SUM(CASE WHEN position_type='closed' THEN 1 ELSE 0 END) as closed,
-               SUM(CASE WHEN position_type='closed' AND realized_pnl > 0 THEN 1 ELSE 0 END) as wins,
-               SUM(CASE WHEN position_type='closed' AND realized_pnl <= 0 THEN 1 ELSE 0 END) as losses,
+               SUM(CASE WHEN position_type='closed' AND cur_price >= 0.99 THEN 1 ELSE 0 END) as wins,
+               SUM(CASE WHEN position_type='closed' AND cur_price <= 0.01 THEN 1 ELSE 0 END) as losses,
                SUM(realized_pnl) as total_pnl,
                SUM(total_bought) as total_invested,
                AVG(CASE WHEN position_type='closed' THEN avg_price END) as avg_closed_price,
-               AVG(CASE WHEN position_type='closed' AND realized_pnl > 0 THEN avg_price END) as avg_win_price,
-               AVG(CASE WHEN position_type='closed' AND realized_pnl <= 0 THEN avg_price END) as avg_loss_price
+               AVG(CASE WHEN position_type='closed' AND cur_price >= 0.99 THEN avg_price END) as avg_win_price,
+               AVG(CASE WHEN position_type='closed' AND cur_price <= 0.01 THEN avg_price END) as avg_loss_price
            FROM wallet_pnl WHERE wallet = ?""",
         (wallet.lower(),),
     ).fetchone()
+    wins = row[2] or 0
+    losses = row[3] or 0
     return {
         "total_positions": row[0] or 0,
-        "closed_positions": row[1] or 0,
-        "wins": row[2] or 0,
-        "losses": row[3] or 0,
+        "closed_positions": wins + losses,  # only resolved positions (cur_price ~0 or ~1)
+        "wins": wins,
+        "losses": losses,
         "total_pnl": row[4] or 0.0,
         "total_invested": row[5] or 0.0,
         "avg_closed_price": row[6] or 0.0,

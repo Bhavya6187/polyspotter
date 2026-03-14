@@ -20,9 +20,24 @@ from db import get_wallet_pnl_summary, get_flagged_wallet_stats
 BACKEND_URL = os.environ.get("POLYBOT_BACKEND_URL", "http://localhost:8000")
 
 
-def _build_dedup_key(wallet: str | None, condition_id: str, scanned_at: str) -> str:
-    """Generate a dedup key so the same alert in the same scan window isn't duplicated."""
-    raw = f"{wallet or 'cluster'}:{condition_id}:{scanned_at[:16]}"
+def _build_dedup_key(
+    wallet: str | None,
+    condition_id: str,
+    tx_hashes: list[str] | None = None,
+    cluster_direction: str | None = None,
+) -> str:
+    """Generate a dedup key from the alert's identity.
+
+    For cluster alerts (wallet=None), the key uses condition_id + direction
+    (outcome/side) so that distinct clusters on the same market stay separate
+    while a growing cluster keeps the same key across runs.
+    For individual/composite alerts, the key includes the sorted tx hashes
+    so distinct trade sets on the same market stay separate."""
+    if wallet is None:
+        raw = f"cluster:{condition_id}:{cluster_direction or ''}"
+    else:
+        sorted_hashes = ",".join(sorted(tx_hashes)) if tx_hashes else ""
+        raw = f"{wallet}:{condition_id}:{sorted_hashes}"
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
@@ -129,7 +144,10 @@ def build_alerts_payload(
             "trade_count": len(cluster_trades),
             "cluster_headline": cluster_sig.headline,
             "scanned_at": now,
-            "dedup_key": _build_dedup_key(None, cid, now),
+            "dedup_key": _build_dedup_key(
+                None, cid,
+                cluster_direction=f"{sample.get('outcome', '')}:{sample.get('side', '')}",
+            ),
             "trades": [_trade_to_dict(t) for t in cluster_trades],
             "signals": [_signal_to_dict(s) for s in all_sigs.values()],
         })
@@ -182,7 +200,7 @@ def build_alerts_payload(
             "total_usd": total_usd,
             "trade_count": len(all_entry_trades),
             "scanned_at": now,
-            "dedup_key": _build_dedup_key(wallet, cid, now),
+            "dedup_key": _build_dedup_key(wallet, cid, [e[0] for e in entries]),
             "trades": [_trade_to_dict(t) for t in all_entry_trades],
             "signals": [_signal_to_dict(s) for s in deduped_sigs],
         })
@@ -211,7 +229,7 @@ def build_alerts_payload(
             "total_usd": float(trade.get("_usd_value", 0)),
             "trade_count": 1,
             "scanned_at": now,
-            "dedup_key": _build_dedup_key(wallet, cid, now),
+            "dedup_key": _build_dedup_key(wallet, cid, [trade.get("transactionHash", "")]),
             "trades": [_trade_to_dict(trade)],
             "signals": [_signal_to_dict(s) for s in market_sigs],
         })
