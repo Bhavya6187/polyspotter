@@ -70,6 +70,7 @@ def db():
 def ingest(payload: IngestPayload):
     """Bulk ingest alerts and wallet profiles from polybot."""
     inserted_alerts = 0
+    updated_alerts = 0
     skipped_alerts = 0
 
     with db() as conn:
@@ -83,8 +84,14 @@ def ingest(payload: IngestPayload):
                         event_slug, market_url, wallet, total_usd, trade_count,
                         cluster_headline, llm_summary, scanned_at, dedup_key)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                       ON CONFLICT (dedup_key) DO NOTHING
-                       RETURNING id""",
+                       ON CONFLICT (dedup_key) DO UPDATE SET
+                        composite_score = EXCLUDED.composite_score,
+                        total_usd = EXCLUDED.total_usd,
+                        trade_count = EXCLUDED.trade_count,
+                        cluster_headline = EXCLUDED.cluster_headline,
+                        llm_summary = EXCLUDED.llm_summary,
+                        scanned_at = EXCLUDED.scanned_at
+                       RETURNING id, (xmax = 0) AS inserted""",
                     (
                         alert.alert_type,
                         alert.composite_score,
@@ -107,7 +114,18 @@ def ingest(payload: IngestPayload):
                     continue
 
                 alert_id = row["id"]
-                inserted_alerts += 1
+                was_insert = row["inserted"]
+
+                if was_insert:
+                    inserted_alerts += 1
+                else:
+                    updated_alerts += 1
+                    # Delete + re-insert child rows so updated clusters
+                    # reflect the latest trades/signals (inserts below use
+                    # ON CONFLICT DO NOTHING, so this isn't strictly required
+                    # but keeps the data clean if a trade was dropped)
+                    cur.execute("DELETE FROM alert_trades WHERE alert_id = %s", (alert_id,))
+                    cur.execute("DELETE FROM alert_signals WHERE alert_id = %s", (alert_id,))
 
                 for trade in alert.trades:
                     cur.execute(
@@ -182,6 +200,7 @@ def ingest(payload: IngestPayload):
     return {
         "status": "ok",
         "inserted_alerts": inserted_alerts,
+        "updated_alerts": updated_alerts,
         "skipped_alerts": skipped_alerts,
         "wallet_profiles": len(payload.wallet_profiles),
     }

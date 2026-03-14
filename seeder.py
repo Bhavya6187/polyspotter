@@ -29,11 +29,12 @@ def _build_dedup_key(
     tx_hashes: list[str] | None = None,
     cluster_direction: str | None = None,
 ) -> str:
-    """Generate a dedup key from the alert's identity.
+    """Generate a stable dedup key for the backend (identity-based).
 
     For cluster alerts (wallet=None), the key uses condition_id + direction
     (outcome/side) so that distinct clusters on the same market stay separate
-    while a growing cluster keeps the same key across runs.
+    while a growing cluster keeps the same key across runs — allowing the
+    backend to upsert updated data.
     For individual/composite alerts, the key includes the sorted tx hashes
     so distinct trade sets on the same market stay separate."""
     if wallet is None:
@@ -41,6 +42,29 @@ def _build_dedup_key(
     else:
         sorted_hashes = ",".join(sorted(tx_hashes)) if tx_hashes else ""
         raw = f"{wallet}:{condition_id}:{sorted_hashes}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:32]
+
+
+def _build_llm_cache_key(
+    wallet: str | None,
+    condition_id: str,
+    tx_hashes: list[str] | None = None,
+    cluster_direction: str | None = None,
+    trade_count: int = 0,
+    composite_score: float = 0.0,
+) -> str:
+    """Generate a content-sensitive cache key for LLM evaluations.
+
+    Unlike the backend dedup key (which is stable for upserts), this key
+    changes when the alert's content materially changes — forcing the LLM
+    to re-evaluate. For clusters, trade_count and composite_score are
+    included so a growing cluster (2→6 wallets, higher score) gets a
+    fresh LLM evaluation instead of serving a stale cached verdict."""
+    if wallet is None:
+        raw = f"llm:cluster:{condition_id}:{cluster_direction or ''}:{trade_count}:{composite_score:.1f}"
+    else:
+        sorted_hashes = ",".join(sorted(tx_hashes)) if tx_hashes else ""
+        raw = f"llm:{wallet}:{condition_id}:{sorted_hashes}"
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
@@ -135,6 +159,7 @@ def build_alerts_payload(
                     all_sigs[key] = s
 
         event_slug = sample.get("eventSlug", "")
+        cluster_dir = f"{sample.get('outcome', '')}:{sample.get('side', '')}"
         alerts.append({
             "alert_type": "cluster",
             "composite_score": max_score,
@@ -148,8 +173,11 @@ def build_alerts_payload(
             "cluster_headline": cluster_sig.headline,
             "scanned_at": now,
             "dedup_key": _build_dedup_key(
-                None, cid,
-                cluster_direction=f"{sample.get('outcome', '')}:{sample.get('side', '')}",
+                None, cid, cluster_direction=cluster_dir,
+            ),
+            "llm_cache_key": _build_llm_cache_key(
+                None, cid, cluster_direction=cluster_dir,
+                trade_count=len(cluster_trades), composite_score=max_score,
             ),
             "trades": [_trade_to_dict(t) for t in cluster_trades],
             "signals": [_signal_to_dict(s) for s in all_sigs.values()],
@@ -303,6 +331,7 @@ def push_to_backend(signals: list[Signal], trades: list[dict]) -> None:
         result = resp.json()
         print(
             f"[seeder] Done — inserted: {result.get('inserted_alerts', 0)}, "
+            f"updated: {result.get('updated_alerts', 0)}, "
             f"skipped: {result.get('skipped_alerts', 0)}"
         )
     except requests.RequestException as e:

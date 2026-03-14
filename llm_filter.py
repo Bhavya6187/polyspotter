@@ -259,11 +259,14 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
     for i, alert in enumerate(alerts, 1):
         title = alert.get("market_title", "?")
         score = alert.get("composite_score", 0)
-        dedup_key = alert.get("dedup_key", "")
+        # Use content-sensitive llm_cache_key when available (clusters
+        # include trade_count + score so the LLM re-evaluates when the
+        # cluster grows).  Falls back to dedup_key for non-cluster alerts.
+        cache_key = alert.get("llm_cache_key") or alert.get("dedup_key", "")
 
         # Check local cache first
-        if dedup_key:
-            cached_eval = get_llm_evaluation(dedup_key)
+        if cache_key:
+            cached_eval = get_llm_evaluation(cache_key)
             if cached_eval is not None:
                 if cached_eval["interesting"]:
                     alert["llm_summary"] = cached_eval["summary"]
@@ -289,12 +292,12 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
         if interesting:
             alert["llm_summary"] = summary
             kept.append(alert)
-            if dedup_key:
-                save_llm_evaluation(dedup_key, interesting=True, summary=summary)
+            if cache_key:
+                save_llm_evaluation(cache_key, interesting=True, summary=summary)
         else:
             discarded += 1
-            if dedup_key:
-                save_llm_evaluation(dedup_key, interesting=False, summary=summary)
+            if cache_key:
+                save_llm_evaluation(cache_key, interesting=False, summary=summary)
 
     if cached:
         print(f"[llm_filter] {cached} alert(s) resolved from cache.")
