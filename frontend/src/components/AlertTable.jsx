@@ -1,0 +1,62 @@
+import { Fragment } from "react";
+import AlertRow from "./AlertRow";
+import AlertDetail from "./AlertDetail";
+
+export default function AlertTable({
+  alerts,
+  expandedAlertId,
+  onToggleAlert,
+  loading,
+}) {
+  if (loading) {
+    return (
+      <div className="rounded-lg bg-gray-900 p-8 text-center text-gray-500">
+        Loading alerts...
+      </div>
+    );
+  }
+
+  if (!alerts || alerts.length === 0) {
+    return (
+      <div className="rounded-lg bg-gray-900 p-8 text-center text-gray-500">
+        No alerts found.
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-lg">
+      <table className="w-full text-left text-sm">
+        <thead>
+          <tr className="border-b border-gray-700 bg-gray-900 text-xs uppercase tracking-wider text-gray-500">
+            <th className="px-4 py-3">Score</th>
+            <th className="px-4 py-3">Type</th>
+            <th className="px-4 py-3">Market</th>
+            <th className="px-4 py-3">Wallet</th>
+            <th className="px-4 py-3">USD</th>
+            <th className="px-4 py-3">Trades</th>
+            <th className="px-4 py-3">Time</th>
+          </tr>
+        </thead>
+        <tbody>
+          {alerts.map((alert) => {
+            const id = alert.id;
+            const isExpanded = expandedAlertId === id;
+            return (
+              <Fragment key={id}>
+                <AlertRow
+                  alert={alert}
+                  isExpanded={isExpanded}
+                  onToggle={() => onToggleAlert(id)}
+                />
+                {isExpanded && (
+                  <AlertDetail alertId={id} wallet={alert.wallet} />
+                )}
+              </Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
