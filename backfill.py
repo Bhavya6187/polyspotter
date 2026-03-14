@@ -291,14 +291,21 @@ def backfill_tracked_bets(trades: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 # Step 3: Resolve tracked bets (win_rate_tracking)
 # ---------------------------------------------------------------------------
-def resolve_tracked_bets() -> None:
+def resolve_tracked_bets(only_current: bool = False,
+                         current_cids: set[str] | None = None) -> None:
     print("[3/11] Resolving tracked bets against market outcomes...")
     conn = get_db()
 
-    unresolved_cids = [
+    all_unresolved = [
         r[0] for r in conn.execute("SELECT DISTINCT condition_id FROM tracked_bets WHERE resolved = 0").fetchall()
     ]
-    print(f"  {len(unresolved_cids)} unresolved condition(s) to check")
+
+    if only_current and current_cids is not None:
+        unresolved_cids = [cid for cid in all_unresolved if cid in current_cids]
+        print(f"  {len(unresolved_cids)} unresolved condition(s) to check (scoped from {len(all_unresolved)} total)")
+    else:
+        unresolved_cids = all_unresolved
+        print(f"  {len(unresolved_cids)} unresolved condition(s) to check")
 
     resolved_count = 0
     for i, cid in enumerate(unresolved_cids):
@@ -958,12 +965,16 @@ def main():
         print("No trades found. Nothing to backfill.")
         return
 
+    current_cids = {t.get("conditionId", "") for t in trades} - {""}
+
     backfill_tracked_bets(trades)
-    resolve_tracked_bets()
+    resolve_tracked_bets(only_current=True, current_cids=current_cids)
     backfill_event_price_timing_volume(trades)
     backfill_flagged_wallets(trades, args.skip_profiles)
     backfill_wallet_funders(trades, args.skip_etherscan)
     backfill_wallet_activity(trades)
+    # Second resolve pass — resolve wallet_activity bets using already-cached markets
+    resolve_tracked_bets(only_current=True, current_cids=set(_market_cache.keys()))
     backfill_wallet_pnl(trades)
     backfill_price_candles(trades)
     backfill_orderbook_snapshots(trades)
