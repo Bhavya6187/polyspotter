@@ -1,5 +1,5 @@
 """
-LLM filter — passes each alert through Claude to decide if the trade is
+LLM filter — passes each alert through GPT to decide if the trade is
 worth surfacing (copy-worthy, informed edge, or notable pattern).
 
 Uses a local SQLite cache (llm_evaluations table in polybot.db) to avoid
@@ -13,15 +13,15 @@ from __future__ import annotations
 import json
 import os
 
-import anthropic
+from openai import OpenAI
 from dotenv import load_dotenv
 
 from db import get_llm_evaluation, save_llm_evaluation
 
 load_dotenv()
 
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-MODEL = "claude-haiku-4-5"
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+MODEL = "gpt-5.4"
 
 SYSTEM_PROMPT = (
     "You are a Polymarket trade analyst. You receive alerts about notable trades "
@@ -134,17 +134,21 @@ SYSTEM_PROMPT = (
 
 RESPONSE_SCHEMA = {
     "type": "json_schema",
-    "schema": {
-        "type": "object",
-        "properties": {
-            "interesting": {"type": "boolean"},
-            "summary": {
-                "type": "string",
-                "description": "1-2 sentence explanation. If interesting, describe the edge and why the trade is worth following. If not interesting, briefly explain why it was filtered out.",
+    "json_schema": {
+        "name": "alert_evaluation",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "interesting": {"type": "boolean"},
+                "summary": {
+                    "type": "string",
+                    "description": "1-2 sentence explanation. If interesting, describe the edge and why the trade is worth following. If not interesting, briefly explain why it was filtered out.",
+                },
             },
+            "required": ["interesting", "summary"],
+            "additionalProperties": False,
         },
-        "required": ["interesting", "summary"],
-        "additionalProperties": False,
     },
 }
 
@@ -187,45 +191,44 @@ def _build_prompt(alert: dict) -> str:
 
 
 def evaluate_alert(alert: dict) -> tuple[bool, str]:
-    """Call Claude to evaluate whether an alert is interesting.
+    """Call GPT to evaluate whether an alert is interesting.
 
     Returns (interesting, summary) — summary is always provided.
     """
-    if not ANTHROPIC_API_KEY:
+    if not OPENAI_API_KEY:
         return False, ""
 
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    client = OpenAI(api_key=OPENAI_API_KEY)
     alert_text = _build_prompt(alert)
 
-    response = client.messages.create(
+    response = client.chat.completions.create(
         model=MODEL,
-        max_tokens=300,
+        max_completion_tokens=300,
         messages=[
+            {
+                "role": "developer",
+                "content": SYSTEM_PROMPT,
+            },
             {
                 "role": "user",
                 "content": alert_text,
-            }
+            },
         ],
-        system=[
-            {
-                "type": "text",
-                "text": SYSTEM_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }
-        ],
-        output_config={"format": RESPONSE_SCHEMA},
+        response_format=RESPONSE_SCHEMA,
     )
 
     usage = response.usage
-    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
-    cache_create = getattr(usage, "cache_creation_input_tokens", 0) or 0
-    if cache_read:
-        print(f"[llm_filter] Cache hit: {cache_read} tokens read from cache")
-    elif cache_create:
-        print(f"[llm_filter] Cache miss: {cache_create} tokens written to cache")
+    cached_tokens = 0
+    if usage and usage.prompt_tokens_details:
+        cached_tokens = getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
+    prompt_tokens = usage.prompt_tokens if usage else 0
+    if cached_tokens:
+        print(f"[llm_filter] Cache hit: {cached_tokens}/{prompt_tokens} prompt tokens from cache")
+    else:
+        print(f"[llm_filter] Cache miss: {prompt_tokens} prompt tokens (none cached)")
 
     try:
-        text = response.content[0].text
+        text = response.choices[0].message.content
         result = json.loads(text)
         interesting = bool(result.get("interesting"))
         summary = result.get("summary", "")
@@ -245,8 +248,8 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
     Returns only the alerts the LLM considers interesting, with an
     'llm_summary' field added to each.
     """
-    if not ANTHROPIC_API_KEY:
-        print("[llm_filter] No ANTHROPIC_API_KEY set — skipping LLM filter, pushing all alerts.")
+    if not OPENAI_API_KEY:
+        print("[llm_filter] No OPENAI_API_KEY set — skipping LLM filter, pushing all alerts.")
         return alerts
 
     kept = []

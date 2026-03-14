@@ -4,7 +4,7 @@ import json
 import os
 import sys
 
-import anthropic
+from openai import OpenAI
 from dotenv import load_dotenv
 
 from llm_filter import SYSTEM_PROMPT, RESPONSE_SCHEMA, _build_prompt, MODEL
@@ -12,9 +12,9 @@ from db import get_llm_evaluation, save_llm_evaluation
 
 load_dotenv()
 
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-if not ANTHROPIC_API_KEY:
-    print("ERROR: ANTHROPIC_API_KEY not set")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+if not OPENAI_API_KEY:
+    print("ERROR: OPENAI_API_KEY not set")
     sys.exit(1)
 
 mock_alert = {
@@ -41,54 +41,48 @@ print("=== PROMPT ===")
 print(prompt)
 print()
 
-client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 
 def call_llm(prompt, label):
     """Make an API call and print cache token usage."""
     print(f"=== {label} ===")
-    response = client.messages.create(
+    response = client.chat.completions.create(
         model=MODEL,
-        max_tokens=300,
-        messages=[{"role": "user", "content": prompt}],
-        system=[
-            {
-                "type": "text",
-                "text": SYSTEM_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }
+        max_completion_tokens=300,
+        messages=[
+            {"role": "developer", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
         ],
-        output_config={"format": RESPONSE_SCHEMA},
+        response_format=RESPONSE_SCHEMA,
     )
 
     usage = response.usage
-    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
-    cache_create = getattr(usage, "cache_creation_input_tokens", 0) or 0
-    input_tokens = getattr(usage, "input_tokens", 0) or 0
-    output_tokens = getattr(usage, "output_tokens", 0) or 0
+    cached_tokens = 0
+    if usage and usage.prompt_tokens_details:
+        cached_tokens = getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
+    prompt_tokens = usage.prompt_tokens if usage else 0
+    completion_tokens = usage.completion_tokens if usage else 0
 
-    print(f"  Input tokens:  {input_tokens}")
-    print(f"  Output tokens: {output_tokens}")
-    print(f"  Cache create:  {cache_create}")
-    print(f"  Cache read:    {cache_read}")
+    print(f"  Prompt tokens:     {prompt_tokens}")
+    print(f"  Completion tokens: {completion_tokens}")
+    print(f"  Cached tokens:     {cached_tokens}")
 
-    if cache_read:
-        print(f"  -> PROMPT CACHE HIT ({cache_read} tokens from cache)")
-    elif cache_create:
-        print(f"  -> PROMPT CACHE MISS ({cache_create} tokens written to cache)")
+    if cached_tokens:
+        print(f"  -> PROMPT CACHE HIT ({cached_tokens}/{prompt_tokens} tokens from cache)")
     else:
-        print(f"  -> NO CACHE ACTIVITY (tokens below minimum for caching?)")
+        print(f"  -> NO CACHE HIT (0/{prompt_tokens} tokens cached)")
 
-    text = response.content[0].text
+    text = response.choices[0].message.content
     result = json.loads(text)
     print(f"  Result: interesting={result['interesting']}, summary={result['summary']}")
     print()
     return result
 
 
-# --- Test 1: Anthropic API prompt caching ---
+# --- Test 1: OpenAI API prompt caching ---
 print("=" * 60)
-print("TEST 1: Anthropic API prompt caching (system prompt)")
+print("TEST 1: OpenAI API prompt caching (developer message)")
 print("  Two back-to-back calls — second should get a cache hit")
 print("=" * 60)
 print()
