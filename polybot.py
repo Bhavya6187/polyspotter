@@ -32,6 +32,7 @@ from detection_strategies.low_activity_large_bet import LowActivityLargeBetStrat
 from detection_strategies.correlated_cross_market import CorrelatedCrossMarketStrategy
 import config
 from db import get_db
+from gamma_cache import get_market_by_condition
 from seeder import push_to_backend
 
 # ---------------------------------------------------------------------------
@@ -42,6 +43,7 @@ DATA_API = "https://data-api.polymarket.com"
 BET_THRESHOLD_USD = 3000  # minimum USD value to flag
 TRADE_WINDOW_SECONDS = 3600  # how far back to look for trades
 TRADE_PAGE_SIZE = 10000  # trades per API call (API max is 10,000)
+MIN_MARKET_DURATION_HOURS = 1  # skip markets shorter than this (e.g., 5-min BTC binary options)
 
 
 def fetch_recent_trades(seconds: int = TRADE_WINDOW_SECONDS) -> list[dict]:
@@ -88,6 +90,43 @@ def fetch_recent_trades(seconds: int = TRADE_WINDOW_SECONDS) -> list[dict]:
 
     print(f"[*] Received {len(all_trades)} trades >= ${BET_THRESHOLD_USD:,} within the last {seconds}s", flush=True)
     return all_trades
+
+
+def _parse_datetime(s: str | None) -> datetime | None:
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def filter_short_markets(trades: list[dict]) -> list[dict]:
+    """Remove trades on markets with duration < MIN_MARKET_DURATION_HOURS.
+
+    Groups by conditionId so each market is looked up only once."""
+    condition_ids = {t.get("conditionId", "") for t in trades if t.get("conditionId")}
+    short_cids: set[str] = set()
+
+    print(f"[*] Checking {len(condition_ids)} market(s) for duration filter...", flush=True)
+    for cid in condition_ids:
+        market = get_market_by_condition(cid)
+        if not market:
+            continue
+        start = _parse_datetime(market.get("startDate"))
+        end = _parse_datetime(market.get("endDate"))
+        if start and end:
+            duration_hours = (end - start).total_seconds() / 3600
+            if duration_hours < MIN_MARKET_DURATION_HOURS:
+                short_cids.add(cid)
+
+    if not short_cids:
+        return trades
+
+    filtered = [t for t in trades if t.get("conditionId", "") not in short_cids]
+    removed = len(trades) - len(filtered)
+    print(f"[*] Filtered {removed} trade(s) on {len(short_cids)} short-duration market(s) (< {MIN_MARKET_DURATION_HOURS}h)", flush=True)
+    return filtered
 
 
 # ---------------------------------------------------------------------------
@@ -509,6 +548,7 @@ def run():
     print("=" * 72)
     print(f"  Bet threshold:  ${BET_THRESHOLD_USD:,}")
     print(f"  Trade window:   last {TRADE_WINDOW_SECONDS}s")
+    print(f"  Min market dur: {MIN_MARKET_DURATION_HOURS}h")
     print(f"  Strategies:     {strategy_names}")
     print()
 
@@ -517,6 +557,8 @@ def run():
     if not trades:
         print("\n[*] No trades above threshold found. Done.")
         return
+
+    trades = filter_short_markets(trades)
 
     print(f"\n[*] Running {len(all_strategies)} strategy(ies) on {len(trades)} trade(s)...", flush=True)
     all_signals: list[Signal] = []
