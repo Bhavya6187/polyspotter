@@ -76,7 +76,7 @@ PROFILE_DELAY = 0.25
 DATA_API_DELAY = 0.1
 CLOB_DELAY = 0.1
 
-PAGE_SIZE = 10000
+PAGE_SIZE = 1000
 
 
 # ---------------------------------------------------------------------------
@@ -145,54 +145,117 @@ def get_wallet_profile(address: str) -> tuple[datetime | None, dict]:
 # ---------------------------------------------------------------------------
 # Step 1: Fetch all trades
 # ---------------------------------------------------------------------------
+def _fetch_trades_page(offset: int, threshold: int,
+                       page_size: int = PAGE_SIZE) -> list[dict] | None:
+    """Fetch a single page from /trades. Returns None on failure/400.
+
+    Retries once on timeout (408) after a short delay.
+    """
+    for attempt in range(2):
+        try:
+            if attempt > 0:
+                time.sleep(2)
+            time.sleep(DATA_API_DELAY)
+            resp = requests.get(
+                f"{DATA_API}/trades",
+                params={
+                    "limit": page_size,
+                    "offset": offset,
+                    "filterType": "CASH",
+                    "filterAmount": threshold,
+                },
+                timeout=30,
+            )
+            if resp.status_code == 400:
+                return None
+            if resp.status_code == 408 and attempt == 0:
+                continue  # retry on timeout
+            resp.raise_for_status()
+            page = resp.json()
+            if isinstance(page, list):
+                return page
+        except requests.RequestException as e:
+            if attempt == 0 and ("408" in str(e) or "Timeout" in str(e)):
+                continue
+            # Timeouts at high offsets/thresholds are expected — log quietly
+            if "408" in str(e) or "Timeout" in str(e):
+                print(f"  [WARN] Timeout at offset {offset}, threshold ${threshold:,} — moving to next tier")
+            else:
+                print(f"  [ERROR] Fetch failed at offset {offset}: {e}", file=sys.stderr)
+    return None
+
+
+# The Data API caps at offset 3000 with limit 1000 (4000 trades max per sweep).
+# It returns trades newest-first and ignores all time-filter params.
+# To get older trades we use multiple sweeps at increasing filterAmount thresholds:
+# each threshold returns a different (overlapping) set of 4000 trades sorted by
+# recency, with higher thresholds reaching further back in time because there
+# are fewer large trades.
+AMOUNT_TIERS = [3000, 5000, 10000, 20000, 50000, 100000]
+MAX_OFFSET = 3000  # API returns 400 for offset > 3000
+
+
 def fetch_trades(days: int, threshold: int) -> list[dict]:
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     cutoff_ts = cutoff.timestamp()
     print(f"[1/11] Fetching trades >= ${threshold:,} since {cutoff.strftime('%Y-%m-%d')}...")
 
+    seen_keys: set[tuple[str, str, int]] = set()  # (wallet, conditionId, timestamp)
     all_trades: list[dict] = []
-    offset = 0
-    done = False
 
-    while not done:
-        params = {
-            "limit": PAGE_SIZE,
-            "offset": offset,
-            "filterType": "CASH",
-            "filterAmount": threshold,
-        }
-        try:
-            resp = requests.get(f"{DATA_API}/trades", params=params, timeout=30)
-            if resp.status_code == 400:
+    # Build tier list: start from the user's threshold, add higher tiers
+    tiers = sorted(set([threshold] + [t for t in AMOUNT_TIERS if t >= threshold]))
+
+    for tier in tiers:
+        tier_added = 0
+        offset = 0
+        # Use smaller pages for higher tiers to avoid API timeouts;
+        # also cap max offset since the API gets progressively slower.
+        if tier >= 50000:
+            page_size, tier_max_offset = 100, 1000
+        elif tier >= 20000:
+            page_size, tier_max_offset = 250, 2000
+        else:
+            page_size, tier_max_offset = PAGE_SIZE, MAX_OFFSET
+
+        while offset <= tier_max_offset:
+            page = _fetch_trades_page(offset, tier, page_size=page_size)
+            if not page:
                 break
-            resp.raise_for_status()
-            page = resp.json()
-        except requests.RequestException as e:
-            print(f"  [ERROR] Fetch failed at offset {offset}: {e}", file=sys.stderr)
-            break
 
-        if not isinstance(page, list) or not page:
-            break
+            reached_cutoff = False
+            for t in page:
+                ts = t.get("timestamp", 0)
+                if ts < cutoff_ts:
+                    reached_cutoff = True
+                    continue
 
-        page_added = 0
-        for t in page:
-            ts = t.get("timestamp", 0)
-            if ts >= cutoff_ts:
+                wallet = t.get("proxyWallet", "").lower()
+                cid = t.get("conditionId", "")
+                key = (wallet, cid, ts)
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+
                 size = float(t.get("size", 0))
                 price = float(t.get("price", 0))
                 t["_usd_value"] = size * price
                 all_trades.append(t)
-                page_added += 1
-            else:
-                # Trades are roughly ordered newest-first; once we pass the
-                # cutoff we can stop (but finish scanning this page in case
-                # ordering isn't perfectly strict)
-                done = True
+                tier_added += 1
 
-        print(f"  offset {offset}: {page_added} trades in window ({len(all_trades)} total)")
-        offset += PAGE_SIZE
+            offset += page_size
+            if reached_cutoff:
+                break
 
-    print(f"  Fetched {len(all_trades)} trades total\n")
+        oldest = ""
+        if tier_added:
+            oldest_ts = min(
+                t.get("timestamp", 0) for t in all_trades[-tier_added:]
+            )
+            oldest = datetime.fromtimestamp(oldest_ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
+        print(f"  tier ${tier:>7,}: +{tier_added:,} new trades (oldest: {oldest or 'n/a'}), {len(all_trades):,} total")
+
+    print(f"  Fetched {len(all_trades):,} trades total\n")
     return all_trades
 
 
@@ -359,8 +422,19 @@ def backfill_event_price_timing_volume(trades: list[dict]) -> None:
                     end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
                     trade_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
                     minutes_to = (end_dt - trade_dt).total_seconds() / 60
-                    if 0 <= minutes_to <= 60:
-                        record_timing_flag(wallet, cid, minutes_to, usd, ts)
+                    # Compute market duration to skip short-duration markets
+                    # (e.g. 5-min BTC binary options) and store for serial-timer filtering
+                    start_str = m.get("startDate")
+                    market_duration_hours = None
+                    if start_str:
+                        start_dt = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+                        market_duration_hours = (end_dt - start_dt).total_seconds() / 3600
+                    # Skip short-duration markets (<2h) — near-resolution bets are expected
+                    if market_duration_hours is not None and market_duration_hours < 2:
+                        pass
+                    elif 0 <= minutes_to <= 60:
+                        record_timing_flag(wallet, cid, minutes_to, usd, ts,
+                                           market_duration_hours=market_duration_hours)
                         existing_timing.add((wallet, cid, ts))
                         timing_inserted += 1
                 except ValueError:
@@ -609,8 +683,16 @@ def backfill_wallet_activity(trades: list[dict]) -> None:
                             end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
                             trade_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
                             minutes_to = (end_dt - trade_dt).total_seconds() / 60
-                            if 0 <= minutes_to <= 60:
-                                record_timing_flag(wallet, cid, minutes_to, usdc_size, ts)
+                            start_str = m.get("startDate")
+                            market_duration_hours = None
+                            if start_str:
+                                start_dt = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+                                market_duration_hours = (end_dt - start_dt).total_seconds() / 3600
+                            if market_duration_hours is not None and market_duration_hours < 2:
+                                pass
+                            elif 0 <= minutes_to <= 60:
+                                record_timing_flag(wallet, cid, minutes_to, usdc_size, ts,
+                                                   market_duration_hours=market_duration_hours)
                                 existing_timing.add((wallet, cid, ts))
                                 timing_added += 1
                         except ValueError:
@@ -630,12 +712,49 @@ def backfill_wallet_activity(trades: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 # Step 8: Backfill wallet P&L (positions + closed-positions via Data API)
 # ---------------------------------------------------------------------------
+MAX_PNL_POSITIONS = 1000  # match win_rate_tracking cap
+
+
+def _fetch_pnl_pages(wallet: str, endpoint: str, position_type: str,
+                     limit: int) -> int:
+    """Paginate through a Data API positions endpoint. Returns count fetched."""
+    offset = 0
+    page_size = 50
+    fetched = 0
+    while fetched < limit:
+        time.sleep(DATA_API_DELAY)
+        try:
+            resp = requests.get(
+                f"{DATA_API}/{endpoint}",
+                params={"user": wallet, "limit": page_size, "offset": offset,
+                        "sortBy": "timestamp"},
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                break
+            positions = resp.json()
+            if not isinstance(positions, list) or len(positions) == 0:
+                break
+            for pos in positions:
+                record_wallet_pnl(wallet, pos, position_type)
+            fetched += len(positions)
+            if len(positions) < page_size:
+                break
+            offset += page_size
+        except requests.RequestException:
+            break
+    return fetched
+
+
 def backfill_wallet_pnl(trades: list[dict]) -> None:
     """Fetch open and closed positions for each wallet.
 
     /positions gives current open positions with live P&L.
     /closed-positions gives resolved positions with realized P&L.
     This directly feeds win_rate_tracking and concentrated_one_sided.
+
+    Paginates through results sorted by timestamp (matching live code)
+    and fetches up to MAX_PNL_POSITIONS closed positions per wallet.
     """
     print("[8/11] Backfilling wallet P&L (positions + closed-positions)...")
 
@@ -649,39 +768,9 @@ def backfill_wallet_pnl(trades: list[dict]) -> None:
         if (i + 1) % 20 == 0:
             print(f"  processed {i + 1}/{len(wallets)} wallets ({open_count} open, {closed_count} closed)...")
 
-        # Open positions
-        time.sleep(DATA_API_DELAY)
-        try:
-            resp = requests.get(
-                f"{DATA_API}/positions",
-                params={"user": wallet},
-                timeout=15,
-            )
-            if resp.status_code == 200:
-                positions = resp.json()
-                if isinstance(positions, list):
-                    for pos in positions:
-                        record_wallet_pnl(wallet, pos, "open")
-                        open_count += 1
-        except requests.RequestException:
-            pass
-
-        # Closed positions
-        time.sleep(DATA_API_DELAY)
-        try:
-            resp = requests.get(
-                f"{DATA_API}/closed-positions",
-                params={"user": wallet},
-                timeout=15,
-            )
-            if resp.status_code == 200:
-                positions = resp.json()
-                if isinstance(positions, list):
-                    for pos in positions:
-                        record_wallet_pnl(wallet, pos, "closed")
-                        closed_count += 1
-        except requests.RequestException:
-            pass
+        open_count += _fetch_pnl_pages(wallet, "positions", "open", limit=50)
+        closed_count += _fetch_pnl_pages(wallet, "closed-positions", "closed",
+                                         limit=MAX_PNL_POSITIONS)
 
     print(f"  Open positions:   {open_count}")
     print(f"  Closed positions: {closed_count}\n")
