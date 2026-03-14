@@ -122,7 +122,7 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
                 wallet TEXT, condition_id TEXT, asset TEXT, outcome TEXT,
                 avg_price REAL, total_bought REAL, realized_pnl REAL,
                 cur_price REAL, event_slug TEXT, end_date TEXT,
-                position_type TEXT, recorded_at TEXT
+                position_type TEXT, recorded_at TEXT, api_timestamp INTEGER
             )
         """)
         # Pre-populate with winning resolved bets (>= MIN_RESOLVED_BETS=10)
@@ -181,7 +181,7 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
                 wallet TEXT, condition_id TEXT, asset TEXT, outcome TEXT,
                 avg_price REAL, total_bought REAL, realized_pnl REAL,
                 cur_price REAL, event_slug TEXT, end_date TEXT,
-                position_type TEXT, recorded_at TEXT
+                position_type TEXT, recorded_at TEXT, api_timestamp INTEGER
             )
         """)
         # 1 win, 3 losses -> 25% win rate
@@ -244,7 +244,7 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
                 wallet TEXT, condition_id TEXT, asset TEXT, outcome TEXT,
                 avg_price REAL, total_bought REAL, realized_pnl REAL,
                 cur_price REAL, event_slug TEXT, end_date TEXT,
-                position_type TEXT, recorded_at TEXT
+                position_type TEXT, recorded_at TEXT, api_timestamp INTEGER
             )
         """)
         # Only 2 resolved (below threshold of 3)

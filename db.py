@@ -179,7 +179,8 @@ def _init_tables(conn: sqlite3.Connection) -> None:
             event_slug TEXT,
             end_date TEXT,
             position_type TEXT NOT NULL,
-            recorded_at TEXT NOT NULL
+            recorded_at TEXT NOT NULL,
+            api_timestamp INTEGER
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_wpnl_wallet ON wallet_pnl(wallet)")
@@ -722,8 +723,9 @@ def record_wallet_pnl(wallet: str, position: dict, position_type: str) -> None:
     conn.execute(
         """INSERT OR REPLACE INTO wallet_pnl
            (wallet, condition_id, asset, outcome, avg_price, total_bought,
-            realized_pnl, cur_price, event_slug, end_date, position_type, recorded_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            realized_pnl, cur_price, event_slug, end_date, position_type,
+            recorded_at, api_timestamp)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             wallet.lower(),
             position.get("conditionId", ""),
@@ -737,7 +739,28 @@ def record_wallet_pnl(wallet: str, position: dict, position_type: str) -> None:
             position.get("endDate", ""),
             position_type,
             datetime.now(timezone.utc).isoformat(),
+            position.get("timestamp"),
         ),
+    )
+    conn.commit()
+
+
+def get_wallet_pnl_latest_timestamp(wallet: str, position_type: str) -> int | None:
+    """Get the most recent api_timestamp for a wallet's cached positions."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT MAX(api_timestamp) FROM wallet_pnl WHERE wallet = ? AND position_type = ?",
+        (wallet.lower(), position_type),
+    ).fetchone()
+    return row[0] if row and row[0] else None
+
+
+def clear_wallet_pnl_by_type(wallet: str, position_type: str) -> None:
+    """Delete cached P&L records for a wallet filtered by position type."""
+    conn = get_db()
+    conn.execute(
+        "DELETE FROM wallet_pnl WHERE wallet = ? AND position_type = ?",
+        (wallet.lower(), position_type),
     )
     conn.commit()
 

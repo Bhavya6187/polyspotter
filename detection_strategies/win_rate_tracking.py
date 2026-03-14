@@ -19,10 +19,11 @@ import requests
 
 from detection_strategies import DetectionStrategy, Signal
 from db import (
-    clear_wallet_pnl,
+    clear_wallet_pnl_by_type,
     get_unresolved_condition_ids,
     get_unresolved_bets_for_condition,
     get_wallet_stats,
+    get_wallet_pnl_latest_timestamp,
     get_wallet_pnl_summary,
     mark_bet_resolved,
     record_tracked_bet,
@@ -41,7 +42,7 @@ MIN_EDGE_THRESHOLD = 0.15
 # If wallet has zero losses in the P&L data, require this many closed
 # positions before trusting the 100% win rate
 MIN_PERFECT_RECORD_POSITIONS = 20
-MAX_PNL_POSITIONS = 200  # cap total positions fetched per endpoint
+MAX_PNL_POSITIONS = 1000  # cap total closed positions fetched per wallet
 LOOKUP_DELAY = 0
 PNL_FETCH_DELAY = 0.1
 
@@ -57,38 +58,71 @@ _win_rate_signaled: set[str] = set()
 # ---------------------------------------------------------------------------
 def _fetch_wallet_pnl(wallet: str) -> None:
     """Fetch open + closed positions from the Data API and persist them.
-    Called once per wallet per run."""
+    Called once per wallet per run.
+
+    Open positions are always re-fetched (small count, change frequently).
+    Closed positions are fetched incrementally — only new positions since
+    the last cached timestamp are requested, up to MAX_PNL_POSITIONS total
+    on the initial backfill."""
     if wallet.lower() in _pnl_fetched:
         return
     _pnl_fetched.add(wallet.lower())
 
-    clear_wallet_pnl(wallet)
+    # -- Open positions: clear and re-fetch (they change frequently) --
+    clear_wallet_pnl_by_type(wallet, "open")
+    _fetch_positions_page(wallet, "positions", "open", limit=50)
 
-    for position_type, endpoint in [("open", "positions"), ("closed", "closed-positions")]:
-        offset = 0
-        page_size = 50
-        fetched = 0
-        while fetched < MAX_PNL_POSITIONS:
-            time.sleep(PNL_FETCH_DELAY)
-            try:
-                resp = requests.get(
-                    f"{DATA_API}/{endpoint}",
-                    params={"user": wallet, "limit": page_size, "offset": offset},
-                    timeout=15,
-                )
-                if resp.status_code != 200:
-                    break
-                positions = resp.json()
-                if not isinstance(positions, list) or len(positions) == 0:
-                    break
-                for pos in positions:
-                    record_wallet_pnl(wallet, pos, position_type)
-                fetched += len(positions)
-                if len(positions) < page_size:
-                    break  # last page
-                offset += page_size
-            except requests.RequestException:
+    # -- Closed positions: incremental fetch --
+    latest_ts = get_wallet_pnl_latest_timestamp(wallet, "closed")
+    if latest_ts:
+        # Only fetch positions newer than what we have cached
+        _fetch_positions_page(wallet, "closed-positions", "closed",
+                              limit=MAX_PNL_POSITIONS, after_timestamp=latest_ts)
+    else:
+        # First time seeing this wallet — backfill up to MAX_PNL_POSITIONS
+        _fetch_positions_page(wallet, "closed-positions", "closed",
+                              limit=MAX_PNL_POSITIONS)
+
+
+def _fetch_positions_page(wallet: str, endpoint: str, position_type: str,
+                          limit: int, after_timestamp: int | None = None) -> int:
+    """Paginate through a Data API positions endpoint. Returns count fetched."""
+    offset = 0
+    page_size = 50
+    fetched = 0
+    while fetched < limit:
+        time.sleep(PNL_FETCH_DELAY)
+        try:
+            resp = requests.get(
+                f"{DATA_API}/{endpoint}",
+                params={"user": wallet, "limit": page_size, "offset": offset,
+                        "sortBy": "timestamp"},
+                timeout=15,
+            )
+            if resp.status_code != 200:
                 break
+            positions = resp.json()
+            if not isinstance(positions, list) or len(positions) == 0:
+                break
+
+            new_count = 0
+            for pos in positions:
+                ts = pos.get("timestamp")
+                if after_timestamp and ts and ts <= after_timestamp:
+                    continue  # already cached
+                record_wallet_pnl(wallet, pos, position_type)
+                new_count += 1
+
+            fetched += len(positions)
+            if len(positions) < page_size:
+                break  # last page
+            # If incremental and entire page was old, we've caught up
+            if after_timestamp and new_count == 0:
+                break
+            offset += page_size
+        except requests.RequestException:
+            break
+    return fetched
 
 
 # ---------------------------------------------------------------------------
