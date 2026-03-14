@@ -21,7 +21,7 @@ from db import get_llm_evaluation, save_llm_evaluation
 load_dotenv()
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-MODEL = "claude-haiku-4-5-20251001"
+MODEL = "claude-haiku-4-5"
 
 SYSTEM_PROMPT = (
     "You are a Polymarket unusual activity analyst. You receive alerts about "
@@ -111,12 +111,24 @@ SYSTEM_PROMPT = (
     "- Timing signals on markets resolving in minutes with no other supporting evidence\n"
     "- Low-edge win rate signals (barely above the 15% edge threshold)\n\n"
 
-    "Respond with ONLY valid JSON in this exact format:\n"
-    '{"interesting": true, "summary": "1-2 sentence explanation of why"}\n'
-    "or\n"
-    '{"interesting": false}\n\n'
-    "No other text. Just the JSON."
+    "Evaluate the alert and decide: is this interesting enough for human review?"
 )
+
+RESPONSE_SCHEMA = {
+    "type": "json_schema",
+    "schema": {
+        "type": "object",
+        "properties": {
+            "interesting": {"type": "boolean"},
+            "summary": {
+                "type": "string",
+                "description": "1-2 sentence explanation. If interesting, explain why. If not interesting, explain why it was discarded.",
+            },
+        },
+        "required": ["interesting", "summary"],
+        "additionalProperties": False,
+    },
+}
 
 
 def _build_prompt(alert: dict) -> str:
@@ -156,14 +168,13 @@ def _build_prompt(alert: dict) -> str:
     return "\n".join(parts)
 
 
-def evaluate_alert(alert: dict) -> str | None:
+def evaluate_alert(alert: dict) -> tuple[bool, str]:
     """Call Claude to evaluate whether an alert is interesting.
 
-    Returns a short explanation string if the alert is interesting,
-    or None if it should be discarded.
+    Returns (interesting, summary) — summary is always provided.
     """
     if not ANTHROPIC_API_KEY:
-        return None
+        return False, ""
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     alert_text = _build_prompt(alert)
@@ -177,19 +188,33 @@ def evaluate_alert(alert: dict) -> str | None:
                 "content": alert_text,
             }
         ],
-        system=SYSTEM_PROMPT,
+        system=[
+            {
+                "type": "text",
+                "text": SYSTEM_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
+        output_config={"format": RESPONSE_SCHEMA},
     )
 
+    usage = response.usage
+    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+    cache_create = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    if cache_read:
+        print(f"[llm_filter] Cache hit: {cache_read} tokens read from cache", file=sys.stderr)
+    elif cache_create:
+        print(f"[llm_filter] Cache miss: {cache_create} tokens written to cache", file=sys.stderr)
+
     try:
-        text = response.content[0].text.strip()
+        text = response.content[0].text
         result = json.loads(text)
-        if result.get("interesting"):
-            return result.get("summary", "Flagged as interesting by LLM.")
-        return None
+        interesting = bool(result.get("interesting"))
+        summary = result.get("summary", "")
+        return interesting, summary
     except (json.JSONDecodeError, IndexError, KeyError) as e:
         print(f"[llm_filter] WARNING: Failed to parse LLM response: {e}", file=sys.stderr)
-        # On parse failure, keep the alert (fail open)
-        return "LLM evaluation inconclusive — kept for manual review."
+        return True, "LLM evaluation inconclusive — kept for manual review."
 
 
 def filter_alerts(alerts: list[dict]) -> list[dict]:
@@ -230,24 +255,24 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
         print(f"  [{i}/{len(alerts)}] Evaluating: [{score:.1f}] {title}...", end=" ", flush=True)
 
         try:
-            summary = evaluate_alert(alert)
+            interesting, summary = evaluate_alert(alert)
         except Exception as e:
             print(f"ERROR ({e}) — keeping alert")
             alert["llm_summary"] = "LLM evaluation failed — kept for manual review."
             kept.append(alert)
             continue
 
-        if summary:
+        if interesting:
             print("INTERESTING")
             alert["llm_summary"] = summary
             kept.append(alert)
             if dedup_key:
                 save_llm_evaluation(dedup_key, interesting=True, summary=summary)
         else:
-            print("discarded")
+            print(f"discarded — {summary}")
             discarded += 1
             if dedup_key:
-                save_llm_evaluation(dedup_key, interesting=False, summary=None)
+                save_llm_evaluation(dedup_key, interesting=False, summary=summary)
 
     if cached:
         print(f"[llm_filter] {cached} alert(s) resolved from cache.")
