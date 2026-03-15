@@ -18,8 +18,8 @@ export default function Filters({ categories, filters, onFilterChange }) {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-4 rounded-lg bg-gray-800 p-4">
-      <label className="flex items-center gap-2 text-sm text-gray-400">
+    <div className="flex flex-wrap items-center gap-4 rounded-lg bg-gray-100 p-4 dark:bg-gray-800">
+      <label className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
         Min Score
         <input
           type="number"
@@ -31,16 +31,16 @@ export default function Filters({ categories, filters, onFilterChange }) {
             setLocalMinScore(v);
             debounced("minScore", v);
           }}
-          className="w-20 rounded bg-gray-900 px-2 py-1 text-gray-100 outline-none focus:ring-1 focus:ring-gray-600"
+          className="w-20 rounded bg-white px-2 py-1 text-gray-900 outline-none focus:ring-1 focus:ring-gray-300 dark:bg-gray-900 dark:text-gray-100 dark:focus:ring-gray-600"
         />
       </label>
 
-      <label className="flex items-center gap-2 text-sm text-gray-400">
+      <label className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
         Category
         <select
           value={filters.category}
           onChange={(e) => onFilterChange({ ...filters, category: e.target.value })}
-          className="rounded bg-gray-900 px-2 py-1 text-gray-100 outline-none focus:ring-1 focus:ring-gray-600"
+          className="rounded bg-white px-2 py-1 text-gray-900 outline-none focus:ring-1 focus:ring-gray-300 dark:bg-gray-900 dark:text-gray-100 dark:focus:ring-gray-600"
         >
           <option value="">All Categories</option>
           {categories.map((c) => {
@@ -54,7 +54,7 @@ export default function Filters({ categories, filters, onFilterChange }) {
         </select>
       </label>
 
-      <label className="flex items-center gap-2 text-sm text-gray-400">
+      <label className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
         Wallet
         <input
           type="text"
@@ -65,7 +65,7 @@ export default function Filters({ categories, filters, onFilterChange }) {
             setLocalWallet(v);
             debounced("wallet", v);
           }}
-          className="w-56 rounded bg-gray-900 px-2 py-1 text-gray-100 outline-none focus:ring-1 focus:ring-gray-600"
+          className="w-56 rounded bg-white px-2 py-1 text-gray-900 outline-none focus:ring-1 focus:ring-gray-300 dark:bg-gray-900 dark:text-gray-100 dark:focus:ring-gray-600"
         />
       </label>
     </div>

@@ -12,7 +12,7 @@ export default function AlertTable({
 }) {
   if (loading) {
     return (
-      <div className="rounded-lg bg-gray-900 p-8 text-center text-gray-500">
+      <div className="rounded-lg bg-white p-8 text-center text-gray-400 dark:bg-gray-900 dark:text-gray-500">
         Loading alerts...
       </div>
     );
@@ -20,7 +20,7 @@ export default function AlertTable({
 
   if (!alerts || alerts.length === 0) {
     return (
-      <div className="rounded-lg bg-gray-900 p-8 text-center text-gray-500">
+      <div className="rounded-lg bg-white p-8 text-center text-gray-400 dark:bg-gray-900 dark:text-gray-500">
         No alerts found.
       </div>
     );
@@ -30,7 +30,7 @@ export default function AlertTable({
     <div className="overflow-x-auto rounded-lg">
       <table className="w-full text-left text-sm">
         <thead>
-          <tr className="sticky top-0 z-10 border-b border-gray-700 bg-gray-900 text-xs uppercase tracking-wider text-gray-500">
+          <tr className="sticky top-0 z-10 border-b border-gray-200 bg-white text-xs uppercase tracking-wider text-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-500">
             <th className="px-4 py-3">Score</th>
             <th className="px-4 py-3">Category</th>
             <th className="px-4 py-3">Market</th>

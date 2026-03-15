@@ -3,6 +3,7 @@ import { fetchAlerts, fetchCategories, fetchHealth } from "./api";
 import Filters from "./components/Filters";
 import AlertTable from "./components/AlertTable";
 import Pagination from "./components/Pagination";
+import ThemeToggle from "./components/ThemeToggle";
 
 export default function App() {
   const [alerts, setAlerts] = useState([]);
@@ -63,36 +64,39 @@ export default function App() {
   const totalPages = Math.max(1, Math.ceil(total / perPage));
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
+    <div className="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100">
       <div className="mx-auto max-w-7xl px-4 py-6">
         {/* Header */}
         <header className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-50">Polybot</h1>
-            <p className="text-sm text-gray-400">Unusual Activity Scanner</p>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-50">Polybot</h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Unusual Activity Scanner</p>
           </div>
-          <div className="flex items-center gap-2 text-sm text-gray-400">
-            <span
-              className={`inline-block h-2.5 w-2.5 rounded-full ${
-                healthy === true
-                  ? "bg-green-500"
-                  : healthy === false
-                    ? "bg-red-500"
-                    : "bg-gray-600"
-              }`}
-              aria-label={
-                healthy === true
-                  ? "API healthy"
-                  : healthy === false
-                    ? "API unreachable"
-                    : "Checking API..."
-              }
-            />
-            {healthy === true
-              ? "Connected"
-              : healthy === false
-                ? "Disconnected"
-                : "Checking..."}
+          <div className="flex items-center gap-4">
+            <ThemeToggle />
+            <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+              <span
+                className={`inline-block h-2.5 w-2.5 rounded-full ${
+                  healthy === true
+                    ? "bg-green-500"
+                    : healthy === false
+                      ? "bg-red-500"
+                      : "bg-gray-400 dark:bg-gray-600"
+                }`}
+                aria-label={
+                  healthy === true
+                    ? "API healthy"
+                    : healthy === false
+                      ? "API unreachable"
+                      : "Checking API..."
+                }
+              />
+              {healthy === true
+                ? "Connected"
+                : healthy === false
+                  ? "Disconnected"
+                  : "Checking..."}
+            </div>
           </div>
         </header>
 

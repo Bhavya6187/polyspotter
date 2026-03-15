@@ -27,7 +27,7 @@ export default function AlertRow({ alert, onToggle, activeCategory, onCategoryCl
   return (
     <tr
       onClick={onToggle}
-      className="cursor-pointer border-b border-gray-800 bg-gray-900 hover:bg-gray-800"
+      className="cursor-pointer border-b border-gray-100 bg-white hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-gray-800"
     >
       <td className="px-4 py-3">
         <ScoreBadge score={alert.composite_score ?? 0} />
@@ -42,20 +42,20 @@ export default function AlertRow({ alert, onToggle, activeCategory, onCategoryCl
             }}
             className={`inline-block cursor-pointer rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
               activeCategory === alert.category
-                ? "bg-blue-700 text-blue-100"
-                : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                ? "bg-blue-600 text-blue-50 dark:bg-blue-700 dark:text-blue-100"
+                : "bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
             }`}
           >
             {alert.category}
           </span>
         ) : (
-          <span className="text-gray-600">&mdash;</span>
+          <span className="text-gray-300 dark:text-gray-600">&mdash;</span>
         )}
       </td>
       <td className="max-w-xs truncate px-4 py-3 text-sm">
         {alert.market_title ?? "\u2014"}
         {isCluster && alert.cluster_headline && (
-          <span className="block text-xs text-gray-400 truncate">
+          <span className="block truncate text-xs text-gray-500 dark:text-gray-400">
             {alert.cluster_headline}
           </span>
         )}
@@ -64,7 +64,7 @@ export default function AlertRow({ alert, onToggle, activeCategory, onCategoryCl
         {alert.total_usd != null ? usdFmt.format(alert.total_usd) : "\u2014"}
       </td>
       <td className="px-4 py-3 text-sm">{alert.trade_count ?? "\u2014"}</td>
-      <td className="px-4 py-3 text-sm text-gray-400">
+      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
         {relativeTime(alert.scanned_at)}
       </td>
     </tr>

@@ -64,7 +64,7 @@ export default function AlertDetail({ alertId, wallet, alertType }) {
   if (loading) {
     return (
       <tr>
-        <td colSpan="6" className="bg-gray-900/80 px-6 py-8 text-center text-gray-400">
+        <td colSpan="6" className="bg-gray-50/80 px-6 py-8 text-center text-gray-500 dark:bg-gray-900/80 dark:text-gray-400">
           Loading details...
         </td>
       </tr>
@@ -78,25 +78,25 @@ export default function AlertDetail({ alertId, wallet, alertType }) {
 
   return (
     <tr>
-      <td colSpan="6" className="border-b border-gray-700 bg-gray-900/80 p-0">
+      <td colSpan="6" className="border-b border-gray-200 bg-gray-50/80 p-0 dark:border-gray-700 dark:bg-gray-900/80">
         <div className="p-6">
           {/* Type & Wallet meta */}
           <div className="mb-4 flex flex-wrap items-center gap-3">
             <span
               className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
                 alertType === "cluster"
-                  ? "bg-purple-900 text-purple-300"
-                  : "bg-blue-900 text-blue-300"
+                  ? "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300"
+                  : "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300"
               }`}
             >
               {alertType ?? "composite"}
             </span>
             {alertType === "cluster" && trades.length > 0 ? (
-              <span className="text-sm text-gray-400">
+              <span className="text-sm text-gray-500 dark:text-gray-400">
                 {new Set(trades.map((t) => t.wallet)).size} wallets
               </span>
             ) : wallet ? (
-              <span className="font-mono text-sm text-gray-400">
+              <span className="font-mono text-sm text-gray-500 dark:text-gray-400">
                 {truncateAddress(wallet)}
               </span>
             ) : null}
@@ -104,35 +104,35 @@ export default function AlertDetail({ alertId, wallet, alertType }) {
 
           {/* LLM Summary */}
           {detail.llm_summary && (
-            <div className="mb-6 rounded-lg border border-amber-700/50 bg-amber-900/20 p-4">
-              <h3 className="mb-1 text-sm font-semibold uppercase tracking-wider text-amber-400">
+            <div className="mb-6 rounded-lg border border-amber-300/50 bg-amber-50 p-4 dark:border-amber-700/50 dark:bg-amber-900/20">
+              <h3 className="mb-1 text-sm font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
                 AI Analysis
               </h3>
-              <p className="text-sm text-amber-100">{detail.llm_summary}</p>
+              <p className="text-sm text-amber-900 dark:text-amber-100">{detail.llm_summary}</p>
             </div>
           )}
           <div className="flex flex-col gap-6 lg:flex-row">
             {/* Signals */}
             <div className="flex-1">
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-400">
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 Signals
               </h3>
               <div className="flex flex-col gap-3">
                 {signals.length === 0 && (
-                  <p className="text-sm text-gray-500">No signals.</p>
+                  <p className="text-sm text-gray-400 dark:text-gray-500">No signals.</p>
                 )}
                 {signals.map((sig, i) => (
                   <div
                     key={i}
-                    className="rounded-lg bg-gray-800 p-4"
+                    className="rounded-lg bg-gray-100 p-4 dark:bg-gray-800"
                   >
                     <div className="mb-1 flex items-center gap-2">
-                      <span className="text-sm font-medium text-gray-200">
+                      <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
                         {formatStrategy(sig.strategy)}
                       </span>
                       <ScoreBadge score={sig.severity ?? 0} />
                     </div>
-                    <p className="text-sm text-gray-400">{sig.headline}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{sig.headline}</p>
                   </div>
                 ))}
               </div>
@@ -141,26 +141,26 @@ export default function AlertDetail({ alertId, wallet, alertType }) {
             {/* Wallet Profile */}
             {walletProfile && (
               <div className="w-full lg:w-72">
-                <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-400">
+                <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                   Wallet Profile
                 </h3>
-                <div className="rounded-lg bg-gray-800 p-4">
+                <div className="rounded-lg bg-gray-100 p-4 dark:bg-gray-800">
                   <dl className="space-y-2 text-sm">
                     <div className="flex justify-between">
-                      <dt className="text-gray-400">Win Rate</dt>
-                      <dd className="text-gray-100">
+                      <dt className="text-gray-500 dark:text-gray-400">Win Rate</dt>
+                      <dd className="text-gray-900 dark:text-gray-100">
                         {walletProfile.win_rate != null
                           ? `${(walletProfile.win_rate * 100).toFixed(1)}%`
                           : "\u2014"}
                       </dd>
                     </div>
                     <div className="flex justify-between">
-                      <dt className="text-gray-400">Total P&L</dt>
+                      <dt className="text-gray-500 dark:text-gray-400">Total P&L</dt>
                       <dd
                         className={
                           walletProfile.total_pnl >= 0
-                            ? "text-green-400"
-                            : "text-red-400"
+                            ? "text-green-600 dark:text-green-400"
+                            : "text-red-600 dark:text-red-400"
                         }
                       >
                         {walletProfile.total_pnl != null
@@ -169,21 +169,21 @@ export default function AlertDetail({ alertId, wallet, alertType }) {
                       </dd>
                     </div>
                     <div className="flex justify-between">
-                      <dt className="text-gray-400">Positions</dt>
-                      <dd className="text-gray-100">
+                      <dt className="text-gray-500 dark:text-gray-400">Positions</dt>
+                      <dd className="text-gray-900 dark:text-gray-100">
                         {walletProfile.total_positions ?? 0} /{" "}
                         {walletProfile.closed_positions ?? 0}
                       </dd>
                     </div>
                     <div className="flex justify-between">
-                      <dt className="text-gray-400">Times Flagged</dt>
-                      <dd className="text-gray-100">
+                      <dt className="text-gray-500 dark:text-gray-400">Times Flagged</dt>
+                      <dd className="text-gray-900 dark:text-gray-100">
                         {walletProfile.times_flagged ?? 0}
                       </dd>
                     </div>
                     <div className="flex justify-between">
-                      <dt className="text-gray-400">First Seen</dt>
-                      <dd className="text-gray-100">
+                      <dt className="text-gray-500 dark:text-gray-400">First Seen</dt>
+                      <dd className="text-gray-900 dark:text-gray-100">
                         {walletProfile.first_seen_at
                           ? new Date(walletProfile.first_seen_at).toLocaleDateString()
                           : "\u2014"}
@@ -198,13 +198,13 @@ export default function AlertDetail({ alertId, wallet, alertType }) {
           {/* Trades sub-table */}
           {trades.length > 0 && (
             <div className="mt-6">
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-400">
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 Trades
               </h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead>
-                    <tr className="border-b border-gray-700 text-xs uppercase text-gray-500">
+                    <tr className="border-b border-gray-200 text-xs uppercase text-gray-400 dark:border-gray-700 dark:text-gray-500">
                       <th className="px-3 py-2">Tx Hash</th>
                       <th className="px-3 py-2">Wallet</th>
                       <th className="px-3 py-2">Outcome</th>
@@ -218,7 +218,7 @@ export default function AlertDetail({ alertId, wallet, alertType }) {
                     {trades.map((t, i) => (
                       <tr
                         key={i}
-                        className="border-b border-gray-800/50"
+                        className="border-b border-gray-100/50 dark:border-gray-800/50"
                       >
                         <td className="px-3 py-2 font-mono">
                           {truncateAddress(t.transaction_hash)}
@@ -231,8 +231,8 @@ export default function AlertDetail({ alertId, wallet, alertType }) {
                           <span
                             className={
                               t.side === "BUY"
-                                ? "text-green-400"
-                                : "text-red-400"
+                                ? "text-green-600 dark:text-green-400"
+                                : "text-red-600 dark:text-red-400"
                             }
                           >
                             {t.side}
@@ -246,7 +246,7 @@ export default function AlertDetail({ alertId, wallet, alertType }) {
                         <td className="px-3 py-2">
                           {t.price != null ? t.price.toFixed(2) : "\u2014"}
                         </td>
-                        <td className="px-3 py-2 text-gray-400">
+                        <td className="px-3 py-2 text-gray-500 dark:text-gray-400">
                           {relativeTime(t.trade_timestamp)}
                         </td>
                       </tr>
@@ -259,7 +259,7 @@ export default function AlertDetail({ alertId, wallet, alertType }) {
                   href={detail.market_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mt-3 inline-block text-sm text-blue-400 hover:text-blue-300"
+                  className="mt-3 inline-block text-sm text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
                 >
                   View on Polymarket &rarr;
                 </a>
