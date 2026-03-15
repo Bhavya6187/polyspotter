@@ -37,7 +37,7 @@ from db import (
 # ---------------------------------------------------------------------------
 MIN_MARKETS = 2  # wallet must bet on >= N markets in the same event
 MIN_TOTAL_USD = 2000  # minimum combined USD across the correlated bets
-REPEAT_CROSS_EVENT_THRESHOLD = 3  # flag if wallet has cross-market bets on >= N events historically
+REPEAT_CROSS_EVENT_THRESHOLD = 10  # flag if wallet has cross-market bets on >= N events historically
 
 
 def _is_bullish(trade: dict) -> bool:

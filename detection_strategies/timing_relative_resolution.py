@@ -199,18 +199,28 @@ class TimingRelativeResolutionStrategy(DetectionStrategy):
             is_routine_bettor = timing_ratio > SERIAL_TIMER_RATIO_CAP
 
             if timing_stats["total_flags"] >= threshold and not is_routine_bettor:
-                severity = min(7.0, severity + 1.5)
-                headline += (
-                    f" — SERIAL TIMER: {timing_stats['total_flags']} near-resolution bets "
-                    f"across {timing_stats['distinct_markets']} markets, "
-                    f"${timing_stats['total_usd']:,.0f} total"
+                # Only escalate serial timers who are actually winning.
+                # A serial timer with a sub-75% win rate is just a live bettor,
+                # not someone with a real-time information edge.
+                win_pct = (
+                    pnl["wins"] / pnl["closed_positions"]
+                    if pnl["closed_positions"] > 0
+                    else 0.0
                 )
+                has_edge = pnl["closed_positions"] >= 3 and win_pct >= 0.65
 
-                # Cross-reference: is this serial timer also profitable?
-                if pnl["closed_positions"] >= 3 and pnl["total_pnl"] > 0:
-                    win_pct = pnl["wins"] / pnl["closed_positions"] if pnl["closed_positions"] > 0 else 0
-                    severity = min(8.0, severity + 1.0)
-                    headline += f" + PROFITABLE: {win_pct:.0%} wins, ${pnl['total_pnl']:+,.0f} P&L"
+                if has_edge:
+                    severity = min(7.0, severity + 1.5)
+                    headline += (
+                        f" — SERIAL TIMER: {timing_stats['total_flags']} near-resolution bets "
+                        f"across {timing_stats['distinct_markets']} markets, "
+                        f"${timing_stats['total_usd']:,.0f} total"
+                    )
+
+                    # Extra boost for profitable serial timers
+                    if pnl["total_pnl"] > 0:
+                        severity = min(8.0, severity + 1.0)
+                        headline += f" + PROFITABLE: {win_pct:.0%} wins, ${pnl['total_pnl']:+,.0f} P&L"
 
         return Signal(
             strategy=self.name,

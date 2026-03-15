@@ -353,7 +353,7 @@ class TestSerialTimerRatioCap(unittest.TestCase):
     @patch("detection_strategies.timing_relative_resolution.get_wallet_pnl_summary")
     @patch("detection_strategies.timing_relative_resolution.get_wallet_timing_stats")
     def test_selective_timer_escalated(self, mock_stats, mock_pnl, mock_market, *mocks):
-        """Wallet with <50% timing flags relative to positions SHOULD get serial timer boost."""
+        """Wallet with <50% timing flags relative to positions AND >=75% win rate SHOULD get serial timer boost."""
         mock_stats.return_value = {
             "total_flags": 10, "distinct_markets": 5,
             "avg_minutes": 5, "min_minutes": 1, "total_usd": 50000,
@@ -361,6 +361,8 @@ class TestSerialTimerRatioCap(unittest.TestCase):
         mock_pnl.return_value = {
             **EMPTY_PNL,
             "total_positions": 100,  # 10/100 = 10% < 50% cap
+            "closed_positions": 20, "wins": 16, "losses": 4,  # 80% win rate
+            "total_pnl": 5000,
         }
         trade_ts = 1700000000
         end_dt = datetime.fromtimestamp(trade_ts + 180, tz=timezone.utc)
