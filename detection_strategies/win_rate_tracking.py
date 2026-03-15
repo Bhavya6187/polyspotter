@@ -16,7 +16,6 @@ import sys
 import time
 
 import requests
-
 from detection_strategies import DetectionStrategy, Signal
 from db import (
     clear_wallet_pnl_by_type,
@@ -25,7 +24,7 @@ from db import (
     get_wallet_stats,
     get_wallet_pnl_latest_timestamp,
     get_wallet_pnl_summary,
-    mark_bet_resolved,
+    mark_bets_resolved_bulk,
     record_tracked_bet,
     record_wallet_pnl,
 )
@@ -128,25 +127,37 @@ def _fetch_positions_page(wallet: str, endpoint: str, position_type: str,
 # ---------------------------------------------------------------------------
 # Resolution updates
 # ---------------------------------------------------------------------------
-_RESOLUTION_BATCH_SIZE = 100  # condition_ids per Gamma API request
+_RESOLUTION_BATCH_SIZE = 25  # condition_ids per Gamma API request
+
+# Wallets whose resolutions have already been updated this run
+_resolutions_updated: set[str] = set()
+# Condition IDs already checked for resolution this run (avoids re-checking
+# the same markets when multiple wallets share unresolved conditions)
+_conditions_checked: set[str] = set()
 
 
-def _update_resolutions() -> int:
+def _update_resolutions(wallet: str | None = None) -> int:
     """Check unresolved bets against Gamma API to see if markets have
     resolved.  Returns count of newly resolved bets.
 
+    If wallet is provided, only checks condition_ids for that wallet.
     Batches condition_ids into single API calls for efficiency."""
-    unresolved_cids = get_unresolved_condition_ids()
+    unresolved_cids = get_unresolved_condition_ids(wallet)
     if not unresolved_cids:
         return 0
+    # Skip conditions already checked by a previous wallet this run
+    unresolved_cids = [cid for cid in unresolved_cids if cid not in _conditions_checked]
+    if not unresolved_cids:
+        return 0
+    _conditions_checked.update(unresolved_cids)
     total = len(unresolved_cids)
-    print(f"  [win_rate_tracking] Checking {total} unresolved market(s) for resolution...", flush=True)
+    print(f"  [win_rate_tracking] Checking {total} unresolved market(s) for resolution ({len(_conditions_checked)} total checked this run)...", flush=True)
     updated = 0
+    all_updates: list[tuple[int, int]] = []
 
     for batch_start in range(0, total, _RESOLUTION_BATCH_SIZE):
         batch = unresolved_cids[batch_start : batch_start + _RESOLUTION_BATCH_SIZE]
-        if batch_start > 0:
-            print(f"  [win_rate_tracking] {batch_start}/{total} checked ({updated} resolved so far)", flush=True)
+        print(f"  [win_rate_tracking] Resolution batch {batch_start // _RESOLUTION_BATCH_SIZE + 1}/{(total + _RESOLUTION_BATCH_SIZE - 1) // _RESOLUTION_BATCH_SIZE} ({batch_start + len(batch)}/{total} markets, {updated} resolved so far)", flush=True)
         time.sleep(LOOKUP_DELAY)
         try:
             params = [("condition_ids", cid) for cid in batch]
@@ -189,9 +200,13 @@ def _update_resolutions() -> int:
                     won = 1 if bet_outcome == winning_outcome_name else 0
                 else:
                     won = 1 if bet_outcome != winning_outcome_name else 0
-                mark_bet_resolved(bet_id, won)
-                updated += 1
+                all_updates.append((won, bet_id))
+            updated += len(bets)
 
+    # Single bulk write for all resolved bets
+    mark_bets_resolved_bulk(all_updates)
+    if updated:
+        print(f"  [win_rate_tracking] Resolved {updated} bet(s)")
     return updated
 
 
@@ -205,11 +220,6 @@ class WinRateTrackingStrategy(DetectionStrategy):
         f">= {WIN_RATE_ALERT_THRESHOLD:.0%} win rate on {MIN_RESOLVED_BETS}+ resolved bets."
     )
 
-    def __init__(self):
-        updated = _update_resolutions()
-        if updated:
-            print(f"  [win_rate_tracking] Updated {updated} resolved bet(s)")
-
     def check_trade(self, trade: dict) -> Signal | None:
         """Record every large trade and check if the wallet has a
         notably high historical win rate."""
@@ -219,6 +229,12 @@ class WinRateTrackingStrategy(DetectionStrategy):
 
         record_tracked_bet(trade)
         _fetch_wallet_pnl(wallet)
+
+        # Lazily resolve tracked bets for this wallet (once per wallet per run)
+        if wallet.lower() not in _resolutions_updated:
+            _resolutions_updated.add(wallet.lower())
+            print(f"  [win_rate_tracking] Resolving wallet {len(_resolutions_updated)} ({wallet[:8]}...)", flush=True)
+            _update_resolutions(wallet)
 
         # Only emit one win_rate signal per wallet per run
         if wallet.lower() in _win_rate_signaled:

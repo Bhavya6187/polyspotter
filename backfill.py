@@ -42,7 +42,7 @@ load_dotenv()
 from db import (
     get_db,
     record_tracked_bet,
-    mark_bet_resolved,
+    mark_bets_resolved_bulk,
     get_unresolved_bets_for_condition,
     record_wallet_event_trade,
     record_price_observation,
@@ -53,6 +53,7 @@ from db import (
     save_funder,
     get_cached_funder,
     record_wallet_pnl,
+    get_wallet_pnl_latest_timestamp,
     record_price_candles_batch,
     record_orderbook_snapshot,
 )
@@ -334,13 +335,15 @@ def resolve_tracked_bets(only_current: bool = False,
             continue
 
         bets = get_unresolved_bets_for_condition(cid)
+        batch = []
         for bet_id, bet_outcome, bet_side in bets:
             if bet_side == "BUY":
                 won = 1 if bet_outcome == winning_outcome else 0
             else:
                 won = 1 if bet_outcome != winning_outcome else 0
-            mark_bet_resolved(bet_id, won)
-            resolved_count += 1
+            batch.append((won, bet_id))
+        mark_bets_resolved_bulk(batch)
+        resolved_count += len(batch)
 
     print(f"  Resolved {resolved_count} bets\n")
 
@@ -638,6 +641,7 @@ def backfill_wallet_activity(trades: list[dict]) -> None:
             if not isinstance(page, list) or not page:
                 break
 
+            page_new = 0
             for act in page:
                 if act.get("type") != "TRADE":
                     continue
@@ -668,18 +672,21 @@ def backfill_wallet_activity(trades: list[dict]) -> None:
                     record_tracked_bet(trade_like)
                     existing_bets.add((wallet, cid, ts))
                     bets_added += 1
+                    page_new += 1
 
                 # wallet_event_history
                 if wallet and event_slug and cid and (wallet, cid, ts) not in existing_events:
                     record_wallet_event_trade(trade_like)
                     existing_events.add((wallet, cid, ts))
                     events_added += 1
+                    page_new += 1
 
                 # price_history
                 if cid and outcome and price > 0 and (cid, outcome, ts) not in existing_prices:
                     record_price_observation(cid, outcome, price, ts)
                     existing_prices.add((cid, outcome, ts))
                     prices_added += 1
+                    page_new += 1
 
                 # timing_flags — use market cache from step 4 (no extra API calls)
                 if wallet and cid and cid in _market_cache and (wallet, cid, ts) not in existing_timing:
@@ -702,9 +709,12 @@ def backfill_wallet_activity(trades: list[dict]) -> None:
                                                    market_duration_hours=market_duration_hours)
                                 existing_timing.add((wallet, cid, ts))
                                 timing_added += 1
+                                page_new += 1
                         except ValueError:
                             pass
 
+            if page_new == 0:
+                break  # entire page was already in DB
             if len(page) < 500:
                 break
             offset += 500
@@ -723,8 +733,12 @@ MAX_PNL_POSITIONS = 1000  # match win_rate_tracking cap
 
 
 def _fetch_pnl_pages(wallet: str, endpoint: str, position_type: str,
-                     limit: int) -> int:
-    """Paginate through a Data API positions endpoint. Returns count fetched."""
+                     limit: int, cutoff_ts: int | None = None) -> int:
+    """Paginate through a Data API positions endpoint. Returns count recorded.
+
+    If cutoff_ts is provided, positions with api_timestamp <= cutoff_ts are
+    skipped (already in DB).  Stops paginating when an entire page is old.
+    """
     offset = 0
     page_size = 50
     fetched = 0
@@ -742,9 +756,16 @@ def _fetch_pnl_pages(wallet: str, endpoint: str, position_type: str,
             positions = resp.json()
             if not isinstance(positions, list) or len(positions) == 0:
                 break
+            new_in_page = 0
             for pos in positions:
+                pos_ts = pos.get("timestamp")
+                if cutoff_ts is not None and pos_ts is not None and pos_ts <= cutoff_ts:
+                    continue
                 record_wallet_pnl(wallet, pos, position_type)
-            fetched += len(positions)
+                new_in_page += 1
+                fetched += 1
+            if cutoff_ts is not None and new_in_page == 0:
+                break  # entire page was already in DB
             if len(positions) < page_size:
                 break
             offset += page_size
@@ -776,8 +797,10 @@ def backfill_wallet_pnl(trades: list[dict]) -> None:
             print(f"  processed {i + 1}/{len(wallets)} wallets ({open_count} open, {closed_count} closed)...")
 
         open_count += _fetch_pnl_pages(wallet, "positions", "open", limit=50)
+        closed_cutoff = get_wallet_pnl_latest_timestamp(wallet, "closed")
         closed_count += _fetch_pnl_pages(wallet, "closed-positions", "closed",
-                                         limit=MAX_PNL_POSITIONS)
+                                         limit=MAX_PNL_POSITIONS,
+                                         cutoff_ts=closed_cutoff)
 
     print(f"  Open positions:   {open_count}")
     print(f"  Closed positions: {closed_count}\n")

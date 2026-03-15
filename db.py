@@ -54,6 +54,7 @@ def _init_tables(conn: sqlite3.Connection) -> None:
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tracked_wallet ON tracked_bets(wallet)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tracked_unresolved ON tracked_bets(resolved)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tracked_cid_resolved ON tracked_bets(condition_id, resolved)")
     conn.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS idx_tracked_dedup
         ON tracked_bets(wallet, condition_id, outcome, side, trade_timestamp)
@@ -266,10 +267,18 @@ def record_tracked_bet(trade: dict) -> None:
     conn.commit()
 
 
-def get_unresolved_condition_ids() -> list[str]:
-    """Return distinct condition_ids with unresolved bets."""
+def get_unresolved_condition_ids(wallet: str | None = None) -> list[str]:
+    """Return distinct condition_ids with unresolved bets.
+
+    If wallet is provided, only returns condition_ids for that wallet."""
     conn = get_db()
-    rows = conn.execute("SELECT DISTINCT condition_id FROM tracked_bets WHERE resolved = 0").fetchall()
+    if wallet:
+        rows = conn.execute(
+            "SELECT DISTINCT condition_id FROM tracked_bets WHERE resolved = 0 AND wallet = ?",
+            (wallet,),
+        ).fetchall()
+    else:
+        rows = conn.execute("SELECT DISTINCT condition_id FROM tracked_bets WHERE resolved = 0").fetchall()
     return [r[0] for r in rows]
 
 
@@ -288,6 +297,21 @@ def mark_bet_resolved(bet_id: int, won: int) -> None:
     conn.execute(
         "UPDATE tracked_bets SET resolved = 1, won = ? WHERE id = ?",
         (won, bet_id),
+    )
+    conn.commit()
+
+
+def mark_bets_resolved_bulk(updates: list[tuple[int, int]]) -> None:
+    """Mark multiple bets as resolved in a single transaction.
+
+    updates: list of (won, bet_id) tuples.
+    """
+    if not updates:
+        return
+    conn = get_db()
+    conn.executemany(
+        "UPDATE tracked_bets SET resolved = 1, won = ? WHERE id = ?",
+        updates,
     )
     conn.commit()
 
