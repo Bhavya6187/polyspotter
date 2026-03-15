@@ -1,11 +1,5 @@
 import ScoreBadge from "./ScoreBadge";
 
-function truncateAddress(addr) {
-  if (!addr) return "\u2014";
-  if (addr.length <= 12) return addr;
-  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-}
-
 function relativeTime(dateStr) {
   if (!dateStr) return "\u2014";
   const now = Date.now();
@@ -27,7 +21,7 @@ const usdFmt = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
 
-export default function AlertRow({ alert, isExpanded, onToggle, activeCategory, onCategoryClick }) {
+export default function AlertRow({ alert, onToggle, activeCategory, onCategoryClick }) {
   const isCluster = alert.alert_type === "cluster";
 
   return (
@@ -37,17 +31,6 @@ export default function AlertRow({ alert, isExpanded, onToggle, activeCategory, 
     >
       <td className="px-4 py-3">
         <ScoreBadge score={alert.composite_score ?? 0} />
-      </td>
-      <td className="px-4 py-3">
-        <span
-          className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-            isCluster
-              ? "bg-purple-900 text-purple-300"
-              : "bg-blue-900 text-blue-300"
-          }`}
-        >
-          {alert.alert_type ?? "composite"}
-        </span>
       </td>
       <td className="px-4 py-3">
         {alert.category ? (
@@ -76,9 +59,6 @@ export default function AlertRow({ alert, isExpanded, onToggle, activeCategory, 
             {alert.cluster_headline}
           </span>
         )}
-      </td>
-      <td className="px-4 py-3 font-mono text-sm">
-        {truncateAddress(alert.wallet)}
       </td>
       <td className="px-4 py-3 text-sm">
         {alert.total_usd != null ? usdFmt.format(alert.total_usd) : "\u2014"}

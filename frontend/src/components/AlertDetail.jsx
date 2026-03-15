@@ -33,7 +33,7 @@ const usdFmt = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
-export default function AlertDetail({ alertId, wallet }) {
+export default function AlertDetail({ alertId, wallet, alertType }) {
   const [detail, setDetail] = useState(null);
   const [walletProfile, setWalletProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -64,7 +64,7 @@ export default function AlertDetail({ alertId, wallet }) {
   if (loading) {
     return (
       <tr>
-        <td colSpan="8" className="bg-gray-900/80 px-6 py-8 text-center text-gray-400">
+        <td colSpan="6" className="bg-gray-900/80 px-6 py-8 text-center text-gray-400">
           Loading details...
         </td>
       </tr>
@@ -78,8 +78,26 @@ export default function AlertDetail({ alertId, wallet }) {
 
   return (
     <tr>
-      <td colSpan="8" className="border-b border-gray-700 bg-gray-900/80 p-0">
+      <td colSpan="6" className="border-b border-gray-700 bg-gray-900/80 p-0">
         <div className="p-6">
+          {/* Type & Wallet meta */}
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <span
+              className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                alertType === "cluster"
+                  ? "bg-purple-900 text-purple-300"
+                  : "bg-blue-900 text-blue-300"
+              }`}
+            >
+              {alertType ?? "composite"}
+            </span>
+            {wallet && (
+              <span className="font-mono text-sm text-gray-400">
+                {truncateAddress(wallet)}
+              </span>
+            )}
+          </div>
+
           {/* LLM Summary */}
           {detail.llm_summary && (
             <div className="mb-6 rounded-lg border border-amber-700/50 bg-amber-900/20 p-4">
