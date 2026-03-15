@@ -38,8 +38,8 @@ class TestCorrelatedCrossMarketStrategy(unittest.TestCase):
         signals = self.strategy.analyze_all(trades)
         self.assertEqual(len(signals), 0)
 
-    def test_two_markets_consistent_no_signal(self, *mocks):
-        """2 markets, same direction (both BUY) = consistent view, no signal."""
+    def test_two_markets_below_min_usd_no_signal(self, *mocks):
+        """2 markets but combined USD below MIN_TOTAL_USD = no signal."""
         trades = [
             self._make_trade("w1", "event1", "cond1", usd=1500, side="BUY"),
             self._make_trade("w1", "event1", "cond2", usd=1500, side="BUY"),
@@ -47,16 +47,16 @@ class TestCorrelatedCrossMarketStrategy(unittest.TestCase):
         signals = self.strategy.analyze_all(trades)
         self.assertEqual(len(signals), 0)
 
-    def test_two_markets_mixed_triggers(self, *mocks):
-        """2 markets, mixed directions (BUY + SELL) = notable, triggers signal."""
+    def test_two_markets_above_min_usd_triggers(self, *mocks):
+        """2 markets with combined USD >= MIN_TOTAL_USD triggers signal."""
         trades = [
-            self._make_trade("w1", "event1", "cond1", usd=1500, side="BUY"),
-            self._make_trade("w1", "event1", "cond2", usd=1500, side="SELL"),
+            self._make_trade("w1", "event1", "cond1", usd=3000, side="BUY"),
+            self._make_trade("w1", "event1", "cond2", usd=3000, side="SELL"),
         ]
         signals = self.strategy.analyze_all(trades)
         self.assertEqual(len(signals), 1)
         self.assertEqual(signals[0].strategy, "correlated_cross_market")
-        self.assertIn("mixed directions", signals[0].headline)
+        self.assertIn("2 markets", signals[0].headline)
 
     def test_below_min_usd_no_signal(self, *mocks):
         trades = [
@@ -82,35 +82,32 @@ class TestCorrelatedCrossMarketStrategy(unittest.TestCase):
         signals = self.strategy.analyze_all(trades)
         self.assertEqual(len(signals), 0)
 
-    def test_three_markets_consistent_lower_severity(self, *mocks):
-        """3+ markets consistent direction still triggers but at lower severity."""
+    def test_three_markets_triggers(self, *mocks):
+        """3 markets above threshold triggers signal."""
         trades = [
-            self._make_trade("w1", "event1", "cond1", usd=1000, side="BUY"),
-            self._make_trade("w1", "event1", "cond2", usd=1000, side="BUY"),
-            self._make_trade("w1", "event1", "cond3", usd=1000, side="BUY"),
+            self._make_trade("w1", "event1", "cond1", usd=2000, side="BUY"),
+            self._make_trade("w1", "event1", "cond2", usd=2000, side="BUY"),
+            self._make_trade("w1", "event1", "cond3", usd=2000, side="BUY"),
         ]
         signals = self.strategy.analyze_all(trades)
         self.assertEqual(len(signals), 1)
         self.assertIn("3 markets", signals[0].headline)
-        self.assertIn("consistent bullish", signals[0].headline)
-        self.assertEqual(signals[0].severity, 1.5)
+        self.assertEqual(signals[0].severity, 1.0)
 
-    def test_three_markets_mixed_higher_severity(self, *mocks):
-        """3 markets with mixed directions gets higher severity."""
+    def test_high_usd_higher_severity(self, *mocks):
+        """Higher combined USD produces higher severity."""
         trades = [
-            self._make_trade("w1", "event1", "cond1", usd=1000, side="BUY"),
-            self._make_trade("w1", "event1", "cond2", usd=1000, side="SELL"),
-            self._make_trade("w1", "event1", "cond3", usd=1000, side="BUY"),
+            self._make_trade("w1", "event1", "cond1", usd=15000, side="BUY"),
+            self._make_trade("w1", "event1", "cond2", usd=15000, side="SELL"),
         ]
         signals = self.strategy.analyze_all(trades)
         self.assertEqual(len(signals), 1)
-        self.assertIn("mixed directions", signals[0].headline)
         self.assertEqual(signals[0].severity, 3.0)
 
     def test_trade_hashes_collected(self, *mocks):
         trades = [
-            self._make_trade("w1", "event1", "cond1", usd=1500, side="BUY"),
-            self._make_trade("w1", "event1", "cond2", usd=1500, side="SELL"),
+            self._make_trade("w1", "event1", "cond1", usd=3000, side="BUY"),
+            self._make_trade("w1", "event1", "cond2", usd=3000, side="SELL"),
         ]
         signals = self.strategy.analyze_all(trades)
         self.assertEqual(len(signals[0].trade_hashes), 2)

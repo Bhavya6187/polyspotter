@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 from detection_strategies import Signal
 from db import get_wallet_pnl_summary, get_flagged_wallet_stats
-from gamma_cache import get_market_by_condition
+from gamma_cache import get_market_category
 
 load_dotenv()
 
@@ -86,11 +86,10 @@ def _trade_to_dict(trade: dict) -> dict:
 
 
 def _resolve_category(condition_id: str | None) -> str | None:
-    """Look up market category from Gamma API cache."""
+    """Look up market category from Gamma API event tags."""
     if not condition_id:
         return None
-    mkt = get_market_by_condition(condition_id)
-    return mkt.get("category") if mkt else None
+    return get_market_category(condition_id)
 
 
 def _signal_to_dict(sig: Signal) -> dict:

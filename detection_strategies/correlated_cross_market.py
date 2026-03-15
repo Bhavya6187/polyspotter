@@ -26,7 +26,7 @@ from db import (
 # Configuration
 # ---------------------------------------------------------------------------
 MIN_MARKETS = 2  # wallet must bet on >= N markets in the same event
-MIN_TOTAL_USD = 2000  # minimum combined USD across the correlated bets
+MIN_TOTAL_USD = 5000  # minimum combined USD across the correlated bets
 REPEAT_CROSS_EVENT_THRESHOLD = 10  # flag if wallet has cross-market bets on >= N events historically
 
 
@@ -88,12 +88,10 @@ class CorrelatedCrossMarketStrategy(DetectionStrategy):
 
                 # Base severity from dollar amount
                 if combined_usd >= 50_000:
-                    severity = 5.0
-                elif combined_usd >= 20_000:
                     severity = 4.0
-                elif combined_usd >= 10_000:
+                elif combined_usd >= 20_000:
                     severity = 3.0
-                elif combined_usd >= 5_000:
+                elif combined_usd >= 10_000:
                     severity = 2.0
                 else:
                     severity = 1.0
@@ -105,8 +103,6 @@ class CorrelatedCrossMarketStrategy(DetectionStrategy):
                     win_pct = pnl["wins"] / pnl["closed_positions"]
                     if win_pct >= 0.65:
                         severity += 2.0
-                    elif win_pct >= 0.50:
-                        severity += 1.0
 
                 headline = f"{n_markets} markets in same event, ${combined_usd:,.0f}"
                 if win_pct is not None:
@@ -134,14 +130,19 @@ class CorrelatedCrossMarketStrategy(DetectionStrategy):
                 if not rep_trade:
                     continue
 
+                serial_headline = (
+                    f"Serial cross-market trader: {stats['distinct_events']} events, "
+                    f"{stats['distinct_markets']} markets, ${stats['total_usd']:,.0f} total"
+                )
+                pnl = get_wallet_pnl_summary(wallet)
+                if pnl["closed_positions"] >= 5:
+                    serial_headline += f" (win rate {pnl['wins'] / pnl['closed_positions']:.0%})"
+
                 signals.append(
                     Signal(
                         strategy=self.name,
                         severity=4.0,
-                        headline=(
-                            f"Serial cross-market trader: {stats['distinct_events']} events, "
-                            f"{stats['distinct_markets']} markets, ${stats['total_usd']:,.0f} total"
-                        ),
+                        headline=serial_headline,
                         trade=rep_trade,
                         condition_id=rep_trade.get("conditionId", ""),
                     )

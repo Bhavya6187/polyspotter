@@ -382,13 +382,13 @@ class TestSerialTimerRatioCap(unittest.TestCase):
 class TestGammaCacheSportDetection(unittest.TestCase):
     """Tests for is_sport_market in gamma_cache."""
 
-    @patch("gamma_cache._fetch_event_tags", return_value={"1", "279", "281"})
+    @patch("gamma_cache._fetch_event_tags", return_value=[{"id": "1", "label": "Sports"}, {"id": "279", "label": "NFL"}, {"id": "281", "label": "Football"}])
     def test_sport_tag_detected(self, mock_fetch):
         from gamma_cache import is_sport_market
         market = {"events": [{"id": "12345"}]}
         self.assertTrue(is_sport_market(market))
 
-    @patch("gamma_cache._fetch_event_tags", return_value={"42", "100"})
+    @patch("gamma_cache._fetch_event_tags", return_value=[{"id": "42", "label": "Crypto"}, {"id": "100", "label": "DeFi"}])
     def test_non_sport_tags(self, mock_fetch):
         from gamma_cache import is_sport_market
         market = {"events": [{"id": "12345"}]}
