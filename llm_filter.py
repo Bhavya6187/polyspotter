@@ -17,6 +17,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 
 from db import get_llm_evaluation, save_llm_evaluation
+from gamma_cache import get_market_by_condition
 
 load_dotenv()
 
@@ -43,6 +44,17 @@ SYSTEM_PROMPT = (
     "- **individual**: a single wallet's trades on a market, with per-trade signals\n"
     "- **cluster**: multiple wallets betting the same direction on a market (from "
     "concentrated_one_sided), with shared + per-trade signals\n\n"
+
+    "Each alert also includes **market context** from the Gamma API: a description "
+    "with resolution criteria, category, current odds, order book state (bid/ask/spread), "
+    "volume (total and 24h), liquidity depth, price momentum (1d/1w changes), and "
+    "the scheduled end date. Use this context to assess:\n"
+    "- Whether the market topic makes informed trading plausible (politics, sports, "
+    "crypto events vs. trivial/meme markets)\n"
+    "- How thin/thick the market is (low liquidity + large bet = higher conviction signal)\n"
+    "- Whether recent price movement corroborates the detected signals\n"
+    "- How close the market is to resolution (bets near expiry with edge are stronger)\n"
+    "- Whether the trader is buying at a price that implies they see significant mispricing\n\n"
 
     "## Detection strategies and what their signals mean\n\n"
 
@@ -126,10 +138,24 @@ SYSTEM_PROMPT = (
     "- Linked wallets (wallet_clustering) as the ONLY signal with just 2 wallets and "
     "no other corroborating evidence — common for users with multiple accounts\n\n"
 
-    "When writing summaries for interesting alerts, frame them as actionable insights: "
-    "what is the trade, why does this trader likely have an edge, and what is the "
-    "thesis a copy-trader should understand. Do NOT use words like 'suspicious', "
-    "'manipulation', or 'insider trading' — focus on the signal and the edge."
+    "## Summary style\n\n"
+    "Write summaries like a Bloomberg terminal alert — brief, factual, professional.\n\n"
+    "Rules:\n"
+    "- One to two sentences max. Be concise.\n"
+    "- Lead with the trade action and market, not meta-commentary.\n"
+    "- State the edge signal (win rate, timing, cluster size, profitability) with "
+    "specific numbers where available.\n"
+    "- Never start with 'Interesting', 'This is worth surfacing', or similar preamble.\n"
+    "- Never address the reader ('copy-traders should...', 'worth watching because...').\n"
+    "- Never repeat details already visible in the alert data (exact USD, trade count).\n"
+    "- Do NOT use words like 'suspicious', 'manipulation', or 'insider trading'.\n\n"
+    "Good examples:\n"
+    "- 'Proven sharp bettor (87% win rate, +$1.2M lifetime P&L) sizing into Lakers "
+    "spread minutes before resolution — consistent with real-time game-state edge.'\n"
+    "- '14-wallet linked cluster deploying $181k one-sided into Lakers near resolution. "
+    "Several wallets are serial timers with 80%+ win rates.'\n"
+    "- 'New wallet (<7d old) with $+45k early P&L selling Iran ceasefire at 50c — part "
+    "of a 9-wallet linked cluster with repeated cross-market positioning.'"
 )
 
 RESPONSE_SCHEMA = {
@@ -143,7 +169,7 @@ RESPONSE_SCHEMA = {
                 "interesting": {"type": "boolean"},
                 "summary": {
                     "type": "string",
-                    "description": "1-2 sentence explanation. If interesting, describe the edge and why the trade is worth following. If not interesting, briefly explain why it was filtered out.",
+                    "description": "1-2 sentence Bloomberg-style summary. If interesting: lead with the trade and edge signal, cite key stats. If not interesting: state the reason for filtering.",
                 },
             },
             "required": ["interesting", "summary"],
@@ -168,6 +194,64 @@ def _build_prompt(alert: dict) -> str:
 
     if alert.get("wallet"):
         parts.append(f"Wallet: {alert['wallet']}")
+
+    # Market metadata from Gamma API
+    condition_id = alert.get("condition_id")
+    if condition_id:
+        mkt = get_market_by_condition(condition_id)
+        if mkt:
+            parts.append("\nMarket context:")
+            if mkt.get("description"):
+                desc = mkt["description"]
+                # Truncate long descriptions to keep prompt reasonable
+                if len(desc) > 500:
+                    desc = desc[:500] + "..."
+                parts.append(f"  Description: {desc}")
+            if mkt.get("category"):
+                parts.append(f"  Category: {mkt['category']}")
+            if mkt.get("endDate"):
+                parts.append(f"  End date: {mkt['endDate']}")
+            # Current prices (implied probabilities)
+            try:
+                prices = json.loads(mkt.get("outcomePrices", "[]"))
+                outcomes = json.loads(mkt.get("outcomes", "[]"))
+                if prices and outcomes:
+                    price_strs = [f"{o}: {float(p):.0%}" for o, p in zip(outcomes, prices)]
+                    parts.append(f"  Current odds: {', '.join(price_strs)}")
+            except (json.JSONDecodeError, ValueError):
+                pass
+            # Order book state
+            spread = mkt.get("spread")
+            if spread is not None:
+                best_bid = mkt.get("bestBid")
+                best_ask = mkt.get("bestAsk")
+                if best_bid is not None and best_ask is not None:
+                    parts.append(f"  Best bid/ask: {best_bid:.2f} / {best_ask:.2f} (spread: {spread:.2f})")
+                else:
+                    parts.append(f"  Spread: {spread:.2f}")
+            # Volume & liquidity
+            vol_total = mkt.get("volumeNum")
+            vol_24h = mkt.get("volume24hr")
+            liquidity = mkt.get("liquidityNum")
+            vol_parts = []
+            if vol_total is not None:
+                vol_parts.append(f"total ${vol_total:,.0f}")
+            if vol_24h is not None:
+                vol_parts.append(f"24h ${vol_24h:,.0f}")
+            if vol_parts:
+                parts.append(f"  Volume: {', '.join(vol_parts)}")
+            if liquidity is not None:
+                parts.append(f"  Liquidity: ${liquidity:,.0f}")
+            # Price momentum
+            momentum = []
+            day_change = mkt.get("oneDayPriceChange")
+            week_change = mkt.get("oneWeekPriceChange")
+            if day_change is not None and day_change != 0:
+                momentum.append(f"1d: {day_change:+.1%}")
+            if week_change is not None and week_change != 0:
+                momentum.append(f"1w: {week_change:+.1%}")
+            if momentum:
+                parts.append(f"  Price change: {', '.join(momentum)}")
 
     # Signals
     signals = alert.get("signals", [])
