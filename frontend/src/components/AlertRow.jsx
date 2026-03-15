@@ -50,7 +50,12 @@ export default function AlertRow({ alert, isExpanded, onToggle }) {
         </span>
       </td>
       <td className="max-w-xs truncate px-4 py-3 text-sm">
-        {isCluster ? alert.cluster_headline : alert.market_title}
+        {alert.market_title ?? "\u2014"}
+        {isCluster && alert.cluster_headline && (
+          <span className="block text-xs text-gray-400 truncate">
+            {alert.cluster_headline}
+          </span>
+        )}
       </td>
       <td className="px-4 py-3 font-mono text-sm">
         {truncateAddress(alert.wallet)}
