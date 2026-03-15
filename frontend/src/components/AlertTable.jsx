@@ -31,6 +31,7 @@ export default function AlertTable({
           <tr className="border-b border-gray-700 bg-gray-900 text-xs uppercase tracking-wider text-gray-500">
             <th className="px-4 py-3">Score</th>
             <th className="px-4 py-3">Type</th>
+            <th className="px-4 py-3">Category</th>
             <th className="px-4 py-3">Market</th>
             <th className="px-4 py-3">Wallet</th>
             <th className="px-4 py-3">USD</th>

@@ -49,6 +49,15 @@ export default function AlertRow({ alert, isExpanded, onToggle }) {
           {alert.alert_type ?? "composite"}
         </span>
       </td>
+      <td className="px-4 py-3">
+        {alert.category ? (
+          <span className="inline-block rounded-full bg-gray-700 px-2 py-0.5 text-xs font-medium text-gray-300">
+            {alert.category}
+          </span>
+        ) : (
+          <span className="text-gray-600">&mdash;</span>
+        )}
+      </td>
       <td className="max-w-xs truncate px-4 py-3 text-sm">
         {alert.market_title ?? "\u2014"}
         {isCluster && alert.cluster_headline && (

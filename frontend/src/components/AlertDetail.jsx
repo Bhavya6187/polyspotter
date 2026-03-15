@@ -64,7 +64,7 @@ export default function AlertDetail({ alertId, wallet }) {
   if (loading) {
     return (
       <tr>
-        <td colSpan="7" className="bg-gray-900/80 px-6 py-8 text-center text-gray-400">
+        <td colSpan="8" className="bg-gray-900/80 px-6 py-8 text-center text-gray-400">
           Loading details...
         </td>
       </tr>
@@ -78,7 +78,7 @@ export default function AlertDetail({ alertId, wallet }) {
 
   return (
     <tr>
-      <td colSpan="7" className="border-b border-gray-700 bg-gray-900/80 p-0">
+      <td colSpan="8" className="border-b border-gray-700 bg-gray-900/80 p-0">
         <div className="p-6">
           {/* LLM Summary */}
           {detail.llm_summary && (
