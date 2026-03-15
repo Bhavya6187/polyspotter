@@ -16,7 +16,7 @@ import os
 from openai import OpenAI
 from dotenv import load_dotenv
 
-from db import get_llm_evaluation, save_llm_evaluation
+from db import get_llm_evaluation, get_wallet_pnl_summary, save_llm_evaluation
 from gamma_cache import get_market_by_condition
 
 load_dotenv()
@@ -270,6 +270,42 @@ def _build_prompt(alert: dict) -> str:
             usd = t.get("usd_value", 0)
             price = t.get("price", 0)
             parts.append(f"  - ${usd:,.2f} {side} {outcome} @ {price:.2f}")
+
+    # Wallet P&L profiles — collect unique wallets from the alert
+    wallets: set[str] = set()
+    if alert.get("wallet"):
+        wallets.add(alert["wallet"].lower())
+    for t in alert.get("trades", []):
+        w = t.get("wallet", "")
+        if w:
+            wallets.add(w.lower())
+
+    if wallets:
+        profile_lines = []
+        for w in sorted(wallets)[:10]:  # cap to keep prompt reasonable
+            pnl = get_wallet_pnl_summary(w)
+            closed = pnl.get("closed_positions", 0)
+            if closed == 0:
+                profile_lines.append(f"  - {w[:8]}...{w[-6:]}: no resolved positions")
+                continue
+            wins = pnl.get("wins", 0)
+            losses = pnl.get("losses", 0)
+            win_rate = wins / closed
+            total_pnl = pnl.get("total_pnl") or 0
+            total_invested = pnl.get("total_invested") or 0
+            avg_win_price = pnl.get("avg_win_price")
+            line = (
+                f"  - {w[:8]}...{w[-6:]}: {win_rate:.0%} win rate "
+                f"({wins}W/{losses}L on {closed} resolved), "
+                f"P&L ${total_pnl:+,.0f} on ${total_invested:,.0f} invested"
+            )
+            if avg_win_price is not None:
+                line += f", avg win price {avg_win_price:.2f}"
+            profile_lines.append(line)
+
+        if profile_lines:
+            parts.append("\nWallet profiles:")
+            parts.extend(profile_lines)
 
     return "\n".join(parts)
 
