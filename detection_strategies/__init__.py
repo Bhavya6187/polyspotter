@@ -37,7 +37,7 @@ class Signal:
         """
         # Strategies whose signals are inherently per-wallet, not per-trade.
         # Within a (wallet, event) group these should collapse to one signal.
-        PER_WALLET_STRATEGIES = {"new_wallet_large_bet"}
+        PER_WALLET_STRATEGIES = {"new_wallet_large_bet", "timing_relative_resolution"}
         if self.strategy in PER_WALLET_STRATEGIES:
             return (self.strategy, "")
         return (self.strategy, self.headline)
