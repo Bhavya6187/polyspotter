@@ -29,9 +29,9 @@ class TestPreEventVolumeSpikeStrategy(unittest.TestCase):
     def test_spike_triggers_signal(self, mock_market, *mocks):
         mock_market.return_value = {"volume24hr": "100"}
         trades = [
-            self._make_trade(usd=5000, ts=1000),
-            self._make_trade(usd=5000, ts=1060),
-            self._make_trade(usd=5000, ts=1120),
+            self._make_trade(usd=10000, ts=1000),
+            self._make_trade(usd=10000, ts=1060),
+            self._make_trade(usd=10000, ts=1120),
         ]
         signals = self.strategy.analyze_all(trades)
         self.assertEqual(len(signals), 1)
