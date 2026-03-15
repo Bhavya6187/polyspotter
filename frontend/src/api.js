@@ -14,13 +14,14 @@ async function request(path, params = {}) {
   return res.json();
 }
 
-export function fetchAlerts({ page, perPage, minScore, strategy, wallet } = {}) {
+export function fetchAlerts({ page, perPage, minScore, strategy, wallet, category } = {}) {
   return request("/api/alerts", {
     page,
     per_page: perPage,
     min_score: minScore || undefined,
     strategy: strategy || undefined,
     wallet: wallet || undefined,
+    category: category || undefined,
   });
 }
 

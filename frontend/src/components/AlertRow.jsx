@@ -27,7 +27,7 @@ const usdFmt = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
 
-export default function AlertRow({ alert, isExpanded, onToggle }) {
+export default function AlertRow({ alert, isExpanded, onToggle, activeCategory, onCategoryClick }) {
   const isCluster = alert.alert_type === "cluster";
 
   return (
@@ -51,7 +51,18 @@ export default function AlertRow({ alert, isExpanded, onToggle }) {
       </td>
       <td className="px-4 py-3">
         {alert.category ? (
-          <span className="inline-block rounded-full bg-gray-700 px-2 py-0.5 text-xs font-medium text-gray-300">
+          <span
+            role="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCategoryClick(alert.category);
+            }}
+            className={`inline-block cursor-pointer rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
+              activeCategory === alert.category
+                ? "bg-blue-700 text-blue-100"
+                : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+            }`}
+          >
             {alert.category}
           </span>
         ) : (

@@ -220,6 +220,7 @@ def list_alerts(
     strategy: str | None = Query(None, description="Filter by strategy name"),
     wallet: str | None = Query(None, description="Filter by wallet address"),
     event_slug: str | None = Query(None, description="Filter by event slug"),
+    category: str | None = Query(None, description="Filter by market category"),
 ):
     """List alerts ordered by composite score, with optional filters."""
     offset = (page - 1) * per_page
@@ -233,6 +234,10 @@ def list_alerts(
     if event_slug:
         conditions.append("a.event_slug = %s")
         params.append(event_slug)
+
+    if category:
+        conditions.append("a.category = %s")
+        params.append(category)
 
     if strategy:
         conditions.append(

@@ -6,6 +6,8 @@ export default function AlertTable({
   alerts,
   expandedAlertId,
   onToggleAlert,
+  onFilterChange,
+  filters,
   loading,
 }) {
   if (loading) {
@@ -49,6 +51,13 @@ export default function AlertTable({
                   alert={alert}
                   isExpanded={isExpanded}
                   onToggle={() => onToggleAlert(id)}
+                  activeCategory={filters.category}
+                  onCategoryClick={(cat) =>
+                    onFilterChange({
+                      ...filters,
+                      category: filters.category === cat ? "" : cat,
+                    })
+                  }
                 />
                 {isExpanded && (
                   <AlertDetail alertId={id} wallet={alert.wallet} />

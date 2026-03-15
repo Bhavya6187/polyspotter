@@ -13,6 +13,7 @@ export default function App() {
     minScore: 0,
     strategy: "",
     wallet: "",
+    category: "",
   });
   const [expandedAlertId, setExpandedAlertId] = useState(null);
   const [strategies, setStrategies] = useState([]);
@@ -38,6 +39,7 @@ export default function App() {
       minScore: filters.minScore,
       strategy: filters.strategy,
       wallet: filters.wallet,
+      category: filters.category,
     })
       .then((data) => {
         setAlerts(data.alerts || data.items || []);
@@ -110,6 +112,8 @@ export default function App() {
           alerts={alerts}
           expandedAlertId={expandedAlertId}
           onToggleAlert={handleToggleAlert}
+          onFilterChange={handleFilterChange}
+          filters={filters}
           loading={loading}
         />
 

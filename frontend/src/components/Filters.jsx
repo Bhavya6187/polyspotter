@@ -68,6 +68,19 @@ export default function Filters({ strategies, filters, onFilterChange }) {
           className="w-56 rounded bg-gray-900 px-2 py-1 text-gray-100 outline-none focus:ring-1 focus:ring-gray-600"
         />
       </label>
+
+      {filters.category && (
+        <span className="flex items-center gap-1 rounded-full bg-blue-700 px-2.5 py-1 text-xs font-medium text-blue-100">
+          {filters.category}
+          <button
+            onClick={() => onFilterChange({ ...filters, category: "" })}
+            className="ml-0.5 text-blue-300 hover:text-white"
+            aria-label="Clear category filter"
+          >
+            &times;
+          </button>
+        </span>
+      )}
     </div>
   );
 }
