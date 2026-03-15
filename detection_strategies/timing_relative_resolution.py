@@ -34,11 +34,13 @@ from gamma_cache import get_market_by_condition, is_sport_market
 # ---------------------------------------------------------------------------
 CLOSE_MINUTES = 60  # default window for non-sport markets
 SPORT_CLOSE_MINUTES = 5  # tighter window for live sports markets
-SHORT_MARKET_HOURS = 2  # markets shorter than this are suppressed entirely
+SHORT_MARKET_HOURS = 1  # markets shorter than this are suppressed entirely
 REPEAT_TIMING_THRESHOLD = 3  # flag wallet as serial timer if >= N historical timing flags
 SPORT_REPEAT_TIMING_THRESHOLD = 10  # higher threshold for sports bettors
 SERIAL_TIMER_RATIO_CAP = 0.5  # if >50% of a wallet's flags are timing flags, it's a routine live bettor
 NON_SPORT_SEVERITY_BOOST = 1.5  # bonus severity for non-sport/non-live timing signals
+MIN_CLOSED_FOR_GATE = 5  # need this many closed positions before applying win-rate gate
+MIN_WIN_RATE = 0.60  # suppress wallets below this win rate (when enough history exists)
 
 # ---------------------------------------------------------------------------
 # Slug-based sport fallback (used when event tags aren't available)
@@ -155,11 +157,22 @@ class TimingRelativeResolutionStrategy(DetectionStrategy):
 
         wallet = trade.get("proxyWallet", "")
         usd = float(trade.get("_usd_value", 0))
+        pnl = None  # fetched lazily; reused by serial-timer check below
 
         # Record this timing flag for future pattern detection.
         if wallet:
             record_timing_flag(wallet, cid, minutes_to_resolution, usd, trade_ts,
                                market_duration_hours=market_duration_hours)
+
+        # Win-rate gate: suppress wallets with enough history and a losing
+        # record — they're just late bettors, not informed.  New wallets
+        # with no closed positions still pass (benefit of the doubt).
+        if wallet:
+            pnl = get_wallet_pnl_summary(wallet)
+            if pnl["closed_positions"] >= MIN_CLOSED_FOR_GATE:
+                win_pct = pnl["wins"] / pnl["closed_positions"]
+                if win_pct < MIN_WIN_RATE:
+                    return None
 
         # Continuous severity: higher as trade gets closer to resolution
         # 5.0 at 0 min, ~4.0 at 1 min, ~2.5 at 10 min, ~1.0 at 60 min
@@ -189,7 +202,8 @@ class TimingRelativeResolutionStrategy(DetectionStrategy):
             # Check ratio: if most of a wallet's timing flags are relative to
             # their total positions, they're a routine live bettor, not a
             # selective timer. Only escalate if the ratio is below the cap.
-            pnl = get_wallet_pnl_summary(wallet)
+            if not pnl:
+                pnl = get_wallet_pnl_summary(wallet)
             total_positions = pnl["total_positions"]
             timing_ratio = (
                 timing_stats["total_flags"] / total_positions
