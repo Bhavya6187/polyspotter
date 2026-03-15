@@ -91,11 +91,15 @@ export default function AlertDetail({ alertId, wallet, alertType }) {
             >
               {alertType ?? "composite"}
             </span>
-            {wallet && (
+            {alertType === "cluster" && trades.length > 0 ? (
+              <span className="text-sm text-gray-400">
+                {new Set(trades.map((t) => t.wallet)).size} wallets
+              </span>
+            ) : wallet ? (
               <span className="font-mono text-sm text-gray-400">
                 {truncateAddress(wallet)}
               </span>
-            )}
+            ) : null}
           </div>
 
           {/* LLM Summary */}
