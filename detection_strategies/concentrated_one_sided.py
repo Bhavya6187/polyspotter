@@ -21,6 +21,7 @@ from collections import defaultdict
 
 from detection_strategies import DetectionStrategy, Signal
 from db import get_cached_funder
+from gamma_cache import get_market_by_condition
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -28,6 +29,8 @@ from db import get_cached_funder
 MIN_WALLETS = 3  # minimum distinct wallets to flag
 MIN_CLUSTER_USD = 5000  # minimum total USD in the cluster to flag
 MAX_WINDOW_SECONDS = 300  # trades must fall within this window
+FAVORITE_PRICE_THRESHOLD = 0.70  # suppress clusters buying above this price...
+FAVORITE_VOLUME_24H = 50_000  # ...on markets with 24h volume above this
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +96,19 @@ class ConcentratedOneSidedStrategy(DetectionStrategy):
             total_usd = sum(float(t.get("_usd_value", 0)) for t in cluster_trades)
             if total_usd < MIN_CLUSTER_USD:
                 continue
+
+            # Suppress clusters buying heavy favorites on high-volume markets —
+            # lots of people backing the consensus pick isn't a signal.
+            if side == "BUY":
+                avg_price = (
+                    sum(float(t.get("price", 0)) for t in cluster_trades)
+                    / len(cluster_trades)
+                )
+                if avg_price > FAVORITE_PRICE_THRESHOLD:
+                    market = get_market_by_condition(cid)
+                    vol_24h = float(market.get("volume24hr", 0) or 0) if market else 0
+                    if vol_24h >= FAVORITE_VOLUME_24H:
+                        continue
 
             sample = cluster_trades[0]
             tx_hashes = [t.get("transactionHash", "") for t in cluster_trades if t.get("transactionHash")]

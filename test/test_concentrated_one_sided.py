@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from detection_strategies.concentrated_one_sided import ConcentratedOneSidedStrategy
 
@@ -7,13 +8,14 @@ class TestConcentratedOneSidedStrategy(unittest.TestCase):
     def setUp(self):
         self.strategy = ConcentratedOneSidedStrategy()
 
-    def _make_trade(self, wallet, cid="cond_1", outcome="Yes", side="BUY", usd=2000):
+    def _make_trade(self, wallet, cid="cond_1", outcome="Yes", side="BUY", usd=2000, price=0.50):
         return {
             "proxyWallet": wallet,
             "conditionId": cid,
             "outcome": outcome,
             "side": side,
             "_usd_value": usd,
+            "price": price,
             "transactionHash": f"0xtx_{wallet}",
         }
 
@@ -90,6 +92,53 @@ class TestConcentratedOneSidedStrategy(unittest.TestCase):
         ]
         signals = self.strategy.analyze_all(trades)
         self.assertEqual(len(signals[0].trade_hashes), 3)
+
+
+    @patch("detection_strategies.concentrated_one_sided.get_market_by_condition")
+    def test_heavy_favorite_high_volume_suppressed(self, mock_market):
+        """Buying a heavy favorite on a high-volume market should be suppressed."""
+        mock_market.return_value = {"volume24hr": 100_000}
+        trades = [
+            self._make_trade("wallet_1", usd=2000, price=0.77),
+            self._make_trade("wallet_2", usd=2000, price=0.78),
+            self._make_trade("wallet_3", usd=2000, price=0.75),
+        ]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 0)
+
+    @patch("detection_strategies.concentrated_one_sided.get_market_by_condition")
+    def test_heavy_favorite_low_volume_not_suppressed(self, mock_market):
+        """Buying a heavy favorite on a LOW-volume market is still interesting."""
+        mock_market.return_value = {"volume24hr": 10_000}
+        trades = [
+            self._make_trade("wallet_1", usd=2000, price=0.77),
+            self._make_trade("wallet_2", usd=2000, price=0.78),
+            self._make_trade("wallet_3", usd=2000, price=0.75),
+        ]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 1)
+
+    def test_underdog_high_volume_not_suppressed(self):
+        """Buying an underdog (low price) is always interesting regardless of volume."""
+        trades = [
+            self._make_trade("wallet_1", usd=2000, price=0.25),
+            self._make_trade("wallet_2", usd=2000, price=0.27),
+            self._make_trade("wallet_3", usd=2000, price=0.23),
+        ]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 1)
+
+    @patch("detection_strategies.concentrated_one_sided.get_market_by_condition")
+    def test_sell_side_not_suppressed_by_favorite_filter(self, mock_market):
+        """SELL-side clusters aren't affected by the favorite suppression."""
+        mock_market.return_value = {"volume24hr": 100_000}
+        trades = [
+            self._make_trade("wallet_1", usd=2000, price=0.80, side="SELL"),
+            self._make_trade("wallet_2", usd=2000, price=0.80, side="SELL"),
+            self._make_trade("wallet_3", usd=2000, price=0.80, side="SELL"),
+        ]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 1)
 
 
 if __name__ == "__main__":

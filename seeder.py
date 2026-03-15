@@ -197,6 +197,21 @@ def build_alerts_payload(
             if w:
                 wallets_seen.add(w)
 
+    # --- Build a set of (wallet, event) combos already in cluster alerts ---
+    # so we can skip individual alerts that only add correlated_cross_market
+    # noise on top of an existing cluster.
+    clustered_wallet_events: set[tuple[str, str]] = set()
+    for cid, market_sigs in per_market.items():
+        cluster_sigs = [s for s in market_sigs if s.strategy == "concentrated_one_sided"]
+        for cs in cluster_sigs:
+            for tx in cs.trade_hashes:
+                t = tx_to_trade.get(tx)
+                if t:
+                    w = t.get("proxyWallet", "").lower()
+                    evt = t.get("eventSlug", "")
+                    if w and evt:
+                        clustered_wallet_events.add((w, evt))
+
     # --- Individual composites (grouped by wallet + event) ---
     wallet_event_groups: dict[tuple[str, str], list[tuple[str, dict, list[Signal]]]] = defaultdict(list)
     markets_with_per_trade: set[str] = set()
@@ -223,6 +238,13 @@ def build_alerts_payload(
                     seen_sigs[key] = s
         deduped_sigs = list(seen_sigs.values())
         total_severity = sum(s.severity for s in deduped_sigs)
+
+        # Skip if this wallet is already in a cluster alert for the same event
+        # and the only signals here are correlated_cross_market — no new info.
+        if (wallet.lower(), evt) in clustered_wallet_events:
+            strategies_here = {s.strategy for s in deduped_sigs}
+            if strategies_here == {"correlated_cross_market"}:
+                continue
 
         all_entry_trades = [e[1] for e in entries]
         total_usd = sum(float(t.get("_usd_value", 0)) for t in all_entry_trades)
