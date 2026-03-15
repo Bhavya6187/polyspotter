@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 
 from detection_strategies import Signal
 from db import get_wallet_pnl_summary, get_flagged_wallet_stats
+from gamma_cache import get_market_by_condition
 
 load_dotenv()
 
@@ -82,6 +83,14 @@ def _trade_to_dict(trade: dict) -> dict:
         "price": float(trade.get("price", 0)),
         "trade_timestamp": datetime.fromtimestamp(ts, tz=timezone.utc).isoformat() if ts else None,
     }
+
+
+def _resolve_category(condition_id: str | None) -> str | None:
+    """Look up market category from Gamma API cache."""
+    if not condition_id:
+        return None
+    mkt = get_market_by_condition(condition_id)
+    return mkt.get("category") if mkt else None
 
 
 def _signal_to_dict(sig: Signal) -> dict:
@@ -163,6 +172,7 @@ def build_alerts_payload(
         alerts.append({
             "alert_type": "cluster",
             "composite_score": max_score,
+            "category": _resolve_category(cid),
             "market_title": sample.get("title"),
             "condition_id": cid,
             "event_slug": event_slug,
@@ -223,6 +233,7 @@ def build_alerts_payload(
         alerts.append({
             "alert_type": "composite",
             "composite_score": total_severity,
+            "category": _resolve_category(cid),
             "market_title": primary_trade.get("title"),
             "condition_id": cid,
             "event_slug": evt,
@@ -252,6 +263,7 @@ def build_alerts_payload(
         alerts.append({
             "alert_type": "composite",
             "composite_score": total_severity,
+            "category": _resolve_category(cid),
             "market_title": trade.get("title"),
             "condition_id": cid,
             "event_slug": event_slug,

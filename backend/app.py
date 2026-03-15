@@ -80,12 +80,13 @@ def ingest(payload: IngestPayload):
             try:
                 cur.execute(
                     """INSERT INTO alerts
-                       (alert_type, composite_score, market_title, condition_id,
+                       (alert_type, composite_score, category, market_title, condition_id,
                         event_slug, market_url, wallet, total_usd, trade_count,
                         cluster_headline, llm_summary, scanned_at, dedup_key)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        ON CONFLICT (dedup_key) DO UPDATE SET
                         composite_score = EXCLUDED.composite_score,
+                        category = EXCLUDED.category,
                         total_usd = EXCLUDED.total_usd,
                         trade_count = EXCLUDED.trade_count,
                         cluster_headline = EXCLUDED.cluster_headline,
@@ -95,6 +96,7 @@ def ingest(payload: IngestPayload):
                     (
                         alert.alert_type,
                         alert.composite_score,
+                        alert.category,
                         alert.market_title,
                         alert.condition_id,
                         alert.event_slug,
