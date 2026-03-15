@@ -127,10 +127,12 @@ def _fetch_positions_page(wallet: str, endpoint: str, position_type: str,
 # ---------------------------------------------------------------------------
 # Resolution updates
 # ---------------------------------------------------------------------------
-_RESOLUTION_BATCH_SIZE = 25  # condition_ids per Gamma API request
+_RESOLUTION_BATCH_SIZE = 100  # condition_ids per Gamma API request
 
 # Wallets whose resolutions have already been updated this run
 _resolutions_updated: set[str] = set()
+# Total unique wallets expected this run (set by polybot.py before processing)
+_total_unique_wallets: int = 0
 # Condition IDs already checked for resolution this run (avoids re-checking
 # the same markets when multiple wallets share unresolved conditions)
 _conditions_checked: set[str] = set()
@@ -233,7 +235,8 @@ class WinRateTrackingStrategy(DetectionStrategy):
         # Lazily resolve tracked bets for this wallet (once per wallet per run)
         if wallet.lower() not in _resolutions_updated:
             _resolutions_updated.add(wallet.lower())
-            print(f"  [win_rate_tracking] Resolving wallet {len(_resolutions_updated)} ({wallet[:8]}...)", flush=True)
+            total_str = f"/{_total_unique_wallets}" if _total_unique_wallets else ""
+            print(f"  [win_rate_tracking] Resolving wallet {len(_resolutions_updated)}{total_str} ({wallet[:8]}...)", flush=True)
             _update_resolutions(wallet)
 
         # Only emit one win_rate signal per wallet per run

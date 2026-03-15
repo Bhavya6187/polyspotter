@@ -46,6 +46,7 @@ ETHERSCAN_API_KEY = os.environ.get("ETHERSCAN_API_KEY", "")
 POLYGON_CHAIN_ID = 137
 FUNDER_LOOKUP_DELAY = 0.25  # seconds between Etherscan calls
 MIN_SHARED_WALLETS = 2  # flag when >= N wallets share the same funder
+MAX_FUNDER_CHILDREN = 20  # skip funders with >= N children (likely exchange hot wallets)
 
 # In-memory cache for the current run (avoids repeated DB reads within a run)
 _funder_cache: dict[str, str | None] = {}
@@ -164,6 +165,11 @@ class WalletClusteringStrategy(DetectionStrategy):
 
         # First: flag clusters found in the current window
         for funder, wallets in funder_to_wallets.items():
+            # Skip likely exchange hot wallets
+            all_known = get_wallets_by_funder(funder)
+            if len(all_known) >= MAX_FUNDER_CHILDREN:
+                continue
+
             if len(wallets) < MIN_SHARED_WALLETS:
                 # Check if this funder has historical wallets that push it
                 # over the threshold
@@ -217,6 +223,8 @@ class WalletClusteringStrategy(DetectionStrategy):
         # linked funder that wasn't already caught above
         for funder, historical_wallets in known_sybils.items():
             if funder in seen_funders:
+                continue
+            if len(historical_wallets) >= MAX_FUNDER_CHILDREN:
                 continue
             current_wallets = [w for w in wallet_trades if w in set(historical_wallets)]
             if not current_wallets:

@@ -588,6 +588,8 @@ def run():
     all_signals: list[Signal] = []
 
     # -- per-trade analysis ----------------------------------------------------
+    from detection_strategies import win_rate_tracking as _wrt
+    _wrt._total_unique_wallets = len({t.get("proxyWallet", "").lower() for t in trades} - {""})
     per_trade_signal_count = 0
     for i, trade in enumerate(trades, 1):
         usd = trade.get("_usd_value", 0)
