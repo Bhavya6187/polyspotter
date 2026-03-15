@@ -4,8 +4,14 @@ betting the same direction on a market.
 
 A single large bet is one thing; several different wallets each placing
 large bets on the same outcome within minutes is a strong directional
-signal.  Trades are grouped by (conditionId, outcome, side) and flagged
-when the cluster exceeds configured thresholds.
+signal.  Trades are grouped by effective direction and flagged when the
+cluster exceeds configured thresholds.
+
+For binary markets (exactly 2 outcomes per conditionId), opposing trades
+are collapsed into the same directional cluster:
+  SELL outcome_A  ≡  BUY outcome_B   (both are pro-B / anti-A)
+This prevents double-counting the same directional flow as separate
+signals and inflating composite scores.
 """
 
 from __future__ import annotations
@@ -40,9 +46,25 @@ class ConcentratedOneSidedStrategy(DetectionStrategy):
         return None
 
     def analyze_all(self, trades: list[dict]) -> list[Signal]:
-        """Group trades by (conditionId, outcome, side) and flag clusters."""
+        """Group trades by effective direction and flag clusters.
+
+        For binary markets, SELL on outcome A is merged with BUY on
+        outcome B since they express the same directional view."""
         if not trades:
             return []
+
+        # Detect binary markets: conditionIds with exactly 2 outcomes
+        cid_outcomes: dict[str, set[str]] = defaultdict(set)
+        for t in trades:
+            cid = t.get("conditionId", "")
+            outcome = t.get("outcome", "")
+            if cid and outcome:
+                cid_outcomes[cid].add(outcome)
+
+        binary_cids: dict[str, tuple[str, str]] = {}
+        for cid, outcomes in cid_outcomes.items():
+            if len(outcomes) == 2:
+                binary_cids[cid] = tuple(sorted(outcomes))
 
         clusters: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
 
@@ -50,7 +72,15 @@ class ConcentratedOneSidedStrategy(DetectionStrategy):
             cid = t.get("conditionId", "")
             outcome = t.get("outcome", "")
             side = t.get("side", "")
-            if cid and outcome and side:
+            if not (cid and outcome and side):
+                continue
+
+            if cid in binary_cids and side == "SELL":
+                # Selling outcome A = buying outcome B in a binary market
+                o1, o2 = binary_cids[cid]
+                effective_outcome = o2 if outcome == o1 else o1
+                clusters[(cid, effective_outcome, "BUY")].append(t)
+            else:
                 clusters[(cid, outcome, side)].append(t)
 
         signals: list[Signal] = []
