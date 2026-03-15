@@ -14,12 +14,11 @@ async function request(path, params = {}) {
   return res.json();
 }
 
-export function fetchAlerts({ page, perPage, minScore, strategy, wallet, category } = {}) {
+export function fetchAlerts({ page, perPage, minScore, wallet, category } = {}) {
   return request("/api/alerts", {
     page,
     per_page: perPage,
     min_score: minScore || undefined,
-    strategy: strategy || undefined,
     wallet: wallet || undefined,
     category: category || undefined,
   });
@@ -35,6 +34,10 @@ export function fetchWalletProfile(walletAddress) {
 
 export function fetchStrategies() {
   return request("/api/strategies");
+}
+
+export function fetchCategories() {
+  return request("/api/categories");
 }
 
 export function fetchHealth() {

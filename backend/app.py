@@ -326,6 +326,21 @@ def list_strategies():
         return cur.fetchall()
 
 
+@app.get("/api/categories")
+def list_categories():
+    """List all categories that have alerts, with counts."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT category, COUNT(*) as alert_count
+               FROM alerts
+               WHERE category IS NOT NULL AND category != ''
+               GROUP BY category
+               ORDER BY alert_count DESC"""
+        )
+        return cur.fetchall()
+
+
 @app.get("/api/health")
 def health():
     """Health check."""

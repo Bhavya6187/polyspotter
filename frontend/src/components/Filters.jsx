@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-export default function Filters({ strategies, filters, onFilterChange }) {
+export default function Filters({ categories, filters, onFilterChange }) {
   const [localMinScore, setLocalMinScore] = useState(filters.minScore);
   const [localWallet, setLocalWallet] = useState(filters.wallet);
   const debounceRef = useRef(null);
@@ -36,18 +36,18 @@ export default function Filters({ strategies, filters, onFilterChange }) {
       </label>
 
       <label className="flex items-center gap-2 text-sm text-gray-400">
-        Strategy
+        Category
         <select
-          value={filters.strategy}
-          onChange={(e) => onFilterChange({ ...filters, strategy: e.target.value })}
+          value={filters.category}
+          onChange={(e) => onFilterChange({ ...filters, category: e.target.value })}
           className="rounded bg-gray-900 px-2 py-1 text-gray-100 outline-none focus:ring-1 focus:ring-gray-600"
         >
-          <option value="">All Strategies</option>
-          {strategies.map((s) => {
-            const name = typeof s === "string" ? s : s.strategy;
+          <option value="">All Categories</option>
+          {categories.map((c) => {
+            const name = typeof c === "string" ? c : c.category;
             return (
               <option key={name} value={name}>
-                {name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                {name}
               </option>
             );
           })}
@@ -68,19 +68,6 @@ export default function Filters({ strategies, filters, onFilterChange }) {
           className="w-56 rounded bg-gray-900 px-2 py-1 text-gray-100 outline-none focus:ring-1 focus:ring-gray-600"
         />
       </label>
-
-      {filters.category && (
-        <span className="flex items-center gap-1 rounded-full bg-blue-700 px-2.5 py-1 text-xs font-medium text-blue-100">
-          {filters.category}
-          <button
-            onClick={() => onFilterChange({ ...filters, category: "" })}
-            className="ml-0.5 text-blue-300 hover:text-white"
-            aria-label="Clear category filter"
-          >
-            &times;
-          </button>
-        </span>
-      )}
     </div>
   );
 }
