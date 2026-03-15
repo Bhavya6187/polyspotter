@@ -169,6 +169,18 @@ class NewWalletLargeBetStrategy(DetectionStrategy):
 
         if is_new_wallet(created_at):
             age = wallet_age_str(created_at)
+
+            # Skip wallets that already have many positions — they're
+            # active traders, not genuinely "new" despite recent creation
+            pnl = get_wallet_pnl_summary(wallet)
+            if pnl["total_positions"] >= 10:
+                if config.VERBOSE:
+                    print(
+                        f"    [skip] Wallet is {age} old but has "
+                        f"{pnl['total_positions']} positions — not genuinely new"
+                    )
+                return None
+
             if config.VERBOSE:
                 print(f"    >>> ALERT: New wallet detected!")
 
@@ -213,10 +225,8 @@ class NewWalletLargeBetStrategy(DetectionStrategy):
                     )
 
             # Cross-reference with P&L data: a "new" wallet that already
-            # has many positions or high profitability is very notable
-            pnl = get_wallet_pnl_summary(wallet)
-            if pnl["total_positions"] > 5:
-                severity = min(7.0, severity + 1.0)
+            # has some positions or profitability is notable
+            if pnl["total_positions"] > 0:
                 headline += f", {pnl['total_positions']} positions already"
             if pnl["closed_positions"] >= 3 and pnl["total_pnl"] > 0:
                 severity = min(7.0, severity + 0.5)

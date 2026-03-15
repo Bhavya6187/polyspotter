@@ -31,6 +31,7 @@ class TestPreEventVolumeSpikeStrategy(unittest.TestCase):
         trades = [
             self._make_trade(usd=5000, ts=1000),
             self._make_trade(usd=5000, ts=1060),
+            self._make_trade(usd=5000, ts=1120),
         ]
         signals = self.strategy.analyze_all(trades)
         self.assertEqual(len(signals), 1)
