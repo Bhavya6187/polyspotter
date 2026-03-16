@@ -187,7 +187,7 @@ def _update_resolutions(wallet: str | None = None) -> int:
                 prices = json.loads(outcome_prices_str) if isinstance(outcome_prices_str, str) else outcome_prices_str
                 outcomes = json.loads(outcomes_str) if isinstance(outcomes_str, str) else outcomes_str
                 if prices and outcomes and len(prices) == len(outcomes):
-                    max_idx = prices.index(max(prices))
+                    max_idx = max(range(len(prices)), key=lambda i: float(prices[i]))
                     if float(prices[max_idx]) >= 0.99:
                         winning_outcome_name = outcomes[max_idx]
             except (json.JSONDecodeError, ValueError, IndexError):
@@ -276,10 +276,10 @@ class WinRateTrackingStrategy(DetectionStrategy):
             return None
 
         # --- Odds-adjusted edge calculation ---
-        # avg_closed_price approximates implied win probability.
-        # A 100% win rate at avg_price=0.92 is unremarkable (expected 92%).
-        # A 100% win rate at avg_price=0.40 is extraordinary (edge = 60%).
-        avg_price = pnl.get("avg_win_price", 0) or pnl.get("avg_closed_price", 0)
+        # Use avg_closed_price (all resolved bets, not just wins) as the
+        # implied win probability.  This avoids the bias of avg_win_price
+        # which ignores losing bets at different price points.
+        avg_price = pnl.get("avg_closed_price", 0)
         implied_win_rate = avg_price if 0 < avg_price < 1 else 0
 
         if implied_win_rate > 0:
@@ -311,12 +311,10 @@ class WinRateTrackingStrategy(DetectionStrategy):
         else:
             headline = f"{win_rate:.0%} win rate ({source})"
 
-        # Boost severity if P&L data confirms profitability
-        if pnl["closed_positions"] >= MIN_RESOLVED_BETS and pnl["total_pnl"] > 0:
-            profit_ratio = pnl["total_pnl"] / pnl["total_invested"] if pnl["total_invested"] > 0 else 0
-            if profit_ratio > 0.5:
-                severity = min(6.0, severity + 1.0)
-                headline += f", ${pnl['total_pnl']:+,.0f} P&L ({profit_ratio:.0%} ROI)"
+        # Boost severity for large positive edge
+        if edge >= 0.30 and pnl["closed_positions"] >= MIN_RESOLVED_BETS:
+            severity = min(6.0, severity + 1.0)
+            headline += f", {pnl['closed_positions']} resolved positions"
 
         _win_rate_signaled.add(wallet.lower())
         return Signal(

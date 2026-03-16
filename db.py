@@ -275,7 +275,7 @@ def get_unresolved_condition_ids(wallet: str | None = None) -> list[str]:
     if wallet:
         rows = conn.execute(
             "SELECT DISTINCT condition_id FROM tracked_bets WHERE resolved = 0 AND wallet = ?",
-            (wallet,),
+            (wallet.lower(),),
         ).fetchall()
     else:
         rows = conn.execute("SELECT DISTINCT condition_id FROM tracked_bets WHERE resolved = 0").fetchall()
@@ -341,14 +341,20 @@ def get_wallet_stats(wallet: str) -> dict:
 # ===========================================================================
 
 
-def get_cached_funder(wallet: str) -> str | None:
-    """Look up a cached funder for a wallet. Returns None if not cached."""
+def get_cached_funder(wallet: str) -> tuple[bool, str | None]:
+    """Look up a cached funder for a wallet.
+
+    Returns (True, funder) if the wallet is in the cache (funder may be None
+    meaning 'looked up but no funder found'), or (False, None) if not cached.
+    """
     conn = get_db()
     row = conn.execute(
         "SELECT funder FROM wallet_funders WHERE wallet = ?",
         (wallet.lower(),),
     ).fetchone()
-    return row[0] if row else None
+    if row is None:
+        return (False, None)
+    return (True, row[0])
 
 
 def save_funder(wallet: str, funder: str | None) -> None:
@@ -595,8 +601,8 @@ def get_volume_history(condition_id: str, limit: int = 100) -> list[tuple[float,
     return [(r[0], r[1]) for r in rows]
 
 
-def get_average_volume(condition_id: str) -> float | None:
-    """Return the average historical 24h volume for a market, or None if no history."""
+def get_average_volume(condition_id: str) -> tuple[float, int] | None:
+    """Return (avg_volume, snapshot_count) for a market, or None if no history."""
     conn = get_db()
     row = conn.execute(
         "SELECT AVG(volume_24h), COUNT(*) FROM market_volume_snapshots WHERE condition_id = ?",
@@ -604,7 +610,7 @@ def get_average_volume(condition_id: str) -> float | None:
     ).fetchone()
     if not row or row[1] == 0:
         return None
-    return row[0]
+    return (row[0], row[1])
 
 
 # ===========================================================================
@@ -810,7 +816,8 @@ def get_wallet_pnl_summary(wallet: str) -> dict:
                SUM(CASE WHEN position_type='closed' AND cur_price <= 0.01 THEN 1 ELSE 0 END) as losses,
                SUM(realized_pnl) as total_pnl,
                SUM(total_bought) as total_invested,
-               AVG(CASE WHEN position_type='closed' THEN avg_price END) as avg_closed_price,
+               AVG(CASE WHEN position_type='closed' AND (cur_price >= 0.99 OR cur_price <= 0.01)
+                        THEN avg_price END) as avg_resolved_price,
                AVG(CASE WHEN position_type='closed' AND cur_price >= 0.99 THEN avg_price END) as avg_win_price,
                AVG(CASE WHEN position_type='closed' AND cur_price <= 0.01 THEN avg_price END) as avg_loss_price
            FROM wallet_pnl WHERE wallet = ?""",
@@ -818,14 +825,31 @@ def get_wallet_pnl_summary(wallet: str) -> dict:
     ).fetchone()
     wins = row[2] or 0
     losses = row[3] or 0
+    total_pnl = row[4] or 0.0
+    total_invested = row[5] or 0.0
+    avg_resolved_price = row[6] or 0.0
+    # Edge = actual win rate minus implied win rate (avg price paid).
+    # This is our primary edge metric because:
+    # - realizedPnl from the API is unreliable (can be positive on losing
+    #   positions due to partial sells before resolution, and totalBought
+    #   accumulates all buys including shares later sold)
+    # - avg_resolved_price is averaged only over the same resolved positions
+    #   used for win_rate (cur_price >= 0.99 or <= 0.01), so the denominators
+    #   match and the edge calculation is mathematically correct:
+    #   edge = (1/N) * Σ(outcome_i - price_i) = win_rate - avg_price
+    closed = wins + losses
+    win_rate = wins / closed if closed > 0 else 0.0
+    implied_prob = avg_resolved_price if 0 < avg_resolved_price < 1 else 0.5
+    edge = win_rate - implied_prob
     return {
         "total_positions": row[0] or 0,
-        "closed_positions": wins + losses,  # only resolved positions (cur_price ~0 or ~1)
+        "closed_positions": closed,  # only resolved positions (cur_price ~0 or ~1)
         "wins": wins,
         "losses": losses,
-        "total_pnl": row[4] or 0.0,
-        "total_invested": row[5] or 0.0,
-        "avg_closed_price": row[6] or 0.0,
+        "total_pnl": total_pnl,
+        "total_invested": total_invested,
+        "edge": edge,
+        "avg_closed_price": avg_resolved_price,
         "avg_win_price": row[7] or 0.0,
         "avg_loss_price": row[8] or 0.0,
     }

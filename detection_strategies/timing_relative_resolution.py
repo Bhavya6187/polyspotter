@@ -32,6 +32,7 @@ from gamma_cache import get_market_by_condition, is_sport_market
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
+MIN_BET_USD = 1000  # ignore trades below this size — small near-resolution trades are noise
 CLOSE_MINUTES = 60  # default window for non-sport markets
 SPORT_CLOSE_MINUTES = 5  # tighter window for live sports markets
 SHORT_MARKET_HOURS = 1  # markets shorter than this are suppressed entirely
@@ -39,8 +40,8 @@ REPEAT_TIMING_THRESHOLD = 3  # flag wallet as serial timer if >= N historical ti
 SPORT_REPEAT_TIMING_THRESHOLD = 10  # higher threshold for sports bettors
 SERIAL_TIMER_RATIO_CAP = 0.5  # if >50% of a wallet's flags are timing flags, it's a routine live bettor
 NON_SPORT_SEVERITY_BOOST = 1.5  # bonus severity for non-sport/non-live timing signals
-MIN_CLOSED_FOR_GATE = 5  # need this many closed positions before applying win-rate gate
-MIN_WIN_RATE = 0.60  # suppress wallets below this win rate (when enough history exists)
+MIN_CLOSED_FOR_GATE = 5  # need this many closed positions before applying edge gate
+MIN_EDGE_GATE = -0.10  # suppress wallets with edge worse than -10% (when enough history exists)
 
 # ---------------------------------------------------------------------------
 # Slug-based sport fallback (used when event tags aren't available)
@@ -103,7 +104,7 @@ def _parse_datetime(s: str | None) -> datetime | None:
 class TimingRelativeResolutionStrategy(DetectionStrategy):
     name = "timing_relative_resolution"
     description = (
-        f"Flags large bets placed within {CLOSE_MINUTES} minutes of a "
+        f"Flags bets >= ${MIN_BET_USD:,} placed within {CLOSE_MINUTES} minutes of a "
         f"market's expected resolution time (or {SPORT_CLOSE_MINUTES} min "
         f"for live sports). Tracks wallets that repeatedly bet near "
         f"resolution across multiple markets."
@@ -159,19 +160,24 @@ class TimingRelativeResolutionStrategy(DetectionStrategy):
         usd = float(trade.get("_usd_value", 0))
         pnl = None  # fetched lazily; reused by serial-timer check below
 
+        if usd < MIN_BET_USD:
+            return None
+
         # Record this timing flag for future pattern detection.
         if wallet:
             record_timing_flag(wallet, cid, minutes_to_resolution, usd, trade_ts,
                                market_duration_hours=market_duration_hours)
 
-        # Win-rate gate: suppress wallets with enough history and a losing
-        # record — they're just late bettors, not informed.  New wallets
-        # with no closed positions still pass (benefit of the doubt).
+        # Edge gate: suppress wallets with enough history and negative edge
+        # (win rate below implied odds) — they're just late bettors, not
+        # informed.  Raw win rate is misleading: 65% wins on 90-cent
+        # favorites is negative edge.  New wallets with no closed positions
+        # still pass (benefit of the doubt).
         if wallet:
             pnl = get_wallet_pnl_summary(wallet)
             if pnl["closed_positions"] >= MIN_CLOSED_FOR_GATE:
-                win_pct = pnl["wins"] / pnl["closed_positions"]
-                if win_pct < MIN_WIN_RATE:
+                edge = pnl.get("edge", 0.0)
+                if edge < MIN_EDGE_GATE:
                     return None
 
         # Continuous severity: higher as trade gets closer to resolution
@@ -213,15 +219,11 @@ class TimingRelativeResolutionStrategy(DetectionStrategy):
             is_routine_bettor = timing_ratio > SERIAL_TIMER_RATIO_CAP
 
             if timing_stats["total_flags"] >= threshold and not is_routine_bettor:
-                # Only escalate serial timers who are actually winning.
-                # A serial timer with a sub-75% win rate is just a live bettor,
-                # not someone with a real-time information edge.
-                win_pct = (
-                    pnl["wins"] / pnl["closed_positions"]
-                    if pnl["closed_positions"] > 0
-                    else 0.0
-                )
-                has_edge = pnl["closed_positions"] >= 3 and win_pct >= 0.65
+                # Only escalate serial timers with genuine edge.
+                # Raw win rate is misleading — a 70% win rate on heavy
+                # favorites is negative edge.
+                wallet_edge = pnl.get("edge", 0.0)
+                has_edge = pnl["closed_positions"] >= 3 and wallet_edge > 0
 
                 if has_edge:
                     severity = min(7.0, severity + 1.5)
@@ -234,7 +236,7 @@ class TimingRelativeResolutionStrategy(DetectionStrategy):
                     # Extra boost for profitable serial timers
                     if pnl["total_pnl"] > 0:
                         severity = min(8.0, severity + 1.0)
-                        headline += f" + PROFITABLE: {win_pct:.0%} wins, ${pnl['total_pnl']:+,.0f} P&L"
+                        headline += f" + EDGE: +{wallet_edge:.0%}, ${pnl['total_pnl']:+,.0f} P&L"
 
         return Signal(
             strategy=self.name,

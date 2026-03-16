@@ -91,7 +91,8 @@ class LowActivityLargeBetStrategy(DetectionStrategy):
         if is_large_relative:
             parts.append(f"{ratio_str} of 24h vol")
 
-        # Severity scales with bet/volume ratio, capped at 3.0
+        # Severity scales with bet/volume ratio, capped at 3.0 base
+        # (up to 4.0 with orderbook boosts for thin book / wide spread)
         if vol_24h > 0:
             severity = min(3.0, (usd / vol_24h) * 0.5)
         else:

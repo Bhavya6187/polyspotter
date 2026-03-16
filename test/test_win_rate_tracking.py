@@ -6,6 +6,13 @@ from db import (
     record_tracked_bet,
     get_wallet_stats,
 )
+from detection_strategies.win_rate_tracking import (
+    WinRateTrackingStrategy,
+    _pnl_fetched,
+    _win_rate_signaled,
+    _resolutions_updated,
+    _conditions_checked,
+)
 
 
 class TestWinRateTrackingHelpers(unittest.TestCase):
@@ -184,13 +191,13 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
                 position_type TEXT, recorded_at TEXT, api_timestamp INTEGER
             )
         """)
-        # 1 win, 3 losses -> 25% win rate
+        # 1 win, 3 losses -> 25% win rate (only 4 resolved, below MIN_RESOLVED_BETS)
         conn.execute("""
             INSERT INTO tracked_bets
             (wallet, condition_id, outcome, side, usd_value, trade_timestamp, recorded_at, resolved, won)
             VALUES ('0xwallet1', 'c1', 'Yes', 'BUY', 5000, 1700000000, '2024-01-01', 1, 1)
         """)
-        for i in range(3):
+        for i in range(9):
             conn.execute(
                 """
                 INSERT INTO tracked_bets
@@ -274,6 +281,269 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
         }
         result = strategy.check_trade(trade)
         self.assertIsNone(result)
+
+
+    def setUp(self):
+        _pnl_fetched.clear()
+        _win_rate_signaled.clear()
+        _resolutions_updated.clear()
+        _conditions_checked.clear()
+
+    def tearDown(self):
+        _pnl_fetched.clear()
+        _win_rate_signaled.clear()
+        _resolutions_updated.clear()
+        _conditions_checked.clear()
+
+    def _make_conn(self):
+        """Create an in-memory SQLite connection with tracked_bets and wallet_pnl tables."""
+        conn = sqlite3.connect(":memory:")
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("""
+            CREATE TABLE tracked_bets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                wallet TEXT NOT NULL,
+                condition_id TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                side TEXT NOT NULL,
+                usd_value REAL NOT NULL,
+                trade_timestamp REAL NOT NULL,
+                recorded_at TEXT NOT NULL,
+                resolved INTEGER DEFAULT 0,
+                won INTEGER DEFAULT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX idx_tracked_wallet ON tracked_bets(wallet)")
+        conn.execute("CREATE INDEX idx_tracked_unresolved ON tracked_bets(resolved)")
+        conn.execute("""
+            CREATE TABLE wallet_pnl (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                wallet TEXT NOT NULL,
+                condition_id TEXT NOT NULL,
+                asset TEXT,
+                outcome TEXT,
+                avg_price REAL,
+                total_bought REAL,
+                realized_pnl REAL,
+                cur_price REAL,
+                event_slug TEXT,
+                end_date TEXT,
+                position_type TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                api_timestamp INTEGER
+            )
+        """)
+        conn.execute("CREATE INDEX idx_wpnl_wallet ON wallet_pnl(wallet)")
+        conn.execute("""
+            CREATE UNIQUE INDEX idx_wpnl_dedup
+            ON wallet_pnl(wallet, condition_id, asset, position_type)
+        """)
+        conn.commit()
+        return conn
+
+    def _make_trade(self, wallet="0xwallet1"):
+        return {
+            "proxyWallet": wallet,
+            "conditionId": "cond_new",
+            "outcome": "Yes",
+            "side": "BUY",
+            "_usd_value": 5000,
+            "timestamp": 1700010000,
+        }
+
+    @patch("detection_strategies.win_rate_tracking._update_resolutions", return_value=0)
+    @patch("db.get_db")
+    def test_low_win_rate_actually_tested(self, mock_get_db, mock_resolutions):
+        """10+ resolved bets with 40% win rate should return None because win rate < 75%."""
+        conn = self._make_conn()
+        # 4 wins, 6 losses = 40% win rate on 10 resolved bets
+        for i in range(4):
+            conn.execute(
+                """INSERT INTO tracked_bets
+                (wallet, condition_id, outcome, side, usd_value, trade_timestamp, recorded_at, resolved, won)
+                VALUES ('0xwallet1', ?, 'Yes', 'BUY', 5000, 1700000000, '2024-01-01', 1, 1)""",
+                (f"cond_win_{i}",),
+            )
+        for i in range(6):
+            conn.execute(
+                """INSERT INTO tracked_bets
+                (wallet, condition_id, outcome, side, usd_value, trade_timestamp, recorded_at, resolved, won)
+                VALUES ('0xwallet1', ?, 'Yes', 'BUY', 5000, 1700000000, '2024-01-01', 1, 0)""",
+                (f"cond_loss_{i}",),
+            )
+        conn.commit()
+        mock_get_db.return_value = conn
+
+        strategy = WinRateTrackingStrategy()
+        result = strategy.check_trade(self._make_trade())
+        self.assertIsNone(result)
+
+    @patch("detection_strategies.win_rate_tracking._update_resolutions", return_value=0)
+    @patch("db.get_db")
+    def test_pnl_fallback_triggers_signal(self, mock_get_db, mock_resolutions):
+        """0 resolved tracked_bets but wallet_pnl has 15 closed positions (12 wins, 3 losses).
+        Edge = 0.80 - 0.50 = 0.30 which exceeds MIN_EDGE_THRESHOLD. Should return a Signal."""
+        conn = self._make_conn()
+        # No resolved tracked_bets
+        # 12 wins (cur_price=1.0) and 3 losses (cur_price=0.0), avg_price=0.50
+        for i in range(12):
+            conn.execute(
+                """INSERT INTO wallet_pnl
+                (wallet, condition_id, asset, outcome, avg_price, total_bought, realized_pnl,
+                 cur_price, event_slug, end_date, position_type, recorded_at, api_timestamp)
+                VALUES ('0xwallet1', ?, ?, 'Yes', 0.50, 100.0, 50.0,
+                        1.0, 'slug', '2024-12-01', 'closed', '2024-01-01', 1700000000)""",
+                (f"cond_w_{i}", f"asset_w_{i}"),
+            )
+        for i in range(3):
+            conn.execute(
+                """INSERT INTO wallet_pnl
+                (wallet, condition_id, asset, outcome, avg_price, total_bought, realized_pnl,
+                 cur_price, event_slug, end_date, position_type, recorded_at, api_timestamp)
+                VALUES ('0xwallet1', ?, ?, 'Yes', 0.50, 100.0, -50.0,
+                        0.0, 'slug', '2024-12-01', 'closed', '2024-01-01', 1700000000)""",
+                (f"cond_l_{i}", f"asset_l_{i}"),
+            )
+        conn.commit()
+        mock_get_db.return_value = conn
+
+        strategy = WinRateTrackingStrategy()
+        result = strategy.check_trade(self._make_trade())
+        self.assertIsNotNone(result)
+        self.assertEqual(result.strategy, "win_rate_tracking")
+
+    @patch("detection_strategies.win_rate_tracking._update_resolutions", return_value=0)
+    @patch("db.get_db")
+    def test_perfect_record_small_sample_blocked(self, mock_get_db, mock_resolutions):
+        """0 resolved tracked_bets, wallet_pnl has 12 closed positions ALL wins.
+        Since losses == 0 and 12 < MIN_PERFECT_RECORD_POSITIONS=20, should return None."""
+        conn = self._make_conn()
+        for i in range(12):
+            conn.execute(
+                """INSERT INTO wallet_pnl
+                (wallet, condition_id, asset, outcome, avg_price, total_bought, realized_pnl,
+                 cur_price, event_slug, end_date, position_type, recorded_at, api_timestamp)
+                VALUES ('0xwallet1', ?, ?, 'Yes', 0.50, 100.0, 50.0,
+                        1.0, 'slug', '2024-12-01', 'closed', '2024-01-01', 1700000000)""",
+                (f"cond_{i}", f"asset_{i}"),
+            )
+        conn.commit()
+        mock_get_db.return_value = conn
+
+        strategy = WinRateTrackingStrategy()
+        result = strategy.check_trade(self._make_trade())
+        self.assertIsNone(result)
+
+    @patch("detection_strategies.win_rate_tracking._update_resolutions", return_value=0)
+    @patch("db.get_db")
+    def test_edge_too_low_no_signal(self, mock_get_db, mock_resolutions):
+        """12 resolved tracked_bets ALL wins (100% win rate), but wallet_pnl has
+        avg_closed_price=0.90. Edge = 1.0 - 0.90 = 0.10 < MIN_EDGE_THRESHOLD=0.15.
+        Should return None."""
+        conn = self._make_conn()
+        for i in range(12):
+            conn.execute(
+                """INSERT INTO tracked_bets
+                (wallet, condition_id, outcome, side, usd_value, trade_timestamp, recorded_at, resolved, won)
+                VALUES ('0xwallet1', ?, 'Yes', 'BUY', 5000, 1700000000, '2024-01-01', 1, 1)""",
+                (f"cond_{i}",),
+            )
+        # wallet_pnl with avg_price=0.90 so implied probability is high
+        for i in range(12):
+            conn.execute(
+                """INSERT INTO wallet_pnl
+                (wallet, condition_id, asset, outcome, avg_price, total_bought, realized_pnl,
+                 cur_price, event_slug, end_date, position_type, recorded_at, api_timestamp)
+                VALUES ('0xwallet1', ?, ?, 'Yes', 0.90, 100.0, 10.0,
+                        1.0, 'slug', '2024-12-01', 'closed', '2024-01-01', 1700000000)""",
+                (f"cond_{i}", f"asset_{i}"),
+            )
+        conn.commit()
+        mock_get_db.return_value = conn
+
+        strategy = WinRateTrackingStrategy()
+        result = strategy.check_trade(self._make_trade())
+        self.assertIsNone(result)
+
+    @patch("detection_strategies.win_rate_tracking._update_resolutions", return_value=0)
+    @patch("db.get_db")
+    def test_severity_scales_with_edge(self, mock_get_db, mock_resolutions):
+        """12 resolved bets (10 wins, 2 losses, ~83% win rate). wallet_pnl with
+        avg_closed_price=0.50. Edge = 0.83 - 0.50 = 0.33 (strong edge).
+        Should produce severity boosted to 4.0 and headline contains 'edge'."""
+        conn = self._make_conn()
+        for i in range(10):
+            conn.execute(
+                """INSERT INTO tracked_bets
+                (wallet, condition_id, outcome, side, usd_value, trade_timestamp, recorded_at, resolved, won)
+                VALUES ('0xwallet1', ?, 'Yes', 'BUY', 5000, 1700000000, '2024-01-01', 1, 1)""",
+                (f"cond_win_{i}",),
+            )
+        for i in range(2):
+            conn.execute(
+                """INSERT INTO tracked_bets
+                (wallet, condition_id, outcome, side, usd_value, trade_timestamp, recorded_at, resolved, won)
+                VALUES ('0xwallet1', ?, 'Yes', 'BUY', 5000, 1700000000, '2024-01-01', 1, 0)""",
+                (f"cond_loss_{i}",),
+            )
+        # wallet_pnl: 10 wins and 2 losses with avg_price=0.50
+        for i in range(10):
+            conn.execute(
+                """INSERT INTO wallet_pnl
+                (wallet, condition_id, asset, outcome, avg_price, total_bought, realized_pnl,
+                 cur_price, event_slug, end_date, position_type, recorded_at, api_timestamp)
+                VALUES ('0xwallet1', ?, ?, 'Yes', 0.50, 100.0, 50.0,
+                        1.0, 'slug', '2024-12-01', 'closed', '2024-01-01', 1700000000)""",
+                (f"cond_win_{i}", f"asset_win_{i}"),
+            )
+        for i in range(2):
+            conn.execute(
+                """INSERT INTO wallet_pnl
+                (wallet, condition_id, asset, outcome, avg_price, total_bought, realized_pnl,
+                 cur_price, event_slug, end_date, position_type, recorded_at, api_timestamp)
+                VALUES ('0xwallet1', ?, ?, 'Yes', 0.50, 100.0, -50.0,
+                        0.0, 'slug', '2024-12-01', 'closed', '2024-01-01', 1700000000)""",
+                (f"cond_loss_{i}", f"asset_loss_{i}"),
+            )
+        conn.commit()
+        mock_get_db.return_value = conn
+
+        strategy = WinRateTrackingStrategy()
+        result = strategy.check_trade(self._make_trade())
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, 4.0)
+        self.assertIn("edge", result.headline.lower())
+
+    @patch("detection_strategies.win_rate_tracking._update_resolutions", return_value=0)
+    @patch("db.get_db")
+    def test_dedup_second_call_returns_none(self, mock_get_db, mock_resolutions):
+        """Call check_trade twice for the same wallet. Second call should return None."""
+        conn = self._make_conn()
+        for i in range(12):
+            conn.execute(
+                """INSERT INTO tracked_bets
+                (wallet, condition_id, outcome, side, usd_value, trade_timestamp, recorded_at, resolved, won)
+                VALUES ('0xwallet1', ?, 'Yes', 'BUY', 5000, 1700000000, '2024-01-01', 1, 1)""",
+                (f"cond_{i}",),
+            )
+        # wallet_pnl with avg_price=0.50 so edge is high enough
+        for i in range(12):
+            conn.execute(
+                """INSERT INTO wallet_pnl
+                (wallet, condition_id, asset, outcome, avg_price, total_bought, realized_pnl,
+                 cur_price, event_slug, end_date, position_type, recorded_at, api_timestamp)
+                VALUES ('0xwallet1', ?, ?, 'Yes', 0.50, 100.0, 50.0,
+                        1.0, 'slug', '2024-12-01', 'closed', '2024-01-01', 1700000000)""",
+                (f"cond_{i}", f"asset_{i}"),
+            )
+        conn.commit()
+        mock_get_db.return_value = conn
+
+        strategy = WinRateTrackingStrategy()
+        first = strategy.check_trade(self._make_trade())
+        self.assertIsNotNone(first)
+        second = strategy.check_trade(self._make_trade())
+        self.assertIsNone(second)
 
 
 if __name__ == "__main__":

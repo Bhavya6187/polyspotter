@@ -153,5 +153,151 @@ class TestNewWalletLargeBetStrategy(unittest.TestCase):
         self.assertEqual(result.severity, 1.5)
 
 
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_pnl_summary")
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_profile")
+    def test_high_activity_wallet_skipped(self, mock_profile, mock_pnl):
+        created = datetime.now(timezone.utc) - timedelta(days=3)
+        mock_profile.return_value = (created, {"pseudonym": "active_trader"})
+        mock_pnl.return_value = {
+            "total_positions": 15,
+            "closed_positions": 0,
+            "total_pnl": 0,
+        }
+        trade = self._make_trade()
+        result = self.strategy.check_trade(trade)
+        self.assertIsNone(result)
+
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_pnl_summary")
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_wallet",
+        return_value={
+            "times_flagged": 3,
+            "total_usd_flagged": 15000,
+            "first_flagged_at": "2024-01-01",
+            "last_flagged_at": "2024-01-03",
+        },
+    )
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_trade_event",
+        return_value=True,
+    )
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_profile")
+    def test_repeat_bettor_severity_escalation(
+        self, mock_profile, mock_trade_event, mock_record, mock_pnl
+    ):
+        created = datetime.now(timezone.utc) - timedelta(days=2)
+        mock_profile.return_value = (created, {"pseudonym": "repeat_bettor"})
+        mock_pnl.return_value = {
+            "total_positions": 2,
+            "closed_positions": 0,
+            "total_pnl": 0,
+        }
+        trade = self._make_trade()
+        result = self.strategy.check_trade(trade)
+        self.assertIsNotNone(result)
+        self.assertIn("REPEAT x3", result.headline)
+        # Base 3.5 + min(2.0, 3*0.5) = 3.5 + 1.5 = 5.0
+        self.assertEqual(result.severity, 5.0)
+
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_pnl_summary")
+    @patch("detection_strategies.new_wallet_large_bet.record_flagged_wallet")
+    @patch(
+        "detection_strategies.new_wallet_large_bet.get_flagged_wallet_stats",
+        return_value={
+            "times_flagged": 1,
+            "total_usd_flagged": 5000,
+            "first_flagged_at": "2024-01-01",
+            "last_flagged_at": "2024-01-01",
+        },
+    )
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_trade_event",
+        return_value=False,
+    )
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_profile")
+    def test_duplicate_trade_event_uses_stats(
+        self, mock_profile, mock_trade_event, mock_flagged_stats, mock_record, mock_pnl
+    ):
+        created = datetime.now(timezone.utc) - timedelta(days=3)
+        mock_profile.return_value = (created, {"pseudonym": "dup_trader"})
+        mock_pnl.return_value = {
+            "total_positions": 0,
+            "closed_positions": 0,
+            "total_pnl": 0,
+        }
+        trade = self._make_trade()
+        result = self.strategy.check_trade(trade)
+        self.assertIsNotNone(result)
+        mock_record.assert_not_called()
+
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_pnl_summary")
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_wallet",
+        return_value={
+            "times_flagged": 1,
+            "total_usd_flagged": 5000,
+            "first_flagged_at": "2024-01-01",
+            "last_flagged_at": "2024-01-01",
+        },
+    )
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_trade_event",
+        return_value=True,
+    )
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_profile")
+    def test_pnl_cross_reference_bonus(
+        self, mock_profile, mock_trade_event, mock_record, mock_pnl
+    ):
+        created = datetime.now(timezone.utc) - timedelta(days=3)
+        mock_profile.return_value = (created, {"pseudonym": "pnl_trader"})
+        mock_pnl.return_value = {
+            "total_positions": 5,
+            "closed_positions": 4,
+            "total_pnl": 500,
+        }
+        trade = self._make_trade()
+        result = self.strategy.check_trade(trade)
+        self.assertIsNotNone(result)
+        # Base 3.5 + 0.5 P&L bonus = 4.0
+        self.assertEqual(result.severity, 4.0)
+        self.assertIn("P&L", result.headline)
+
+    @patch(
+        "detection_strategies.new_wallet_large_bet.get_flagged_wallet_stats",
+        return_value={
+            "times_flagged": 3,
+            "total_usd_flagged": 20000,
+            "first_flagged_at": "2024-01-01",
+            "last_flagged_at": "2024-02-01",
+        },
+    )
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_profile")
+    def test_old_wallet_previously_flagged(self, mock_profile, mock_stats):
+        created = datetime.now(timezone.utc) - timedelta(days=90)
+        mock_profile.return_value = (created, {"pseudonym": "veteran"})
+        trade = self._make_trade()
+        result = self.strategy.check_trade(trade)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, 1.0)
+        self.assertIn("Previously flagged", result.headline)
+
+    @patch(
+        "detection_strategies.new_wallet_large_bet.get_flagged_wallet_stats",
+        return_value={
+            "times_flagged": 1,
+            "total_usd_flagged": 5000,
+            "first_flagged_at": "2024-01-01",
+            "last_flagged_at": "2024-01-01",
+        },
+    )
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_profile")
+    def test_old_wallet_flagged_once_returns_none(self, mock_profile, mock_stats):
+        created = datetime.now(timezone.utc) - timedelta(days=90)
+        mock_profile.return_value = (created, {"pseudonym": "veteran"})
+        trade = self._make_trade()
+        result = self.strategy.check_trade(trade)
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()

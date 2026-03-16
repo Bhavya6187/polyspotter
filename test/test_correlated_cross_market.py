@@ -214,5 +214,128 @@ class TestCorrelatedCrossMarketStrategy(unittest.TestCase):
             self.assertEqual(signals[0].severity, 1.0)
 
 
+    def test_historical_trades_push_market_count(
+        self, mock_get_mkt, mock_is_sport, mock_record, mock_hist, mock_stats
+    ):
+        """Historical trades from prior runs push market count to meet MIN_MARKETS."""
+        mock_hist.return_value = [
+            {"condition_id": "cond_hist", "usd_value": 3000},
+        ]
+        trades = [
+            self._make_trade("w1", "event1", "cond1", usd=3000),
+        ]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 1)
+        self.assertIn("from prior runs", signals[0].headline)
+
+    def test_historical_usd_contributes_to_threshold(
+        self, mock_get_mkt, mock_is_sport, mock_record, mock_hist, mock_stats
+    ):
+        """Historical USD from prior runs contributes to MIN_TOTAL_USD threshold."""
+        mock_hist.return_value = [
+            {"condition_id": "cond3", "usd_value": 2000},
+        ]
+        trades = [
+            self._make_trade("w1", "event1", "cond1", usd=2000),
+            self._make_trade("w1", "event1", "cond2", usd=1500),
+        ]
+        signals = self.strategy.analyze_all(trades)
+        # current=$3500 < 5000, but combined with historical $2000 = $5500 >= 5000
+        self.assertEqual(len(signals), 1)
+
+    def test_win_rate_boost_positive_path(
+        self, mock_get_mkt, mock_is_sport, mock_record, mock_hist, mock_stats
+    ):
+        """Win rate boost of +2.0 when closed_positions >= 10 and win_pct >= 65%."""
+        trades = [
+            self._make_trade("w1", "event1", "cond1", usd=3000),
+            self._make_trade("w1", "event1", "cond2", usd=3000),
+        ]
+        with patch(
+            "detection_strategies.correlated_cross_market.get_wallet_pnl_summary",
+            return_value={"closed_positions": 15, "wins": 11, "total_pnl": 5000, "total_invested": 10000},
+        ):
+            signals = self.strategy.analyze_all(trades)
+            self.assertEqual(len(signals), 1)
+            # Base severity for $6k = 1.0, boost +2.0 = 3.0
+            self.assertEqual(signals[0].severity, 3.0)
+            self.assertIn("win rate", signals[0].headline)
+
+    def test_severity_10k_tier(self, *mocks):
+        """Combined USD >= $10k should give severity 2.0."""
+        trades = [
+            self._make_trade("w1", "event1", "cond1", usd=6000),
+            self._make_trade("w1", "event1", "cond2", usd=6000),
+        ]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].severity, 2.0)
+
+    def test_severity_50k_tier(self, *mocks):
+        """Combined USD >= $50k should give severity 4.0."""
+        trades = [
+            self._make_trade("w1", "event1", "cond1", usd=30000),
+            self._make_trade("w1", "event1", "cond2", usd=30000),
+        ]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].severity, 4.0)
+
+    def test_serial_severity_mid_win_rate_60pct(
+        self, mock_get_mkt, mock_is_sport, mock_record, mock_hist, mock_stats
+    ):
+        """Serial cross-market with 65% win rate (>= 60%) should get severity 3.0."""
+        mock_stats.return_value = {
+            "distinct_events": 30,
+            "distinct_markets": 50,
+            "total_usd": 100_000,
+            "total_trades": 60,
+        }
+        trades = [
+            self._make_trade("w1", "event1", "cond1", usd=3000),
+        ]
+        with patch(
+            "detection_strategies.correlated_cross_market.get_wallet_pnl_summary",
+            return_value={"closed_positions": 20, "wins": 13, "total_pnl": 5000, "total_invested": 10000},
+        ):
+            signals = self.strategy.analyze_all(trades)
+            serial_sigs = [s for s in signals if "Serial" in s.headline]
+            self.assertEqual(len(serial_sigs), 1)
+            self.assertEqual(serial_sigs[0].severity, 3.0)
+
+    def test_serial_severity_low_win_rate_55pct(
+        self, mock_get_mkt, mock_is_sport, mock_record, mock_hist, mock_stats
+    ):
+        """Serial cross-market with 55% win rate (>= 55%) should get severity 2.0."""
+        mock_stats.return_value = {
+            "distinct_events": 30,
+            "distinct_markets": 50,
+            "total_usd": 100_000,
+            "total_trades": 60,
+        }
+        trades = [
+            self._make_trade("w1", "event1", "cond1", usd=3000),
+        ]
+        with patch(
+            "detection_strategies.correlated_cross_market.get_wallet_pnl_summary",
+            return_value={"closed_positions": 20, "wins": 11, "total_pnl": 3000, "total_invested": 10000},
+        ):
+            signals = self.strategy.analyze_all(trades)
+            serial_sigs = [s for s in signals if "Serial" in s.headline]
+            self.assertEqual(len(serial_sigs), 1)
+            self.assertEqual(serial_sigs[0].severity, 2.0)
+
+    def test_record_wallet_event_trade_called_for_all(
+        self, mock_get_mkt, mock_is_sport, mock_record, mock_hist, mock_stats
+    ):
+        """record_wallet_event_trade should be called for every trade, including filtered ones."""
+        trades = [
+            self._make_trade("w1", "event1", "cond1", usd=3000, price=0.50),
+            self._make_trade("w1", "event1", "cond2", usd=3000, price=0.99),
+        ]
+        self.strategy.analyze_all(trades)
+        self.assertEqual(mock_record.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -151,7 +151,7 @@ class CorrelatedCrossMarketStrategy(DetectionStrategy):
             # --- Serial cross-market trader detection ---
             stats = get_wallet_cross_event_stats(wallet)
             if stats["distinct_events"] >= REPEAT_CROSS_EVENT_THRESHOLD:
-                rep_trade = next((t for t in active_trades if t.get("proxyWallet", "").lower() == wallet), None)
+                rep_trade = next((t for t in active_trades if t.get("proxyWallet", "").lower() == wallet.lower()), None)
                 if not rep_trade:
                     continue
 

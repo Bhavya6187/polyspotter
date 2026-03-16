@@ -89,14 +89,15 @@ class PreEventVolumeSpikeStrategy(DetectionStrategy):
 
             # Choose best baseline: historical average if we have enough data,
             # otherwise fall back to current 24h volume
-            historical_avg = get_average_volume(cid)
+            historical = get_average_volume(cid)
             baseline_vol = vol_24h
             baseline_source = "24h"
 
-            if historical_avg is not None and historical_avg > 0:
-                # Use historical average as a more stable baseline
-                baseline_vol = historical_avg
-                baseline_source = "historical"
+            if historical is not None:
+                hist_avg, hist_count = historical
+                if hist_avg > 0 and hist_count >= MIN_SNAPSHOTS_FOR_HISTORICAL:
+                    baseline_vol = hist_avg
+                    baseline_source = "historical"
 
             normalised_avg = baseline_vol * (window_seconds / 86400)
             if normalised_avg <= 0:

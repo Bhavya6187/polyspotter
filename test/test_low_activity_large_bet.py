@@ -81,7 +81,7 @@ class TestLowActivityLargeBetStrategy(unittest.TestCase):
         self.assertIsNone(result)
 
     @patch("detection_strategies.low_activity_large_bet.get_market_by_condition")
-    def test_severity_capped_at_3(self, mock_market):
+    def test_base_severity_capped_at_3(self, mock_market):
         mock_market.return_value = {
             "volume24hr": "10",
             "liquidity": "100",
@@ -90,6 +90,131 @@ class TestLowActivityLargeBetStrategy(unittest.TestCase):
         result = self.strategy.check_trade(trade)
         self.assertIsNotNone(result)
         self.assertLessEqual(result.severity, 3.0)
+
+    @patch("detection_strategies.low_activity_large_bet.get_market_by_condition")
+    def test_thin_book_boosts_severity(self, mock_market):
+        mock_market.return_value = {
+            "volume24hr": "10",
+            "liquidity": "100",
+        }
+        trade = self._make_trade(usd=50000)
+        trade["asset"] = "token_1"
+        # Thin book: total depth $2000 < $5000 threshold, narrow spread
+        with patch.object(self.strategy, "_fetch_orderbook", return_value={
+            "bid_depth": 1000, "ask_depth": 1000, "spread": 0.01,
+        }):
+            result = self.strategy.check_trade(trade)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, 3.5)
+        self.assertIn("thin book", result.headline)
+
+    @patch("detection_strategies.low_activity_large_bet.get_market_by_condition")
+    def test_wide_spread_boosts_severity(self, mock_market):
+        mock_market.return_value = {
+            "volume24hr": "10",
+            "liquidity": "100",
+        }
+        trade = self._make_trade(usd=50000)
+        trade["asset"] = "token_1"
+        # Deep book but wide spread > 5%
+        with patch.object(self.strategy, "_fetch_orderbook", return_value={
+            "bid_depth": 5000, "ask_depth": 5000, "spread": 0.10,
+        }):
+            result = self.strategy.check_trade(trade)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, 3.5)
+        self.assertIn("wide spread", result.headline)
+
+    @patch("detection_strategies.low_activity_large_bet.get_market_by_condition")
+    def test_thin_book_and_wide_spread_severity_capped_at_4(self, mock_market):
+        mock_market.return_value = {
+            "volume24hr": "10",
+            "liquidity": "100",
+        }
+        trade = self._make_trade(usd=50000)
+        trade["asset"] = "token_1"
+        # Both: thin book AND wide spread
+        with patch.object(self.strategy, "_fetch_orderbook", return_value={
+            "bid_depth": 1000, "ask_depth": 1000, "spread": 0.10,
+        }):
+            result = self.strategy.check_trade(trade)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, 4.0)
+        self.assertIn("thin book", result.headline)
+        self.assertIn("wide spread", result.headline)
+
+
+    @patch("detection_strategies.low_activity_large_bet.get_market_by_condition")
+    def test_zero_volume_severity_2(self, mock_market):
+        mock_market.return_value = {
+            "volume24hr": "0",
+            "liquidity": "10000",
+        }
+        trade = self._make_trade(usd=3000)
+        result = self.strategy.check_trade(trade)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, 2.0)
+
+    @patch("detection_strategies.low_activity_large_bet.get_market_by_condition")
+    def test_orderbook_none_no_boost(self, mock_market):
+        mock_market.return_value = {
+            "volume24hr": "1000",
+            "liquidity": "10000",
+        }
+        trade = self._make_trade(usd=3000)
+        with patch.object(self.strategy, "_fetch_orderbook", return_value=None):
+            result = self.strategy.check_trade(trade)
+        self.assertIsNotNone(result)
+        # Base severity: (3000/1000)*0.5 = 1.5, capped at 3.0 → 1.5
+        self.assertEqual(result.severity, 1.5)
+        self.assertNotIn("thin book", result.headline)
+        self.assertNotIn("wide spread", result.headline)
+
+    @patch("detection_strategies.low_activity_large_bet.get_market_by_condition")
+    def test_zero_liquidity_not_suppressed(self, mock_market):
+        mock_market.return_value = {
+            "volume24hr": "1000",
+            "liquidity": "0",
+        }
+        trade = self._make_trade(usd=100)
+        result = self.strategy.check_trade(trade)
+        # liquidity <= 0 so suppression check is skipped; is_low_volume=True (1000<5000)
+        self.assertIsNotNone(result)
+
+    @patch("detection_strategies.low_activity_large_bet.get_market_by_condition")
+    def test_long_lived_market_not_skipped(self, mock_market):
+        mock_market.return_value = {
+            "volume24hr": "1000",
+            "liquidity": "10000",
+            "createdAt": "2024-01-01T00:00:00Z",
+            "endDate": "2024-01-01T07:00:00Z",  # 7 hours >= SHORT_LIVED_MARKET_HOURS (6)
+        }
+        trade = self._make_trade(usd=3000)
+        result = self.strategy.check_trade(trade)
+        self.assertIsNotNone(result)
+
+    @patch("detection_strategies.low_activity_large_bet.get_market_by_condition")
+    def test_missing_volume_and_liquidity_keys(self, mock_market):
+        # Market dict with no volume24hr or liquidity keys
+        mock_market.return_value = {"question": "Some market?"}
+        trade = self._make_trade(usd=3000)
+        result = self.strategy.check_trade(trade)
+        # vol_24h defaults to 0 → is_low_volume=True, severity=2.0
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, 2.0)
+
+    @patch("detection_strategies.low_activity_large_bet.get_market_by_condition")
+    def test_malformed_dates_not_skipped(self, mock_market):
+        mock_market.return_value = {
+            "volume24hr": "1000",
+            "liquidity": "10000",
+            "createdAt": "not-a-date",
+            "endDate": "also-not-a-date",
+        }
+        trade = self._make_trade(usd=3000)
+        result = self.strategy.check_trade(trade)
+        # ValueError is caught, trade proceeds normally
+        self.assertIsNotNone(result)
 
 
 if __name__ == "__main__":

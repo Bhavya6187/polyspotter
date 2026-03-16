@@ -325,7 +325,7 @@ def resolve_tracked_bets(only_current: bool = False,
             prices = json.loads(outcome_prices_str) if isinstance(outcome_prices_str, str) else outcome_prices_str
             outcomes = json.loads(outcomes_str) if isinstance(outcomes_str, str) else outcomes_str
             if prices and outcomes and len(prices) == len(outcomes):
-                max_idx = prices.index(max(prices))
+                max_idx = max(range(len(prices)), key=lambda i: float(prices[i]))
                 if float(prices[max_idx]) >= 0.99:
                     winning_outcome = outcomes[max_idx]
         except (json.JSONDecodeError, ValueError, IndexError):
@@ -533,7 +533,8 @@ def backfill_wallet_funders(trades: list[dict], skip_etherscan: bool) -> None:
     # Filter out wallets we already have cached
     to_lookup = []
     for w in wallets:
-        if get_cached_funder(w) is None:
+        cached, _ = get_cached_funder(w)
+        if not cached:
             to_lookup.append(w)
 
     print(f"  {len(wallets)} unique wallets, {len(to_lookup)} need Etherscan lookup...")

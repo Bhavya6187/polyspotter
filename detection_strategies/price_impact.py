@@ -137,13 +137,6 @@ class PriceImpactStrategy(DetectionStrategy):
                     _fetch_orderbook(cid, token_id, outcome)
                     break  # one fetch per token is enough
 
-            # Record all price observations for future runs
-            for t in t_list:
-                price = float(t.get("price", 0))
-                ts = t.get("timestamp", 0)
-                if price > 0 and ts > 0:
-                    record_price_observation(cid, outcome, price, ts)
-
             # --- Within-window shift detection ---
             if len(t_list) >= MIN_TRADES_FOR_SIGNAL:
                 t_sorted = sorted(t_list, key=lambda x: x.get("timestamp", 0))
@@ -221,6 +214,15 @@ class PriceImpactStrategy(DetectionStrategy):
                     trade_hashes=tx_hashes,
                 )
             )
+
+        # Record all price observations for future runs (after historical
+        # range check so current prices don't pollute the baseline)
+        for (cid, outcome), t_list in token_trades.items():
+            for t in t_list:
+                price = float(t.get("price", 0))
+                ts = t.get("timestamp", 0)
+                if price > 0 and ts > 0:
+                    record_price_observation(cid, outcome, price, ts)
 
         # --- Velocity detection using CLOB price candles ---
         for (cid, outcome), t_list in token_trades.items():

@@ -55,10 +55,43 @@ _funder_cache: dict[str, str | None] = {}
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+def _query_etherscan(address: str, action: str, offset: int = 10) -> list[dict]:
+    """Call Etherscan V2 API and return the result list, or [] on error."""
+    try:
+        resp = requests.get(
+            ETHERSCAN_API,
+            params={
+                "module": "account",
+                "action": action,
+                "address": address,
+                "chainid": POLYGON_CHAIN_ID,
+                "startblock": 0,
+                "endblock": 9999999999,
+                "page": 1,
+                "offset": offset,
+                "sort": "asc",
+                "apikey": ETHERSCAN_API_KEY,
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        results = resp.json().get("result", [])
+        return results if isinstance(results, list) else []
+    except requests.RequestException as e:
+        print(f"[WARN] Etherscan {action} failed for {address}: {e}", file=sys.stderr)
+        return []
+
+
 def _get_first_funder(address: str) -> str | None:
-    """Query Etherscan V2 API for the first inbound (normal) transaction to
-    this address on Polygon.  Returns the 'from' address of the earliest tx,
-    or None.  Results are persisted to the database."""
+    """Find the address that first funded *address* on Polygon.
+
+    Checks both normal transactions (txlist) and internal/contract
+    transactions (txlistinternal), filtering to inbound-only, and
+    returns the sender of the earliest one.  Many Polymarket proxy
+    wallets are funded via internal transactions, so txlist alone
+    would miss the real funder.
+
+    Results are persisted to the database."""
     address = address.lower()
 
     # Check in-memory cache first
@@ -66,8 +99,8 @@ def _get_first_funder(address: str) -> str | None:
         return _funder_cache[address]
 
     # Check persistent DB cache
-    db_funder = get_cached_funder(address)
-    if db_funder is not None:
+    cached, db_funder = get_cached_funder(address)
+    if cached:
         short = f"{address[:8]}...{address[-6:]}"
         short_f = f"{db_funder[:8]}...{db_funder[-6:]}" if db_funder else "?"
         if config.VERBOSE:
@@ -81,37 +114,33 @@ def _get_first_funder(address: str) -> str | None:
 
     time.sleep(FUNDER_LOOKUP_DELAY)
 
-    try:
-        resp = requests.get(
-            ETHERSCAN_API,
-            params={
-                "module": "account",
-                "action": "txlist",
-                "address": address,
-                "chainid": POLYGON_CHAIN_ID,
-                "startblock": 0,
-                "endblock": 9999999999,
-                "page": 1,
-                "offset": 1,
-                "sort": "asc",
-                "apikey": ETHERSCAN_API_KEY,
-            },
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        results = data.get("result", [])
-        if isinstance(results, list) and results:
-            funder = results[0].get("from", "").lower()
-            _funder_cache[address] = funder
-            save_funder(address, funder)
-            short = f"{address[:8]}...{address[-6:]}"
-            short_f = f"{funder[:8]}...{funder[-6:]}" if funder else "?"
-            if config.VERBOSE:
-                print(f"    [cluster] {short} funded by {short_f}")
-            return funder
-    except requests.RequestException as e:
-        print(f"[WARN] Etherscan lookup failed for {address}: {e}", file=sys.stderr)
+    # Query both normal and internal transactions, filter to inbound only,
+    # and pick the earliest by block number.
+    candidates: list[tuple[int, str]] = []  # (block, from_address)
+
+    for action in ("txlist", "txlistinternal"):
+        for tx in _query_etherscan(address, action):
+            if tx.get("to", "").lower() == address:
+                block = int(tx.get("blockNumber", 0))
+                sender = tx.get("from", "").lower()
+                if sender and sender != address:
+                    candidates.append((block, sender))
+                    break  # results are sorted asc, first inbound is enough
+        if candidates:
+            # Small delay before second API call only if needed
+            time.sleep(FUNDER_LOOKUP_DELAY)
+
+    if candidates:
+        # Pick the earliest inbound tx across both query types
+        candidates.sort()
+        funder = candidates[0][1]
+        _funder_cache[address] = funder
+        save_funder(address, funder)
+        short = f"{address[:8]}...{address[-6:]}"
+        short_f = f"{funder[:8]}...{funder[-6:]}"
+        if config.VERBOSE:
+            print(f"    [cluster] {short} funded by {short_f}")
+        return funder
 
     _funder_cache[address] = None
     save_funder(address, None)
