@@ -92,14 +92,15 @@ def ingest(payload: IngestPayload):
                     """INSERT INTO alerts
                        (alert_type, composite_score, tags, market_title, condition_id,
                         event_slug, market_url, wallet, total_usd, trade_count,
-                        cluster_headline, llm_summary, scanned_at, dedup_key)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        cluster_headline, end_date, llm_summary, scanned_at, dedup_key)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        ON CONFLICT (dedup_key) DO UPDATE SET
                         composite_score = EXCLUDED.composite_score,
                         tags = EXCLUDED.tags,
                         total_usd = EXCLUDED.total_usd,
                         trade_count = EXCLUDED.trade_count,
                         cluster_headline = EXCLUDED.cluster_headline,
+                        end_date = EXCLUDED.end_date,
                         llm_summary = EXCLUDED.llm_summary,
                         scanned_at = EXCLUDED.scanned_at
                        RETURNING id, (xmax = 0) AS inserted""",
@@ -115,6 +116,7 @@ def ingest(payload: IngestPayload):
                         alert.total_usd,
                         alert.trade_count,
                         alert.cluster_headline,
+                        alert.end_date,
                         alert.llm_summary,
                         alert.scanned_at or datetime.now(timezone.utc),
                         alert.dedup_key,

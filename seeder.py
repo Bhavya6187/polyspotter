@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 from detection_strategies import Signal
 from db import get_wallet_pnl_summary, get_flagged_wallet_stats
-from gamma_cache import get_market_tags
+from gamma_cache import get_market_tags, get_market_by_condition
 
 load_dotenv()
 
@@ -95,6 +95,16 @@ def _resolve_tags(condition_id: str | None) -> list[str]:
     if not condition_id:
         return []
     return get_market_tags(condition_id)
+
+
+def _resolve_end_date(condition_id: str | None) -> str | None:
+    """Look up market end date from Gamma API metadata."""
+    if not condition_id:
+        return None
+    market = get_market_by_condition(condition_id)
+    if market and market.get("endDate"):
+        return market["endDate"]
+    return None
 
 
 def _signal_to_dict(sig: Signal) -> dict:
@@ -185,6 +195,7 @@ def build_alerts_payload(
             "total_usd": total_usd,
             "trade_count": len(cluster_trades),
             "cluster_headline": cluster_sig.headline,
+            "end_date": _resolve_end_date(cid),
             "scanned_at": now,
             "dedup_key": _build_dedup_key(
                 None, cid, cluster_direction=cluster_dir,
@@ -267,6 +278,7 @@ def build_alerts_payload(
             "wallet": wallet,
             "total_usd": total_usd,
             "trade_count": len(all_entry_trades),
+            "end_date": _resolve_end_date(cid),
             "scanned_at": now,
             "dedup_key": _build_dedup_key(wallet, cid, [e[0] for e in entries]),
             "trades": [_trade_to_dict(t) for t in all_entry_trades],
@@ -297,6 +309,7 @@ def build_alerts_payload(
             "wallet": wallet,
             "total_usd": float(trade.get("_usd_value", 0)),
             "trade_count": 1,
+            "end_date": _resolve_end_date(cid),
             "scanned_at": now,
             "dedup_key": _build_dedup_key(wallet, cid, [trade.get("transactionHash", "")]),
             "trades": [_trade_to_dict(trade)],

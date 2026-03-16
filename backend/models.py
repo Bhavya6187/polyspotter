@@ -40,6 +40,7 @@ class AlertIn(BaseModel):
     total_usd: float = 0
     trade_count: int = 1
     cluster_headline: str | None = None
+    end_date: datetime | None = None
     llm_summary: str | None = None
     scanned_at: datetime | None = None
     dedup_key: str | None = None
@@ -99,6 +100,7 @@ class AlertOut(BaseModel):
     total_usd: float
     trade_count: int
     cluster_headline: str | None = None
+    end_date: datetime | None = None
     llm_summary: str | None = None
     scanned_at: datetime | None = None
     created_at: datetime | None = None

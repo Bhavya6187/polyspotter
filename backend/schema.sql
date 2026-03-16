@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS alerts (
     -- cluster-specific
     cluster_headline TEXT,
 
+    -- market resolution date (from Gamma API)
+    end_date        TIMESTAMPTZ,
+
     -- LLM evaluation summary (why the alert is interesting)
     llm_summary     TEXT,
 

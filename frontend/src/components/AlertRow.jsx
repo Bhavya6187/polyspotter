@@ -14,6 +14,20 @@ function relativeTime(dateStr) {
   return `${diffDay}d ago`;
 }
 
+function timeToResolution(dateStr) {
+  if (!dateStr) return "\u2014";
+  const now = Date.now();
+  const end = new Date(dateStr).getTime();
+  const diffMs = end - now;
+  if (diffMs <= 0) return "Resolved";
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 60) return `${diffMin}m`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h`;
+  const diffDay = Math.floor(diffHr / 24);
+  return `${diffDay}d`;
+}
+
 const usdFmt = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -76,6 +90,18 @@ export default function AlertRow({ alert, onToggle, activeTag, onTagClick }) {
         {alert.total_usd != null ? usdFmt.format(alert.total_usd) : "\u2014"}
       </td>
       <td className="px-4 py-3 text-sm">{alert.trade_count ?? "\u2014"}</td>
+      <td className={`px-4 py-3 text-sm ${
+        (() => {
+          if (!alert.end_date) return "text-gray-400 dark:text-gray-600";
+          const diffMs = new Date(alert.end_date).getTime() - Date.now();
+          if (diffMs <= 0) return "text-gray-400 dark:text-gray-600";
+          if (diffMs < 3600000) return "text-red-500 dark:text-red-400";
+          if (diffMs < 86400000) return "text-amber-600 dark:text-amber-400";
+          return "text-gray-500 dark:text-gray-400";
+        })()
+      }`}>
+        {timeToResolution(alert.end_date)}
+      </td>
       <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
         {relativeTime(alert.scanned_at)}
       </td>

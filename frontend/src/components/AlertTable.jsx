@@ -8,6 +8,7 @@ const SORTABLE_COLUMNS = [
   { key: null, label: "Market" },
   { key: "total_usd", label: "USD" },
   { key: "trade_count", label: "Trades" },
+  { key: "end_date", label: "Resolution" },
   { key: "scanned_at", label: "Time" },
 ];
 

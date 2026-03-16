@@ -64,7 +64,7 @@ export default function App() {
     sorted.sort((a, b) => {
       let av = a[sort.key];
       let bv = b[sort.key];
-      if (sort.key === "scanned_at") {
+      if (sort.key === "scanned_at" || sort.key === "end_date") {
         av = av ? new Date(av).getTime() : 0;
         bv = bv ? new Date(bv).getTime() : 0;
       } else {
