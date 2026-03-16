@@ -66,7 +66,13 @@ export default function AlertRow({ alert, onToggle, activeTag, onTagClick }) {
           </span>
         )}
       </td>
-      <td className="px-4 py-3 text-sm">
+      <td className={`px-4 py-3 text-sm font-medium ${
+        alert.total_usd >= 100000
+          ? "text-red-500 dark:text-red-400"
+          : alert.total_usd >= 25000
+            ? "text-amber-600 dark:text-amber-400"
+            : "text-gray-900 dark:text-gray-100"
+      }`}>
         {alert.total_usd != null ? usdFmt.format(alert.total_usd) : "\u2014"}
       </td>
       <td className="px-4 py-3 text-sm">{alert.trade_count ?? "\u2014"}</td>

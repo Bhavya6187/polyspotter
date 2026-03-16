@@ -2,6 +2,26 @@ import { Fragment } from "react";
 import AlertRow from "./AlertRow";
 import AlertDetail from "./AlertDetail";
 
+const SORTABLE_COLUMNS = [
+  { key: "composite_score", label: "Score" },
+  { key: null, label: "Tags" },
+  { key: null, label: "Market" },
+  { key: "total_usd", label: "USD" },
+  { key: "trade_count", label: "Trades" },
+  { key: "scanned_at", label: "Time" },
+];
+
+function SortIcon({ active, dir }) {
+  if (!active) {
+    return <span className="ml-1 text-gray-400 dark:text-gray-600">↕</span>;
+  }
+  return (
+    <span className="ml-1">
+      {dir === "asc" ? "↑" : "↓"}
+    </span>
+  );
+}
+
 export default function AlertTable({
   alerts,
   expandedAlertId,
@@ -9,6 +29,8 @@ export default function AlertTable({
   onFilterChange,
   filters,
   loading,
+  sort,
+  onSort,
 }) {
   if (loading) {
     return (
@@ -31,12 +53,16 @@ export default function AlertTable({
       <table className="w-full text-left text-sm">
         <thead>
           <tr className="sticky top-0 z-10 border-b border-gray-200 bg-white text-xs uppercase tracking-wider text-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-500">
-            <th className="px-4 py-3">Score</th>
-            <th className="px-4 py-3">Tags</th>
-            <th className="px-4 py-3">Market</th>
-            <th className="px-4 py-3">USD</th>
-            <th className="px-4 py-3">Trades</th>
-            <th className="px-4 py-3">Time</th>
+            {SORTABLE_COLUMNS.map((col) => (
+              <th
+                key={col.label}
+                className={`px-4 py-3 ${col.key ? "cursor-pointer select-none hover:text-gray-600 dark:hover:text-gray-300" : ""}`}
+                onClick={col.key ? () => onSort(col.key) : undefined}
+              >
+                {col.label}
+                {col.key && <SortIcon active={sort.key === col.key} dir={sort.dir} />}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
