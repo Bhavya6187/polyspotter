@@ -341,20 +341,38 @@ def get_wallet_stats(wallet: str) -> dict:
 # ===========================================================================
 
 
+NULL_FUNDER_MAX_AGE_HOURS = 168  # retry NULL-funder lookups after 7 days
+
+
 def get_cached_funder(wallet: str) -> tuple[bool, str | None]:
     """Look up a cached funder for a wallet.
 
     Returns (True, funder) if the wallet is in the cache (funder may be None
     meaning 'looked up but no funder found'), or (False, None) if not cached.
+
+    NULL-funder entries older than NULL_FUNDER_MAX_AGE_HOURS are treated as
+    uncached so transient API failures don't permanently poison the cache.
     """
     conn = get_db()
     row = conn.execute(
-        "SELECT funder FROM wallet_funders WHERE wallet = ?",
+        "SELECT funder, discovered_at FROM wallet_funders WHERE wallet = ?",
         (wallet.lower(),),
     ).fetchone()
     if row is None:
         return (False, None)
-    return (True, row[0])
+    funder, discovered_at = row[0], row[1]
+    # If funder is NULL, check if the cache entry is stale
+    if funder is None and discovered_at:
+        try:
+            disc_dt = datetime.fromisoformat(discovered_at)
+            if disc_dt.tzinfo is None:
+                disc_dt = disc_dt.replace(tzinfo=timezone.utc)
+            age_hours = (datetime.now(timezone.utc) - disc_dt).total_seconds() / 3600
+            if age_hours > NULL_FUNDER_MAX_AGE_HOURS:
+                return (False, None)  # stale — treat as uncached for retry
+        except (ValueError, TypeError):
+            pass
+    return (True, funder)
 
 
 def save_funder(wallet: str, funder: str | None) -> None:
@@ -912,22 +930,25 @@ ORDERBOOK_SNAPSHOT_MIN_INTERVAL_SEC = 600  # 10 minutes between snapshots per co
 
 
 def record_orderbook_snapshot(
-    condition_id: str, token_id: str, outcome: str, bids: list[dict], asks: list[dict]
+    condition_id: str, token_id: str, outcome: str, bids: list[dict], asks: list[dict],
+    *, force: bool = False,
 ) -> None:
     """Record an order book snapshot with computed depth metrics.
     Skips if a snapshot for this condition was recorded less than
-    ORDERBOOK_SNAPSHOT_MIN_INTERVAL_SEC ago to prevent table bloat."""
+    ORDERBOOK_SNAPSHOT_MIN_INTERVAL_SEC ago to prevent table bloat.
+    Set force=True (e.g. during backfill) to bypass the interval check."""
     conn = get_db()
-    row = conn.execute(
-        """SELECT snapshot_at FROM orderbook_snapshots
-           WHERE condition_id = ? ORDER BY snapshot_at DESC LIMIT 1""",
-        (condition_id,),
-    ).fetchone()
-    if row:
-        last_at = datetime.fromisoformat(row[0])
-        now = datetime.now(timezone.utc)
-        if (now - last_at).total_seconds() < ORDERBOOK_SNAPSHOT_MIN_INTERVAL_SEC:
-            return
+    if not force:
+        row = conn.execute(
+            """SELECT snapshot_at FROM orderbook_snapshots
+               WHERE condition_id = ? ORDER BY snapshot_at DESC LIMIT 1""",
+            (condition_id,),
+        ).fetchone()
+        if row:
+            last_at = datetime.fromisoformat(row[0])
+            now = datetime.now(timezone.utc)
+            if (now - last_at).total_seconds() < ORDERBOOK_SNAPSHOT_MIN_INTERVAL_SEC:
+                return
 
     best_bid = max((float(b["price"]) for b in bids), default=0)
     best_ask = min((float(a["price"]) for a in asks), default=0)

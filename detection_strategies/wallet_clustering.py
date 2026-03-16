@@ -55,8 +55,12 @@ _funder_cache: dict[str, str | None] = {}
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-def _query_etherscan(address: str, action: str, offset: int = 10) -> list[dict]:
-    """Call Etherscan V2 API and return the result list, or [] on error."""
+def _query_etherscan(address: str, action: str, offset: int = 10) -> list[dict] | None:
+    """Call Etherscan V2 API and return the result list.
+
+    Returns [] on success with no results, None on API error (rate limit,
+    invalid key, etc.).  Callers should NOT cache a negative funder result
+    when None is returned — the lookup should be retried later."""
     try:
         resp = requests.get(
             ETHERSCAN_API,
@@ -75,11 +79,24 @@ def _query_etherscan(address: str, action: str, offset: int = 10) -> list[dict]:
             timeout=10,
         )
         resp.raise_for_status()
-        results = resp.json().get("result", [])
+        data = resp.json()
+        # Etherscan returns status "0" on errors AND on "no results found".
+        # Distinguish them by checking the result string.
+        if data.get("status") != "1":
+            result_msg = str(data.get("result", ""))
+            if "No transactions found" in result_msg:
+                return []  # genuine empty result
+            print(
+                f"[WARN] Etherscan {action} error for {address}: "
+                f"{data.get('message', '')} — {result_msg}",
+                file=sys.stderr,
+            )
+            return None  # API error — don't cache
+        results = data.get("result", [])
         return results if isinstance(results, list) else []
     except requests.RequestException as e:
         print(f"[WARN] Etherscan {action} failed for {address}: {e}", file=sys.stderr)
-        return []
+        return None
 
 
 def _get_first_funder(address: str) -> str | None:
@@ -117,16 +134,21 @@ def _get_first_funder(address: str) -> str | None:
     # Query both normal and internal transactions, filter to inbound only,
     # and pick the earliest by block number.
     candidates: list[tuple[int, str]] = []  # (block, from_address)
+    api_succeeded = True
 
     actions = ("txlist", "txlistinternal")
     for i, action in enumerate(actions):
-        for tx in _query_etherscan(address, action):
-            if tx.get("to", "").lower() == address:
-                block = int(tx.get("blockNumber", 0))
-                sender = tx.get("from", "").lower()
-                if sender and sender != address:
-                    candidates.append((block, sender))
-                    break  # results are sorted asc, first inbound is enough
+        results = _query_etherscan(address, action)
+        if results is None:
+            api_succeeded = False
+        else:
+            for tx in results:
+                if tx.get("to", "").lower() == address:
+                    block = int(tx.get("blockNumber", 0))
+                    sender = tx.get("from", "").lower()
+                    if sender and sender != address:
+                        candidates.append((block, sender))
+                        break  # results are sorted asc, first inbound is enough
         # Rate-limit delay between consecutive Etherscan API calls
         if i < len(actions) - 1:
             time.sleep(FUNDER_LOOKUP_DELAY)
@@ -143,8 +165,12 @@ def _get_first_funder(address: str) -> str | None:
             print(f"    [cluster] {short} funded by {short_f}")
         return funder
 
-    _funder_cache[address] = None
-    save_funder(address, None)
+    # Only persist a negative result (no funder) when the API calls
+    # actually succeeded.  On API errors (rate limit, timeout, etc.),
+    # skip caching so the wallet is retried on the next run.
+    if api_succeeded:
+        _funder_cache[address] = None
+        save_funder(address, None)
     return None
 
 

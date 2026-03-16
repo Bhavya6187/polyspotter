@@ -54,9 +54,22 @@ from db import (
     get_cached_funder,
     record_wallet_pnl,
     get_wallet_pnl_latest_timestamp,
+    clear_wallet_pnl_by_type,
     record_price_candles_batch,
     record_orderbook_snapshot,
+    get_wallet_pnl_summary,
 )
+
+# Reuse live-flow filters and strategy constants
+from detection_strategies.timing_relative_resolution import (
+    detect_sport,
+    SPORT_CLOSE_MINUTES,
+    CLOSE_MINUTES,
+    MIN_BET_USD as TIMING_MIN_BET_USD,
+)
+from detection_strategies.new_wallet_large_bet import WALLET_AGE_DAYS
+from gamma_cache import is_sport_market, get_event_slug
+from polybot import _is_penny_collecting
 
 # ---------------------------------------------------------------------------
 # APIs
@@ -201,7 +214,7 @@ def fetch_trades(days: int, threshold: int) -> list[dict]:
     cutoff_ts = cutoff.timestamp()
     print(f"[1/11] Fetching trades >= ${threshold:,} since {cutoff.strftime('%Y-%m-%d')}...")
 
-    seen_keys: set[tuple[str, str, int]] = set()  # (wallet, conditionId, timestamp)
+    seen_keys: set[tuple[str, str, str, str, int]] = set()  # (wallet, conditionId, outcome, side, timestamp)
     all_trades: list[dict] = []
 
     # Build tier list: start from the user's threshold, add higher tiers
@@ -233,7 +246,9 @@ def fetch_trades(days: int, threshold: int) -> list[dict]:
 
                 wallet = t.get("proxyWallet", "").lower()
                 cid = t.get("conditionId", "")
-                key = (wallet, cid, ts)
+                outcome = t.get("outcome", "")
+                side = t.get("side", "")
+                key = (wallet, cid, outcome, side, ts)
                 if key in seen_keys:
                     continue
                 seen_keys.add(key)
@@ -275,6 +290,7 @@ def backfill_tracked_bets(trades: list[dict]) -> None:
         existing.add((r[0], r[1], r[2], r[3], r[4]))
 
     inserted = 0
+    skipped_filter = 0
     for t in trades:
         wallet = t.get("proxyWallet", "").lower()
         cid = t.get("conditionId", "")
@@ -283,6 +299,11 @@ def backfill_tracked_bets(trades: list[dict]) -> None:
         ts = t.get("timestamp", 0)
         if not wallet or not cid:
             continue
+        # Apply same filters as live flow (polybot.py) to avoid inflating
+        # win-rate stats with penny-collecting or resolved-market trades
+        if _is_penny_collecting(t):
+            skipped_filter += 1
+            continue
         key = (wallet, cid, outcome, side, ts)
         if key in existing:
             continue
@@ -290,7 +311,7 @@ def backfill_tracked_bets(trades: list[dict]) -> None:
         existing.add(key)
         inserted += 1
 
-    print(f"  Inserted {inserted} tracked bets\n")
+    print(f"  Inserted {inserted} tracked bets (filtered {skipped_filter} penny-collecting)\n")
 
 
 # ---------------------------------------------------------------------------
@@ -416,6 +437,9 @@ def backfill_event_price_timing_volume(trades: list[dict]) -> None:
 
         # wallet_event_history
         event_slug = t.get("eventSlug", "")
+        if not event_slug and cid in market_data:
+            event_slug = get_event_slug(market_data[cid])
+            t["eventSlug"] = event_slug  # inject for record_wallet_event_trade
         if wallet and event_slug and cid and (wallet, cid, ts) not in existing_events:
             record_wallet_event_trade(t)
             existing_events.add((wallet, cid, ts))
@@ -446,11 +470,17 @@ def backfill_event_price_timing_volume(trades: list[dict]) -> None:
                     # Skip short-duration markets (<1h) — near-resolution bets are expected
                     if market_duration_hours is not None and market_duration_hours < 1:
                         pass
-                    elif 0 <= minutes_to <= 60:
-                        record_timing_flag(wallet, cid, minutes_to, usd, ts,
-                                           market_duration_hours=market_duration_hours)
-                        existing_timing.add((wallet, cid, ts))
-                        timing_inserted += 1
+                    elif usd < TIMING_MIN_BET_USD:
+                        pass  # match live strategy's $1k minimum
+                    else:
+                        # Use sport-specific window (reuse detect_sport from strategy)
+                        is_sport = detect_sport(t, m)
+                        close_window = SPORT_CLOSE_MINUTES if is_sport else CLOSE_MINUTES
+                        if 0 <= minutes_to <= close_window:
+                            record_timing_flag(wallet, cid, minutes_to, usd, ts,
+                                               market_duration_hours=market_duration_hours)
+                            existing_timing.add((wallet, cid, ts))
+                            timing_inserted += 1
                 except ValueError:
                     pass
 
@@ -493,19 +523,24 @@ def backfill_flagged_wallets(trades: list[dict], skip_profiles: bool) -> None:
 
         created_at, _ = get_wallet_profile(wallet)
 
-        # Check each trade — was the wallet "new" at the time of that trade?
+        # Match live strategy: skip wallets with 10+ positions — they're
+        # active traders, not genuinely "new" despite recent creation
+        pnl = get_wallet_pnl_summary(wallet)
+        if pnl["total_positions"] >= 10:
+            continue
+
         for t in wallet_trades[wallet]:
             trade_ts = t.get("timestamp", 0)
-            trade_dt = datetime.fromtimestamp(trade_ts, tz=timezone.utc)
             usd = float(t.get("_usd_value", 0))
 
-            is_new = False
+            # Evaluate "new" at trade time, not wall-clock time — a wallet
+            # created 40 days ago was genuinely new for a trade 25 days ago
+            trade_dt = datetime.fromtimestamp(trade_ts, tz=timezone.utc)
             if created_at is None:
                 is_new = True
             else:
-                age_at_trade = (trade_dt - created_at).days
-                if age_at_trade < 30:
-                    is_new = True
+                cutoff = trade_dt - timedelta(days=WALLET_AGE_DAYS)
+                is_new = created_at >= cutoff
 
             if is_new:
                 # Record per-trade dedup entry so live runs don't
@@ -549,35 +584,48 @@ def backfill_wallet_funders(trades: list[dict], skip_etherscan: bool) -> None:
         if (i + 1) % 20 == 0:
             print(f"  looked up {i + 1}/{len(to_lookup)} wallets...")
 
-        time.sleep(ETHERSCAN_DELAY)
-        try:
-            resp = requests.get(
-                ETHERSCAN_API,
-                params={
-                    "module": "account",
-                    "action": "txlist",
-                    "address": wallet,
-                    "chainid": POLYGON_CHAIN_ID,
-                    "startblock": 0,
-                    "endblock": 9999999999,
-                    "page": 1,
-                    "offset": 10,
-                    "sort": "asc",
-                    "apikey": ETHERSCAN_API_KEY,
-                },
-                timeout=10,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            results = data.get("result", [])
-            if isinstance(results, list) and results:
-                funder = results[0].get("from", "").lower()
-                save_funder(wallet, funder)
-                looked_up += 1
-            else:
-                save_funder(wallet, None)
-        except requests.RequestException as e:
-            print(f"  [WARN] Etherscan failed for {wallet[:10]}...: {e}", file=sys.stderr)
+        # Query both normal and internal transactions (matching wallet_clustering
+        # logic) — many proxy wallets are funded via internal/contract txs.
+        candidates: list[tuple[int, str]] = []  # (block, from_address)
+        for action in ("txlist", "txlistinternal"):
+            time.sleep(ETHERSCAN_DELAY)
+            try:
+                resp = requests.get(
+                    ETHERSCAN_API,
+                    params={
+                        "module": "account",
+                        "action": action,
+                        "address": wallet,
+                        "chainid": POLYGON_CHAIN_ID,
+                        "startblock": 0,
+                        "endblock": 9999999999,
+                        "page": 1,
+                        "offset": 10,
+                        "sort": "asc",
+                        "apikey": ETHERSCAN_API_KEY,
+                    },
+                    timeout=10,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                results = data.get("result", [])
+                if isinstance(results, list):
+                    for tx in results:
+                        if tx.get("to", "").lower() == wallet:
+                            block = int(tx.get("blockNumber", 0))
+                            sender = tx.get("from", "").lower()
+                            if sender and sender != wallet:
+                                candidates.append((block, sender))
+                                break  # sorted asc, first inbound is enough
+            except requests.RequestException as e:
+                print(f"  [WARN] Etherscan {action} failed for {wallet[:10]}...: {e}", file=sys.stderr)
+
+        if candidates:
+            candidates.sort()
+            funder = candidates[0][1]
+            save_funder(wallet, funder)
+            looked_up += 1
+        else:
             save_funder(wallet, None)
 
     print(f"  Looked up {looked_up} funder(s)\n")
@@ -660,9 +708,14 @@ def backfill_wallet_activity(trades: list[dict]) -> None:
                 price = float(act.get("price", 0) or 0)
                 usdc_size = float(act.get("usdcSize", 0) or 0)
                 event_slug = act.get("eventSlug", "")
-                # /activity may not return eventSlug — fall back to market cache
-                if not event_slug and cid in _market_cache:
-                    event_slug = _market_cache[cid].get("slug", "")
+                # /activity may not return eventSlug — fall back to market cache or fetch
+                if not event_slug and cid:
+                    if cid in _market_cache:
+                        event_slug = get_event_slug(_market_cache[cid])
+                    else:
+                        m = get_market(cid)  # populates _market_cache as side effect
+                        if m:
+                            event_slug = get_event_slug(m)
 
                 # Build a trade-like dict for existing record functions
                 trade_like = {
@@ -676,8 +729,8 @@ def backfill_wallet_activity(trades: list[dict]) -> None:
                     "_usd_value": usdc_size,
                 }
 
-                # tracked_bets: record ALL trades (not just large ones)
-                if wallet and cid and (wallet, cid, outcome, side, ts) not in existing_bets:
+                # tracked_bets: record trades (skip penny-collecting to match live filters)
+                if wallet and cid and not _is_penny_collecting(trade_like) and (wallet, cid, outcome, side, ts) not in existing_bets:
                     record_tracked_bet(trade_like)
                     existing_bets.add((wallet, cid, outcome, side, ts))
                     bets_added += 1
@@ -713,12 +766,17 @@ def backfill_wallet_activity(trades: list[dict]) -> None:
                                 market_duration_hours = (end_dt - start_dt).total_seconds() / 3600
                             if market_duration_hours is not None and market_duration_hours < 1:
                                 pass
-                            elif 0 <= minutes_to <= 60:
-                                record_timing_flag(wallet, cid, minutes_to, usdc_size, ts,
-                                                   market_duration_hours=market_duration_hours)
-                                existing_timing.add((wallet, cid, ts))
-                                timing_added += 1
-                                page_new += 1
+                            elif usdc_size < TIMING_MIN_BET_USD:
+                                pass  # match live strategy's $1k minimum
+                            else:
+                                is_sport = detect_sport(trade_like, m)
+                                close_window = SPORT_CLOSE_MINUTES if is_sport else CLOSE_MINUTES
+                                if 0 <= minutes_to <= close_window:
+                                    record_timing_flag(wallet, cid, minutes_to, usdc_size, ts,
+                                                       market_duration_hours=market_duration_hours)
+                                    existing_timing.add((wallet, cid, ts))
+                                    timing_added += 1
+                                    page_new += 1
                         except ValueError:
                             pass
 
@@ -805,6 +863,7 @@ def backfill_wallet_pnl(trades: list[dict]) -> None:
         if (i + 1) % 20 == 0:
             print(f"  processed {i + 1}/{len(wallets)} wallets ({open_count} open, {closed_count} closed)...")
 
+        clear_wallet_pnl_by_type(wallet, "open")  # fresh fetch, matching live strategy
         open_count += _fetch_pnl_pages(wallet, "positions", "open", limit=50)
         closed_cutoff = get_wallet_pnl_latest_timestamp(wallet, "closed")
         closed_count += _fetch_pnl_pages(wallet, "closed-positions", "closed",
@@ -916,7 +975,7 @@ def backfill_orderbook_snapshots(trades: list[dict]) -> None:
             bids = data.get("bids", [])
             asks = data.get("asks", [])
             if bids or asks:
-                record_orderbook_snapshot(cid, token_id, outcome, bids, asks)
+                record_orderbook_snapshot(cid, token_id, outcome, bids, asks, force=True)
                 recorded += 1
         except requests.RequestException:
             pass
@@ -1002,12 +1061,12 @@ def main():
     backfill_tracked_bets(trades)
     resolve_tracked_bets(only_current=True, current_cids=current_cids)
     backfill_event_price_timing_volume(trades)
+    backfill_wallet_pnl(trades)  # must run before flagged_wallets (needs position counts)
     backfill_flagged_wallets(trades, args.skip_profiles)
     backfill_wallet_funders(trades, args.skip_etherscan)
     backfill_wallet_activity(trades)
     # Second resolve pass — resolve wallet_activity bets using already-cached markets
     resolve_tracked_bets(only_current=True, current_cids=set(_market_cache.keys()))
-    backfill_wallet_pnl(trades)
     backfill_price_candles(trades)
     backfill_orderbook_snapshots(trades)
     print_summary()

@@ -42,7 +42,7 @@ from seeder import push_to_backend
 DATA_API = "https://data-api.polymarket.com"
 
 BET_THRESHOLD_USD = 3000  # minimum USD value to flag
-TRADE_WINDOW_SECONDS = 3600*4  # how far back to look for trades
+TRADE_WINDOW_SECONDS = 100*4  # how far back to look for trades
 TRADE_PAGE_SIZE = 1000  # trades per API call (API max is 1,000)
 MIN_MARKET_DURATION_HOURS = 1  # skip markets shorter than this (e.g., 5-min BTC binary options)
 EXTREME_ODDS_THRESHOLD = 0.90  # skip trades at price > this
@@ -99,7 +99,10 @@ def _parse_datetime(s: str | None) -> datetime | None:
     if not s:
         return None
     try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
     except ValueError:
         return None
 

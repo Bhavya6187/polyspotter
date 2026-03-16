@@ -56,6 +56,15 @@ def _get_event_id(market: dict) -> str | None:
     return None
 
 
+def get_event_slug(market: dict) -> str:
+    """Extract the event-level slug from a market's nested events array.
+    Falls back to the market slug if no events are present."""
+    events = market.get("events")
+    if events and isinstance(events, list) and len(events) > 0:
+        return events[0].get("slug", "")
+    return market.get("slug", "")
+
+
 def _fetch_event_tags(event_id: str) -> list[dict]:
     """Fetch tags for an event from the Gamma API.
     The nested event inside a market response doesn't include tags,

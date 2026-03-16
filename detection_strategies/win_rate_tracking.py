@@ -246,17 +246,15 @@ class WinRateTrackingStrategy(DetectionStrategy):
         stats = get_wallet_stats(wallet)
         pnl = get_wallet_pnl_summary(wallet)
 
-        # Use tracked_bets resolution if enough data, otherwise fall back to
-        # closed-positions P&L data from the Data API
+        # Prefer wallet_pnl data (consistent win rate + edge from the same
+        # dataset).  Fall back to tracked_bets only when P&L data is
+        # insufficient.  Using both sources with mismatched denominators
+        # would produce a meaningless edge calculation.
         win_rate = None
+        edge = None
         source = ""
-        resolved = stats["resolved_bets"]
-        wins = stats["wins"]
 
-        if resolved >= MIN_RESOLVED_BETS:
-            win_rate = wins / resolved
-            source = f"{wins}/{resolved} resolved"
-        elif pnl["closed_positions"] >= MIN_RESOLVED_BETS:
+        if pnl["closed_positions"] >= MIN_RESOLVED_BETS:
             resolved = pnl["closed_positions"]
             wins = pnl["wins"]
             losses = pnl["losses"]
@@ -268,25 +266,26 @@ class WinRateTrackingStrategy(DetectionStrategy):
                 return None
 
             source = f"{wins}/{resolved} P&L"
+            # Edge is computed from the same P&L dataset (self-consistent)
+            edge = pnl.get("edge", 0)
+        elif stats["resolved_bets"] >= MIN_RESOLVED_BETS:
+            resolved = stats["resolved_bets"]
+            wins = stats["wins"]
+            win_rate = wins / resolved
+            source = f"{wins}/{resolved} resolved"
+            # Use P&L edge if available (computed from same price data),
+            # otherwise fall back to raw win rate discounted by 0.5
+            avg_price = pnl.get("avg_closed_price", 0)
+            if pnl["closed_positions"] > 0 and avg_price > 0:
+                edge = pnl.get("edge", 0)
+            else:
+                edge = win_rate - 0.5
         else:
             # Not enough data from either source
             return None
 
         if win_rate is None or win_rate < WIN_RATE_ALERT_THRESHOLD:
             return None
-
-        # --- Odds-adjusted edge calculation ---
-        # Use avg_closed_price (all resolved bets, not just wins) as the
-        # implied win probability.  This avoids the bias of avg_win_price
-        # which ignores losing bets at different price points.
-        avg_price = pnl.get("avg_closed_price", 0)
-        implied_win_rate = avg_price if 0 < avg_price < 1 else 0
-
-        if implied_win_rate > 0:
-            edge = win_rate - implied_win_rate
-        else:
-            # No price data — fall back to raw win rate but discount severity
-            edge = win_rate - 0.5
 
         # Skip if edge is too small (winning on heavy favorites isn't notable)
         if edge < MIN_EDGE_THRESHOLD:
@@ -302,10 +301,11 @@ class WinRateTrackingStrategy(DetectionStrategy):
         else:
             severity = 1.0
 
-        if implied_win_rate > 0:
+        avg_price = pnl.get("avg_closed_price", 0)
+        if avg_price > 0:
             headline = (
                 f"{win_rate:.0%} win rate ({source}) "
-                f"at avg odds {implied_win_rate:.0%} "
+                f"at avg odds {avg_price:.0%} "
                 f"(+{edge:.0%} edge)"
             )
         else:

@@ -526,8 +526,9 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
                 VALUES ('0xwallet1', ?, 'Yes', 'BUY', 5000, 1700000000, '2024-01-01', 1, 1)""",
                 (f"cond_{i}",),
             )
-        # wallet_pnl with avg_price=0.50 so edge is high enough
-        for i in range(12):
+        # wallet_pnl with avg_price=0.50 so edge is high enough.
+        # Include a few losses so the perfect-record filter doesn't suppress.
+        for i in range(10):
             conn.execute(
                 """INSERT INTO wallet_pnl
                 (wallet, condition_id, asset, outcome, avg_price, total_bought, realized_pnl,
@@ -535,6 +536,15 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
                 VALUES ('0xwallet1', ?, ?, 'Yes', 0.50, 100.0, 50.0,
                         1.0, 'slug', '2024-12-01', 'closed', '2024-01-01', 1700000000)""",
                 (f"cond_{i}", f"asset_{i}"),
+            )
+        for i in range(2):
+            conn.execute(
+                """INSERT INTO wallet_pnl
+                (wallet, condition_id, asset, outcome, avg_price, total_bought, realized_pnl,
+                 cur_price, event_slug, end_date, position_type, recorded_at, api_timestamp)
+                VALUES ('0xwallet1', ?, ?, 'Yes', 0.50, 100.0, -50.0,
+                        0.0, 'slug', '2024-12-01', 'closed', '2024-01-01', 1700000000)""",
+                (f"cond_loss_{i}", f"asset_loss_{i}"),
             )
         conn.commit()
         mock_get_db.return_value = conn
