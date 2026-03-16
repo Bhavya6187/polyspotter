@@ -21,8 +21,9 @@ const usdFmt = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
 
-export default function AlertRow({ alert, onToggle, activeCategory, onCategoryClick }) {
+export default function AlertRow({ alert, onToggle, activeTag, onTagClick }) {
   const isCluster = alert.alert_type === "cluster";
+  const tags = alert.tags || [];
 
   return (
     <tr
@@ -33,21 +34,26 @@ export default function AlertRow({ alert, onToggle, activeCategory, onCategoryCl
         <ScoreBadge score={alert.composite_score ?? 0} />
       </td>
       <td className="px-4 py-3">
-        {alert.category ? (
-          <span
-            role="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCategoryClick(alert.category);
-            }}
-            className={`inline-block cursor-pointer rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
-              activeCategory === alert.category
-                ? "bg-blue-600 text-blue-50 dark:bg-blue-700 dark:text-blue-100"
-                : "bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-            }`}
-          >
-            {alert.category}
-          </span>
+        {tags.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {tags.map((t) => (
+              <span
+                key={t}
+                role="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTagClick(t);
+                }}
+                className={`inline-block cursor-pointer rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
+                  activeTag === t
+                    ? "bg-blue-600 text-blue-50 dark:bg-blue-700 dark:text-blue-100"
+                    : "bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                }`}
+              >
+                {t}
+              </span>
+            ))}
+          </div>
         ) : (
           <span className="text-gray-300 dark:text-gray-600">&mdash;</span>
         )}

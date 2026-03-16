@@ -14,13 +14,13 @@ async function request(path, params = {}) {
   return res.json();
 }
 
-export function fetchAlerts({ page, perPage, minScore, wallet, category } = {}) {
+export function fetchAlerts({ page, perPage, minScore, wallet, tag } = {}) {
   return request("/api/alerts", {
     page,
     per_page: perPage,
     min_score: minScore || undefined,
     wallet: wallet || undefined,
-    category: category || undefined,
+    tag: tag || undefined,
   });
 }
 
@@ -36,8 +36,8 @@ export function fetchStrategies() {
   return request("/api/strategies");
 }
 
-export function fetchCategories() {
-  return request("/api/categories");
+export function fetchTags() {
+  return request("/api/tags");
 }
 
 export function fetchHealth() {

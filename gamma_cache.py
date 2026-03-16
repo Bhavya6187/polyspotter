@@ -119,6 +119,21 @@ def get_market_category(condition_id: str) -> str | None:
     return tags[0].get("label") if tags else None
 
 
+def get_market_tags(condition_id: str) -> list[str]:
+    """Return all tag labels for a market's parent event.
+
+    Looks up the market by conditionId, finds the parent event, fetches
+    its tags, and returns all tag labels as a list."""
+    market = get_market_by_condition(condition_id)
+    if not market:
+        return []
+    event_id = _get_event_id(market)
+    if not event_id:
+        return []
+    tags = _fetch_event_tags(event_id)
+    return [t.get("label") for t in tags if t.get("label")]
+
+
 def is_sport_market(market: dict) -> bool:
     """Check whether a market belongs to a sports event via Gamma API tags.
 

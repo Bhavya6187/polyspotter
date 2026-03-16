@@ -7,8 +7,8 @@ CREATE TABLE IF NOT EXISTS alerts (
     alert_type      TEXT NOT NULL DEFAULT 'composite',  -- 'composite' or 'cluster'
     composite_score DOUBLE PRECISION NOT NULL,
 
-    -- market info
-    category        TEXT,
+    -- market info (tags stored as JSON array, e.g. '["Sports","NBA"]')
+    tags            TEXT DEFAULT '[]',
     market_title    TEXT,
     condition_id    TEXT,
     event_slug      TEXT,

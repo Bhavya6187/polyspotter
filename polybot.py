@@ -9,6 +9,7 @@ detection_strategies/ package.
 """
 
 import argparse
+import json
 import os
 import sys
 from collections import defaultdict
@@ -45,6 +46,7 @@ TRADE_WINDOW_SECONDS = 3600*4  # how far back to look for trades
 TRADE_PAGE_SIZE = 1000  # trades per API call (API max is 1,000)
 MIN_MARKET_DURATION_HOURS = 1  # skip markets shorter than this (e.g., 5-min BTC binary options)
 EXTREME_ODDS_THRESHOLD = 0.90  # skip trades at price > this
+RESOLVED_MARKET_THRESHOLD = 0.98  # skip trades on markets where any outcome is >= this
 
 
 def fetch_recent_trades(seconds: int = TRADE_WINDOW_SECONDS) -> list[dict]:
@@ -149,6 +151,42 @@ def filter_extreme_odds(trades: list[dict]) -> list[dict]:
     removed = len(trades) - len(filtered)
     if removed:
         print(f"[*] Filtered {removed} penny-collecting trade(s) at extreme odds", flush=True)
+    return filtered
+
+
+def filter_resolved_markets(trades: list[dict]) -> list[dict]:
+    """Remove trades on markets that are effectively resolved.
+
+    A market is considered resolved when any outcome's current price is
+    >= RESOLVED_MARKET_THRESHOLD (0.98).  Trading on these markets is
+    just collecting pennies on a known result — not informed positioning.
+
+    Uses the Gamma API market cache (already populated by
+    filter_short_markets) so this adds zero extra API calls."""
+    condition_ids = {t.get("conditionId", "") for t in trades if t.get("conditionId")}
+    resolved_cids: set[str] = set()
+
+    for cid in condition_ids:
+        market = get_market_by_condition(cid)
+        if not market:
+            continue
+        try:
+            prices = json.loads(market.get("outcomePrices", "[]"))
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if any(float(p) >= RESOLVED_MARKET_THRESHOLD for p in prices):
+            resolved_cids.add(cid)
+
+    if not resolved_cids:
+        return trades
+
+    filtered = [t for t in trades if t.get("conditionId", "") not in resolved_cids]
+    removed = len(trades) - len(filtered)
+    print(
+        f"[*] Filtered {removed} trade(s) on {len(resolved_cids)} resolved market(s) "
+        f"(outcome price >= {RESOLVED_MARKET_THRESHOLD:.0%})",
+        flush=True,
+    )
     return filtered
 
 
@@ -582,6 +620,7 @@ def run():
         return
 
     trades = filter_short_markets(trades)
+    trades = filter_resolved_markets(trades)
     trades = filter_extreme_odds(trades)
 
     print(f"\n[*] Running {len(all_strategies)} strategy(ies) on {len(trades)} trade(s)...", flush=True)

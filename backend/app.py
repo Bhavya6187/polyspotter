@@ -13,6 +13,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, contextmanager
@@ -62,6 +63,14 @@ def db():
         conn.close()
 
 
+def _alert_from_row(row: dict) -> AlertOut:
+    """Build an AlertOut from a DB row, parsing the JSON tags column."""
+    data = dict(row)
+    raw = data.pop("tags", "[]") or "[]"
+    data["tags"] = json.loads(raw) if isinstance(raw, str) else raw
+    return AlertOut(**data)
+
+
 # ---------------------------------------------------------------------------
 # Ingest (called by polybot seeder)
 # ---------------------------------------------------------------------------
@@ -78,15 +87,16 @@ def ingest(payload: IngestPayload):
 
         for alert in payload.alerts:
             try:
+                tags_json = json.dumps(alert.tags) if alert.tags else "[]"
                 cur.execute(
                     """INSERT INTO alerts
-                       (alert_type, composite_score, category, market_title, condition_id,
+                       (alert_type, composite_score, tags, market_title, condition_id,
                         event_slug, market_url, wallet, total_usd, trade_count,
                         cluster_headline, llm_summary, scanned_at, dedup_key)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        ON CONFLICT (dedup_key) DO UPDATE SET
                         composite_score = EXCLUDED.composite_score,
-                        category = EXCLUDED.category,
+                        tags = EXCLUDED.tags,
                         total_usd = EXCLUDED.total_usd,
                         trade_count = EXCLUDED.trade_count,
                         cluster_headline = EXCLUDED.cluster_headline,
@@ -96,7 +106,7 @@ def ingest(payload: IngestPayload):
                     (
                         alert.alert_type,
                         alert.composite_score,
-                        alert.category,
+                        tags_json,
                         alert.market_title,
                         alert.condition_id,
                         alert.event_slug,
@@ -220,7 +230,7 @@ def list_alerts(
     strategy: str | None = Query(None, description="Filter by strategy name"),
     wallet: str | None = Query(None, description="Filter by wallet address"),
     event_slug: str | None = Query(None, description="Filter by event slug"),
-    category: str | None = Query(None, description="Filter by market category"),
+    tag: str | None = Query(None, description="Filter by tag"),
 ):
     """List alerts ordered by composite score, with optional filters."""
     offset = (page - 1) * per_page
@@ -235,9 +245,9 @@ def list_alerts(
         conditions.append("a.event_slug = %s")
         params.append(event_slug)
 
-    if category:
-        conditions.append("a.category = %s")
-        params.append(category)
+    if tag:
+        conditions.append("a.tags::jsonb ? %s")
+        params.append(tag)
 
     if strategy:
         conditions.append(
@@ -263,7 +273,7 @@ def list_alerts(
         rows = cur.fetchall()
 
     return PaginatedAlerts(
-        alerts=[AlertOut(**r) for r in rows],
+        alerts=[_alert_from_row(r) for r in rows],
         total=total,
         page=page,
         per_page=per_page,
@@ -293,7 +303,10 @@ def get_alert(alert_id: int):
         )
         signals = [SignalOut(**r) for r in cur.fetchall()]
 
-    return AlertDetail(**alert_row, trades=trades, signals=signals)
+    data = dict(alert_row)
+    raw = data.pop("tags", "[]") or "[]"
+    data["tags"] = json.loads(raw) if isinstance(raw, str) else raw
+    return AlertDetail(**data, trades=trades, signals=signals)
 
 
 @app.get("/api/wallets/{wallet_address}", response_model=WalletProfileOut)
@@ -326,19 +339,18 @@ def list_strategies():
         return cur.fetchall()
 
 
-@app.get("/api/categories")
-def list_categories():
-    """List all categories that have alerts, with counts."""
+@app.get("/api/tags")
+def list_tags():
+    """List all tags across alerts, with counts."""
     with db() as conn:
         cur = conn.cursor()
         cur.execute(
-            """SELECT category, COUNT(*) as alert_count
-               FROM alerts
-               WHERE category IS NOT NULL AND category != ''
-               GROUP BY category
+            """SELECT tag, COUNT(*) as alert_count
+               FROM alerts, jsonb_array_elements_text(tags::jsonb) AS tag
+               GROUP BY tag
                ORDER BY alert_count DESC"""
         )
-        return cur.fetchall()
+        return [{"tag": r["tag"], "alert_count": r["alert_count"]} for r in cur.fetchall()]
 
 
 @app.get("/api/health")

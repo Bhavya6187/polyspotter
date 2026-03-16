@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-export default function Filters({ categories, filters, onFilterChange }) {
+export default function Filters({ tags, filters, onFilterChange }) {
   const [localMinScore, setLocalMinScore] = useState(filters.minScore);
   const [localWallet, setLocalWallet] = useState(filters.wallet);
   const debounceRef = useRef(null);
@@ -36,15 +36,15 @@ export default function Filters({ categories, filters, onFilterChange }) {
       </label>
 
       <label className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-        Category
+        Tag
         <select
-          value={filters.category}
-          onChange={(e) => onFilterChange({ ...filters, category: e.target.value })}
+          value={filters.tag}
+          onChange={(e) => onFilterChange({ ...filters, tag: e.target.value })}
           className="rounded bg-white px-2 py-1 text-gray-900 outline-none focus:ring-1 focus:ring-gray-300 dark:bg-gray-900 dark:text-gray-100 dark:focus:ring-gray-600"
         >
-          <option value="">All Categories</option>
-          {categories.map((c) => {
-            const name = typeof c === "string" ? c : c.category;
+          <option value="">All Tags</option>
+          {tags.map((t) => {
+            const name = typeof t === "string" ? t : t.tag;
             return (
               <option key={name} value={name}>
                 {name}

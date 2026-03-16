@@ -17,11 +17,16 @@ from dotenv import load_dotenv
 
 from detection_strategies import Signal
 from db import get_wallet_pnl_summary, get_flagged_wallet_stats
-from gamma_cache import get_market_category
+from gamma_cache import get_market_tags
 
 load_dotenv()
 
 BACKEND_URL = os.environ.get("POLYBOT_BACKEND_URL", "http://localhost:8000")
+
+# When a cluster alert exists for an event with score >= this threshold,
+# cap the number of individual composite alerts on the same event.
+CLUSTER_SCORE_THRESHOLD = 15.0
+MAX_INDIVIDUAL_PER_CLUSTERED_EVENT = 3
 
 
 def _build_dedup_key(
@@ -85,11 +90,11 @@ def _trade_to_dict(trade: dict) -> dict:
     }
 
 
-def _resolve_category(condition_id: str | None) -> str | None:
-    """Look up market category from Gamma API event tags."""
+def _resolve_tags(condition_id: str | None) -> list[str]:
+    """Look up market tags from Gamma API event tags."""
     if not condition_id:
-        return None
-    return get_market_category(condition_id)
+        return []
+    return get_market_tags(condition_id)
 
 
 def _signal_to_dict(sig: Signal) -> dict:
@@ -171,7 +176,7 @@ def build_alerts_payload(
         alerts.append({
             "alert_type": "cluster",
             "composite_score": max_score,
-            "category": _resolve_category(cid),
+            "tags": _resolve_tags(cid),
             "market_title": sample.get("title"),
             "condition_id": cid,
             "event_slug": event_slug,
@@ -254,7 +259,7 @@ def build_alerts_payload(
         alerts.append({
             "alert_type": "composite",
             "composite_score": total_severity,
-            "category": _resolve_category(cid),
+            "tags": _resolve_tags(cid),
             "market_title": primary_trade.get("title"),
             "condition_id": cid,
             "event_slug": evt,
@@ -284,7 +289,7 @@ def build_alerts_payload(
         alerts.append({
             "alert_type": "composite",
             "composite_score": total_severity,
-            "category": _resolve_category(cid),
+            "tags": _resolve_tags(cid),
             "market_title": trade.get("title"),
             "condition_id": cid,
             "event_slug": event_slug,
@@ -300,6 +305,42 @@ def build_alerts_payload(
 
         if wallet:
             wallets_seen.add(wallet.lower())
+
+    # --- Cap individual alerts on events that already have a strong cluster --
+    # When a cluster alert scores >= CLUSTER_SCORE_THRESHOLD, keep only the
+    # top N individual alerts (by composite_score) on the same event slug.
+    # The cluster already captures the coordinated flow; extra individual
+    # alerts add noise and waste LLM evaluations.
+    cluster_events: dict[str, float] = {}
+    for a in alerts:
+        if a["alert_type"] == "cluster" and a["composite_score"] >= CLUSTER_SCORE_THRESHOLD:
+            evt = a.get("event_slug", "")
+            if evt:
+                cluster_events[evt] = max(cluster_events.get(evt, 0), a["composite_score"])
+
+    if cluster_events:
+        capped_alerts: list[dict] = []
+        # Collect individual alerts per event, sort by score, keep top N
+        event_individuals: dict[str, list[dict]] = defaultdict(list)
+        for a in alerts:
+            evt = a.get("event_slug", "")
+            if a["alert_type"] != "cluster" and evt in cluster_events:
+                event_individuals[evt].append(a)
+            else:
+                capped_alerts.append(a)
+
+        n_capped = 0
+        for evt, indiv in event_individuals.items():
+            indiv.sort(key=lambda x: -x["composite_score"])
+            capped_alerts.extend(indiv[:MAX_INDIVIDUAL_PER_CLUSTERED_EVENT])
+            n_capped += max(0, len(indiv) - MAX_INDIVIDUAL_PER_CLUSTERED_EVENT)
+
+        if n_capped:
+            print(
+                f"[seeder] Capped {n_capped} individual alert(s) on "
+                f"{len(cluster_events)} event(s) with strong cluster alerts",
+            )
+        alerts = capped_alerts
 
     # --- Build wallet profiles ---
     wallet_profiles: list[dict] = []

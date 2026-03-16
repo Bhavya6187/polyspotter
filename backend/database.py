@@ -20,7 +20,7 @@ def get_conn():
 
 
 def init_db():
-    """Run schema.sql to create tables if they don't exist."""
+    """Run schema.sql to create tables if they don't exist, then apply migrations."""
     schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
     with open(schema_path) as f:
         sql = f.read()
@@ -28,6 +28,35 @@ def init_db():
     try:
         with conn.cursor() as cur:
             cur.execute(sql)
+            _migrate_category_to_tags(cur)
         conn.commit()
     finally:
         conn.close()
+
+
+def _migrate_category_to_tags(cur):
+    """Migrate legacy 'category' column to 'tags' JSON array if needed."""
+    cur.execute("""
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'alerts' AND column_name = 'category'
+    """)
+    if not cur.fetchone():
+        return  # already migrated
+
+    # Ensure tags column exists
+    cur.execute("""
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'alerts' AND column_name = 'tags'
+    """)
+    if not cur.fetchone():
+        cur.execute("ALTER TABLE alerts ADD COLUMN tags TEXT DEFAULT '[]'")
+
+    # Copy category values into tags as single-element JSON arrays
+    cur.execute("""
+        UPDATE alerts
+        SET tags = jsonb_build_array(category)::text
+        WHERE category IS NOT NULL AND category != ''
+          AND (tags IS NULL OR tags = '[]')
+    """)
+
+    cur.execute("ALTER TABLE alerts DROP COLUMN category")

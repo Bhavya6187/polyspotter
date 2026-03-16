@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { fetchAlerts, fetchCategories, fetchHealth } from "./api";
+import { fetchAlerts, fetchTags, fetchHealth } from "./api";
 import Filters from "./components/Filters";
 import AlertTable from "./components/AlertTable";
 import Pagination from "./components/Pagination";
@@ -13,17 +13,17 @@ export default function App() {
   const [filters, setFilters] = useState({
     minScore: 0,
     wallet: "",
-    category: "",
+    tag: "",
   });
   const [expandedAlertId, setExpandedAlertId] = useState(null);
-  const [categories, setCategories] = useState([]);
+  const [tags, setTags] = useState([]);
   const [loading, setLoading] = useState(true);
   const [healthy, setHealthy] = useState(null);
 
   // Fetch categories + health on mount
   useEffect(() => {
-    fetchCategories()
-      .then((data) => setCategories(data.categories || data || []))
+    fetchTags()
+      .then((data) => setTags(data.tags || data || []))
       .catch(() => {});
     fetchHealth()
       .then(() => setHealthy(true))
@@ -38,7 +38,7 @@ export default function App() {
       perPage,
       minScore: filters.minScore,
       wallet: filters.wallet,
-      category: filters.category,
+      tag: filters.tag,
     })
       .then((data) => {
         setAlerts(data.alerts || data.items || []);
@@ -103,7 +103,7 @@ export default function App() {
         {/* Filters */}
         <div className="mb-4">
           <Filters
-            categories={categories}
+            tags={tags}
             filters={filters}
             onFilterChange={handleFilterChange}
           />

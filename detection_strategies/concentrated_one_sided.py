@@ -31,6 +31,7 @@ MIN_CLUSTER_USD = 5000  # minimum total USD in the cluster to flag
 MAX_WINDOW_SECONDS = 300  # trades must fall within this window
 FAVORITE_PRICE_THRESHOLD = 0.70  # suppress clusters buying above this price...
 FAVORITE_VOLUME_24H = 50_000  # ...on markets with 24h volume above this
+RESOLVED_TRADE_PRICE = 0.98  # skip individual trades at near-certain prices
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +77,15 @@ class ConcentratedOneSidedStrategy(DetectionStrategy):
             outcome = t.get("outcome", "")
             side = t.get("side", "")
             if not (cid and outcome and side):
+                continue
+
+            # Skip trades at near-certain prices — these are post-resolution
+            # crowd trades, not informed positioning.  BUY at 0.99 = paying
+            # 99c to win 1c; SELL at 0.01 = collecting 1c on a known loser.
+            price = float(t.get("price", 0.5))
+            if (side == "BUY" and price >= RESOLVED_TRADE_PRICE) or (
+                side == "SELL" and price <= (1 - RESOLVED_TRADE_PRICE)
+            ):
                 continue
 
             if cid in binary_cids and side == "SELL":

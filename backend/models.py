@@ -31,7 +31,7 @@ class SignalIn(BaseModel):
 class AlertIn(BaseModel):
     alert_type: str = "composite"
     composite_score: float
-    category: str | None = None
+    tags: list[str] = []
     market_title: str | None = None
     condition_id: str | None = None
     event_slug: str | None = None
@@ -90,7 +90,7 @@ class AlertOut(BaseModel):
     id: int
     alert_type: str
     composite_score: float
-    category: str | None = None
+    tags: list[str] = []
     market_title: str | None = None
     condition_id: str | None = None
     event_slug: str | None = None
