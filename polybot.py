@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from collections import defaultdict
 
 # Force unbuffered stdout so progress prints appear immediately
@@ -69,14 +70,23 @@ def fetch_recent_trades(seconds: int = TRADE_WINDOW_SECONDS) -> list[dict]:
             "filterType": "CASH",
             "filterAmount": BET_THRESHOLD_USD,
         }
-        try:
-            resp = requests.get(f"{DATA_API}/trades", params=params, timeout=15)
-            if resp.status_code == 400:
-                break  # API returns 400 when offset exceeds available data
-            resp.raise_for_status()
-            page = resp.json()
-        except requests.RequestException as e:
-            print(f"[ERROR] Failed to fetch trades (offset={offset}): {e}", file=sys.stderr)
+        page = None
+        for attempt in range(3):
+            try:
+                resp = requests.get(f"{DATA_API}/trades", params=params, timeout=15)
+                if resp.status_code == 400:
+                    break  # API returns 400 when offset exceeds available data
+                resp.raise_for_status()
+                page = resp.json()
+                break
+            except requests.RequestException as e:
+                if attempt < 2:
+                    wait = 2 ** attempt
+                    print(f"[WARN] Fetch trades (offset={offset}) failed, retrying in {wait}s: {e}", file=sys.stderr)
+                    time.sleep(wait)
+                else:
+                    print(f"[ERROR] Failed to fetch trades (offset={offset}) after 3 attempts: {e}", file=sys.stderr)
+        if page is None:
             break
 
         if not isinstance(page, list) or not page:
