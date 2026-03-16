@@ -23,23 +23,16 @@ def clear_postgres():
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
 
-    # Add llm_summary column if it doesn't exist yet
-    cur.execute("""
-        ALTER TABLE alerts ADD COLUMN IF NOT EXISTS llm_summary TEXT
-    """)
-
-    cur.execute("DELETE FROM alert_signals")
-    sig_count = cur.rowcount
-    cur.execute("DELETE FROM alert_trades")
-    trade_count = cur.rowcount
-    cur.execute("DELETE FROM alerts")
-    alert_count = cur.rowcount
+    cur.execute("DROP TABLE IF EXISTS alert_signals")
+    cur.execute("DROP TABLE IF EXISTS alert_trades")
+    cur.execute("DROP TABLE IF EXISTS wallet_profiles")
+    cur.execute("DROP TABLE IF EXISTS alerts")
 
     conn.commit()
     cur.close()
     conn.close()
 
-    print(f"[Postgres] Deleted {alert_count} alerts, {trade_count} trades, {sig_count} signals.")
+    print("[Postgres] Dropped alerts, alert_trades, alert_signals, wallet_profiles tables.")
 
 
 def clear_local_cache():

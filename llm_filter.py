@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 import os
+from collections import defaultdict
+from datetime import datetime
 
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -186,6 +188,36 @@ RESPONSE_SCHEMA = {
 }
 
 
+def _format_trade_line(t: dict, current_prices: dict[str, float]) -> str:
+    """Format a single trade line with timestamp and entry-vs-current price."""
+    side = t.get("side", "?")
+    outcome = t.get("outcome", "?")
+    usd = t.get("usd_value", 0)
+    price = t.get("price", 0)
+    wallet = t.get("wallet", "")
+    short_wallet = f"{wallet[:8]}...{wallet[-6:]}" if len(wallet) > 14 else wallet
+
+    # Timestamp
+    ts_str = ""
+    ts_raw = t.get("trade_timestamp")
+    if ts_raw:
+        try:
+            dt = datetime.fromisoformat(ts_raw)
+            ts_str = f" at {dt.strftime('%H:%M:%S UTC')}"
+        except (ValueError, TypeError):
+            pass
+
+    # Entry vs current price comparison
+    price_ctx = ""
+    cur = current_prices.get(outcome)
+    if cur is not None and price > 0:
+        diff = cur - price
+        if abs(diff) >= 0.02:  # only show if meaningful (2%+)
+            price_ctx = f" (entry {price:.0%}, now {cur:.0%})"
+
+    return f"  - ${usd:,.2f} {side} {outcome} @ {price:.2f}{ts_str} [{short_wallet}]{price_ctx}"
+
+
 def _build_prompt(alert: dict) -> str:
     """Build a prompt describing the alert for the LLM to evaluate."""
     parts = [
@@ -204,6 +236,7 @@ def _build_prompt(alert: dict) -> str:
 
     # Market metadata from Gamma API
     condition_id = alert.get("condition_id")
+    current_prices: dict[str, float] = {}  # outcome -> current price (reused for trade lines)
     if condition_id:
         mkt = get_market_by_condition(condition_id)
         if mkt:
@@ -225,6 +258,8 @@ def _build_prompt(alert: dict) -> str:
                 if prices and outcomes:
                     price_strs = [f"{o}: {float(p):.0%}" for o, p in zip(outcomes, prices)]
                     parts.append(f"  Current odds: {', '.join(price_strs)}")
+                    for o, p in zip(outcomes, prices):
+                        current_prices[o] = float(p)
             except (json.JSONDecodeError, ValueError):
                 pass
             # Order book state
@@ -267,16 +302,26 @@ def _build_prompt(alert: dict) -> str:
         for sig in signals:
             parts.append(f"  - [{sig['severity']:.1f}] {sig['strategy']}: {sig['headline']}")
 
-    # Trades
+    # Trades — with timestamps and entry-vs-current comparison
     trades = alert.get("trades", [])
     if trades:
-        parts.append(f"\nTrades ({len(trades)}):")
-        for t in trades[:10]:  # cap at 10 to keep prompt short
-            side = t.get("side", "?")
-            outcome = t.get("outcome", "?")
-            usd = t.get("usd_value", 0)
-            price = t.get("price", 0)
-            parts.append(f"  - ${usd:,.2f} {side} {outcome} @ {price:.2f}")
+        # For cluster alerts, group trades by direction (outcome/side)
+        if alert.get("alert_type") == "cluster" and len(trades) > 1:
+            direction_groups: dict[str, list[dict]] = defaultdict(list)
+            for t in trades:
+                direction = f"{t.get('outcome', '?')}/{t.get('side', '?')}"
+                direction_groups[direction].append(t)
+
+            parts.append(f"\nTrades ({len(trades)}):")
+            for direction, group in sorted(direction_groups.items(), key=lambda x: -len(x[1])):
+                group_usd = sum(t.get("usd_value", 0) for t in group)
+                parts.append(f"  {direction} — {len(group)} trades, ${group_usd:,.2f} total:")
+                for t in sorted(group, key=lambda x: -x.get("usd_value", 0))[:8]:
+                    parts.append(_format_trade_line(t, current_prices))
+        else:
+            parts.append(f"\nTrades ({len(trades)}):")
+            for t in trades[:10]:  # cap at 10 to keep prompt short
+                parts.append(_format_trade_line(t, current_prices))
 
     # Wallet P&L profiles — collect unique wallets from the alert
     wallets: set[str] = set()

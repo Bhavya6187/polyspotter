@@ -153,10 +153,10 @@ class TestCorrelatedCrossMarketStrategy(unittest.TestCase):
         self.assertEqual(len(signals), 1)
         self.assertIn("3 markets", signals[0].headline)
 
-    def test_serial_severity_scales_by_win_rate(
+    def test_serial_severity_skipped_for_weak_win_rate(
         self, mock_get_mkt, mock_is_sport, mock_record, mock_hist, mock_stats
     ):
-        """Serial cross-market severity should scale with win rate, not flat 4.0."""
+        """Serial cross-market with no/weak win rate should be skipped entirely."""
         mock_stats.return_value = {
             "distinct_events": 30,
             "distinct_markets": 50,
@@ -166,15 +166,14 @@ class TestCorrelatedCrossMarketStrategy(unittest.TestCase):
         trades = [
             self._make_trade("w1", "event1", "cond1", usd=3000, side="BUY"),
         ]
-        # With no win rate data (default mock), serial severity should be 1.5
+        # With no win rate data, serial signal should not be emitted
         with patch(
             "detection_strategies.correlated_cross_market.get_wallet_pnl_summary",
             return_value={"closed_positions": 0, "wins": 0, "total_pnl": 0, "total_invested": 0},
         ):
             signals = self.strategy.analyze_all(trades)
             serial_sigs = [s for s in signals if "Serial" in s.headline]
-            self.assertEqual(len(serial_sigs), 1)
-            self.assertEqual(serial_sigs[0].severity, 1.5)
+            self.assertEqual(len(serial_sigs), 0)
 
     def test_serial_severity_high_win_rate(
         self, mock_get_mkt, mock_is_sport, mock_record, mock_hist, mock_stats

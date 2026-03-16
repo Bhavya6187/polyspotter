@@ -168,8 +168,8 @@ class CorrelatedCrossMarketStrategy(DetectionStrategy):
                 elif win_pct is not None and win_pct >= 0.55:
                     serial_severity = 2.0
                 else:
-                    # No track record or weak win rate — low severity
-                    serial_severity = 0
+                    # No track record or weak win rate — skip entirely
+                    continue
 
                 serial_headline = (
                     f"Serial cross-market trader: {stats['distinct_events']} events, "
