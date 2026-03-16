@@ -163,11 +163,6 @@ class TimingRelativeResolutionStrategy(DetectionStrategy):
         if usd < MIN_BET_USD:
             return None
 
-        # Record this timing flag for future pattern detection.
-        if wallet:
-            record_timing_flag(wallet, cid, minutes_to_resolution, usd, trade_ts,
-                               market_duration_hours=market_duration_hours)
-
         # Edge gate: suppress wallets with enough history and negative edge
         # (win rate below implied odds) — they're just late bettors, not
         # informed.  Raw win rate is misleading: 65% wins on 90-cent
@@ -179,6 +174,13 @@ class TimingRelativeResolutionStrategy(DetectionStrategy):
                 edge = pnl.get("edge", 0.0)
                 if edge < MIN_EDGE_GATE:
                     return None
+
+        # Record this timing flag for future pattern detection.
+        # Done after the edge gate so suppressed wallets don't accumulate
+        # timing flags that would inflate their serial-timer count.
+        if wallet:
+            record_timing_flag(wallet, cid, minutes_to_resolution, usd, trade_ts,
+                               market_duration_hours=market_duration_hours)
 
         # Continuous severity: higher as trade gets closer to resolution
         # 5.0 at 0 min, ~4.0 at 1 min, ~2.5 at 10 min, ~1.0 at 60 min

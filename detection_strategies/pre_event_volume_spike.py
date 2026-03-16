@@ -73,10 +73,6 @@ class PreEventVolumeSpikeStrategy(DetectionStrategy):
 
             vol_24h = float(market.get("volume24hr", 0) or 0)
 
-            # Record this snapshot for future runs
-            if vol_24h > 0:
-                record_volume_snapshot(cid, vol_24h)
-
             if vol_24h <= 0:
                 continue
 
@@ -90,8 +86,15 @@ class PreEventVolumeSpikeStrategy(DetectionStrategy):
                     window_seconds = 60  # all trades at same timestamp — use minimum window
 
             # Choose best baseline: historical average if we have enough data,
-            # otherwise fall back to current 24h volume
+            # otherwise fall back to current 24h volume.
+            # Read average BEFORE recording this snapshot so the current
+            # (potentially spike-inflated) value doesn't pollute the baseline.
             historical = get_average_volume(cid)
+
+            # Record this snapshot for future runs — done AFTER reading
+            # the historical average so the current value doesn't inflate it.
+            record_volume_snapshot(cid, vol_24h)
+
             baseline_vol = vol_24h
             baseline_source = "24h"
 

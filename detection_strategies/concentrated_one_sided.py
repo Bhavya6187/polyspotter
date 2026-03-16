@@ -28,7 +28,6 @@ from gamma_cache import get_market_by_condition
 # ---------------------------------------------------------------------------
 MIN_WALLETS = 3  # minimum distinct wallets to flag
 MIN_CLUSTER_USD = 5000  # minimum total USD in the cluster to flag
-MAX_WINDOW_SECONDS = 300  # trades must fall within this window
 FAVORITE_PRICE_THRESHOLD = 0.70  # suppress clusters buying above this price...
 FAVORITE_VOLUME_24H = 50_000  # ...on markets with 24h volume above this
 RESOLVED_TRADE_PRICE = 0.98  # skip individual trades at near-certain prices
@@ -100,7 +99,7 @@ class ConcentratedOneSidedStrategy(DetectionStrategy):
         signals: list[Signal] = []
 
         for (cid, outcome, side), cluster_trades in clusters.items():
-            wallets = {t.get("proxyWallet", "") for t in cluster_trades} - {""}
+            wallets = {t.get("proxyWallet", "").lower() for t in cluster_trades} - {""}
             if len(wallets) < MIN_WALLETS:
                 continue
 

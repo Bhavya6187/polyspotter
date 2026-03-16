@@ -58,10 +58,6 @@ class CorrelatedCrossMarketStrategy(DetectionStrategy):
         if not trades:
             return []
 
-        # Record all trades for future cross-run detection
-        for t in trades:
-            record_wallet_event_trade(t)
-
         # Filter out near-resolved trades (price >= 0.98) — these are exits,
         # not thesis-driven positioning
         active_trades = [
@@ -184,6 +180,12 @@ class CorrelatedCrossMarketStrategy(DetectionStrategy):
                         condition_id=rep_trade.get("conditionId", ""),
                     )
                 )
+
+        # Record all trades for future cross-run detection — done AFTER
+        # analysis so get_wallet_event_history doesn't include current-batch
+        # trades, which would cause double-counting of historical USD.
+        for t in trades:
+            record_wallet_event_trade(t)
 
         if signals:
             print(f"  [correlated_cross_market] Found {len(signals)} correlated position(s)")
