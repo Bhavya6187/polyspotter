@@ -112,7 +112,7 @@ def _fetch_positions_page(wallet: str, endpoint: str, position_type: str,
                 record_wallet_pnl(wallet, pos, position_type)
                 new_count += 1
 
-            fetched += len(positions)
+            fetched += new_count
             if len(positions) < page_size:
                 break  # last page
             # If incremental and entire page was old, we've caught up

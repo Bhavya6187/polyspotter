@@ -118,7 +118,8 @@ def _get_first_funder(address: str) -> str | None:
     # and pick the earliest by block number.
     candidates: list[tuple[int, str]] = []  # (block, from_address)
 
-    for action in ("txlist", "txlistinternal"):
+    actions = ("txlist", "txlistinternal")
+    for i, action in enumerate(actions):
         for tx in _query_etherscan(address, action):
             if tx.get("to", "").lower() == address:
                 block = int(tx.get("blockNumber", 0))
@@ -126,8 +127,8 @@ def _get_first_funder(address: str) -> str | None:
                 if sender and sender != address:
                     candidates.append((block, sender))
                     break  # results are sorted asc, first inbound is enough
-        if candidates:
-            # Small delay before second API call only if needed
+        # Rate-limit delay between consecutive Etherscan API calls
+        if i < len(actions) - 1:
             time.sleep(FUNDER_LOOKUP_DELAY)
 
     if candidates:

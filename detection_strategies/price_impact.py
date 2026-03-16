@@ -116,6 +116,10 @@ class PriceImpactStrategy(DetectionStrategy):
         if not trades:
             return []
 
+        # Clear per-run fetch tracking so fresh data is fetched each invocation
+        _candles_fetched.clear()
+        _orderbook_fetched.clear()
+
         # Group trades by (conditionId, outcome) — i.e. per token side
         token_trades: dict[tuple[str, str], list[dict]] = defaultdict(list)
         for t in trades:

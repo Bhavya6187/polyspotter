@@ -68,11 +68,12 @@ class TestPreEventVolumeSpikeStrategy(unittest.TestCase):
         trades = [
             self._make_trade(usd=100000, ts=1000),
             self._make_trade(usd=100000, ts=1060),
+            self._make_trade(usd=100000, ts=1120),
         ]
         signals = self.strategy.analyze_all(trades)
-        if signals:
-            # Without historical data, cap is 3.0
-            self.assertLessEqual(signals[0].severity, 3.0)
+        self.assertEqual(len(signals), 1)
+        # Without historical data, cap is 3.0
+        self.assertEqual(signals[0].severity, 3.0)
 
 
     @patch("detection_strategies.pre_event_volume_spike.get_market_by_condition")

@@ -73,13 +73,12 @@ class CorrelatedCrossMarketStrategy(DetectionStrategy):
         wallet_events: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
 
         for t in active_trades:
-            wallet = t.get("proxyWallet", "")
+            wallet = t.get("proxyWallet", "").lower()
             event_slug = t.get("eventSlug", "")
             if wallet and event_slug:
                 wallet_events[wallet][event_slug].append(t)
 
         signals: list[Signal] = []
-        wallets_with_cross_market: set[str] = set()
 
         for wallet, events in wallet_events.items():
             for event_slug, event_trades in events.items():
@@ -107,8 +106,6 @@ class CorrelatedCrossMarketStrategy(DetectionStrategy):
 
                 if combined_usd < MIN_TOTAL_USD:
                     continue
-
-                wallets_with_cross_market.add(wallet.lower())
 
                 # Base severity from dollar amount
                 if combined_usd >= 50_000:

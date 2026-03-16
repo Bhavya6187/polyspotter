@@ -95,6 +95,8 @@ class LowActivityLargeBetStrategy(DetectionStrategy):
         # (up to 4.0 with orderbook boosts for thin book / wide spread)
         if vol_24h > 0:
             severity = min(3.0, (usd / vol_24h) * 0.5)
+            if is_low_volume:
+                severity = max(severity, 1.0)  # floor for low-volume markets
         else:
             severity = 2.0
 

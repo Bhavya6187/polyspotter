@@ -86,6 +86,8 @@ class PreEventVolumeSpikeStrategy(DetectionStrategy):
                 span = max(timestamps) - min(timestamps)
                 if span > 0:
                     window_seconds = max(span, 60)
+                else:
+                    window_seconds = 60  # all trades at same timestamp — use minimum window
 
             # Choose best baseline: historical average if we have enough data,
             # otherwise fall back to current 24h volume

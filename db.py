@@ -363,7 +363,7 @@ def save_funder(wallet: str, funder: str | None) -> None:
     conn.execute(
         """INSERT OR REPLACE INTO wallet_funders (wallet, funder, discovered_at)
            VALUES (?, ?, ?)""",
-        (wallet.lower(), funder, datetime.now(timezone.utc).isoformat()),
+        (wallet.lower(), funder.lower() if funder else None, datetime.now(timezone.utc).isoformat()),
     )
     conn.commit()
 
@@ -873,19 +873,19 @@ def record_price_candle(condition_id: str, token_id: str, outcome: str, t: float
 
 
 def record_price_candles_batch(condition_id: str, token_id: str, outcome: str, candles: list[dict]) -> int:
-    """Batch-insert price candle data. Returns count inserted."""
+    """Batch-insert price candle data. Returns count actually inserted."""
     conn = get_db()
     now = datetime.now(timezone.utc).isoformat()
     inserted = 0
     for c in candles:
         try:
-            conn.execute(
+            cursor = conn.execute(
                 """INSERT OR IGNORE INTO price_candles
                    (condition_id, token_id, outcome, t, p, recorded_at)
                    VALUES (?, ?, ?, ?, ?, ?)""",
                 (condition_id, token_id, outcome, c["t"], c["p"], now),
             )
-            inserted += 1
+            inserted += cursor.rowcount
         except (KeyError, sqlite3.IntegrityError):
             pass
     conn.commit()

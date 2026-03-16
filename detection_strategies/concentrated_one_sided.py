@@ -92,7 +92,7 @@ class ConcentratedOneSidedStrategy(DetectionStrategy):
                 # Selling outcome A = buying outcome B in a binary market
                 o1, o2 = binary_cids[cid]
                 effective_outcome = o2 if outcome == o1 else o1
-                remapped = dict(t, price=str(1 - price))
+                remapped = dict(t, price=1 - price)
                 clusters[(cid, effective_outcome, "BUY")].append(remapped)
             else:
                 clusters[(cid, outcome, side)].append(t)
