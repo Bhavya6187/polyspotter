@@ -324,6 +324,10 @@ def get_alert(alert_id: int):
     data = dict(alert_row)
     raw = data.pop("tags", "[]") or "[]"
     data["tags"] = json.loads(raw) if isinstance(raw, str) else raw
+    raw_bullets = data.pop("llm_bullets", "[]") or "[]"
+    data["llm_bullets"] = json.loads(raw_bullets) if isinstance(raw_bullets, str) else raw_bullets
+    raw_copy = data.pop("llm_copy_action", "{}") or "{}"
+    data["llm_copy_action"] = json.loads(raw_copy) if isinstance(raw_copy, str) else raw_copy
     return AlertDetail(**data, trades=trades, signals=signals)
 
 
