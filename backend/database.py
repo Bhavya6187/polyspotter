@@ -29,6 +29,7 @@ def init_db():
         with conn.cursor() as cur:
             cur.execute(sql)
             _migrate_category_to_tags(cur)
+            _migrate_add_llm_fields(cur)
         conn.commit()
     finally:
         conn.close()
@@ -60,3 +61,14 @@ def _migrate_category_to_tags(cur):
     """)
 
     cur.execute("ALTER TABLE alerts DROP COLUMN category")
+
+
+def _migrate_add_llm_fields(cur):
+    """Add llm_bullets and llm_copy_action columns if they don't exist."""
+    for col, default in [("llm_bullets", "'[]'"), ("llm_copy_action", "'{}'")]:
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'alerts' AND column_name = %s
+        """, (col,))
+        if not cur.fetchone():
+            cur.execute(f"ALTER TABLE alerts ADD COLUMN {col} TEXT DEFAULT {default}")

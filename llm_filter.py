@@ -140,31 +140,36 @@ SYSTEM_PROMPT = (
     "- Linked wallets (wallet_clustering) as the ONLY signal with just 2 wallets and "
     "no other corroborating evidence — common for users with multiple accounts\n\n"
 
-    "## Summary style\n\n"
-    "Write two sentences. The first is the plain-English bottom line — why this "
-    "trade matters, in terms anyone can understand. The second adds the key "
-    "numbers for power users.\n\n"
-    "Rules:\n"
-    "- Sentence 1: State the takeaway in plain language. Use phrases like "
-    "'wallets that are usually right', 'a group of linked wallets all betting "
-    "the same way', 'a proven winning bettor', 'big money rushing in right "
-    "before the result'. Avoid jargon like 'one-sided flow', 'serial "
-    "cross-market trader', 'resolution pricing', 'coordinated conviction'.\n"
-    "- Sentence 2: Back it up with the strongest 2-3 stats (win rate, P&L, "
-    "cluster size, timing, price move). Keep it tight.\n"
-    "- Never start with 'Interesting', 'This is worth surfacing', or similar preamble.\n"
-    "- Never address the reader ('copy-traders should...', 'worth watching because...').\n"
-    "- Never repeat details already visible in the alert data (exact USD, trade count).\n"
+    "## Output format\n\n"
+    "You MUST return JSON with these fields:\n"
+    "- interesting (bool): whether to surface this alert\n"
+    "- summary (string): 1 sentence reason (used internally for filtering log)\n"
+    "- bullets (array of 2-3 strings): plain-English insights for the end user. "
+    "Each bullet should be one short sentence. Lead with the most compelling "
+    "reason to copy this trade.\n"
+    "- copy_action (object): what the user should do to copy the trade, with fields: "
+    "outcome (string, e.g. 'Utah'), side (string, 'BUY' or 'SELL'), "
+    "entry_price (number, the trader's entry price like 0.41), "
+    "max_price (number, suggested max price to enter — entry_price + ~10%% "
+    "buffer, capped at 0.95)\n\n"
+
+    "## Bullet style rules\n\n"
+    "- Use plain English anyone can understand. Say 'a bettor who wins 90%% of "
+    "their bets' not '90%% win rate edge-adjusted'.\n"
+    "- Lead with WHY this trader is worth copying: track record, conviction, "
+    "pattern, timing.\n"
+    "- Include 1-2 key stats per bullet (win rate, profit, cluster size, "
+    "timing).\n"
+    "- Never start with 'Interesting' or similar preamble.\n"
+    "- Never address the reader directly.\n"
     "- Do NOT use words like 'suspicious', 'manipulation', or 'insider trading'.\n\n"
-    "Good examples:\n"
-    "- 'A proven winning bettor is going big on the Lakers spread right before "
-    "the game ends. They have an 87% win rate and +$1.2M lifetime profit.'\n"
-    "- 'A group of 14 linked wallets are all betting the same direction on the "
-    "Lakers, piling in near the final whistle. Several have 80%+ win rates "
-    "across hundreds of past bets.'\n"
-    "- 'A brand-new wallet that is already up $45k is betting against an Iran "
-    "ceasefire, and it is part of a 9-wallet linked group that keeps showing "
-    "up across multiple markets.'"
+
+    "Good bullet examples:\n"
+    "- 'This bettor wins 87%% of their trades and is up $1.2M lifetime'\n"
+    "- '14 linked wallets are all betting the same way on this market'\n"
+    "- 'Placed right before resolution — this wallet has a pattern of "
+    "last-minute bets that hit'\n"
+    "- 'Entry at 41¢ implies they see this as a ~2.4x opportunity'"
 )
 
 RESPONSE_SCHEMA = {
@@ -178,10 +183,38 @@ RESPONSE_SCHEMA = {
                 "interesting": {"type": "boolean"},
                 "summary": {
                     "type": "string",
-                    "description": "1-2 sentence Bloomberg-style summary. If interesting: lead with the trade and edge signal, cite key stats. If not interesting: state the reason for filtering.",
+                    "description": "1 sentence internal summary for filtering log.",
+                },
+                "bullets": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "2-3 short plain-English bullet points explaining why this trade is interesting. Empty array if not interesting.",
+                },
+                "copy_action": {
+                    "type": "object",
+                    "properties": {
+                        "outcome": {
+                            "type": "string",
+                            "description": "The outcome to bet on, e.g. 'Utah' or 'Yes'.",
+                        },
+                        "side": {
+                            "type": "string",
+                            "description": "'BUY' or 'SELL'.",
+                        },
+                        "entry_price": {
+                            "type": "number",
+                            "description": "The trader's entry price (0-1 scale).",
+                        },
+                        "max_price": {
+                            "type": "number",
+                            "description": "Suggested max price to enter (entry + ~10% buffer, capped at 0.95).",
+                        },
+                    },
+                    "required": ["outcome", "side", "entry_price", "max_price"],
+                    "additionalProperties": False,
                 },
             },
-            "required": ["interesting", "summary"],
+            "required": ["interesting", "summary", "bullets", "copy_action"],
             "additionalProperties": False,
         },
     },
@@ -362,20 +395,20 @@ def _build_prompt(alert: dict) -> str:
     return "\n".join(parts)
 
 
-def evaluate_alert(alert: dict) -> tuple[bool, str]:
+def evaluate_alert(alert: dict) -> dict:
     """Call GPT to evaluate whether an alert is interesting.
 
-    Returns (interesting, summary) — summary is always provided.
+    Returns a dict with keys: interesting, summary, bullets, copy_action.
     """
     if not OPENAI_API_KEY:
-        return False, ""
+        return {"interesting": False, "summary": "", "bullets": [], "copy_action": {}}
 
     client = OpenAI(api_key=OPENAI_API_KEY)
     alert_text = _build_prompt(alert)
 
     response = client.chat.completions.create(
         model=MODEL,
-        max_completion_tokens=300,
+        max_completion_tokens=500,
         messages=[
             {
                 "role": "developer",
@@ -402,12 +435,20 @@ def evaluate_alert(alert: dict) -> tuple[bool, str]:
     try:
         text = response.choices[0].message.content
         result = json.loads(text)
-        interesting = bool(result.get("interesting"))
-        summary = result.get("summary", "")
-        return interesting, summary
+        return {
+            "interesting": bool(result.get("interesting")),
+            "summary": result.get("summary", ""),
+            "bullets": result.get("bullets", []),
+            "copy_action": result.get("copy_action", {}),
+        }
     except (json.JSONDecodeError, IndexError, KeyError) as e:
         print(f"[llm_filter] WARNING: Failed to parse LLM response: {e}")
-        return True, "LLM evaluation inconclusive — kept for manual review."
+        return {
+            "interesting": True,
+            "summary": "LLM evaluation inconclusive — kept for manual review.",
+            "bullets": ["LLM evaluation inconclusive"],
+            "copy_action": {},
+        }
 
 
 def filter_alerts(alerts: list[dict]) -> list[dict]:
@@ -442,6 +483,15 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
             if cached_eval is not None:
                 if cached_eval["interesting"]:
                     alert["llm_summary"] = cached_eval["summary"]
+                    # Restore bullets/copy_action from cached summary JSON
+                    try:
+                        extra = json.loads(cached_eval["summary"])
+                        alert["llm_summary"] = extra.get("summary", cached_eval["summary"])
+                        alert["llm_bullets"] = extra.get("bullets", [])
+                        alert["llm_copy_action"] = extra.get("copy_action", {})
+                    except (json.JSONDecodeError, TypeError):
+                        alert["llm_bullets"] = []
+                        alert["llm_copy_action"] = {}
                     kept.append(alert)
                 else:
                     discarded += 1
@@ -451,21 +501,33 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
         print(f"  [{i}/{len(alerts)}] Evaluating: [{score:.1f}] {title}...", end=" ", flush=True)
 
         try:
-            interesting, summary = evaluate_alert(alert)
+            result = evaluate_alert(alert)
         except Exception as e:
             print(f"ERROR ({e}) — keeping alert")
             alert["llm_summary"] = "LLM evaluation failed — kept for manual review."
+            alert["llm_bullets"] = ["LLM evaluation failed"]
+            alert["llm_copy_action"] = {}
             kept.append(alert)
             continue
 
+        interesting = result["interesting"]
+        summary = result["summary"]
         verdict = "INTERESTING" if interesting else "DISCARDED"
         print(f"{verdict}")
         print(f"    Model: {summary}")
         if interesting:
             alert["llm_summary"] = summary
+            alert["llm_bullets"] = result.get("bullets", [])
+            alert["llm_copy_action"] = result.get("copy_action", {})
             kept.append(alert)
             if cache_key:
-                save_llm_evaluation(cache_key, interesting=True, summary=summary)
+                # Store full result as JSON so we can restore bullets/copy_action from cache
+                cache_data = json.dumps({
+                    "summary": summary,
+                    "bullets": result.get("bullets", []),
+                    "copy_action": result.get("copy_action", {}),
+                })
+                save_llm_evaluation(cache_key, interesting=True, summary=cache_data)
         else:
             discarded += 1
             if cache_key:

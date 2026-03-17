@@ -1,5 +1,3 @@
-import ScoreBadge from "./ScoreBadge";
-
 function relativeTime(dateStr) {
   if (!dateStr) return "\u2014";
   const now = Date.now();
@@ -15,7 +13,7 @@ function relativeTime(dateStr) {
 }
 
 function timeToResolution(dateStr) {
-  if (!dateStr) return "\u2014";
+  if (!dateStr) return null;
   const now = Date.now();
   const end = new Date(dateStr).getTime();
   const diffMs = end - now;
@@ -35,76 +33,86 @@ const usdFmt = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
 
-export default function AlertRow({ alert, onToggle, activeTag, onTagClick }) {
-  const isCluster = alert.alert_type === "cluster";
+function priceToCents(price) {
+  if (price == null || price <= 0) return null;
+  return `${Math.round(price * 100)}\u00a2`;
+}
+
+export default function AlertRow({ alert, isExpanded, onToggle, activeTag, onTagClick }) {
   const tags = alert.tags || [];
+  const copyAction = alert.llm_copy_action;
+  const resolution = timeToResolution(alert.end_date);
+
+  // Build the bet summary line from copy_action or fallback to raw data
+  let betSummary = "";
+  if (copyAction && copyAction.outcome) {
+    const priceStr = priceToCents(copyAction.entry_price);
+    betSummary = `${usdFmt.format(alert.total_usd)} on ${copyAction.outcome}${priceStr ? ` at ${priceStr}` : ""}`;
+  } else {
+    betSummary = `${usdFmt.format(alert.total_usd)}`;
+  }
 
   return (
-    <tr
+    <div
       onClick={onToggle}
-      className="cursor-pointer border-b border-gray-100 bg-white hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-gray-800"
+      className={`cursor-pointer rounded-lg border bg-white p-4 transition-all hover:shadow-md dark:bg-gray-900 ${
+        isExpanded
+          ? "border-blue-300 shadow-md dark:border-blue-700"
+          : "border-gray-200 dark:border-gray-800"
+      }`}
     >
-      <td className="px-4 py-3">
-        <ScoreBadge score={alert.composite_score ?? 0} />
-      </td>
-      <td className="px-4 py-3">
-        {tags.length > 0 ? (
-          <div className="flex flex-wrap gap-1">
-            {tags.map((t) => (
-              <span
-                key={t}
-                role="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onTagClick(t);
-                }}
-                className={`inline-block cursor-pointer rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
-                  activeTag === t
-                    ? "bg-blue-600 text-blue-50 dark:bg-blue-700 dark:text-blue-100"
-                    : "bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-                }`}
-              >
-                {t}
-              </span>
-            ))}
-          </div>
-        ) : (
-          <span className="text-gray-300 dark:text-gray-600">&mdash;</span>
-        )}
-      </td>
-      <td className="max-w-xs truncate px-4 py-3 text-sm">
-        {alert.market_title ?? "\u2014"}
-        {isCluster && alert.cluster_headline && (
-          <span className="block truncate text-xs text-gray-500 dark:text-gray-400">
-            {alert.cluster_headline}
-          </span>
-        )}
-      </td>
-      <td className={`px-4 py-3 text-sm font-medium ${
-        alert.total_usd >= 100000
-          ? "text-red-500 dark:text-red-400"
-          : alert.total_usd >= 25000
-            ? "text-amber-600 dark:text-amber-400"
-            : "text-gray-900 dark:text-gray-100"
-      }`}>
-        {alert.total_usd != null ? usdFmt.format(alert.total_usd) : "\u2014"}
-      </td>
-      <td className="px-4 py-3 text-sm">{alert.trade_count ?? "\u2014"}</td>
-      <td className={`px-4 py-3 text-sm ${
-        (() => {
-          if (!alert.end_date) return "text-gray-400 dark:text-gray-600";
-          const diffMs = new Date(alert.end_date).getTime() - Date.now();
-          if (diffMs <= 0) return "text-gray-400 dark:text-gray-600";
-          if (diffMs < 3600000) return "text-red-500 dark:text-red-400";
-          if (diffMs < 86400000) return "text-amber-600 dark:text-amber-400";
-          return "text-gray-500 dark:text-gray-400";
-        })()
-      }`}>
-        {timeToResolution(alert.end_date)}
-      </td>
-      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-        {relativeTime(alert.scanned_at)}
-      </td>
-    </tr>
+      {/* Row 1: Market title + resolution */}
+      <div className="flex items-start justify-between gap-3">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-snug">
+          {alert.market_title ?? "\u2014"}
+        </h3>
+        <div className="flex shrink-0 items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
+          {resolution && (
+            <span
+              className={
+                resolution === "Resolved"
+                  ? "text-gray-400 dark:text-gray-600"
+                  : new Date(alert.end_date).getTime() - Date.now() < 3600000
+                    ? "font-medium text-red-500 dark:text-red-400"
+                    : new Date(alert.end_date).getTime() - Date.now() < 86400000
+                      ? "text-amber-600 dark:text-amber-400"
+                      : ""
+              }
+            >
+              {resolution}
+            </span>
+          )}
+          <span>{relativeTime(alert.scanned_at)}</span>
+        </div>
+      </div>
+
+      {/* Row 2: Bet summary */}
+      <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+        {betSummary}
+      </p>
+
+      {/* Row 3: Tags */}
+      {tags.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {tags.map((t) => (
+            <span
+              key={t}
+              role="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onTagClick(t);
+              }}
+              className={`inline-block cursor-pointer rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
+                activeTag === t
+                  ? "bg-blue-600 text-blue-50 dark:bg-blue-700 dark:text-blue-100"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
+              }`}
+            >
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

@@ -1,273 +1,94 @@
 import { useEffect, useState } from "react";
-import { fetchAlertDetail, fetchWalletProfile } from "../api";
-import ScoreBadge from "./ScoreBadge";
+import { fetchAlertDetail } from "../api";
 
-function formatStrategy(name) {
-  return name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+function priceToCents(price) {
+  if (price == null || price <= 0) return null;
+  return `${Math.round(price * 100)}\u00a2`;
 }
 
-function truncateAddress(addr) {
-  if (!addr) return "\u2014";
-  if (addr.length <= 12) return addr;
-  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-}
-
-function relativeTime(dateStr) {
-  if (!dateStr) return "\u2014";
-  const now = Date.now();
-  const then = new Date(dateStr).getTime();
-  const diffSec = Math.floor((now - then) / 1000);
-  if (diffSec < 60) return `${diffSec}s ago`;
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  const diffDay = Math.floor(diffHr / 24);
-  return `${diffDay}d ago`;
-}
-
-const usdFmt = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-
-export default function AlertDetail({ alertId, wallet, alertType }) {
+export default function AlertDetail({ alertId }) {
   const [detail, setDetail] = useState(null);
-  const [walletProfile, setWalletProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
 
-    const promises = [fetchAlertDetail(alertId)];
-    if (wallet) {
-      promises.push(fetchWalletProfile(wallet).catch(() => null));
-    } else {
-      promises.push(Promise.resolve(null));
-    }
-
-    Promise.all(promises).then(([alertData, walletData]) => {
-      if (cancelled) return;
-      setDetail(alertData);
-      setWalletProfile(walletData);
-      setLoading(false);
+    fetchAlertDetail(alertId).then((data) => {
+      if (!cancelled) {
+        setDetail(data);
+        setLoading(false);
+      }
     });
 
     return () => {
       cancelled = true;
     };
-  }, [alertId, wallet]);
+  }, [alertId]);
 
   if (loading) {
     return (
-      <tr>
-        <td colSpan="6" className="bg-gray-50/80 px-6 py-8 text-center text-gray-500 dark:bg-gray-900/80 dark:text-gray-400">
-          Loading details...
-        </td>
-      </tr>
+      <div className="px-4 pb-4 pt-1 text-sm text-gray-400 dark:text-gray-500">
+        Loading...
+      </div>
     );
   }
 
   if (!detail) return null;
 
-  const signals = detail.signals || [];
-  const trades = detail.trades || [];
+  const bullets = detail.llm_bullets || [];
+  const copyAction = detail.llm_copy_action;
+  const marketUrl = detail.market_url;
+
+  // Fallback: if no bullets, show llm_summary as a single bullet
+  const displayBullets =
+    bullets.length > 0 ? bullets : detail.llm_summary ? [detail.llm_summary] : [];
+
+  // Build copy CTA text
+  let ctaText = "";
+  if (copyAction && copyAction.outcome) {
+    const maxPriceStr = priceToCents(copyAction.max_price);
+    ctaText = `${copyAction.side === "SELL" ? "Sell" : "Buy"} ${copyAction.outcome}${maxPriceStr ? ` at \u2264${maxPriceStr}` : ""}`;
+  }
 
   return (
-    <tr>
-      <td colSpan="6" className="border-b border-gray-200 bg-gray-50/80 p-0 dark:border-gray-700 dark:bg-gray-900/80">
-        <div className="p-6">
-          {/* Type & Wallet meta */}
-          <div className="mb-4 flex flex-wrap items-center gap-3">
-            <span
-              className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                alertType === "cluster"
-                  ? "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300"
-                  : "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300"
-              }`}
-            >
-              {alertType ?? "composite"}
+    <div className="px-4 pb-4 pt-1">
+      {/* Bullet points */}
+      {displayBullets.length > 0 && (
+        <ul className="space-y-1.5">
+          {displayBullets.map((bullet, i) => (
+            <li key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500 dark:bg-blue-400" />
+              <span>{bullet}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Copy Trade CTA */}
+      {(ctaText || marketUrl) && (
+        <div className="mt-4 flex items-center gap-3">
+          {ctaText && (
+            <span className="rounded-lg bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+              {ctaText}
             </span>
-            {alertType === "cluster" && trades.length > 0 ? (
-              <span className="text-sm text-gray-500 dark:text-gray-400">
-                {new Set(trades.map((t) => t.wallet)).size} wallets
-              </span>
-            ) : wallet ? (
-              <span className="font-mono text-sm text-gray-500 dark:text-gray-400">
-                {truncateAddress(wallet)}
-              </span>
-            ) : null}
-          </div>
-
-          {/* LLM Summary */}
-          {detail.llm_summary && (
-            <div className="mb-6 rounded-lg border border-amber-300/50 bg-amber-50 p-4 dark:border-amber-700/50 dark:bg-amber-900/20">
-              <h3 className="mb-1 text-sm font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
-                AI Analysis
-              </h3>
-              <p className="text-sm text-amber-900 dark:text-amber-100">{detail.llm_summary}</p>
-            </div>
           )}
-          <div className="flex flex-col gap-6 lg:flex-row">
-            {/* Signals */}
-            <div className="flex-1">
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Signals
-              </h3>
-              <div className="flex flex-col gap-3">
-                {signals.length === 0 && (
-                  <p className="text-sm text-gray-400 dark:text-gray-500">No signals.</p>
-                )}
-                {signals.map((sig, i) => (
-                  <div
-                    key={i}
-                    className="rounded-lg bg-gray-100 p-4 dark:bg-gray-800"
-                  >
-                    <div className="mb-1 flex items-center gap-2">
-                      <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
-                        {formatStrategy(sig.strategy)}
-                      </span>
-                      <ScoreBadge score={sig.severity ?? 0} />
-                    </div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">{sig.headline}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Wallet Profile */}
-            {walletProfile && (
-              <div className="w-full lg:w-72">
-                <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                  Wallet Profile
-                </h3>
-                <div className="rounded-lg bg-gray-100 p-4 dark:bg-gray-800">
-                  <dl className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <dt className="text-gray-500 dark:text-gray-400">Win Rate</dt>
-                      <dd className="text-gray-900 dark:text-gray-100">
-                        {walletProfile.win_rate != null
-                          ? `${(walletProfile.win_rate * 100).toFixed(1)}%`
-                          : "\u2014"}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-gray-500 dark:text-gray-400">Total P&L</dt>
-                      <dd
-                        className={
-                          walletProfile.total_pnl >= 0
-                            ? "text-green-600 dark:text-green-400"
-                            : "text-red-600 dark:text-red-400"
-                        }
-                      >
-                        {walletProfile.total_pnl != null
-                          ? usdFmt.format(walletProfile.total_pnl)
-                          : "\u2014"}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-gray-500 dark:text-gray-400">Positions</dt>
-                      <dd className="text-gray-900 dark:text-gray-100">
-                        {walletProfile.total_positions ?? 0} /{" "}
-                        {walletProfile.closed_positions ?? 0}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-gray-500 dark:text-gray-400">Times Flagged</dt>
-                      <dd className="text-gray-900 dark:text-gray-100">
-                        {walletProfile.times_flagged ?? 0}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-gray-500 dark:text-gray-400">First Seen</dt>
-                      <dd className="text-gray-900 dark:text-gray-100">
-                        {walletProfile.first_seen_at
-                          ? new Date(walletProfile.first_seen_at).toLocaleDateString()
-                          : "\u2014"}
-                      </dd>
-                    </div>
-                  </dl>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Trades sub-table */}
-          {trades.length > 0 && (
-            <div className="mt-6">
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Trades
-              </h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-200 text-xs uppercase text-gray-400 dark:border-gray-700 dark:text-gray-500">
-                      <th className="px-3 py-2">Tx Hash</th>
-                      <th className="px-3 py-2">Wallet</th>
-                      <th className="px-3 py-2">Outcome</th>
-                      <th className="px-3 py-2">Side</th>
-                      <th className="px-3 py-2">USD Value</th>
-                      <th className="px-3 py-2">Price</th>
-                      <th className="px-3 py-2">Time</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {trades.map((t, i) => (
-                      <tr
-                        key={i}
-                        className="border-b border-gray-100/50 dark:border-gray-800/50"
-                      >
-                        <td className="px-3 py-2 font-mono">
-                          {truncateAddress(t.transaction_hash)}
-                        </td>
-                        <td className="px-3 py-2 font-mono">
-                          {truncateAddress(t.wallet)}
-                        </td>
-                        <td className="px-3 py-2">{t.outcome ?? "\u2014"}</td>
-                        <td className="px-3 py-2">
-                          <span
-                            className={
-                              t.side === "BUY"
-                                ? "text-green-600 dark:text-green-400"
-                                : "text-red-600 dark:text-red-400"
-                            }
-                          >
-                            {t.side}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2">
-                          {t.usd_value != null
-                            ? usdFmt.format(t.usd_value)
-                            : "\u2014"}
-                        </td>
-                        <td className="px-3 py-2">
-                          {t.price != null ? t.price.toFixed(2) : "\u2014"}
-                        </td>
-                        <td className="px-3 py-2 text-gray-500 dark:text-gray-400">
-                          {relativeTime(t.trade_timestamp)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {detail.market_url && (
-                <a
-                  href={detail.market_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-3 inline-block text-sm text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
-                >
-                  View on Polymarket &rarr;
-                </a>
-              )}
-            </div>
+          {marketUrl && (
+            <a
+              href={marketUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
+            >
+              Open on Polymarket
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+              </svg>
+            </a>
           )}
         </div>
-      </td>
-    </tr>
+      )}
+    </div>
   );
 }

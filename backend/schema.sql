@@ -29,6 +29,10 @@ CREATE TABLE IF NOT EXISTS alerts (
 
     -- LLM evaluation summary (why the alert is interesting)
     llm_summary     TEXT,
+    -- LLM structured output: bullet points (JSON array of strings)
+    llm_bullets     TEXT DEFAULT '[]',
+    -- LLM structured output: copy action (JSON object with outcome, side, entry_price, max_price)
+    llm_copy_action TEXT DEFAULT '{}',
 
     -- timestamps
     scanned_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),  -- when polybot produced this

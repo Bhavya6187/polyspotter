@@ -28,6 +28,13 @@ class SignalIn(BaseModel):
     headline: str
 
 
+class CopyAction(BaseModel):
+    outcome: str = ""
+    side: str = ""
+    entry_price: float = 0
+    max_price: float = 0
+
+
 class AlertIn(BaseModel):
     alert_type: str = "composite"
     composite_score: float
@@ -42,6 +49,8 @@ class AlertIn(BaseModel):
     cluster_headline: str | None = None
     end_date: datetime | None = None
     llm_summary: str | None = None
+    llm_bullets: list[str] = []
+    llm_copy_action: CopyAction | dict | None = None
     scanned_at: datetime | None = None
     dedup_key: str | None = None
     trades: list[TradeIn] = []
@@ -102,6 +111,8 @@ class AlertOut(BaseModel):
     cluster_headline: str | None = None
     end_date: datetime | None = None
     llm_summary: str | None = None
+    llm_bullets: list[str] = []
+    llm_copy_action: CopyAction | None = None
     scanned_at: datetime | None = None
     created_at: datetime | None = None
 

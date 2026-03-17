@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { fetchAlerts, fetchTags, fetchHealth } from "./api";
 import Filters from "./components/Filters";
 import AlertTable from "./components/AlertTable";
@@ -14,7 +14,6 @@ export default function App() {
     tag: "",
   });
   const [expandedAlertId, setExpandedAlertId] = useState(null);
-  const [sort, setSort] = useState({ key: "composite_score", dir: "desc" });
   const [tags, setTags] = useState([]);
   const [loading, setLoading] = useState(true);
   const [healthy, setHealthy] = useState(null);
@@ -58,44 +57,16 @@ export default function App() {
     setExpandedAlertId((prev) => (prev === id ? null : id));
   }, []);
 
-  const sortedAlerts = useMemo(() => {
-    if (!alerts.length) return alerts;
-    const sorted = [...alerts];
-    sorted.sort((a, b) => {
-      let av = a[sort.key];
-      let bv = b[sort.key];
-      if (sort.key === "scanned_at" || sort.key === "end_date") {
-        av = av ? new Date(av).getTime() : 0;
-        bv = bv ? new Date(bv).getTime() : 0;
-      } else {
-        av = av ?? 0;
-        bv = bv ?? 0;
-      }
-      if (av < bv) return sort.dir === "asc" ? -1 : 1;
-      if (av > bv) return sort.dir === "asc" ? 1 : -1;
-      return 0;
-    });
-    return sorted;
-  }, [alerts, sort]);
-
-  const handleSort = useCallback((key) => {
-    setSort((prev) =>
-      prev.key === key
-        ? { key, dir: prev.dir === "desc" ? "asc" : "desc" }
-        : { key, dir: "desc" }
-    );
-  }, []);
-
   const totalPages = Math.max(1, Math.ceil(total / perPage));
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100">
-      <div className="mx-auto max-w-7xl px-4 py-6">
+      <div className="mx-auto max-w-3xl px-4 py-6">
         {/* Header */}
         <header className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-50">Polybot</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Unusual Activity Scanner</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Smart Trade Alerts</p>
           </div>
           <div className="flex items-center gap-4">
             <ThemeToggle />
@@ -134,16 +105,14 @@ export default function App() {
           />
         </div>
 
-        {/* Alert Table */}
+        {/* Alert Cards */}
         <AlertTable
-          alerts={sortedAlerts}
+          alerts={alerts}
           expandedAlertId={expandedAlertId}
           onToggleAlert={handleToggleAlert}
           onFilterChange={handleFilterChange}
           filters={filters}
           loading={loading}
-          sort={sort}
-          onSort={handleSort}
         />
 
         {/* Pagination */}

@@ -64,10 +64,16 @@ def db():
 
 
 def _alert_from_row(row: dict) -> AlertOut:
-    """Build an AlertOut from a DB row, parsing the JSON tags column."""
+    """Build an AlertOut from a DB row, parsing JSON columns."""
     data = dict(row)
     raw = data.pop("tags", "[]") or "[]"
     data["tags"] = json.loads(raw) if isinstance(raw, str) else raw
+    # Parse llm_bullets (JSON array)
+    raw_bullets = data.pop("llm_bullets", "[]") or "[]"
+    data["llm_bullets"] = json.loads(raw_bullets) if isinstance(raw_bullets, str) else raw_bullets
+    # Parse llm_copy_action (JSON object)
+    raw_copy = data.pop("llm_copy_action", "{}") or "{}"
+    data["llm_copy_action"] = json.loads(raw_copy) if isinstance(raw_copy, str) else raw_copy
     return AlertOut(**data)
 
 
@@ -88,12 +94,18 @@ def ingest(payload: IngestPayload):
         for alert in payload.alerts:
             try:
                 tags_json = json.dumps(alert.tags) if alert.tags else "[]"
+                bullets_json = json.dumps(alert.llm_bullets) if alert.llm_bullets else "[]"
+                copy_action_json = json.dumps(
+                    alert.llm_copy_action.model_dump() if hasattr(alert.llm_copy_action, "model_dump")
+                    else (alert.llm_copy_action or {})
+                )
                 cur.execute(
                     """INSERT INTO alerts
                        (alert_type, composite_score, tags, market_title, condition_id,
                         event_slug, market_url, wallet, total_usd, trade_count,
-                        cluster_headline, end_date, llm_summary, scanned_at, dedup_key)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        cluster_headline, end_date, llm_summary, llm_bullets,
+                        llm_copy_action, scanned_at, dedup_key)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        ON CONFLICT (dedup_key) DO UPDATE SET
                         composite_score = EXCLUDED.composite_score,
                         tags = EXCLUDED.tags,
@@ -102,6 +114,8 @@ def ingest(payload: IngestPayload):
                         cluster_headline = EXCLUDED.cluster_headline,
                         end_date = EXCLUDED.end_date,
                         llm_summary = EXCLUDED.llm_summary,
+                        llm_bullets = EXCLUDED.llm_bullets,
+                        llm_copy_action = EXCLUDED.llm_copy_action,
                         scanned_at = EXCLUDED.scanned_at
                        RETURNING id, (xmax = 0) AS inserted""",
                     (
@@ -118,6 +132,8 @@ def ingest(payload: IngestPayload):
                         alert.cluster_headline,
                         alert.end_date,
                         alert.llm_summary,
+                        bullets_json,
+                        copy_action_json,
                         alert.scanned_at or datetime.now(timezone.utc),
                         alert.dedup_key,
                     ),
