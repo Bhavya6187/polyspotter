@@ -68,6 +68,7 @@ def db():
 def _alert_from_row(row: dict) -> AlertOut:
     """Build an AlertOut from a DB row, parsing JSON columns."""
     data = dict(row)
+    data.pop("latest_trade_at", None)
     raw = data.pop("tags", "[]") or "[]"
     data["tags"] = json.loads(raw) if isinstance(raw, str) else raw
     # Parse llm_bullets (JSON array)
@@ -311,7 +312,10 @@ def list_alerts_by_market(
     tag: str | None = Query(None),
 ):
     """List alerts grouped by market (condition_id)."""
-    conditions = ["a.composite_score >= %s"]
+    conditions = [
+        "a.composite_score >= %s",
+        "(a.end_date IS NULL OR a.end_date > NOW())",
+    ]
     params: list = [min_score]
 
     if wallet:
@@ -368,9 +372,16 @@ def list_alerts_by_market(
         for mrow in market_rows:
             cid = mrow["condition_id"]
             cur.execute(
-                f"""SELECT a.* FROM alerts a
+                f"""SELECT a.*,
+                           COALESCE(
+                               (SELECT MAX(t.trade_timestamp)
+                                FROM alert_trades t
+                                WHERE t.alert_id = a.id),
+                               a.scanned_at
+                           ) AS latest_trade_at
+                    FROM alerts a
                     WHERE a.condition_id = %s AND {where}
-                    ORDER BY a.composite_score DESC, a.scanned_at DESC""",
+                    ORDER BY latest_trade_at DESC""",
                 [cid] + params,
             )
             alert_rows = cur.fetchall()
