@@ -873,6 +873,34 @@ def get_wallet_pnl_summary(wallet: str) -> dict:
     }
 
 
+def get_wallet_market_positions(wallet: str, condition_id: str) -> list[dict]:
+    """Get a wallet's positions on a specific market (both open and closed).
+
+    Returns a list of dicts with outcome, avg_price, total_bought,
+    realized_pnl, cur_price, and position_type for each position the
+    wallet holds/held on this market.
+    """
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT outcome, avg_price, total_bought, realized_pnl,
+                  cur_price, position_type
+           FROM wallet_pnl
+           WHERE wallet = ? AND condition_id = ?""",
+        (wallet.lower(), condition_id),
+    ).fetchall()
+    return [
+        {
+            "outcome": r[0],
+            "avg_price": r[1],
+            "total_bought": r[2],
+            "realized_pnl": r[3],
+            "cur_price": r[4],
+            "position_type": r[5],
+        }
+        for r in rows
+    ]
+
+
 # ===========================================================================
 # price_candles operations (CLOB price history)
 # ===========================================================================

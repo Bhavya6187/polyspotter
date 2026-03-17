@@ -18,7 +18,7 @@ from datetime import datetime
 from openai import OpenAI
 from dotenv import load_dotenv
 
-from db import get_llm_evaluation, get_wallet_pnl_summary, save_llm_evaluation
+from db import get_llm_evaluation, get_wallet_market_positions, get_wallet_pnl_summary, save_llm_evaluation
 from gamma_cache import get_market_by_condition
 
 load_dotenv()
@@ -116,6 +116,17 @@ SYSTEM_PROMPT = (
     "(severity 3.0); consistent views suggest a directional thesis (severity 1.5). "
     "Historical cross-run detection catches positioning over days/weeks. Serial "
     "cross-market traders (>=3 events) get escalated to 4.0.\n\n"
+
+    "## Position history context\n\n"
+    "Alerts may include 'Prior positions on this market' showing the wallet's existing "
+    "positions. Use this to distinguish:\n"
+    "- **Profit-taking**: wallet already holds shares and is selling near max value — "
+    "this is routine position management, NOT a new contrarian bet. Heavily discount "
+    "the signal.\n"
+    "- **New position**: no prior position on this market — the trade represents fresh "
+    "conviction.\n"
+    "- **Adding to position**: wallet already holds shares in the same direction and is "
+    "sizing up — this signals increased conviction.\n\n"
 
     "## How to evaluate\n\n"
     "INTERESTING (surface to users):\n"
@@ -391,6 +402,27 @@ def _build_prompt(alert: dict) -> str:
         if profile_lines:
             parts.append("\nWallet profiles:")
             parts.extend(profile_lines)
+
+    # Prior positions on THIS market — helps distinguish profit-taking from new bets
+    if condition_id and wallets:
+        position_lines = []
+        for w in sorted(wallets)[:10]:
+            positions = get_wallet_market_positions(w, condition_id)
+            if not positions:
+                continue
+            short = f"{w[:8]}...{w[-6:]}"
+            for pos in positions:
+                outcome = pos["outcome"] or "?"
+                avg_price = pos["avg_price"] or 0
+                total = pos["total_bought"] or 0
+                ptype = pos["position_type"] or "?"
+                line = f"  - {short}: {ptype} {outcome} position, avg entry {avg_price:.2f}, ${total:,.0f} invested"
+                if pos["cur_price"] is not None:
+                    line += f", current price {pos['cur_price']:.2f}"
+                position_lines.append(line)
+        if position_lines:
+            parts.append("\nPrior positions on this market:")
+            parts.extend(position_lines)
 
     return "\n".join(parts)
 
