@@ -24,6 +24,16 @@ export function fetchAlerts({ page, perPage, minScore, wallet, tag } = {}) {
   });
 }
 
+export function fetchMarketAlerts({ page, perPage, minScore, wallet, tag } = {}) {
+  return request("/api/alerts/by-market", {
+    page,
+    per_page: perPage,
+    min_score: minScore || undefined,
+    wallet: wallet || undefined,
+    tag: tag || undefined,
+  });
+}
+
 export function fetchAlertDetail(alertId) {
   return request(`/api/alerts/${alertId}`);
 }

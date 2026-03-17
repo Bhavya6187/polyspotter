@@ -38,7 +38,7 @@ function priceToCents(price) {
   return `${Math.round(price * 100)}\u00a2`;
 }
 
-export default function AlertRow({ alert, isExpanded, onToggle, activeTag, onTagClick }) {
+export default function AlertRow({ alert, isExpanded, onToggle, activeTag, onTagClick, compact }) {
   const tags = alert.tags || [];
   const copyAction = alert.llm_copy_action;
   const resolution = timeToResolution(alert.end_date);
@@ -52,6 +52,10 @@ export default function AlertRow({ alert, isExpanded, onToggle, activeTag, onTag
     betSummary = `${usdFmt.format(alert.total_usd)}`;
   }
 
+  const walletShort = alert.wallet
+    ? `${alert.wallet.slice(0, 6)}...${alert.wallet.slice(-4)}`
+    : null;
+
   return (
     <div
       onClick={onToggle}
@@ -59,15 +63,21 @@ export default function AlertRow({ alert, isExpanded, onToggle, activeTag, onTag
         isExpanded
           ? "border-blue-300 shadow-md dark:border-blue-700"
           : "border-gray-200 dark:border-gray-800"
-      }`}
+      } ${compact ? "p-3" : "p-4"}`}
     >
-      {/* Row 1: Market title + resolution */}
+      {/* Row 1: Market title (full mode) or wallet (compact mode) + resolution */}
       <div className="flex items-start justify-between gap-3">
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-snug">
-          {alert.market_title ?? "\u2014"}
-        </h3>
+        {compact ? (
+          <span className="text-xs font-mono text-gray-500 dark:text-gray-400">
+            {walletShort ?? "\u2014"}
+          </span>
+        ) : (
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-snug">
+            {alert.market_title ?? "\u2014"}
+          </h3>
+        )}
         <div className="flex shrink-0 items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
-          {resolution && (
+          {!compact && resolution && (
             <span
               className={
                 resolution === "Resolved"
@@ -87,12 +97,12 @@ export default function AlertRow({ alert, isExpanded, onToggle, activeTag, onTag
       </div>
 
       {/* Row 2: Bet summary */}
-      <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+      <p className={`mt-1 text-sm text-gray-600 dark:text-gray-300 ${compact ? "text-xs" : ""}`}>
         {betSummary}
       </p>
 
-      {/* Row 3: Tags */}
-      {tags.length > 0 && (
+      {/* Row 3: Tags (only in full mode) */}
+      {!compact && tags.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1">
           {tags.map((t) => (
             <span

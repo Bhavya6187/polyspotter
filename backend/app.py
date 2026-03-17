@@ -30,6 +30,8 @@ from models import (
     SignalOut,
     WalletProfileOut,
     PaginatedAlerts,
+    MarketGroup,
+    PaginatedMarkets,
 )
 
 
@@ -292,6 +294,115 @@ def list_alerts(
 
     return PaginatedAlerts(
         alerts=[_alert_from_row(r) for r in rows],
+        total=total,
+        page=page,
+        per_page=per_page,
+    )
+
+
+@app.get("/api/alerts/by-market", response_model=PaginatedMarkets)
+def list_alerts_by_market(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    min_score: float = Query(0, ge=0),
+    strategy: str | None = Query(None),
+    wallet: str | None = Query(None),
+    event_slug: str | None = Query(None),
+    tag: str | None = Query(None),
+):
+    """List alerts grouped by market (condition_id)."""
+    conditions = ["a.composite_score >= %s"]
+    params: list = [min_score]
+
+    if wallet:
+        conditions.append("a.wallet = %s")
+        params.append(wallet.lower())
+    if event_slug:
+        conditions.append("a.event_slug = %s")
+        params.append(event_slug)
+    if tag:
+        conditions.append("a.tags::jsonb ? %s")
+        params.append(tag)
+    if strategy:
+        conditions.append(
+            "EXISTS (SELECT 1 FROM alert_signals s WHERE s.alert_id = a.id AND s.strategy = %s)"
+        )
+        params.append(strategy)
+
+    where = " AND ".join(conditions)
+    offset = (page - 1) * per_page
+
+    with db() as conn:
+        cur = conn.cursor()
+
+        # Count distinct markets
+        cur.execute(
+            f"""SELECT COUNT(DISTINCT a.condition_id) as cnt
+                FROM alerts a WHERE {where} AND a.condition_id IS NOT NULL""",
+            params,
+        )
+        total = cur.fetchone()["cnt"]
+
+        # Get paginated market groups
+        cur.execute(
+            f"""SELECT a.condition_id,
+                       MAX(a.market_title) as market_title,
+                       MAX(a.market_url) as market_url,
+                       MAX(a.event_slug) as event_slug,
+                       MAX(a.end_date) as end_date,
+                       SUM(a.total_usd) as total_usd,
+                       COUNT(*) as alert_count,
+                       MAX(a.composite_score) as max_score,
+                       MAX(a.scanned_at) as scanned_at
+                FROM alerts a
+                WHERE {where} AND a.condition_id IS NOT NULL
+                GROUP BY a.condition_id
+                ORDER BY max_score DESC, scanned_at DESC
+                LIMIT %s OFFSET %s""",
+            params + [per_page, offset],
+        )
+        market_rows = cur.fetchall()
+
+        # Fetch alerts for each market group
+        markets = []
+        for mrow in market_rows:
+            cid = mrow["condition_id"]
+            cur.execute(
+                f"""SELECT a.* FROM alerts a
+                    WHERE a.condition_id = %s AND {where}
+                    ORDER BY a.composite_score DESC, a.scanned_at DESC""",
+                [cid] + params,
+            )
+            alert_rows = cur.fetchall()
+
+            # Collect union of tags
+            all_tags: list[str] = []
+            parsed_alerts = []
+            for r in alert_rows:
+                alert_out = _alert_from_row(r)
+                parsed_alerts.append(alert_out)
+                for t in alert_out.tags:
+                    if t not in all_tags:
+                        all_tags.append(t)
+
+            markets.append(
+                MarketGroup(
+                    condition_id=cid,
+                    market_title=mrow["market_title"],
+                    market_url=mrow["market_url"],
+                    event_slug=mrow["event_slug"],
+                    end_date=mrow["end_date"],
+                    total_usd=mrow["total_usd"],
+                    alert_count=mrow["alert_count"],
+                    max_score=mrow["max_score"],
+                    tags=all_tags,
+                    scanned_at=mrow["scanned_at"],
+                    alerts=parsed_alerts,
+                )
+            )
+
+    return PaginatedMarkets(
+        markets=markets,
         total=total,
         page=page,
         per_page=per_page,

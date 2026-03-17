@@ -142,3 +142,24 @@ class PaginatedAlerts(BaseModel):
     total: int
     page: int
     per_page: int
+
+
+class MarketGroup(BaseModel):
+    condition_id: str
+    market_title: str | None = None
+    market_url: str | None = None
+    event_slug: str | None = None
+    end_date: datetime | None = None
+    total_usd: float = 0
+    alert_count: int = 0
+    max_score: float = 0
+    tags: list[str] = []
+    scanned_at: datetime | None = None
+    alerts: list[AlertOut] = []
+
+
+class PaginatedMarkets(BaseModel):
+    markets: list[MarketGroup]
+    total: int
+    page: int
+    per_page: int

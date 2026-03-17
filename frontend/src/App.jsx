@@ -1,19 +1,19 @@
 import { useState, useEffect, useCallback } from "react";
-import { fetchAlerts, fetchTags, fetchHealth } from "./api";
+import { fetchMarketAlerts, fetchTags, fetchHealth } from "./api";
 import Filters from "./components/Filters";
 import AlertTable from "./components/AlertTable";
 import Pagination from "./components/Pagination";
 import ThemeToggle from "./components/ThemeToggle";
 
 export default function App() {
-  const [alerts, setAlerts] = useState([]);
+  const [markets, setMarkets] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [perPage] = useState(20);
   const [filters, setFilters] = useState({
     tag: "",
   });
-  const [expandedAlertId, setExpandedAlertId] = useState(null);
+  const [expandedMarketId, setExpandedMarketId] = useState(null);
   const [tags, setTags] = useState([]);
   const [loading, setLoading] = useState(true);
   const [healthy, setHealthy] = useState(null);
@@ -28,20 +28,20 @@ export default function App() {
       .catch(() => setHealthy(false));
   }, []);
 
-  // Fetch alerts when page or filters change
+  // Fetch markets when page or filters change
   useEffect(() => {
     setLoading(true);
-    fetchAlerts({
+    fetchMarketAlerts({
       page,
       perPage,
       tag: filters.tag,
     })
       .then((data) => {
-        setAlerts(data.alerts || data.items || []);
+        setMarkets(data.markets || []);
         setTotal(data.total || 0);
       })
       .catch(() => {
-        setAlerts([]);
+        setMarkets([]);
         setTotal(0);
       })
       .finally(() => setLoading(false));
@@ -50,11 +50,11 @@ export default function App() {
   const handleFilterChange = useCallback((newFilters) => {
     setFilters(newFilters);
     setPage(1);
-    setExpandedAlertId(null);
+    setExpandedMarketId(null);
   }, []);
 
-  const handleToggleAlert = useCallback((id) => {
-    setExpandedAlertId((prev) => (prev === id ? null : id));
+  const handleToggleMarket = useCallback((conditionId) => {
+    setExpandedMarketId((prev) => (prev === conditionId ? null : conditionId));
   }, []);
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
@@ -105,11 +105,11 @@ export default function App() {
           />
         </div>
 
-        {/* Alert Cards */}
+        {/* Market Cards */}
         <AlertTable
-          alerts={alerts}
-          expandedAlertId={expandedAlertId}
-          onToggleAlert={handleToggleAlert}
+          markets={markets}
+          expandedMarketId={expandedMarketId}
+          onToggleMarket={handleToggleMarket}
           onFilterChange={handleFilterChange}
           filters={filters}
           loading={loading}
