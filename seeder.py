@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import sys
 from collections import defaultdict
 from datetime import datetime, timezone
+
+import dateparser
 
 import requests
 from dotenv import load_dotenv
@@ -97,14 +100,45 @@ def _resolve_tags(condition_id: str | None) -> list[str]:
     return get_market_tags(condition_id)
 
 
+_DEADLINE_RE = re.compile(r"(?:by|before)\s+(.+?)(?:\?|$)", re.IGNORECASE)
+
+
+def _parse_end_date_from_title(title: str) -> str | None:
+    """Try to extract a deadline date from a market title.
+
+    Handles titles like "US x Iran ceasefire by March 31?" where Polymarket
+    didn't set an endDate in the API.  Returns an ISO 8601 string matching
+    the format used by the Gamma API (e.g. "2026-03-31T12:00:00Z")."""
+    m = _DEADLINE_RE.search(title)
+    if not m:
+        return None
+    dt = dateparser.parse(
+        m.group(1).strip(),
+        settings={"PREFER_DATES_FROM": "future", "TIMEZONE": "UTC",
+                  "RETURN_AS_TIMEZONE_AWARE": True},
+    )
+    if not dt:
+        return None
+    # Normalize to noon UTC to match Gamma API convention
+    dt = dt.replace(hour=12, minute=0, second=0, microsecond=0)
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _resolve_end_date(condition_id: str | None) -> str | None:
-    """Look up market end date from Gamma API metadata."""
+    """Look up market end date from Gamma API metadata.
+
+    Falls back to parsing the date from the market title when the API
+    doesn't include an endDate (e.g. "ceasefire by March 31?")."""
     if not condition_id:
         return None
     market = get_market_by_condition(condition_id)
-    if market and market.get("endDate"):
+    if not market:
+        return None
+    if market.get("endDate"):
         return market["endDate"]
-    return None
+    # Fallback: infer from title
+    title = market.get("question") or market.get("title") or ""
+    return _parse_end_date_from_title(title)
 
 
 def _signal_to_dict(sig: Signal) -> dict:
