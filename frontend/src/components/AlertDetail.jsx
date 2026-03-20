@@ -1,11 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchAlertDetail } from "../api";
 
-function priceToCents(price) {
-  if (price == null || price <= 0) return null;
-  return `${Math.round(price * 100)}\u00a2`;
-}
-
 export default function AlertDetail({ alertId }) {
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -47,8 +42,8 @@ export default function AlertDetail({ alertId }) {
   // Build copy CTA text
   let ctaText = "";
   if (copyAction && copyAction.outcome) {
-    const maxPriceStr = priceToCents(copyAction.max_price);
-    ctaText = `${copyAction.side === "SELL" ? "Sell" : "Buy"} ${copyAction.outcome}${maxPriceStr ? ` at \u2264${maxPriceStr}` : ""}`;
+    const side = copyAction.side === "SELL" ? "Sell" : "Buy";
+    ctaText = `${side} ${copyAction.outcome}`;
   }
 
   return (
@@ -66,27 +61,17 @@ export default function AlertDetail({ alertId }) {
       )}
 
       {/* Copy Trade CTA */}
-      {(ctaText || marketUrl) && (
-        <div className="mt-4 flex items-center gap-3">
-          {ctaText && (
-            <span className="rounded-lg bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
-              {ctaText}
-            </span>
-          )}
-          {marketUrl && (
-            <a
-              href={marketUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
-            >
-              Open on Polymarket
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-              </svg>
-            </a>
-          )}
+      {ctaText && marketUrl && (
+        <div className="mt-4">
+          <a
+            href={marketUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50"
+          >
+            Copy this trade &rarr; {ctaText}
+          </a>
         </div>
       )}
     </div>
