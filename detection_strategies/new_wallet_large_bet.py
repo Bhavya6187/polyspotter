@@ -70,7 +70,6 @@ def get_wallet_profile(address: str) -> tuple[datetime | None, dict]:
         profile = resp.json()
     except requests.RequestException as e:
         print(f"[WARN] Profile lookup failed for {address}: {e}", file=sys.stderr)
-        _wallet_cache[address] = (None, {})
         return (None, {})
 
     created_str = profile.get("createdAt")

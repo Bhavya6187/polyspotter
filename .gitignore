@@ -16,3 +16,4 @@ venv/
 
 .env
 bot_result.txt
+*.jsonl

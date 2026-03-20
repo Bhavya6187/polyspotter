@@ -1007,15 +1007,15 @@ def record_orderbook_snapshot(
     conn.commit()
 
 
-def get_orderbook_stats(condition_id: str) -> dict | None:
-    """Get the latest order book snapshot for a condition."""
+def get_orderbook_stats(token_id: str) -> dict | None:
+    """Get the latest order book snapshot for a token."""
     conn = get_db()
     row = conn.execute(
         """SELECT best_bid, best_ask, spread, bid_depth, ask_depth, mid_price, snapshot_at
            FROM orderbook_snapshots
-           WHERE condition_id = ?
+           WHERE token_id = ?
            ORDER BY snapshot_at DESC LIMIT 1""",
-        (condition_id,),
+        (token_id,),
     ).fetchone()
     if not row:
         return None

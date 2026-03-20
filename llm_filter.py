@@ -14,6 +14,7 @@ import json
 import os
 from collections import defaultdict
 from datetime import datetime
+from pathlib import Path
 
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -25,6 +26,20 @@ load_dotenv()
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 MODEL = "gpt-5.4"
+PROMPT_LOG_FILE = Path(__file__).parent / "llm_prompts.jsonl"
+
+
+def _log_prompt(messages: list[dict], model: str, cache_key: str) -> None:
+    """Append a prompt to the JSONL log file for later analysis."""
+    entry = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "model": model,
+        "cache_key": cache_key,
+        "messages": messages,
+    }
+    with open(PROMPT_LOG_FILE, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+
 
 SYSTEM_PROMPT = (
     "You are a Polymarket trade analyst. You receive alerts about notable trades "
@@ -438,19 +453,24 @@ def evaluate_alert(alert: dict) -> dict:
     client = OpenAI(api_key=OPENAI_API_KEY)
     alert_text = _build_prompt(alert)
 
+    messages = [
+        {
+            "role": "developer",
+            "content": SYSTEM_PROMPT,
+        },
+        {
+            "role": "user",
+            "content": alert_text,
+        },
+    ]
+
+    cache_key = alert.get("llm_cache_key") or alert.get("dedup_key", "")
+    _log_prompt(messages, MODEL, cache_key)
+
     response = client.chat.completions.create(
         model=MODEL,
         max_completion_tokens=500,
-        messages=[
-            {
-                "role": "developer",
-                "content": SYSTEM_PROMPT,
-            },
-            {
-                "role": "user",
-                "content": alert_text,
-            },
-        ],
+        messages=messages,
         response_format=RESPONSE_SCHEMA,
     )
 

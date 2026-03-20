@@ -36,7 +36,7 @@ CLOB_DELAY = 0.1
 
 # Tokens/conditions already fetched this run (avoid redundant API calls)
 _candles_fetched: set[str] = set()  # token_ids
-_orderbook_fetched: set[str] = set()  # condition_ids
+_orderbook_fetched: set[str] = set()  # token_ids
 
 PRICE_SHIFT_THRESHOLD = 0.15  # flag if price moved >= 15 percentage points
 HISTORICAL_SHIFT_THRESHOLD = 0.25  # flag if price moved >= 25pp from historical range
@@ -73,9 +73,9 @@ def _fetch_price_candles(condition_id: str, token_id: str, outcome: str) -> None
 
 def _fetch_orderbook(condition_id: str, token_id: str, outcome: str) -> None:
     """Fetch order book from CLOB and persist a snapshot."""
-    if condition_id in _orderbook_fetched:
+    if token_id in _orderbook_fetched:
         return
-    _orderbook_fetched.add(condition_id)
+    _orderbook_fetched.add(token_id)
     time.sleep(CLOB_DELAY)
     try:
         resp = requests.get(
@@ -261,7 +261,7 @@ class PriceImpactStrategy(DetectionStrategy):
                     severity = min(3.5, velocity * 10.0)
 
                     # Boost if orderbook is thin
-                    ob = get_orderbook_stats(cid)
+                    ob = get_orderbook_stats(token_id)
                     if ob and (ob["bid_depth"] + ob["ask_depth"]) < THIN_BOOK_DEPTH_USD:
                         severity = min(5.0, severity + 1.0)
 
