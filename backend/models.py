@@ -48,6 +48,7 @@ class AlertIn(BaseModel):
     trade_count: int = 1
     cluster_headline: str | None = None
     end_date: datetime | None = None
+    llm_headline: str | None = None
     llm_summary: str | None = None
     llm_bullets: list[str] = []
     llm_copy_action: CopyAction | dict | None = None
@@ -110,6 +111,7 @@ class AlertOut(BaseModel):
     trade_count: int
     cluster_headline: str | None = None
     end_date: datetime | None = None
+    llm_headline: str | None = None
     llm_summary: str | None = None
     llm_bullets: list[str] = []
     llm_copy_action: CopyAction | None = None

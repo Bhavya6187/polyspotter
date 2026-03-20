@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS alerts (
     -- market resolution date (from Gamma API)
     end_date        TIMESTAMPTZ,
 
+    -- LLM evaluation: short headline for compact UI display
+    llm_headline    TEXT,
     -- LLM evaluation summary (why the alert is interesting)
     llm_summary     TEXT,
     -- LLM structured output: bullet points (JSON array of strings)

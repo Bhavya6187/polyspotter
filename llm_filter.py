@@ -173,6 +173,10 @@ SYSTEM_PROMPT = (
     "- bullets (array of 2-3 strings): plain-English insights for the end user. "
     "Each bullet should be one short sentence. Lead with the most compelling "
     "reason to copy this trade.\n"
+    "- headline (string): ultra-short label (under 10 words) describing the bettor or "
+    "pattern — used as a compact row label in the UI. Focus on WHO is betting and WHY "
+    "they stand out (e.g. '19-wallet funded cluster', 'Serial timer with 91%% win rate', "
+    "'New whale scaling into NO'). Do not repeat the market name.\n"
     "- copy_action (object): what the user should do to copy the trade, with fields: "
     "outcome (string, e.g. 'Utah'), side (string, 'BUY' or 'SELL'), "
     "entry_price (number, the trader's entry price like 0.41), "
@@ -211,6 +215,10 @@ RESPONSE_SCHEMA = {
                     "type": "string",
                     "description": "1 sentence internal summary for filtering log.",
                 },
+                "headline": {
+                    "type": "string",
+                    "description": "Ultra-short label (under 10 words) describing the bettor or pattern for compact UI display.",
+                },
                 "bullets": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -240,7 +248,7 @@ RESPONSE_SCHEMA = {
                     "additionalProperties": False,
                 },
             },
-            "required": ["interesting", "summary", "bullets", "copy_action"],
+            "required": ["interesting", "summary", "headline", "bullets", "copy_action"],
             "additionalProperties": False,
         },
     },
@@ -539,6 +547,7 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
                     try:
                         extra = json.loads(cached_eval["summary"])
                         alert["llm_summary"] = extra.get("summary", cached_eval["summary"])
+                        alert["llm_headline"] = extra.get("headline")
                         alert["llm_bullets"] = extra.get("bullets", [])
                         alert["llm_copy_action"] = extra.get("copy_action", {})
                     except (json.JSONDecodeError, TypeError):
@@ -557,6 +566,7 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
         except Exception as e:
             print(f"ERROR ({e}) — keeping alert")
             alert["llm_summary"] = "LLM evaluation failed — kept for manual review."
+            alert["llm_headline"] = None
             alert["llm_bullets"] = ["LLM evaluation failed"]
             alert["llm_copy_action"] = {}
             kept.append(alert)
@@ -569,6 +579,7 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
         print(f"    Model: {summary}")
         if interesting:
             alert["llm_summary"] = summary
+            alert["llm_headline"] = result.get("headline")
             alert["llm_bullets"] = result.get("bullets", [])
             alert["llm_copy_action"] = result.get("copy_action", {})
             kept.append(alert)
@@ -576,6 +587,7 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
                 # Store full result as JSON so we can restore bullets/copy_action from cache
                 cache_data = json.dumps({
                     "summary": summary,
+                    "headline": result.get("headline"),
                     "bullets": result.get("bullets", []),
                     "copy_action": result.get("copy_action", {}),
                 })

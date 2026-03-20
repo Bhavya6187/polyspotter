@@ -65,7 +65,7 @@ def _migrate_category_to_tags(cur):
 
 def _migrate_add_llm_fields(cur):
     """Add llm_bullets and llm_copy_action columns if they don't exist."""
-    for col, default in [("llm_bullets", "'[]'"), ("llm_copy_action", "'{}'")]:
+    for col, default in [("llm_bullets", "'[]'"), ("llm_copy_action", "'{}'"), ("llm_headline", "NULL")]:
         cur.execute("""
             SELECT column_name FROM information_schema.columns
             WHERE table_name = 'alerts' AND column_name = %s

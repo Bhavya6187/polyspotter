@@ -109,9 +109,9 @@ def ingest(payload: IngestPayload):
                     """INSERT INTO alerts
                        (alert_type, composite_score, tags, market_title, condition_id,
                         event_slug, market_url, wallet, total_usd, trade_count,
-                        cluster_headline, end_date, llm_summary, llm_bullets,
-                        llm_copy_action, scanned_at, dedup_key)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        cluster_headline, end_date, llm_headline, llm_summary,
+                        llm_bullets, llm_copy_action, scanned_at, dedup_key)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        ON CONFLICT (dedup_key) DO UPDATE SET
                         composite_score = EXCLUDED.composite_score,
                         tags = EXCLUDED.tags,
@@ -119,6 +119,7 @@ def ingest(payload: IngestPayload):
                         trade_count = EXCLUDED.trade_count,
                         cluster_headline = EXCLUDED.cluster_headline,
                         end_date = EXCLUDED.end_date,
+                        llm_headline = EXCLUDED.llm_headline,
                         llm_summary = EXCLUDED.llm_summary,
                         llm_bullets = EXCLUDED.llm_bullets,
                         llm_copy_action = EXCLUDED.llm_copy_action,
@@ -137,6 +138,7 @@ def ingest(payload: IngestPayload):
                         alert.trade_count,
                         alert.cluster_headline,
                         alert.end_date,
+                        alert.llm_headline,
                         alert.llm_summary,
                         bullets_json,
                         copy_action_json,
