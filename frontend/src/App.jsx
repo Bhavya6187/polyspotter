@@ -13,7 +13,7 @@ export default function App() {
   const [filters, setFilters] = useState({
     tag: "",
   });
-  const [expandedMarketId, setExpandedMarketId] = useState(null);
+  const [expandedMarketIds, setExpandedMarketIds] = useState(new Set());
   const [tags, setTags] = useState([]);
   const [loading, setLoading] = useState(true);
   const [healthy, setHealthy] = useState(null);
@@ -50,11 +50,16 @@ export default function App() {
   const handleFilterChange = useCallback((newFilters) => {
     setFilters(newFilters);
     setPage(1);
-    setExpandedMarketId(null);
+    setExpandedMarketIds(new Set());
   }, []);
 
   const handleToggleMarket = useCallback((conditionId) => {
-    setExpandedMarketId((prev) => (prev === conditionId ? null : conditionId));
+    setExpandedMarketIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(conditionId)) next.delete(conditionId);
+      else next.add(conditionId);
+      return next;
+    });
   }, []);
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
@@ -108,7 +113,7 @@ export default function App() {
         {/* Market Cards */}
         <AlertTable
           markets={markets}
-          expandedMarketId={expandedMarketId}
+          expandedMarketIds={expandedMarketIds}
           onToggleMarket={handleToggleMarket}
           onFilterChange={handleFilterChange}
           filters={filters}

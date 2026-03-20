@@ -71,7 +71,7 @@ function getSortValue(market, key) {
 
 export default function AlertTable({
   markets,
-  expandedMarketId,
+  expandedMarketIds,
   onToggleMarket,
   onFilterChange,
   filters,
@@ -79,7 +79,7 @@ export default function AlertTable({
 }) {
   const [sortBy, setSortBy] = useState("amount");
   const [sortDir, setSortDir] = useState("desc");
-  const [expandedAlertId, setExpandedAlertId] = useState(null);
+  const [expandedAlertIds, setExpandedAlertIds] = useState(new Set());
 
   const handleSort = (column) => {
     if (sortBy === column) {
@@ -145,7 +145,7 @@ export default function AlertTable({
         </thead>
         <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
           {sorted.map((market) => {
-            const isExpanded = expandedMarketId === market.condition_id;
+            const isExpanded = expandedMarketIds.has(market.condition_id);
             const resolution = timeToResolution(market.end_date);
             const tags = market.tags || [];
 
@@ -222,11 +222,14 @@ export default function AlertTable({
                           <div key={alert.id}>
                             <AlertRow
                               alert={alert}
-                              isExpanded={expandedAlertId === alert.id}
+                              isExpanded={expandedAlertIds.has(alert.id)}
                               onToggle={() =>
-                                setExpandedAlertId((prev) =>
-                                  prev === alert.id ? null : alert.id
-                                )
+                                setExpandedAlertIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(alert.id)) next.delete(alert.id);
+                                  else next.add(alert.id);
+                                  return next;
+                                })
                               }
                               activeTag={filters.tag}
                               onTagClick={(t) =>
@@ -237,7 +240,7 @@ export default function AlertTable({
                               }
                               compact
                             />
-                            {expandedAlertId === alert.id && (
+                            {expandedAlertIds.has(alert.id) && (
                               <AlertDetail alertId={alert.id} />
                             )}
                           </div>
