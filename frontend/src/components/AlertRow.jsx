@@ -52,9 +52,17 @@ export default function AlertRow({ alert, isExpanded, onToggle, activeTag, onTag
     betSummary = `${usdFmt.format(alert.total_usd)}`;
   }
 
-  const walletShort = alert.wallet
-    ? `${alert.wallet.slice(0, 6)}...${alert.wallet.slice(-4)}`
-    : null;
+  // Build a compact label: cluster headline, bettor profile, or fallback
+  let compactLabel = null;
+  if (alert.cluster_headline) {
+    compactLabel = alert.cluster_headline;
+  } else if (alert.win_rate != null) {
+    const wr = `${Math.round(alert.win_rate * 100)}% wins`;
+    const pnl = alert.total_pnl != null
+      ? ` · ${alert.total_pnl >= 0 ? "+" : ""}${usdFmt.format(alert.total_pnl)}`
+      : "";
+    compactLabel = wr + pnl;
+  }
 
   return (
     <div
@@ -68,8 +76,8 @@ export default function AlertRow({ alert, isExpanded, onToggle, activeTag, onTag
       {/* Row 1: Market title (full mode) or wallet (compact mode) + resolution */}
       <div className="flex items-start justify-between gap-3">
         {compact ? (
-          <span className="text-xs font-mono text-gray-500 dark:text-gray-400">
-            {walletShort ?? "\u2014"}
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            {compactLabel ?? "\u2014"}
           </span>
         ) : (
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-snug">

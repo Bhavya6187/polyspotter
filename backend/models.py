@@ -115,6 +115,8 @@ class AlertOut(BaseModel):
     llm_copy_action: CopyAction | None = None
     scanned_at: datetime | None = None
     created_at: datetime | None = None
+    win_rate: float | None = None
+    total_pnl: float | None = None
 
 
 class AlertDetail(AlertOut):

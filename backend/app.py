@@ -77,6 +77,9 @@ def _alert_from_row(row: dict) -> AlertOut:
     # Parse llm_copy_action (JSON object)
     raw_copy = data.pop("llm_copy_action", "{}") or "{}"
     data["llm_copy_action"] = json.loads(raw_copy) if isinstance(raw_copy, str) else raw_copy
+    # Wallet profile fields (present when query joins wallet_profiles)
+    data.setdefault("win_rate", None)
+    data.setdefault("total_pnl", None)
     return AlertOut(**data)
 
 
@@ -285,7 +288,9 @@ def list_alerts(
         total = cur.fetchone()["cnt"]
 
         cur.execute(
-            f"""SELECT a.* FROM alerts a
+            f"""SELECT a.*, wp.win_rate, wp.total_pnl
+                FROM alerts a
+                LEFT JOIN wallet_profiles wp ON wp.wallet = a.wallet
                 WHERE {where}
                 ORDER BY a.composite_score DESC, a.scanned_at DESC
                 LIMIT %s OFFSET %s""",
@@ -373,6 +378,8 @@ def list_alerts_by_market(
             cid = mrow["condition_id"]
             cur.execute(
                 f"""SELECT a.*,
+                           wp.win_rate,
+                           wp.total_pnl,
                            COALESCE(
                                (SELECT MAX(t.trade_timestamp)
                                 FROM alert_trades t
@@ -380,6 +387,7 @@ def list_alerts_by_market(
                                a.scanned_at
                            ) AS latest_trade_at
                     FROM alerts a
+                    LEFT JOIN wallet_profiles wp ON wp.wallet = a.wallet
                     WHERE a.condition_id = %s AND {where}
                     ORDER BY latest_trade_at DESC""",
                 [cid] + params,
@@ -426,7 +434,13 @@ def get_alert(alert_id: int):
     with db() as conn:
         cur = conn.cursor()
 
-        cur.execute("SELECT * FROM alerts WHERE id = %s", (alert_id,))
+        cur.execute(
+            """SELECT a.*, wp.win_rate, wp.total_pnl
+               FROM alerts a
+               LEFT JOIN wallet_profiles wp ON wp.wallet = a.wallet
+               WHERE a.id = %s""",
+            (alert_id,),
+        )
         alert_row = cur.fetchone()
         if not alert_row:
             raise HTTPException(status_code=404, detail="Alert not found")
