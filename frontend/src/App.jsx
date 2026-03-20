@@ -12,6 +12,7 @@ export default function App() {
   const [perPage] = useState(20);
   const [filters, setFilters] = useState({
     tag: "",
+    resolvesIn: "",
   });
   const [expandedMarketIds, setExpandedMarketIds] = useState(new Set());
   const [tags, setTags] = useState([]);

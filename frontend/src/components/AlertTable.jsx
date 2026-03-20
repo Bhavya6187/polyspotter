@@ -1,5 +1,6 @@
 import { Fragment, useState } from "react";
 import AlertRow from "./AlertRow";
+import StrengthMeter, { scoreToRating } from "./StrengthMeter";
 
 function timeToResolution(dateStr) {
   if (!dateStr) return null;
@@ -59,6 +60,8 @@ function getSortValue(market, key) {
   switch (key) {
     case "amount":
       return market.total_usd || 0;
+    case "strength":
+      return market.max_score || 0;
     case "resolution":
       return market.end_date ? new Date(market.end_date).getTime() : Infinity;
     case "detected":
@@ -104,7 +107,22 @@ export default function AlertTable({
     );
   }
 
-  const sorted = [...markets].sort((a, b) => {
+  // Client-side resolve window filter
+  const resolvesInMs = {
+    "1h": 3600000,
+    "24h": 86400000,
+    "7d": 604800000,
+  }[filters.resolvesIn] || null;
+
+  const filtered = resolvesInMs
+    ? markets.filter((m) => {
+        if (!m.end_date) return false;
+        const ms = new Date(m.end_date).getTime() - Date.now();
+        return ms > 0 && ms <= resolvesInMs;
+      })
+    : markets;
+
+  const sorted = [...filtered].sort((a, b) => {
     const va = getSortValue(a, sortBy);
     const vb = getSortValue(b, sortBy);
     return sortDir === "asc" ? va - vb : vb - va;
@@ -120,6 +138,10 @@ export default function AlertTable({
           <tr>
             <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
               Market
+            </th>
+            <th className={thClass} onClick={() => handleSort("strength")}>
+              Signal
+              <SortIcon column="strength" sortBy={sortBy} sortDir={sortDir} />
             </th>
             <th className={thClass} onClick={() => handleSort("amount")}>
               Amount
@@ -170,6 +192,9 @@ export default function AlertTable({
                   <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100 max-w-xs">
                     <div className="truncate">{market.market_title ?? "\u2014"}</div>
                   </td>
+                  <td className="px-4 py-3">
+                    <StrengthMeter maxScore={market.max_score} />
+                  </td>
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-200 whitespace-nowrap">
                     {usdFmt.format(market.total_usd)}
                   </td>
@@ -214,7 +239,7 @@ export default function AlertTable({
                 </tr>
                 {isExpanded && market.alerts && market.alerts.length > 0 && (
                   <tr>
-                    <td colSpan={6} className="bg-gray-50 px-4 pb-4 pt-2 dark:bg-gray-900/80">
+                    <td colSpan={7} className="bg-gray-50 px-4 pb-4 pt-2 dark:bg-gray-900/80">
                       <div className="flex flex-col gap-2">
                         {market.alerts.map((alert) => (
                           <AlertRow
