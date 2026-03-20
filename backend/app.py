@@ -501,16 +501,40 @@ def list_strategies():
 
 @app.get("/api/tags")
 def list_tags():
-    """List all tags across alerts, with counts."""
+    """Return top 10 tags using greedy set-cover for maximum diversity.
+
+    Instead of just picking the 10 most frequent tags (which often overlap,
+    e.g. "NCAA" and "NCAA Basketball" cover the same alerts), we greedily
+    pick the tag that covers the most *uncovered* alerts each round.
+    """
     with db() as conn:
         cur = conn.cursor()
+        # Build tag -> set of alert IDs
         cur.execute(
-            """SELECT tag, COUNT(*) as alert_count
+            """SELECT tag, array_agg(id) as alert_ids
                FROM alerts, jsonb_array_elements_text(tags::jsonb) AS tag
-               GROUP BY tag
-               ORDER BY alert_count DESC"""
+               GROUP BY tag"""
         )
-        return [{"tag": r["tag"], "alert_count": r["alert_count"]} for r in cur.fetchall()]
+        tag_alerts = {r["tag"]: set(r["alert_ids"]) for r in cur.fetchall()}
+
+    if not tag_alerts:
+        return []
+
+    # Greedy set-cover: pick tag covering most uncovered alerts each round
+    selected = []
+    covered = set()
+    for _ in range(10):
+        if not tag_alerts:
+            break
+        best_tag = max(tag_alerts, key=lambda t: len(tag_alerts[t] - covered))
+        new_covered = tag_alerts.pop(best_tag)
+        marginal = len(new_covered - covered)
+        if marginal == 0:
+            break
+        covered |= new_covered
+        selected.append({"tag": best_tag, "alert_count": len(new_covered)})
+
+    return selected
 
 
 @app.get("/api/health")

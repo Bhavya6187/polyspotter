@@ -9,11 +9,12 @@ export default function Filters({ tags, filters, onFilterChange }) {
           className="rounded bg-white px-2 py-1 text-gray-900 outline-none focus:ring-1 focus:ring-gray-300 dark:bg-gray-900 dark:text-gray-100 dark:focus:ring-gray-600"
         >
           <option value="">All Tags</option>
-          {tags.map((t) => {
+          {tags.slice(0, 10).map((t) => {
             const name = typeof t === "string" ? t : t.tag;
+            const count = typeof t === "object" && t.alert_count ? ` (${t.alert_count})` : "";
             return (
               <option key={name} value={name}>
-                {name}
+                {name}{count}
               </option>
             );
           })}
