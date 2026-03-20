@@ -418,11 +418,13 @@ def build_alerts_payload(
     }
 
 
-def push_to_backend(signals: list[Signal], trades: list[dict]) -> None:
-    """Build the payload and POST it to the backend ingest endpoint."""
+def push_to_backend(signals: list[Signal], trades: list[dict]) -> int:
+    """Build the payload and POST it to the backend ingest endpoint.
+
+    Returns the number of alerts actually pushed (after LLM filtering)."""
     if not signals:
         print("[seeder] No signals to push.")
-        return
+        return 0
 
     payload = build_alerts_payload(signals, trades)
 
@@ -436,7 +438,7 @@ def push_to_backend(signals: list[Signal], trades: list[dict]) -> None:
 
     if not payload["alerts"]:
         print("[seeder] All alerts discarded by LLM filter. Nothing to push.")
-        return
+        return 0
 
     n_alerts = len(payload["alerts"])
     n_profiles = len(payload["wallet_profiles"])
@@ -455,5 +457,7 @@ def push_to_backend(signals: list[Signal], trades: list[dict]) -> None:
             f"updated: {result.get('updated_alerts', 0)}, "
             f"skipped: {result.get('skipped_alerts', 0)}"
         )
+        return n_alerts
     except requests.RequestException as e:
         print(f"[seeder] ERROR pushing to backend: {e}", file=sys.stderr)
+        return 0

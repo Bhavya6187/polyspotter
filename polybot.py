@@ -33,7 +33,7 @@ from detection_strategies.price_impact import PriceImpactStrategy
 from detection_strategies.low_activity_large_bet import LowActivityLargeBetStrategy
 from detection_strategies.correlated_cross_market import CorrelatedCrossMarketStrategy
 import config
-from db import get_db
+from db import get_db, record_scan_start, record_scan_finish, get_last_scan_trade_ts
 from gamma_cache import get_market_by_condition
 from seeder import push_to_backend
 
@@ -43,20 +43,26 @@ from seeder import push_to_backend
 DATA_API = "https://data-api.polymarket.com"
 
 BET_THRESHOLD_USD = 3000  # minimum USD value to flag
-TRADE_WINDOW_SECONDS = 86400  # how far back to look for trades
+TRADE_WINDOW_SECONDS = 6000  # how far back to look for trades
 TRADE_PAGE_SIZE = 1000  # trades per API call (API max is 1,000)
 MIN_MARKET_DURATION_HOURS = 1  # skip markets shorter than this (e.g., 5-min BTC binary options)
 EXTREME_ODDS_THRESHOLD = 0.90  # skip trades at price > this
 RESOLVED_MARKET_THRESHOLD = 0.98  # skip trades on markets where any outcome is >= this
 
 
-def fetch_recent_trades(seconds: int = TRADE_WINDOW_SECONDS) -> list[dict]:
+def fetch_recent_trades(seconds: int = TRADE_WINDOW_SECONDS, since_ts: float | None = None) -> list[dict]:
     """Fetch trades from the last *seconds* seconds via the Data API,
-    using server-side CASH filtering to only return trades >= threshold."""
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=seconds)
-    cutoff_ts = cutoff.timestamp()
+    using server-side CASH filtering to only return trades >= threshold.
+
+    If since_ts is provided, it overrides the seconds-based cutoff."""
+    if since_ts is not None:
+        cutoff = datetime.fromtimestamp(since_ts, tz=timezone.utc)
+        cutoff_ts = since_ts
+    else:
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=seconds)
+        cutoff_ts = cutoff.timestamp()
     print(
-        f"[*] Fetching trades >= ${BET_THRESHOLD_USD:,} from the last {seconds}s (since {cutoff.strftime('%H:%M:%S UTC')})...",
+        f"[*] Fetching trades >= ${BET_THRESHOLD_USD:,} since {cutoff.strftime('%Y-%m-%d %H:%M:%S UTC')}...",
         flush=True,
     )
 
@@ -569,21 +575,11 @@ def _format_summary(trades: list[dict], signals: list[Signal], strategy_names: s
     return "\n".join(lines)
 
 
-def run():
-    parser = argparse.ArgumentParser(description="Polymarket Notable Trade Scanner")
-    parser.add_argument(
-        "--verbose",
-        "-v",
-        action="store_true",
-        help="Show per-trade detail logging (cache hits, ok results, cluster lines)",
-    )
-    args = parser.parse_args()
+OVERLAP_SECONDS = 600  # 10 minutes overlap between scan windows
 
-    config.VERBOSE = args.verbose
 
-    # Ensure the database is initialized before strategies run
-    get_db()
-
+def _build_strategies():
+    """Build and return (per_trade, batch, all, strategy_names)."""
     # -------------------------------------------------------------------------
     # Strategy execution order (data dependencies documented inline)
     #
@@ -600,84 +596,190 @@ def run():
     #   8. price_impact               — independent (fetches own candles/orderbook)
     #   9. correlated_cross_market    — independent
     # -------------------------------------------------------------------------
-    per_trade_strategies = [
+    per_trade = [
         WinRateTrackingStrategy(),  # 1. writes wallet_pnl
         NewWalletLargeBetStrategy(),  # 2. reads wallet_pnl
         TimingRelativeResolutionStrategy(),  # 3. reads wallet_pnl
         LowActivityLargeBetStrategy(),  # 4. independent
     ]
-    batch_strategies = [
+    batch = [
         PreEventVolumeSpikeStrategy(),  # 5. independent
         WalletClusteringStrategy(),  # 6. writes wallet_funders
         ConcentratedOneSidedStrategy(),  # 7. reads wallet_funders
         PriceImpactStrategy(),  # 8. independent
         CorrelatedCrossMarketStrategy(),  # 9. independent
     ]
+    all_strats = per_trade + batch
+    names = ", ".join(s.name for s in all_strats)
+    return per_trade, batch, all_strats, names
 
-    all_strategies = per_trade_strategies + batch_strategies
-    strategy_names = ", ".join(s.name for s in all_strategies)
+
+def scan_once(per_trade_strategies, batch_strategies, all_strategies, strategy_names,
+              since_ts: float | None = None) -> float | None:
+    """Run a single scan iteration.  Returns the latest trade timestamp seen, or None."""
+    run_id = record_scan_start(cutoff_ts=since_ts)
+
+    try:
+        if since_ts is not None:
+            trades = fetch_recent_trades(since_ts=since_ts)
+        else:
+            trades = fetch_recent_trades()
+
+        trades_before_filter = len(trades)
+
+        if not trades:
+            print("\n[*] No trades above threshold found.")
+            record_scan_finish(run_id, trades_before_filter=0, trades_scanned=0)
+            return None
+
+        trades = filter_short_markets(trades)
+        trades = filter_resolved_markets(trades)
+        trades = filter_extreme_odds(trades)
+
+        if not trades:
+            print("\n[*] All trades filtered out.")
+            record_scan_finish(run_id, trades_before_filter=trades_before_filter, trades_scanned=0)
+            return None
+
+        unique_markets = len({t.get("conditionId", "") for t in trades if t.get("conditionId")})
+
+        print(f"\n[*] Running {len(all_strategies)} strategy(ies) on {len(trades)} trade(s)...", flush=True)
+        all_signals: list[Signal] = []
+
+        # -- per-trade analysis ----------------------------------------------------
+        from detection_strategies import win_rate_tracking as _wrt
+        _wrt._total_unique_wallets = len({t.get("proxyWallet", "").lower() for t in trades} - {""})
+        per_trade_signal_count = 0
+        for i, trade in enumerate(trades, 1):
+            usd = trade.get("_usd_value", 0)
+            title = trade.get("title", "?")
+            if config.VERBOSE:
+                print(f'\n  [{i}/{len(trades)}] ${usd:,.2f} on "{title}"')
+            elif i == 1 or i % 25 == 0 or i == len(trades):
+                print(
+                    f"  Per-trade analysis: {i}/{len(trades)} trades processed ({per_trade_signal_count} signals so far)",
+                    flush=True,
+                )
+
+            for strategy in per_trade_strategies:
+                signal = strategy.check_trade(trade)
+                if signal:
+                    all_signals.append(signal)
+                    per_trade_signal_count += 1
+
+        # -- batch analysis --------------------------------------------------------
+        print(f"\n[*] Running batch analysis across all {len(trades)} trade(s)...", flush=True)
+        for strategy in batch_strategies:
+            print(f"  Running {strategy.name}...", flush=True)
+            batch_signals = strategy.analyze_all(trades)
+            if batch_signals:
+                print(f"    -> {len(batch_signals)} signal(s)")
+            all_signals.extend(batch_signals)
+
+        # -- composite output ------------------------------------------------------
+        print(f"\n[*] Compositing {len(all_signals)} signal(s) into deduplicated alerts...", flush=True)
+        print(_format_composite_alerts(all_signals, trades))
+        print(_format_summary(trades, all_signals, strategy_names))
+
+        # -- push to backend -------------------------------------------------------
+        alerts_pushed = push_to_backend(all_signals, trades)
+
+        # -- record scan run -------------------------------------------------------
+        latest_ts = max((t.get("timestamp", 0) for t in trades), default=None)
+        record_scan_finish(
+            run_id,
+            latest_trade_ts=latest_ts,
+            trades_before_filter=trades_before_filter,
+            trades_scanned=len(trades),
+            signals_raised=len(all_signals),
+            unique_markets=unique_markets,
+            alerts_pushed=alerts_pushed,
+        )
+
+        return latest_ts
+
+    except Exception as e:
+        record_scan_finish(run_id, error=str(e))
+        raise
+
+
+def run():
+    parser = argparse.ArgumentParser(description="Polymarket Notable Trade Scanner")
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Show per-trade detail logging (cache hits, ok results, cluster lines)",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run a single scan and exit (legacy behavior)",
+    )
+    args = parser.parse_args()
+
+    config.VERBOSE = args.verbose
+
+    # Ensure the database is initialized before strategies run
+    get_db()
+
+    per_trade_strategies, batch_strategies, all_strategies, strategy_names = _build_strategies()
 
     print("=" * 72)
-    print("  Polymarket Notable Trade Scanner (single run)")
+    mode = "single run" if args.once else "continuous"
+    print(f"  Polymarket Notable Trade Scanner ({mode})")
     print("=" * 72)
     print(f"  Bet threshold:  ${BET_THRESHOLD_USD:,}")
-    print(f"  Trade window:   last {TRADE_WINDOW_SECONDS}s")
+    print(f"  Trade window:   last {TRADE_WINDOW_SECONDS}s (initial)")
+    print(f"  Overlap:        {OVERLAP_SECONDS}s between iterations")
     print(f"  Min market dur: {MIN_MARKET_DURATION_HOURS}h")
     print(f"  Strategies:     {strategy_names}")
     print()
 
-    trades = fetch_recent_trades()
-
-    if not trades:
-        print("\n[*] No trades above threshold found. Done.")
+    if args.once:
+        scan_once(per_trade_strategies, batch_strategies, all_strategies, strategy_names)
+        print("Done.")
         return
 
-    trades = filter_short_markets(trades)
-    trades = filter_resolved_markets(trades)
-    trades = filter_extreme_odds(trades)
+    # -- continuous mode -------------------------------------------------------
+    iteration = 0
+    while True:
+        iteration += 1
 
-    print(f"\n[*] Running {len(all_strategies)} strategy(ies) on {len(trades)} trade(s)...", flush=True)
-    all_signals: list[Signal] = []
+        # Determine the cutoff: use last scan's latest trade ts minus overlap,
+        # or fall back to the default window on first run.
+        last_ts = get_last_scan_trade_ts()
+        if last_ts is not None:
+            since_ts = last_ts - OVERLAP_SECONDS
+            since_dt = datetime.fromtimestamp(since_ts, tz=timezone.utc)
+            print(f"\n{'#' * 72}")
+            print(f"  Iteration {iteration} — scanning from {since_dt.strftime('%Y-%m-%d %H:%M:%S UTC')} "
+                  f"(last trade minus {OVERLAP_SECONDS // 60}min overlap)")
+            print(f"{'#' * 72}\n")
+        else:
+            since_ts = None
+            print(f"\n{'#' * 72}")
+            print(f"  Iteration {iteration} — first run, using default {TRADE_WINDOW_SECONDS}s window")
+            print(f"{'#' * 72}\n")
 
-    # -- per-trade analysis ----------------------------------------------------
-    from detection_strategies import win_rate_tracking as _wrt
-    _wrt._total_unique_wallets = len({t.get("proxyWallet", "").lower() for t in trades} - {""})
-    per_trade_signal_count = 0
-    for i, trade in enumerate(trades, 1):
-        usd = trade.get("_usd_value", 0)
-        title = trade.get("title", "?")
-        if config.VERBOSE:
-            print(f'\n  [{i}/{len(trades)}] ${usd:,.2f} on "{title}"')
-        elif i == 1 or i % 25 == 0 or i == len(trades):
-            print(
-                f"  Per-trade analysis: {i}/{len(trades)} trades processed ({per_trade_signal_count} signals so far)",
-                flush=True,
-            )
+        try:
+            scan_once(per_trade_strategies, batch_strategies, all_strategies,
+                      strategy_names, since_ts=since_ts)
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:
+            print(f"\n[ERROR] Scan iteration {iteration} failed: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
 
-        for strategy in per_trade_strategies:
-            signal = strategy.check_trade(trade)
-            if signal:
-                all_signals.append(signal)
-                per_trade_signal_count += 1
-
-    # -- batch analysis --------------------------------------------------------
-    print(f"\n[*] Running batch analysis across all {len(trades)} trade(s)...", flush=True)
-    for strategy in batch_strategies:
-        print(f"  Running {strategy.name}...", flush=True)
-        batch_signals = strategy.analyze_all(trades)
-        if batch_signals:
-            print(f"    -> {len(batch_signals)} signal(s)")
-        all_signals.extend(batch_signals)
-
-    # -- composite output ------------------------------------------------------
-    print(f"\n[*] Compositing {len(all_signals)} signal(s) into deduplicated alerts...", flush=True)
-    print(_format_composite_alerts(all_signals, trades))
-    print(_format_summary(trades, all_signals, strategy_names))
-
-    # -- push to backend -------------------------------------------------------
-    push_to_backend(all_signals, trades)
-
-    print("Done.")
+        # Wait before the next iteration
+        wait = 60
+        print(f"\n[*] Sleeping {wait}s before next iteration (Ctrl+C to stop)...", flush=True)
+        try:
+            time.sleep(wait)
+        except KeyboardInterrupt:
+            print("\n[*] Interrupted — shutting down.")
+            break
 
 
 if __name__ == "__main__":

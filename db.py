@@ -236,6 +236,23 @@ def _init_tables(conn: sqlite3.Connection) -> None:
         )
     """)
 
+    # -- scan_runs (continuous mode: track last scan time) --------------------
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS scan_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at TEXT NOT NULL,
+            finished_at TEXT,
+            cutoff_ts REAL,
+            latest_trade_ts REAL,
+            trades_before_filter INTEGER DEFAULT 0,
+            trades_scanned INTEGER DEFAULT 0,
+            signals_raised INTEGER DEFAULT 0,
+            unique_markets INTEGER DEFAULT 0,
+            alerts_pushed INTEGER DEFAULT 0,
+            error TEXT
+        )
+    """)
+
     conn.commit()
 
 
@@ -1058,3 +1075,64 @@ def save_llm_evaluation(dedup_key: str, interesting: bool, summary: str | None) 
         (dedup_key, int(interesting), summary, datetime.now(timezone.utc).isoformat()),
     )
     conn.commit()
+
+
+# ===========================================================================
+# scan_runs operations (continuous mode)
+# ===========================================================================
+
+
+def record_scan_start(cutoff_ts: float | None = None) -> int:
+    """Record the start of a scan run.  Returns the run id."""
+    conn = get_db()
+    cur = conn.execute(
+        "INSERT INTO scan_runs (started_at, cutoff_ts) VALUES (?, ?)",
+        (datetime.now(timezone.utc).isoformat(), cutoff_ts),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def record_scan_finish(
+    run_id: int,
+    *,
+    latest_trade_ts: float | None = None,
+    trades_before_filter: int = 0,
+    trades_scanned: int = 0,
+    signals_raised: int = 0,
+    unique_markets: int = 0,
+    alerts_pushed: int = 0,
+    error: str | None = None,
+) -> None:
+    """Record the completion (or failure) of a scan run."""
+    conn = get_db()
+    conn.execute(
+        """UPDATE scan_runs
+           SET finished_at = ?, latest_trade_ts = ?, trades_before_filter = ?,
+               trades_scanned = ?, signals_raised = ?, unique_markets = ?,
+               alerts_pushed = ?, error = ?
+           WHERE id = ?""",
+        (
+            datetime.now(timezone.utc).isoformat(),
+            latest_trade_ts,
+            trades_before_filter,
+            trades_scanned,
+            signals_raised,
+            unique_markets,
+            alerts_pushed,
+            error,
+            run_id,
+        ),
+    )
+    conn.commit()
+
+
+def get_last_scan_trade_ts() -> float | None:
+    """Return the latest_trade_ts from the most recent completed scan, or None."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT latest_trade_ts FROM scan_runs WHERE finished_at IS NOT NULL ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if row and row[0] is not None:
+        return row[0]
+    return None
