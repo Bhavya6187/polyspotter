@@ -55,13 +55,13 @@ export default function AlertRow({ alert, isExpanded, onToggle, activeTag, onTag
   // Build a compact label: cluster headline, bettor profile, or fallback
   let compactLabel = null;
   if (alert.cluster_headline) {
-    compactLabel = alert.cluster_headline;
+    compactLabel = `Cluster of ${alert.cluster_headline}`;
   } else if (alert.win_rate != null) {
     const wr = `${Math.round(alert.win_rate * 100)}% wins`;
     const pnl = alert.total_pnl != null
       ? ` · ${alert.total_pnl >= 0 ? "+" : ""}${usdFmt.format(alert.total_pnl)}`
       : "";
-    compactLabel = wr + pnl;
+    compactLabel = `Wallet with ${wr}${pnl}`;
   }
 
   return (
