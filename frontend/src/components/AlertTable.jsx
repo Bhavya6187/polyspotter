@@ -1,5 +1,4 @@
 import { Fragment, useState } from "react";
-import AlertDetail from "./AlertDetail";
 import AlertRow from "./AlertRow";
 
 function timeToResolution(dateStr) {
@@ -79,7 +78,6 @@ export default function AlertTable({
 }) {
   const [sortBy, setSortBy] = useState("amount");
   const [sortDir, setSortDir] = useState("desc");
-  const [expandedAlertIds, setExpandedAlertIds] = useState(new Set());
 
   const handleSort = (column) => {
     if (sortBy === column) {
@@ -219,31 +217,19 @@ export default function AlertTable({
                     <td colSpan={6} className="bg-gray-50 px-4 pb-4 pt-2 dark:bg-gray-900/80">
                       <div className="flex flex-col gap-2">
                         {market.alerts.map((alert) => (
-                          <div key={alert.id}>
-                            <AlertRow
-                              alert={alert}
-                              isExpanded={expandedAlertIds.has(alert.id)}
-                              onToggle={() =>
-                                setExpandedAlertIds((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.has(alert.id)) next.delete(alert.id);
-                                  else next.add(alert.id);
-                                  return next;
-                                })
-                              }
-                              activeTag={filters.tag}
-                              onTagClick={(t) =>
-                                onFilterChange({
-                                  ...filters,
-                                  tag: filters.tag === t ? "" : t,
-                                })
-                              }
-                              compact
-                            />
-                            {expandedAlertIds.has(alert.id) && (
-                              <AlertDetail alertId={alert.id} />
-                            )}
-                          </div>
+                          <AlertRow
+                            key={alert.id}
+                            alert={alert}
+                            autoExpand
+                            activeTag={filters.tag}
+                            onTagClick={(t) =>
+                              onFilterChange({
+                                ...filters,
+                                tag: filters.tag === t ? "" : t,
+                              })
+                            }
+                            compact
+                          />
                         ))}
                       </div>
                     </td>

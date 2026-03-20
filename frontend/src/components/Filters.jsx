@@ -9,15 +9,22 @@ export default function Filters({ tags, filters, onFilterChange }) {
           className="rounded bg-white px-2 py-1 text-gray-900 outline-none focus:ring-1 focus:ring-gray-300 dark:bg-gray-900 dark:text-gray-100 dark:focus:ring-gray-600"
         >
           <option value="">All Tags</option>
-          {tags.slice(0, 10).map((t) => {
-            const name = typeof t === "string" ? t : t.tag;
-            const count = typeof t === "object" && t.alert_count ? ` (${t.alert_count})` : "";
-            return (
-              <option key={name} value={name}>
-                {name}{count}
-              </option>
-            );
-          })}
+          {[...tags]
+            .sort((a, b) => {
+              const ca = typeof a === "object" ? a.alert_count || 0 : 0;
+              const cb = typeof b === "object" ? b.alert_count || 0 : 0;
+              return cb - ca;
+            })
+            .slice(0, 10)
+            .map((t) => {
+              const name = typeof t === "string" ? t : t.tag;
+              const count = typeof t === "object" && t.alert_count ? ` (${t.alert_count})` : "";
+              return (
+                <option key={name} value={name}>
+                  {name}{count}
+                </option>
+              );
+            })}
         </select>
       </label>
     </div>

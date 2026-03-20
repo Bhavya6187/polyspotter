@@ -1,3 +1,6 @@
+import { useEffect, useState } from "react";
+import { fetchAlertDetail } from "../api";
+
 function relativeTime(dateStr) {
   if (!dateStr) return "\u2014";
   const now = Date.now();
@@ -38,10 +41,29 @@ function priceToCents(price) {
   return `${Math.round(price * 100)}\u00a2`;
 }
 
-export default function AlertRow({ alert, isExpanded, onToggle, activeTag, onTagClick, compact }) {
+export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, compact }) {
+  const [detail, setDetail] = useState(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
   const tags = alert.tags || [];
   const copyAction = alert.llm_copy_action;
   const resolution = timeToResolution(alert.end_date);
+
+  // Auto-fetch detail when rendered in compact (expanded market) mode
+  useEffect(() => {
+    if (!autoExpand) return;
+    let cancelled = false;
+    setLoadingDetail(true);
+    fetchAlertDetail(alert.id).then((data) => {
+      if (!cancelled) {
+        setDetail(data);
+        setLoadingDetail(false);
+      }
+    }).catch(() => {
+      if (!cancelled) setLoadingDetail(false);
+    });
+    return () => { cancelled = true; };
+  }, [alert.id, autoExpand]);
 
   // Build the bet summary line from copy_action or fallback to raw data
   let betSummary = "";
@@ -66,14 +88,25 @@ export default function AlertRow({ alert, isExpanded, onToggle, activeTag, onTag
     compactLabel = `Wallet with ${wr}${pnl}`;
   }
 
+  // CTA from detail or from alert-level copy action
+  const detailCopyAction = detail?.llm_copy_action || copyAction;
+  const marketUrl = detail?.market_url;
+  let ctaText = "";
+  if (detailCopyAction && detailCopyAction.outcome) {
+    const side = detailCopyAction.side === "SELL" ? "Sell" : "Buy";
+    ctaText = `${side} ${detailCopyAction.outcome}`;
+  }
+
+  // Bullets from detail
+  const bullets = detail?.llm_bullets || [];
+  const displayBullets =
+    bullets.length > 0 ? bullets : detail?.llm_summary ? [detail.llm_summary] : [];
+
   return (
     <div
-      onClick={onToggle}
-      className={`cursor-pointer rounded-lg border bg-white p-4 transition-all hover:shadow-md dark:bg-gray-900 ${
-        isExpanded
-          ? "border-blue-300 shadow-md dark:border-blue-700"
-          : "border-gray-200 dark:border-gray-800"
-      } ${compact ? "p-3" : "p-4"}`}
+      className={`rounded-lg border bg-white transition-all dark:bg-gray-900 ${
+        compact ? "p-3" : "p-4"
+      } border-gray-200 dark:border-gray-800`}
     >
       {/* Row 1: Market title (full mode) or wallet (compact mode) + resolution */}
       <div className="flex items-start justify-between gap-3">
@@ -110,6 +143,41 @@ export default function AlertRow({ alert, isExpanded, onToggle, activeTag, onTag
       <p className={`mt-1 text-sm text-gray-600 dark:text-gray-300 ${compact ? "text-xs" : ""}`}>
         {betSummary}
       </p>
+
+      {/* Inline detail: bullets + CTA (auto-expanded in compact mode) */}
+      {autoExpand && (
+        <div className="mt-2">
+          {loadingDetail ? (
+            <p className="text-xs text-gray-400 dark:text-gray-500">Loading...</p>
+          ) : (
+            <>
+              {displayBullets.length > 0 && (
+                <ul className="space-y-1 mt-1">
+                  {displayBullets.map((bullet, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
+                      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500 dark:bg-blue-400" />
+                      <span>{bullet}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {ctaText && marketUrl && (
+                <div className="mt-3">
+                  <a
+                    href={marketUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-blue-600 bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 dark:border-blue-500 dark:bg-blue-600 dark:hover:bg-blue-700"
+                  >
+                    Copy this trade &rarr; {ctaText}
+                  </a>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* Row 3: Tags (only in full mode) */}
       {!compact && tags.length > 0 && (
