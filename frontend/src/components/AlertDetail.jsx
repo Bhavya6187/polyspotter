@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchAlertDetail } from "../api";
+import useLiveMarket from "../hooks/useLiveMarket";
+import PriceMovement from "./PriceMovement";
 
 export default function AlertDetail({ alertId }) {
   const [detail, setDetail] = useState(null);
@@ -20,6 +22,10 @@ export default function AlertDetail({ alertId }) {
       cancelled = true;
     };
   }, [alertId]);
+
+  const { data: liveMarket } = useLiveMarket(detail?.condition_id, {
+    enabled: !!detail?.condition_id,
+  });
 
   if (loading) {
     return (
@@ -46,8 +52,26 @@ export default function AlertDetail({ alertId }) {
     ctaText = `${side} ${copyAction.outcome}`;
   }
 
+  // Find live price for this alert's outcome
+  const alertPrice = copyAction?.entry_price;
+  const liveOutcome = liveMarket?.outcomes?.find(
+    (o) => o.name === copyAction?.outcome
+  );
+  const currentPrice = liveOutcome?.price ?? null;
+
   return (
     <div className="px-4 pb-4 pt-1">
+      {/* Price movement */}
+      {alertPrice > 0 && currentPrice > 0 && (
+        <div className="mb-3">
+          <PriceMovement
+            alertPrice={alertPrice}
+            currentPrice={currentPrice}
+            outcome={copyAction?.outcome}
+          />
+        </div>
+      )}
+
       {/* Bullet points */}
       {displayBullets.length > 0 && (
         <ul className="space-y-1.5">
@@ -60,9 +84,9 @@ export default function AlertDetail({ alertId }) {
         </ul>
       )}
 
-      {/* Copy Trade CTA */}
+      {/* Copy Trade CTA with payout */}
       {ctaText && marketUrl && (
-        <div className="mt-4">
+        <div className="mt-4 flex items-center gap-3">
           <a
             href={marketUrl}
             target="_blank"
@@ -72,6 +96,14 @@ export default function AlertDetail({ alertId }) {
           >
             Copy this trade &rarr; {ctaText}
           </a>
+          {currentPrice > 0 && currentPrice < 0.99 && (
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              Pay {Math.round(currentPrice * 100)}&cent; &rarr; win $1.00
+              <span className="ml-1 text-green-600 dark:text-green-400">
+                ({Math.round(((1 - currentPrice) / currentPrice) * 100)}% return)
+              </span>
+            </span>
+          )}
         </div>
       )}
     </div>

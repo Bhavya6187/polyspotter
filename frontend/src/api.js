@@ -50,6 +50,10 @@ export function fetchTags() {
   return request("/api/tags");
 }
 
+export function fetchMarketLive(conditionId) {
+  return request(`/api/market/${conditionId}/live`);
+}
+
 export function fetchHealth() {
   return request("/api/health");
 }

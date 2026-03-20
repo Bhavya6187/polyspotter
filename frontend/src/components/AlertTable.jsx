@@ -1,6 +1,7 @@
-import { Fragment, useState } from "react";
+import { Fragment, useState, useEffect } from "react";
 import AlertRow from "./AlertRow";
 import StrengthMeter, { scoreToRating } from "./StrengthMeter";
+import { fetchMarketLive } from "../api";
 
 function timeToResolution(dateStr) {
   if (!dateStr) return null;
@@ -81,6 +82,19 @@ export default function AlertTable({
 }) {
   const [sortBy, setSortBy] = useState("amount");
   const [sortDir, setSortDir] = useState("desc");
+  const [liveData, setLiveData] = useState({}); // condition_id -> LiveMarketData
+
+  // Fetch live market data when a market is expanded
+  useEffect(() => {
+    if (!expandedMarketIds || expandedMarketIds.size === 0) return;
+
+    for (const cid of expandedMarketIds) {
+      if (liveData[cid]) continue; // already fetched
+      fetchMarketLive(cid)
+        .then((data) => setLiveData((prev) => ({ ...prev, [cid]: data })))
+        .catch(() => {}); // silently fail — live data is optional
+    }
+  }, [expandedMarketIds]);
 
   const handleSort = (column) => {
     if (sortBy === column) {
@@ -254,6 +268,7 @@ export default function AlertTable({
                               })
                             }
                             compact
+                            liveMarket={liveData[market.condition_id]}
                           />
                         ))}
                       </div>

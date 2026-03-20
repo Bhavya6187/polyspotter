@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchAlertDetail } from "../api";
+import PriceMovement from "./PriceMovement";
 
 function relativeTime(dateStr) {
   if (!dateStr) return "\u2014";
@@ -41,12 +42,20 @@ function priceToCents(price) {
   return `${Math.round(price * 100)}\u00a2`;
 }
 
-export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, compact }) {
+export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, compact, liveMarket }) {
   const [detail, setDetail] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
   const tags = alert.tags || [];
   const copyAction = alert.llm_copy_action;
+
+  // Find the live price for the outcome this alert is about
+  const alertOutcome = copyAction?.outcome;
+  const alertPrice = copyAction?.entry_price;
+  const liveOutcome = liveMarket?.outcomes?.find(
+    (o) => o.name === alertOutcome
+  );
+  const currentPrice = liveOutcome?.price ?? null;
   const resolution = timeToResolution(alert.end_date);
 
   // Auto-fetch detail when rendered in compact (expanded market) mode
@@ -139,10 +148,20 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
         </div>
       </div>
 
-      {/* Row 2: Bet summary */}
-      <p className={`mt-1 text-sm text-gray-600 dark:text-gray-300 ${compact ? "text-xs" : ""}`}>
-        {betSummary}
-      </p>
+      {/* Row 2: Bet summary + live price */}
+      <div className={`mt-1 flex items-center gap-2 ${compact ? "" : ""}`}>
+        <p className={`text-sm text-gray-600 dark:text-gray-300 ${compact ? "text-xs" : ""}`}>
+          {betSummary}
+        </p>
+        {alertPrice > 0 && currentPrice > 0 && (
+          <PriceMovement
+            alertPrice={alertPrice}
+            currentPrice={currentPrice}
+            outcome={alertOutcome}
+            compact
+          />
+        )}
+      </div>
 
       {/* Inline detail: bullets + CTA (auto-expanded in compact mode) */}
       {autoExpand && (
@@ -162,7 +181,7 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
                 </ul>
               )}
               {ctaText && marketUrl && (
-                <div className="mt-3">
+                <div className="mt-3 flex items-center gap-3">
                   <a
                     href={marketUrl}
                     target="_blank"
@@ -172,6 +191,14 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
                   >
                     Copy this trade &rarr; {ctaText}
                   </a>
+                  {currentPrice > 0 && currentPrice < 0.99 && (
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      Pay {Math.round(currentPrice * 100)}&cent; &rarr; win $1.00
+                      <span className="ml-1 text-green-600 dark:text-green-400">
+                        ({Math.round(((1 - currentPrice) / currentPrice) * 100)}% return)
+                      </span>
+                    </span>
+                  )}
                 </div>
               )}
             </>

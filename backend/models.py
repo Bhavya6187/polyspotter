@@ -167,3 +167,18 @@ class PaginatedMarkets(BaseModel):
     total: int
     page: int
     per_page: int
+
+
+# -- Live market data (proxied from Polymarket CLOB/Gamma APIs) ----------------
+
+class OutcomePrice(BaseModel):
+    name: str
+    token_id: str
+    price: float  # current midpoint (0.00–1.00)
+
+class LiveMarketData(BaseModel):
+    condition_id: str
+    outcomes: list[OutcomePrice] = []
+    volume_24h: float | None = None
+    liquidity: float | None = None
+    description: str | None = None

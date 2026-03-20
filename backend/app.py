@@ -14,10 +14,12 @@ Endpoints:
 from __future__ import annotations
 
 import json
+import time as _time
 from datetime import datetime, timezone
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, contextmanager
 
+import requests as _requests
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -32,6 +34,8 @@ from models import (
     PaginatedAlerts,
     MarketGroup,
     PaginatedMarkets,
+    LiveMarketData,
+    OutcomePrice,
 )
 
 
@@ -535,6 +539,125 @@ def list_tags():
         selected.append({"tag": best_tag, "alert_count": len(new_covered)})
 
     return selected
+
+
+# ---------------------------------------------------------------------------
+# Live market data (proxied from Polymarket APIs)
+# ---------------------------------------------------------------------------
+
+GAMMA_API = "https://gamma-api.polymarket.com"
+CLOB_API = "https://clob.polymarket.com"
+
+# Simple in-memory cache: key -> (expiry_ts, data)
+_live_cache: dict[str, tuple[float, LiveMarketData]] = {}
+_LIVE_CACHE_TTL = 30  # seconds
+
+
+def _fetch_live_market(condition_id: str) -> LiveMarketData:
+    """Fetch live prices from Gamma + CLOB APIs for a market."""
+    # 1. Get market metadata from Gamma (token IDs, outcomes, volume)
+    gamma_resp = _requests.get(
+        f"{GAMMA_API}/markets",
+        params={"condition_ids": condition_id},
+        timeout=10,
+    )
+    gamma_resp.raise_for_status()
+    markets = gamma_resp.json()
+    if not markets:
+        return LiveMarketData(condition_id=condition_id)
+
+    market = markets[0]
+    raw_outcomes = market.get("outcomes", "[]")
+    raw_token_ids = market.get("clobTokenIds", "[]")
+    outcomes = json.loads(raw_outcomes) if isinstance(raw_outcomes, str) else raw_outcomes
+    token_ids = json.loads(raw_token_ids) if isinstance(raw_token_ids, str) else raw_token_ids
+
+    if not outcomes or not token_ids or len(outcomes) != len(token_ids):
+        # Fall back to outcomePrices from Gamma
+        raw_prices = market.get("outcomePrices", "[]")
+        prices = json.loads(raw_prices) if isinstance(raw_prices, str) else raw_prices
+        outcome_prices = [
+            OutcomePrice(
+                name=outcomes[i] if i < len(outcomes) else f"Outcome {i}",
+                token_id=token_ids[i] if i < len(token_ids) else "",
+                price=float(prices[i]) if i < len(prices) else 0,
+            )
+            for i in range(len(prices))
+        ]
+        return LiveMarketData(
+            condition_id=condition_id,
+            outcomes=outcome_prices,
+            volume_24h=_safe_float(market.get("volume24hr")),
+            liquidity=_safe_float(market.get("liquidity")),
+            description=market.get("description"),
+        )
+
+    # 2. Get live midpoints from CLOB API (batch)
+    try:
+        clob_resp = _requests.post(
+            f"{CLOB_API}/midpoints",
+            json={"token_ids": token_ids},
+            timeout=10,
+        )
+        clob_resp.raise_for_status()
+        midpoints = clob_resp.json()  # dict: token_id -> midpoint string
+    except _requests.RequestException:
+        # Fall back to Gamma outcomePrices
+        midpoints = {}
+
+    # Build outcome prices — prefer CLOB midpoint, fall back to Gamma
+    raw_prices = market.get("outcomePrices", "[]")
+    gamma_prices = json.loads(raw_prices) if isinstance(raw_prices, str) else raw_prices
+
+    outcome_prices = []
+    for i, name in enumerate(outcomes):
+        tid = token_ids[i] if i < len(token_ids) else ""
+        # CLOB midpoint (most accurate live price)
+        mid = midpoints.get(tid)
+        if mid is not None:
+            price = float(mid)
+        elif i < len(gamma_prices):
+            price = float(gamma_prices[i])
+        else:
+            price = 0
+        outcome_prices.append(OutcomePrice(name=name, token_id=tid, price=price))
+
+    return LiveMarketData(
+        condition_id=condition_id,
+        outcomes=outcome_prices,
+        volume_24h=_safe_float(market.get("volume24hr")),
+        liquidity=_safe_float(market.get("liquidity")),
+        description=market.get("description"),
+    )
+
+
+def _safe_float(val) -> float | None:
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
+
+
+@app.get("/api/market/{condition_id}/live", response_model=LiveMarketData)
+def get_market_live(condition_id: str):
+    """Get live market prices from Polymarket CLOB API.
+
+    Returns current midpoint prices for each outcome, plus market metadata.
+    Cached for 30 seconds to avoid hammering upstream APIs."""
+    now = _time.time()
+    cached = _live_cache.get(condition_id)
+    if cached and cached[0] > now:
+        return cached[1]
+
+    try:
+        data = _fetch_live_market(condition_id)
+    except _requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"Upstream API error: {e}")
+
+    _live_cache[condition_id] = (now + _LIVE_CACHE_TTL, data)
+    return data
 
 
 @app.get("/api/health")
