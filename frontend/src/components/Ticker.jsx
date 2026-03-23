@@ -55,12 +55,23 @@ export default function Ticker() {
     return () => clearInterval(interval);
   }, []);
 
-  if (alerts.length === 0) return null;
+  // Deduplicate by condition_id, keeping the alert with the highest total_usd per market
+  const unique = Object.values(
+    alerts.reduce((acc, alert) => {
+      const key = alert.condition_id;
+      if (!acc[key] || alert.total_usd > acc[key].total_usd) {
+        acc[key] = alert;
+      }
+      return acc;
+    }, {})
+  );
+
+  if (unique.length === 0) return null;
 
   return (
     <div className="overflow-hidden border-b border-gray-200 bg-gray-50/80 dark:border-gray-800 dark:bg-gray-900/50 py-2 text-sm">
       <div className="ticker-track flex">
-        {[...alerts, ...alerts].map((alert, i) => (
+        {[...unique, ...unique].map((alert, i) => (
           <TickerItem key={`${alert.id}-${i}`} alert={alert} />
         ))}
       </div>
