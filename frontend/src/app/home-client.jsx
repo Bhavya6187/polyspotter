@@ -101,7 +101,7 @@ export default function HomeClient({ initialMarkets, initialTotal, tags }) {
   const totalPages = Math.max(1, Math.ceil(total / perPage));
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6">
+    <main className="mx-auto max-w-6xl px-4 py-6">
       {/* Header */}
       <header className="mb-6 flex items-center justify-between">
         <div>
@@ -133,20 +133,22 @@ export default function HomeClient({ initialMarkets, initialTotal, tags }) {
       </header>
 
       {/* Live ticker */}
-      <div className="mb-4 -mx-4 sm:mx-0 sm:rounded-lg sm:overflow-hidden">
+      <section aria-label="Live ticker" className="mb-4 -mx-4 sm:mx-0 sm:rounded-lg sm:overflow-hidden">
         <Ticker />
-      </div>
+      </section>
 
       {/* Filters */}
-      <div className="mb-4">
+      <section aria-label="Filters" className="mb-4">
         <Filters
           tags={tags}
           filters={filters}
           onFilterChange={handleFilterChange}
         />
-      </div>
+      </section>
 
       {/* Market Cards */}
+      <section aria-label="Notable trades">
+      <h2 className="sr-only">Markets with Notable Trades</h2>
       <AlertTable
         markets={markets}
         expandedMarketIds={expandedMarketIds}
@@ -155,13 +157,16 @@ export default function HomeClient({ initialMarkets, initialTotal, tags }) {
         filters={filters}
         loading={loading}
       />
+      </section>
 
       {/* Pagination */}
-      <Pagination
-        page={page}
-        totalPages={totalPages}
-        onPageChange={handlePageChange}
-      />
-    </div>
+      <nav aria-label="Pagination">
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          onPageChange={handlePageChange}
+        />
+      </nav>
+    </main>
   );
 }

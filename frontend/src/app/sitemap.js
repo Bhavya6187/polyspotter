@@ -9,6 +9,7 @@ export default async function sitemap() {
   const staticPages = [
     {
       url: SITE_URL,
+      lastModified: new Date(),
       changeFrequency: "hourly",
       priority: 1.0,
     },
@@ -39,11 +40,32 @@ export default async function sitemap() {
 
     const marketPages = allMarkets.map((market) => ({
       url: `${SITE_URL}/market/${marketSlug(market.market_title, market.condition_id)}`,
+      lastModified: market.scanned_at ? new Date(market.scanned_at) : new Date(),
       changeFrequency: "hourly",
       priority: 0.8,
     }));
 
-    return [...staticPages, ...marketPages];
+    // Fetch tags for tag pages
+    let tagPages = [];
+    try {
+      const tagsRes = await fetch(`${API_URL}/api/tags`, { cache: "no-store" });
+      if (tagsRes.ok) {
+        const tagsData = await tagsRes.json();
+        const tags = tagsData?.tags || tagsData || [];
+        tagPages = tags.map((t) => {
+          const tag = typeof t === "string" ? t : t.tag;
+          const slug = tag.toLowerCase().replace(/\s+/g, "-");
+          return {
+            url: `${SITE_URL}/tag/${encodeURIComponent(slug)}`,
+            lastModified: new Date(),
+            changeFrequency: "daily",
+            priority: 0.7,
+          };
+        });
+      }
+    } catch {}
+
+    return [...staticPages, ...marketPages, ...tagPages];
   } catch {
     return staticPages;
   }

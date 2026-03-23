@@ -40,9 +40,9 @@ export default function MarketPageClient({ conditionId, initialLive, initialAler
   const outcomes = live?.outcomes || [];
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-6">
+    <main className="mx-auto max-w-4xl px-4 py-6">
       {/* Nav */}
-      <div className="mb-6 flex items-center justify-between">
+      <nav className="mb-6 flex items-center justify-between" aria-label="Breadcrumb">
         <Link
           href="/"
           className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
@@ -53,7 +53,7 @@ export default function MarketPageClient({ conditionId, initialLive, initialAler
           Back to all markets
         </Link>
         <ThemeToggle />
-      </div>
+      </nav>
 
       {/* Market header */}
       <header className="mb-6">
@@ -122,7 +122,7 @@ export default function MarketPageClient({ conditionId, initialLive, initialAler
 
       {/* Alerts */}
       {alerts.length > 0 ? (
-        <div className="flex flex-col gap-3">
+        <section className="flex flex-col gap-3" aria-label="Notable trades">
           <h2 className="text-sm font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
             Notable Trades
           </h2>
@@ -136,12 +136,12 @@ export default function MarketPageClient({ conditionId, initialLive, initialAler
               liveMarket={live}
             />
           ))}
-        </div>
+        </section>
       ) : (
         <div className="rounded-lg bg-white p-8 text-center text-gray-400 dark:bg-gray-900 dark:text-gray-500">
           No alerts found for this market.
         </div>
       )}
-    </div>
+    </main>
   );
 }

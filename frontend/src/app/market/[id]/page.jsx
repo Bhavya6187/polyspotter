@@ -91,5 +91,30 @@ export default async function MarketPage({ params }) {
   const conditionId = await resolveConditionId(partialId);
   const { live, alerts } = await getMarketData(conditionId);
 
-  return <MarketPageClient conditionId={conditionId} initialLive={live} initialAlerts={alerts} />;
+  const title = live?.title || alerts?.[0]?.market_title || "Market";
+  const alertCount = alerts.length;
+  const totalUsd = alerts.reduce((sum, a) => sum + (a.total_usd || 0), 0);
+
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: title,
+    description: `${alertCount} notable trade${alertCount !== 1 ? "s" : ""} detected on "${title}" — ${new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(totalUsd)} in smart money flow.`,
+    url: `${process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com"}/market/${marketSlug(title, conditionId)}`,
+    isPartOf: {
+      "@type": "WebSite",
+      name: "PolySpotter",
+      url: process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com",
+    },
+  };
+
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+      <MarketPageClient conditionId={conditionId} initialLive={live} initialAlerts={alerts} />
+    </>
+  );
 }

@@ -6,6 +6,15 @@ const GA_ID = "G-CDJT9HKLCR";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
 
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: "PolySpotter",
+  url: SITE_URL,
+  description:
+    "Track smart money on Polymarket. PolySpotter surfaces large bets from sharp bettors, coordinated flow, and high-conviction positioning.",
+};
+
 export const metadata = {
   metadataBase: new URL(SITE_URL),
   alternates: {
@@ -67,6 +76,10 @@ export default function RootLayout({ children }) {
           `}
         </Script>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
       </head>
       <body className="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100">
         {children}
