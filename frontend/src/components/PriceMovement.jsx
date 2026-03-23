@@ -19,9 +19,9 @@ export default function PriceMovement({ alertPrice, currentPrice, outcome, compa
   const isDown = deltaCents < 0;
 
   const deltaColor = isUp
-    ? "text-red-500 dark:text-red-400"   // price went up = worse entry
+    ? "text-green-500 dark:text-green-400"   // price went up = bullish
     : isDown
-      ? "text-green-500 dark:text-green-400" // price went down = better entry
+      ? "text-red-500 dark:text-red-400"     // price went down = bearish
       : "text-gray-400 dark:text-gray-500";
 
   const arrow = isUp ? "\u2191" : isDown ? "\u2193" : "";
