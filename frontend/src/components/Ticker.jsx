@@ -21,8 +21,7 @@ function relativeTime(dateStr) {
 }
 
 function TickerItem({ alert }) {
-  const headline =
-    alert.llm_headline || alert.cluster_headline || alert.market_title || "Notable trade";
+  const headline = alert.market_title || "Notable trade";
   const amount = usdFmt.format(alert.total_usd);
   const time = relativeTime(alert.scanned_at);
 
