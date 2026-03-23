@@ -49,7 +49,7 @@ export const metadata = {
     locale: "en_US",
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: "PolySpotter — Follow the Smart Money on Polymarket",
     description:
       "Real-time alerts for notable Polymarket trades: Large bets, sharp bettors, and coordinated flow.",

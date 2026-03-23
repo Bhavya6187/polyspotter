@@ -241,7 +241,7 @@ export default function AlertTable({
                   <td className={`px-4 py-3 whitespace-nowrap ${resColor}`}>
                     {resolution ?? "\u2014"}
                   </td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap" suppressHydrationWarning>
                     {relativeTime(market.scanned_at)}
                   </td>
                   <td className="px-4 py-3">
