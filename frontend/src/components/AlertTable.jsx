@@ -1,7 +1,8 @@
 import { Fragment, useState, useEffect } from "react";
+import Link from "next/link";
 import AlertRow from "./AlertRow";
-import StrengthMeter, { scoreToRating } from "./StrengthMeter";
-import { fetchMarketLive } from "../api";
+import StrengthMeter from "./StrengthMeter";
+import { fetchMarketLive } from "../lib/api";
 
 function timeToResolution(dateStr) {
   if (!dateStr) return null;
@@ -217,7 +218,13 @@ export default function AlertTable({
                       >
                         <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                       </svg>
-                      <span className="truncate">{market.market_title ?? "\u2014"}</span>
+                      <Link
+                        href={`/market/${market.condition_id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="truncate hover:underline"
+                      >
+                        {market.market_title ?? "\u2014"}
+                      </Link>
                     </div>
                   </td>
                   <td className="px-4 py-3">

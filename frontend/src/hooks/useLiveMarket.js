@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { fetchMarketLive } from "../api";
+import { fetchMarketLive } from "../lib/api";
 
 const POLL_INTERVAL = 30_000; // 30 seconds
 

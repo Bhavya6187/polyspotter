@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchAlertDetail } from "../api";
+import { fetchAlertDetail } from "../lib/api";
 import PriceMovement from "./PriceMovement";
 
 function relativeTime(dateStr) {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchAlertDetail } from "../api";
+import { fetchAlertDetail } from "../lib/api";
 import useLiveMarket from "../hooks/useLiveMarket";
 import PriceMovement from "./PriceMovement";
 
