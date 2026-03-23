@@ -1,7 +1,44 @@
 import { Fragment, useState, useEffect } from "react";
 import AlertRow from "./AlertRow";
+import OutcomeGroup from "./OutcomeGroup";
 import StrengthMeter, { scoreToRating } from "./StrengthMeter";
 import { fetchMarketLive } from "../api";
+
+/**
+ * Groups alerts by their copy-action direction (outcome + side).
+ * Returns an array of { key, alerts } objects.
+ * Alerts without a copy action go into an "other" bucket.
+ */
+function groupAlertsByOutcome(alerts) {
+  const groups = {};
+  const ungrouped = [];
+
+  for (const alert of alerts) {
+    const ca = alert.llm_copy_action;
+    if (ca && ca.outcome) {
+      const key = `${ca.side || "BUY"}_${ca.outcome}`;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(alert);
+    } else {
+      ungrouped.push(alert);
+    }
+  }
+
+  // Sort groups by total USD descending (biggest conviction first)
+  const sorted = Object.entries(groups)
+    .map(([key, alerts]) => ({ key, alerts }))
+    .sort(
+      (a, b) =>
+        b.alerts.reduce((s, x) => s + (x.total_usd || 0), 0) -
+        a.alerts.reduce((s, x) => s + (x.total_usd || 0), 0)
+    );
+
+  if (ungrouped.length > 0) {
+    sorted.push({ key: "other", alerts: ungrouped });
+  }
+
+  return sorted;
+}
 
 function timeToResolution(dateStr) {
   if (!dateStr) return null;
@@ -268,22 +305,33 @@ export default function AlertTable({
                   <tr>
                     <td colSpan={7} className="bg-gray-50 px-4 pb-4 pt-2 dark:bg-gray-900/80">
                       <div className="flex flex-col gap-2">
-                        {market.alerts.map((alert) => (
-                          <AlertRow
-                            key={alert.id}
-                            alert={alert}
-                            autoExpand
-                            activeTag={filters.tag}
-                            onTagClick={(t) =>
-                              onFilterChange({
-                                ...filters,
-                                tag: filters.tag === t ? "" : t,
-                              })
-                            }
-                            compact
-                            liveMarket={liveData[market.condition_id]}
-                          />
-                        ))}
+                        {groupAlertsByOutcome(market.alerts).map((group) =>
+                          group.key === "other" ? (
+                            // Alerts without a copy action render individually
+                            group.alerts.map((alert) => (
+                              <AlertRow
+                                key={alert.id}
+                                alert={alert}
+                                autoExpand
+                                activeTag={filters.tag}
+                                onTagClick={(t) =>
+                                  onFilterChange({
+                                    ...filters,
+                                    tag: filters.tag === t ? "" : t,
+                                  })
+                                }
+                                compact
+                                liveMarket={liveData[market.condition_id]}
+                              />
+                            ))
+                          ) : (
+                            <OutcomeGroup
+                              key={group.key}
+                              alerts={group.alerts}
+                              liveMarket={liveData[market.condition_id]}
+                            />
+                          )
+                        )}
                       </div>
                     </td>
                   </tr>
