@@ -665,6 +665,22 @@ def get_market_live(condition_id: str):
     return data
 
 
+@app.get("/api/market/resolve/{partial_id}")
+def resolve_condition_id(partial_id: str):
+    """Resolve a partial condition_id prefix to the full condition_id."""
+    partial = partial_id.lower()
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT DISTINCT condition_id FROM alerts WHERE condition_id LIKE %s LIMIT 1",
+            (f"{partial}%",),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Market not found")
+    return {"condition_id": row["condition_id"]}
+
+
 @app.get("/api/health")
 def health():
     """Health check."""

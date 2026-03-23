@@ -3,6 +3,7 @@ import Link from "next/link";
 import AlertRow from "./AlertRow";
 import StrengthMeter from "./StrengthMeter";
 import { fetchMarketLive } from "../lib/api";
+import { marketSlug } from "../lib/slugify";
 
 function timeToResolution(dateStr) {
   if (!dateStr) return null;
@@ -220,7 +221,7 @@ export default function AlertTable({
                         <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                       </svg>
                       <Link
-                        href={`/market/${market.condition_id}`}
+                        href={`/market/${marketSlug(market.market_title, market.condition_id)}`}
                         onClick={(e) => e.stopPropagation()}
                         className="truncate hover:underline"
                       >
@@ -274,7 +275,7 @@ export default function AlertTable({
                   </td>
                   <td className="px-4 py-3">
                     <Link
-                      href={`/market/${market.condition_id}`}
+                      href={`/market/${marketSlug(market.market_title, market.condition_id)}`}
                       onClick={(e) => e.stopPropagation()}
                       className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
                     >

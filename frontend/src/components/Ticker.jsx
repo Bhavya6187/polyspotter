@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { fetchAlerts } from "../lib/api";
+import { marketSlug } from "../lib/slugify";
 
 const usdFmt = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -27,7 +28,7 @@ function TickerItem({ alert }) {
 
   return (
     <Link
-      href={`/market/${alert.condition_id}`}
+      href={`/market/${marketSlug(alert.market_title, alert.condition_id)}`}
       className="inline-flex items-center gap-2 whitespace-nowrap px-5 hover:opacity-80 transition-opacity"
     >
       <span className="h-1.5 w-1.5 rounded-full bg-blue-500 dark:bg-blue-400 shrink-0" />

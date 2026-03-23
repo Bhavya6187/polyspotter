@@ -1,3 +1,5 @@
+import { marketSlug } from "../lib/slugify";
+
 export const dynamic = "force-dynamic";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -36,7 +38,7 @@ export default async function sitemap() {
     }
 
     const marketPages = allMarkets.map((market) => ({
-      url: `${SITE_URL}/market/${market.condition_id}`,
+      url: `${SITE_URL}/market/${marketSlug(market.market_title, market.condition_id)}`,
       changeFrequency: "hourly",
       priority: 0.8,
     }));

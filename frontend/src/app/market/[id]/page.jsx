@@ -1,8 +1,24 @@
 import MarketPageClient from "./market-page-client";
+import { partialIdFromSlug, marketSlug } from "../../../lib/slugify";
 
 export const dynamic = "force-dynamic";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+async function resolveConditionId(partialId) {
+  // If it already looks like a full condition ID (66 chars), use it directly
+  if (/^0x[a-fA-F0-9]{64}$/.test(partialId)) return partialId;
+  try {
+    const res = await fetch(`${API_URL}/api/market/resolve/${partialId}`, {
+      cache: "no-store",
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.condition_id;
+    }
+  } catch {}
+  return partialId;
+}
 
 async function getMarketData(conditionId) {
   try {
@@ -30,7 +46,9 @@ async function getMarketData(conditionId) {
 
 export async function generateMetadata({ params }) {
   const { id } = await params;
-  const { live, alerts } = await getMarketData(id);
+  const partialId = partialIdFromSlug(id);
+  const conditionId = await resolveConditionId(partialId);
+  const { live, alerts } = await getMarketData(conditionId);
 
   const title = live?.title || alerts?.[0]?.market_title || "Market";
   const alertCount = alerts.length;
@@ -47,11 +65,13 @@ export async function generateMetadata({ params }) {
       ? `${alertCount} notable trade${alertCount !== 1 ? "s" : ""} detected totaling ${usdStr}. Follow the smart money on this Polymarket market.`
       : `Follow the smart money on "${title}" — live on Polymarket.`;
 
+  const canonicalSlug = marketSlug(title, conditionId);
+
   return {
     title,
     description,
     alternates: {
-      canonical: `/market/${id}`,
+      canonical: `/market/${canonicalSlug}`,
     },
     openGraph: {
       title: `${title} | PolySpotter`,
@@ -67,7 +87,9 @@ export async function generateMetadata({ params }) {
 
 export default async function MarketPage({ params }) {
   const { id } = await params;
-  const { live, alerts } = await getMarketData(id);
+  const partialId = partialIdFromSlug(id);
+  const conditionId = await resolveConditionId(partialId);
+  const { live, alerts } = await getMarketData(conditionId);
 
-  return <MarketPageClient conditionId={id} initialLive={live} initialAlerts={alerts} />;
+  return <MarketPageClient conditionId={conditionId} initialLive={live} initialAlerts={alerts} />;
 }
