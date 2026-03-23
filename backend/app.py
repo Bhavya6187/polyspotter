@@ -260,6 +260,7 @@ def list_alerts(
     strategy: str | None = Query(None, description="Filter by strategy name"),
     wallet: str | None = Query(None, description="Filter by wallet address"),
     event_slug: str | None = Query(None, description="Filter by event slug"),
+    condition_id: str | None = Query(None, description="Filter by condition ID"),
     tag: str | None = Query(None, description="Filter by tag"),
 ):
     """List alerts ordered by composite score, with optional filters."""
@@ -270,6 +271,10 @@ def list_alerts(
     if wallet:
         conditions.append("a.wallet = %s")
         params.append(wallet.lower())
+
+    if condition_id:
+        conditions.append("a.condition_id = %s")
+        params.append(condition_id)
 
     if event_slug:
         conditions.append("a.event_slug = %s")
