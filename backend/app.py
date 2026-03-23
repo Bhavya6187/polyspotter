@@ -281,7 +281,9 @@ def list_alerts(
         params.append(event_slug)
 
     if tag:
-        conditions.append("a.tags::jsonb ? %s")
+        conditions.append(
+            "EXISTS (SELECT 1 FROM jsonb_array_elements_text(a.tags::jsonb) AS t WHERE LOWER(t) = LOWER(%s))"
+        )
         params.append(tag)
 
     if strategy:
@@ -341,7 +343,9 @@ def list_alerts_by_market(
         conditions.append("a.event_slug = %s")
         params.append(event_slug)
     if tag:
-        conditions.append("a.tags::jsonb ? %s")
+        conditions.append(
+            "EXISTS (SELECT 1 FROM jsonb_array_elements_text(a.tags::jsonb) AS t WHERE LOWER(t) = LOWER(%s))"
+        )
         params.append(tag)
     if strategy:
         conditions.append(
