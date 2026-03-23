@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { fetchAlerts } from "../lib/api";
+import { fetchMarketAlerts } from "../lib/api";
 import { marketSlug } from "../lib/slugify";
 
 const usdFmt = new Intl.NumberFormat("en-US", {
@@ -43,36 +43,25 @@ export default function Ticker() {
   const [alerts, setAlerts] = useState([]);
 
   useEffect(() => {
-    fetchAlerts({ page: 1, perPage: 20 })
-      .then((data) => setAlerts(data.alerts || []))
+    fetchMarketAlerts({ page: 1, perPage: 20 })
+      .then((data) => setAlerts(data.markets || []))
       .catch(() => {});
 
     const interval = setInterval(() => {
-      fetchAlerts({ page: 1, perPage: 20 })
-        .then((data) => setAlerts(data.alerts || []))
+      fetchMarketAlerts({ page: 1, perPage: 20 })
+        .then((data) => setAlerts(data.markets || []))
         .catch(() => {});
     }, 60000);
     return () => clearInterval(interval);
   }, []);
 
-  // Deduplicate by condition_id, keeping the alert with the highest total_usd per market
-  const unique = Object.values(
-    alerts.reduce((acc, alert) => {
-      const key = alert.condition_id;
-      if (!acc[key] || alert.total_usd > acc[key].total_usd) {
-        acc[key] = alert;
-      }
-      return acc;
-    }, {})
-  );
-
-  if (unique.length === 0) return null;
+  if (alerts.length === 0) return null;
 
   return (
     <div className="overflow-hidden border-b border-gray-200 bg-gray-50/80 dark:border-gray-800 dark:bg-gray-900/50 py-2 text-sm">
       <div className="ticker-track flex">
-        {[...unique, ...unique].map((alert, i) => (
-          <TickerItem key={`${alert.id}-${i}`} alert={alert} />
+        {[...alerts, ...alerts].map((alert, i) => (
+          <TickerItem key={`${alert.condition_id}-${i}`} alert={alert} />
         ))}
       </div>
     </div>
