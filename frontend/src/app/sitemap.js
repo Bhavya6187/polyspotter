@@ -14,16 +14,28 @@ export default async function sitemap() {
 
   // Fetch all markets to generate dynamic entries
   try {
-    const res = await fetch(`${API_URL}/api/alerts/by-market?per_page=1000`, {
-      cache: "no-store",
-    });
+    let allMarkets = [];
+    let page = 1;
+    let totalPages = 1;
 
-    if (!res.ok) return staticPages;
+    while (page <= totalPages) {
+      const res = await fetch(
+        `${API_URL}/api/alerts/by-market?per_page=100&page=${page}`,
+        { cache: "no-store" }
+      );
 
-    const data = await res.json();
-    const markets = data.markets || [];
+      if (!res.ok) break;
 
-    const marketPages = markets.map((market) => ({
+      const data = await res.json();
+      const markets = data.markets || [];
+      allMarkets.push(...markets);
+
+      const total = data.total || 0;
+      totalPages = Math.ceil(total / 100);
+      page++;
+    }
+
+    const marketPages = allMarkets.map((market) => ({
       url: `${SITE_URL}/market/${market.condition_id}`,
       changeFrequency: "hourly",
       priority: 0.8,
