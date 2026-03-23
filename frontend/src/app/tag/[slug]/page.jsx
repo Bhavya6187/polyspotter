@@ -1,7 +1,7 @@
 import Link from "next/link";
 import TagPageClient from "./tag-page-client";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -17,7 +17,7 @@ async function getTagData(tag) {
   try {
     const res = await fetch(
       `${API_URL}/api/alerts/by-market?page=1&per_page=50&tag=${encodeURIComponent(tag)}`,
-      { cache: "no-store" }
+      { next: { revalidate: 60 } }
     );
     if (!res.ok) return { markets: [], total: 0 };
     const data = await res.json();
@@ -59,17 +59,39 @@ export default async function TagPage({ params }) {
   const tag = tagFromSlug(slug);
   const { markets, total } = await getTagData(tag);
 
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
+  const tagUrl = `${siteUrl}/tag/${tagSlug(tag)}`;
+
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "CollectionPage",
     name: `${tag} — Polymarket Smart Money Trades`,
     description: `Notable trades for ${tag} markets on Polymarket.`,
-    url: `${process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com"}/tag/${tagSlug(tag)}`,
+    url: tagUrl,
     isPartOf: {
       "@type": "WebSite",
       name: "PolySpotter",
-      url: process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com",
+      url: siteUrl,
     },
+  };
+
+  const breadcrumbLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      {
+        "@type": "ListItem",
+        position: 1,
+        name: "Home",
+        item: siteUrl,
+      },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: tag,
+        item: tagUrl,
+      },
+    ],
   };
 
   return (
@@ -77,6 +99,10 @@ export default async function TagPage({ params }) {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
       />
 
       {/* Nav */}

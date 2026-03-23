@@ -1,6 +1,6 @@
 import HomeClient from "./home-client";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -8,9 +8,9 @@ async function getHomeData() {
   try {
     const [marketsRes, tagsRes] = await Promise.all([
       fetch(`${API_URL}/api/alerts/by-market?page=1&per_page=20`, {
-        cache: "no-store",
+        next: { revalidate: 60 },
       }),
-      fetch(`${API_URL}/api/tags`, { cache: "no-store" }),
+      fetch(`${API_URL}/api/tags`, { next: { revalidate: 60 } }),
     ]);
 
     const marketsData = marketsRes.ok ? await marketsRes.json() : null;

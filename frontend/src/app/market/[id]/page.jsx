@@ -1,7 +1,7 @@
 import MarketPageClient from "./market-page-client";
 import { partialIdFromSlug, marketSlug } from "../../../lib/slugify";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -10,7 +10,7 @@ async function resolveConditionId(partialId) {
   if (/^0x[a-fA-F0-9]{64}$/.test(partialId)) return partialId;
   try {
     const res = await fetch(`${API_URL}/api/market/resolve/${partialId}`, {
-      cache: "no-store",
+      next: { revalidate: 60 },
     });
     if (res.ok) {
       const data = await res.json();
@@ -24,11 +24,11 @@ async function getMarketData(conditionId) {
   try {
     const [liveRes, alertsRes] = await Promise.all([
       fetch(`${API_URL}/api/market/${conditionId}/live`, {
-        cache: "no-store",
+        next: { revalidate: 60 },
       }),
       fetch(
         `${API_URL}/api/alerts?condition_id=${conditionId}&per_page=50`,
-        { cache: "no-store" }
+        { next: { revalidate: 60 } }
       ),
     ]);
 
@@ -78,7 +78,7 @@ export async function generateMetadata({ params }) {
       description,
     },
     twitter: {
-      card: "summary",
+      card: "summary_large_image",
       title: `${title} | PolySpotter`,
       description,
     },
@@ -95,17 +95,39 @@ export default async function MarketPage({ params }) {
   const alertCount = alerts.length;
   const totalUsd = alerts.reduce((sum, a) => sum + (a.total_usd || 0), 0);
 
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
+  const marketUrl = `${siteUrl}/market/${marketSlug(title, conditionId)}`;
+
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "WebPage",
     name: title,
     description: `${alertCount} notable trade${alertCount !== 1 ? "s" : ""} detected on "${title}" — ${new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(totalUsd)} in smart money flow.`,
-    url: `${process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com"}/market/${marketSlug(title, conditionId)}`,
+    url: marketUrl,
     isPartOf: {
       "@type": "WebSite",
       name: "PolySpotter",
-      url: process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com",
+      url: siteUrl,
     },
+  };
+
+  const breadcrumbLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      {
+        "@type": "ListItem",
+        position: 1,
+        name: "Home",
+        item: siteUrl,
+      },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: title,
+        item: marketUrl,
+      },
+    ],
   };
 
   return (
@@ -113,6 +135,10 @@ export default async function MarketPage({ params }) {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
       />
       <MarketPageClient conditionId={conditionId} initialLive={live} initialAlerts={alerts} />
     </>
