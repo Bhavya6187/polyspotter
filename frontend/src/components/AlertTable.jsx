@@ -177,6 +177,7 @@ export default function AlertTable({
             <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
               Tags
             </th>
+            <th className="px-4 py-3" />
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -271,10 +272,22 @@ export default function AlertTable({
                       )}
                     </div>
                   </td>
+                  <td className="px-4 py-3">
+                    <Link
+                      href={`/market/${market.condition_id}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+                    >
+                      View
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </Link>
+                  </td>
                 </tr>
                 {isExpanded && market.alerts && market.alerts.length > 0 && (
                   <tr>
-                    <td colSpan={7} className="bg-gray-50 px-4 pb-4 pt-2 dark:bg-gray-900/80">
+                    <td colSpan={8} className="bg-gray-50 px-4 pb-4 pt-2 dark:bg-gray-900/80">
                       <div className="flex flex-col gap-2">
                         {(showAllAlerts.has(market.condition_id)
                           ? market.alerts
