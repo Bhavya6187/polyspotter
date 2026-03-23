@@ -16,18 +16,34 @@ export const metadata = {
     template: "%s | PolySpotter",
   },
   description:
-    "Track smart money on Polymarket. PolySpotter surfaces large bets from sharp bettors, coordinated flow, and high-conviction positioning.",
+    "Track smart money on Polymarket. PolySpotter surfaces large bets from sharp bettors, coordinated flow, and high-conviction positioning - updated in real time.",
+  keywords: [
+    "Polymarket",
+    "smart money",
+    "prediction markets",
+    "whale trades",
+    "sharp bettors",
+    "polymarket alerts",
+    "polymarket trades",
+  ],
+  robots: {
+    index: true,
+    follow: true,
+  },
   openGraph: {
     title: "PolySpotter — Follow the Smart Money on Polymarket",
     description:
-      "Real-time alerts for notable Polymarket trades: $3,000+ bets, sharp bettors, and coordinated flow.",
+      "Real-time alerts for notable Polymarket trades: Large bets, sharp bettors, and coordinated flow.",
+    url: SITE_URL,
+    siteName: "PolySpotter",
     type: "website",
+    locale: "en_US",
   },
   twitter: {
     card: "summary",
     title: "PolySpotter — Follow the Smart Money on Polymarket",
     description:
-      "Real-time alerts for notable Polymarket trades: $3,000+ bets, sharp bettors, and coordinated flow.",
+      "Real-time alerts for notable Polymarket trades: Large bets, sharp bettors, and coordinated flow.",
   },
   icons: {
     icon: "/favicon.svg",
