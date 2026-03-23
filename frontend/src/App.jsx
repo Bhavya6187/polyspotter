@@ -71,7 +71,7 @@ export default function App() {
         {/* Header */}
         <header className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-50">Polybot</h1>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-50">PolySpotter</h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">Smart Trade Alerts</p>
           </div>
           <div className="flex items-center gap-4">
