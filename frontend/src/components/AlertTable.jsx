@@ -247,24 +247,18 @@ export default function AlertTable({
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-1">
                       {tags.slice(0, 3).map((t) => (
-                        <span
+                        <Link
                           key={t}
-                          role="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onFilterChange({
-                              ...filters,
-                              tag: filters.tag === t ? "" : t,
-                            });
-                          }}
-                          className={`inline-block cursor-pointer rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
+                          href={`/tag/${encodeURIComponent(t.toLowerCase().replace(/\s+/g, "-"))}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
                             filters.tag === t
                               ? "bg-blue-600 text-blue-50 dark:bg-blue-700 dark:text-blue-100"
                               : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
                           }`}
                         >
                           {t}
-                        </span>
+                        </Link>
                       ))}
                       {tags.length > 3 && (
                         <span className="text-xs text-gray-400 dark:text-gray-500">

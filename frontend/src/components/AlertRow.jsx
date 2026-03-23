@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { fetchAlertDetail } from "../lib/api";
 import PriceMovement from "./PriceMovement";
 
@@ -274,21 +275,18 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
       {!compact && !autoExpand && tags.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1">
           {tags.map((t) => (
-            <span
+            <Link
               key={t}
-              role="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onTagClick(t);
-              }}
-              className={`inline-block cursor-pointer rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
+              href={`/tag/${encodeURIComponent(t.toLowerCase().replace(/\s+/g, "-"))}`}
+              onClick={(e) => e.stopPropagation()}
+              className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
                 activeTag === t
                   ? "bg-blue-600 text-blue-50 dark:bg-blue-700 dark:text-blue-100"
                   : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
               }`}
             >
               {t}
-            </span>
+            </Link>
           ))}
         </div>
       )}

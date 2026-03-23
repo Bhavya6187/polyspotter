@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 const RESOLVE_OPTIONS = [
   { label: "Any", value: "" },
   { label: "< 1h", value: "1h" },
@@ -17,6 +19,21 @@ function Pill({ label, active, onClick }) {
     >
       {label}
     </button>
+  );
+}
+
+function TagPill({ label, active, href }) {
+  return (
+    <Link
+      href={href}
+      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+        active
+          ? "bg-blue-600 text-white dark:bg-blue-500"
+          : "bg-white text-gray-600 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+      }`}
+    >
+      {label}
+    </Link>
   );
 }
 
@@ -62,17 +79,13 @@ export default function Filters({ tags, filters, onFilterChange }) {
           const name = typeof t === "string" ? t : t.tag;
           const count =
             typeof t === "object" && t.alert_count ? t.alert_count : null;
+          const slug = encodeURIComponent(name.toLowerCase().replace(/\s+/g, "-"));
           return (
-            <Pill
+            <TagPill
               key={name}
               label={count ? `${name} (${count})` : name}
               active={filters.tag === name}
-              onClick={() =>
-                onFilterChange({
-                  ...filters,
-                  tag: filters.tag === name ? "" : name,
-                })
-              }
+              href={`/tag/${slug}`}
             />
           );
         })}
