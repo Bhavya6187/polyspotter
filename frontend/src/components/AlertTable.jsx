@@ -72,53 +72,6 @@ function getSortValue(market, key) {
   }
 }
 
-/**
- * Detect conflicting directions within a market's alerts.
- * Returns a Set of alert IDs that conflict with a higher-scored alert.
- */
-function detectConflicts(alerts) {
-  if (!alerts || alerts.length < 2) return new Set();
-
-  // Group alerts by effective direction: (outcome, side) from llm_copy_action
-  const directions = [];
-  for (const a of alerts) {
-    const ca = a.llm_copy_action;
-    if (ca && ca.outcome && ca.side) {
-      directions.push({ id: a.id, outcome: ca.outcome, side: ca.side, score: a.composite_score || 0 });
-    }
-  }
-
-  // Two alerts conflict when they have opposite effective positions.
-  // BUY Yes vs BUY No = conflict. BUY Yes vs SELL Yes = conflict.
-  // Normalize to a canonical direction: BUY outcome = positive, SELL outcome = negative
-  const conflictIds = new Set();
-  for (let i = 0; i < directions.length; i++) {
-    for (let j = i + 1; j < directions.length; j++) {
-      const a = directions[i];
-      const b = directions[j];
-      const aIsPositive = a.side === "BUY";
-      const bIsPositive = b.side === "BUY";
-
-      // Same outcome, opposite side = conflict
-      // Different outcome, same side (both BUY) = conflict (one backs Yes, other backs No)
-      const sameOutcome = a.outcome === b.outcome;
-      const sameSide = aIsPositive === bIsPositive;
-      const isConflict = (sameOutcome && !sameSide) || (!sameOutcome && sameSide);
-
-      if (isConflict) {
-        // Mark the lower-scored one as conflicting
-        if (a.score >= b.score) {
-          conflictIds.add(b.id);
-        } else {
-          conflictIds.add(a.id);
-        }
-      }
-    }
-  }
-
-  return conflictIds;
-}
-
 export default function AlertTable({
   markets,
   expandedMarketIds,
@@ -298,34 +251,30 @@ export default function AlertTable({
                     </div>
                   </td>
                 </tr>
-                {isExpanded && market.alerts && market.alerts.length > 0 && (() => {
-                  const conflictIds = detectConflicts(market.alerts);
-                  const visibleAlerts = market.alerts.filter((a) => !conflictIds.has(a.id));
-                  return (
-                    <tr>
-                      <td colSpan={7} className="bg-gray-50 px-4 pb-4 pt-2 dark:bg-gray-900/80">
-                        <div className="flex flex-col gap-2">
-                          {visibleAlerts.map((alert) => (
-                            <AlertRow
-                              key={alert.id}
-                              alert={alert}
-                              autoExpand
-                              activeTag={filters.tag}
-                              onTagClick={(t) =>
-                                onFilterChange({
-                                  ...filters,
-                                  tag: filters.tag === t ? "" : t,
-                                })
-                              }
-                              compact
-                              liveMarket={liveData[market.condition_id]}
-                            />
-                          ))}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })()}
+                {isExpanded && market.alerts && market.alerts.length > 0 && (
+                  <tr>
+                    <td colSpan={7} className="bg-gray-50 px-4 pb-4 pt-2 dark:bg-gray-900/80">
+                      <div className="flex flex-col gap-2">
+                        {market.alerts.map((alert) => (
+                          <AlertRow
+                            key={alert.id}
+                            alert={alert}
+                            autoExpand
+                            activeTag={filters.tag}
+                            onTagClick={(t) =>
+                              onFilterChange({
+                                ...filters,
+                                tag: filters.tag === t ? "" : t,
+                              })
+                            }
+                            compact
+                            liveMarket={liveData[market.condition_id]}
+                          />
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                )}
               </Fragment>
             );
           })}
