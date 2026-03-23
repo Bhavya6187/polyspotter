@@ -27,12 +27,13 @@ def clear_postgres():
     cur.execute("DROP TABLE IF EXISTS alert_trades")
     cur.execute("DROP TABLE IF EXISTS wallet_profiles")
     cur.execute("DROP TABLE IF EXISTS alerts")
+    cur.execute("DROP TABLE IF EXISTS scan_runs")
 
     conn.commit()
     cur.close()
     conn.close()
 
-    print("[Postgres] Dropped alerts, alert_trades, alert_signals, wallet_profiles tables.")
+    print("[Postgres] Dropped alerts, alert_trades, alert_signals, wallet_profiles, scan_runs tables.")
 
 
 def clear_local_cache():
@@ -54,6 +55,19 @@ def clear_local_cache():
         print(f"[SQLite]   Deleted {count} cached LLM evaluations.")
     else:
         print("[SQLite]   No llm_evaluations table found — nothing to clear.")
+
+    # Clear scan_runs table
+    scan_table = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='scan_runs'"
+    ).fetchone()
+
+    if scan_table:
+        conn.execute("DELETE FROM scan_runs")
+        count = conn.execute("SELECT changes()").fetchone()[0]
+        conn.commit()
+        print(f"[SQLite]   Deleted {count} scan run(s).")
+    else:
+        print("[SQLite]   No scan_runs table found — nothing to clear.")
 
     conn.close()
 
