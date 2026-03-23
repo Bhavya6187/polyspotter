@@ -1,7 +1,13 @@
 import "./globals.css";
 import { themeScript } from "./theme-script";
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
+
 export const metadata = {
+  metadataBase: new URL(SITE_URL),
+  alternates: {
+    canonical: "/",
+  },
   title: {
     default: "PolySpotter — Follow the Smart Money on Polymarket",
     template: "%s | PolySpotter",
@@ -13,6 +19,12 @@ export const metadata = {
     description:
       "Real-time alerts for notable Polymarket trades: $3,000+ bets, sharp bettors, and coordinated flow.",
     type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "PolySpotter — Follow the Smart Money on Polymarket",
+    description:
+      "Real-time alerts for notable Polymarket trades: $3,000+ bets, sharp bettors, and coordinated flow.",
   },
   icons: {
     icon: "/favicon.svg",

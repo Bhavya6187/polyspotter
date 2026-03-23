@@ -50,7 +50,15 @@ export async function generateMetadata({ params }) {
   return {
     title,
     description,
+    alternates: {
+      canonical: `/market/${id}`,
+    },
     openGraph: {
+      title: `${title} | PolySpotter`,
+      description,
+    },
+    twitter: {
+      card: "summary",
       title: `${title} | PolySpotter`,
       description,
     },
