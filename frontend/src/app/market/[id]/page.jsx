@@ -1,16 +1,18 @@
 import MarketPageClient from "./market-page-client";
 
+export const dynamic = "force-dynamic";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 async function getMarketData(conditionId) {
   try {
     const [liveRes, alertsRes] = await Promise.all([
       fetch(`${API_URL}/api/market/${conditionId}/live`, {
-        next: { revalidate: 60 },
+        cache: "no-store",
       }),
       fetch(
         `${API_URL}/api/alerts?condition_id=${conditionId}&per_page=50`,
-        { next: { revalidate: 60 } }
+        { cache: "no-store" }
       ),
     ]);
 
