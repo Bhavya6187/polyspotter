@@ -30,7 +30,7 @@ MIN_WALLETS = 3  # minimum distinct wallets to flag
 MIN_CLUSTER_USD = 5000  # minimum total USD in the cluster to flag
 FAVORITE_PRICE_THRESHOLD = 0.70  # suppress clusters buying above this price...
 FAVORITE_VOLUME_24H = 50_000  # ...on markets with 24h volume above this
-RESOLVED_TRADE_PRICE = 0.98  # skip individual trades at near-certain prices
+RESOLVED_TRADE_PRICE = 0.95  # skip individual trades at near-certain prices
 
 
 # ---------------------------------------------------------------------------

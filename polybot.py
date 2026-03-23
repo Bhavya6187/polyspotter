@@ -47,7 +47,7 @@ TRADE_WINDOW_SECONDS = 86400  # how far back to look for trades
 TRADE_PAGE_SIZE = 1000  # trades per API call (API max is 1,000)
 MIN_MARKET_DURATION_HOURS = 1  # skip markets shorter than this (e.g., 5-min BTC binary options)
 EXTREME_ODDS_THRESHOLD = 0.90  # skip trades at price > this
-RESOLVED_MARKET_THRESHOLD = 0.98  # skip trades on markets where any outcome is >= this
+RESOLVED_MARKET_THRESHOLD = 0.95  # skip trades on markets where any outcome is >= this
 
 
 def fetch_recent_trades(seconds: int = TRADE_WINDOW_SECONDS, since_ts: float | None = None) -> list[dict]:
@@ -155,13 +155,18 @@ def _is_penny_collecting(trade: dict) -> bool:
     """Return True if a trade is penny-collecting on a near-certain outcome.
 
     BUY at high price (>0.90) = paying 95c to win 5c on a heavy favorite.
+    SELL at high price (>0.90) = profit-taking on a near-certain share (2c upside).
     SELL at low price (<0.10) = collecting 5c against a long-shot.
-    Both are tiny-edge, low-conviction plays — not informed positioning."""
+    All are tiny-edge, low-conviction plays — not informed positioning."""
     price = float(trade.get("price", 0.5))
     side = trade.get("side", "").upper()
     lo = 1 - EXTREME_ODDS_THRESHOLD
     hi = EXTREME_ODDS_THRESHOLD
-    return (side == "BUY" and price > hi) or (side == "SELL" and price < lo)
+    if side == "BUY" and price > hi:
+        return True
+    if side == "SELL" and (price < lo or price > hi):
+        return True
+    return False
 
 
 def filter_extreme_odds(trades: list[dict]) -> list[dict]:
