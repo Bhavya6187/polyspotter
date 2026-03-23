@@ -83,6 +83,7 @@ export default function AlertTable({
   const [sortBy, setSortBy] = useState("amount");
   const [sortDir, setSortDir] = useState("desc");
   const [liveData, setLiveData] = useState({}); // condition_id -> LiveMarketData
+  const [showAllAlerts, setShowAllAlerts] = useState(new Set()); // condition_ids showing all alerts
 
   // Fetch live market data when a market is expanded
   useEffect(() => {
@@ -268,7 +269,10 @@ export default function AlertTable({
                   <tr>
                     <td colSpan={7} className="bg-gray-50 px-4 pb-4 pt-2 dark:bg-gray-900/80">
                       <div className="flex flex-col gap-2">
-                        {market.alerts.map((alert) => (
+                        {(showAllAlerts.has(market.condition_id)
+                          ? market.alerts
+                          : market.alerts.slice(0, 2)
+                        ).map((alert) => (
                           <AlertRow
                             key={alert.id}
                             alert={alert}
@@ -284,6 +288,17 @@ export default function AlertTable({
                             liveMarket={liveData[market.condition_id]}
                           />
                         ))}
+                        {market.alerts.length > 2 && !showAllAlerts.has(market.condition_id) && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowAllAlerts((prev) => new Set(prev).add(market.condition_id));
+                            }}
+                            className="mt-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+                          >
+                            Show {market.alerts.length - 2} older alert{market.alerts.length - 2 === 1 ? "" : "s"}
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
