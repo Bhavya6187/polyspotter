@@ -62,8 +62,8 @@ export async function generateMetadata({ params }) {
 
   const description =
     alertCount > 0
-      ? `${alertCount} notable trade${alertCount !== 1 ? "s" : ""} detected totaling ${usdStr}. Follow the smart money on this Polymarket market.`
-      : `Follow the smart money on "${title}" — live on Polymarket.`;
+      ? `${alertCount} notable trade${alertCount !== 1 ? "s" : ""} detected totaling ${usdStr}. Large bets. Sharp wallets. Early signals.`
+      : `Large bets. Sharp wallets. Early signals. "${title}" — live on Polymarket.`;
 
   const canonicalSlug = marketSlug(title, conditionId);
 

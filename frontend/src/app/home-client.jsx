@@ -79,7 +79,7 @@ export default function HomeClient({ initialMarkets, initialTotal, tags }) {
       <header className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-50">PolySpotter</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Follow the smart money on Polymarket</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Large bets. Sharp wallets. Early signals.</p>
         </div>
         <div className="flex items-center gap-4">
           <ThemeToggle />
