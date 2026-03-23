@@ -204,7 +204,20 @@ export default function AlertTable({
                   }`}
                 >
                   <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100 max-w-xs">
-                    <div className="truncate">{market.market_title ?? "\u2014"}</div>
+                    <div className="flex items-center gap-2">
+                      <svg
+                        className={`h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500 transition-transform duration-200 ${
+                          isExpanded ? "rotate-90" : ""
+                        }`}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                      </svg>
+                      <span className="truncate">{market.market_title ?? "\u2014"}</span>
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <StrengthMeter maxScore={market.max_score} />
