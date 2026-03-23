@@ -270,8 +270,8 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
         </div>
       )}
 
-      {/* Row 3: Tags (only in full mode) */}
-      {!compact && tags.length > 0 && (
+      {/* Row 3: Tags (only in full mode, hidden when auto-expanded inside market page) */}
+      {!compact && !autoExpand && tags.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1">
           {tags.map((t) => (
             <span
