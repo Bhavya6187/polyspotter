@@ -1,19 +1,24 @@
 import { useEffect, useState } from "react";
 
-function getInitialDark() {
-  if (typeof window === "undefined") return true;
-  const stored = localStorage.getItem("theme");
-  if (stored) return stored === "dark";
-  return window.matchMedia("(prefers-color-scheme: dark)").matches;
-}
-
 export default function ThemeToggle() {
-  const [dark, setDark] = useState(getInitialDark);
+  const [dark, setDark] = useState(true);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    const stored = localStorage.getItem("theme");
+    if (stored) {
+      setDark(stored === "dark");
+    } else {
+      setDark(window.matchMedia("(prefers-color-scheme: dark)").matches);
+    }
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
     document.documentElement.classList.toggle("dark", dark);
     localStorage.setItem("theme", dark ? "dark" : "light");
-  }, [dark]);
+  }, [dark, mounted]);
 
   return (
     <button
