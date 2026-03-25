@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { fetchMarketAlerts } from "../lib/api";
+import { fetchAlerts } from "../lib/api";
 import Filters from "../components/Filters";
-import AlertTable from "../components/AlertTable";
+import AlertList from "../components/AlertList";
 import Pagination from "../components/Pagination";
 import Ticker from "../components/Ticker";
 import ThemeToggle from "../components/ThemeToggle";
@@ -18,8 +18,8 @@ function formatRelativeTime(date) {
   return `${hours}h ago`;
 }
 
-export default function HomeClient({ initialMarkets, initialTotal, tags }) {
-  const [markets, setMarkets] = useState(initialMarkets);
+export default function HomeClient({ initialAlerts, initialTotal, tags }) {
+  const [alerts, setAlerts] = useState(initialAlerts);
   const [total, setTotal] = useState(initialTotal);
   const [page, setPage] = useState(1);
   const [perPage] = useState(20);
@@ -27,7 +27,6 @@ export default function HomeClient({ initialMarkets, initialTotal, tags }) {
     tag: "",
     resolvesIn: "",
   });
-  const [expandedMarketIds, setExpandedMarketIds] = useState(new Set());
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(() => new Date());
   const [, setTick] = useState(0);
@@ -38,7 +37,6 @@ export default function HomeClient({ initialMarkets, initialTotal, tags }) {
     return () => clearInterval(id);
   }, []);
 
-  // Stable refs for fetch params so the refresh callback doesn't go stale
   const pageRef = useRef(page);
   const filtersRef = useRef(filters);
   pageRef.current = page;
@@ -46,24 +44,23 @@ export default function HomeClient({ initialMarkets, initialTotal, tags }) {
 
   const refresh = useCallback(() => {
     setLoading(true);
-    fetchMarketAlerts({
+    fetchAlerts({
       page: pageRef.current,
       perPage,
       tag: filtersRef.current.tag,
     })
       .then((data) => {
-        setMarkets(data.markets || []);
+        setAlerts(data.alerts || []);
         setTotal(data.total || 0);
         setLastUpdated(new Date());
       })
       .catch(() => {
-        setMarkets([]);
+        setAlerts([]);
         setTotal(0);
       })
       .finally(() => setLoading(false));
   }, [perPage]);
 
-  // Re-fetch when page or filters change (skip initial load — we have SSR data)
   const [hasInteracted, setHasInteracted] = useState(false);
 
   useEffect(() => {
@@ -71,7 +68,7 @@ export default function HomeClient({ initialMarkets, initialTotal, tags }) {
     refresh();
   }, [page, filters, hasInteracted, refresh]);
 
-  // Auto-refresh every 60s
+  // Auto-refresh every 5 minutes
   useEffect(() => {
     const id = setInterval(refresh, 300_000);
     return () => clearInterval(id);
@@ -81,21 +78,11 @@ export default function HomeClient({ initialMarkets, initialTotal, tags }) {
     setHasInteracted(true);
     setFilters(newFilters);
     setPage(1);
-    setExpandedMarketIds(new Set());
   }, []);
 
   const handlePageChange = useCallback((newPage) => {
     setHasInteracted(true);
     setPage(newPage);
-  }, []);
-
-  const handleToggleMarket = useCallback((conditionId) => {
-    setExpandedMarketIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(conditionId)) next.delete(conditionId);
-      else next.add(conditionId);
-      return next;
-    });
   }, []);
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
@@ -146,17 +133,14 @@ export default function HomeClient({ initialMarkets, initialTotal, tags }) {
         />
       </section>
 
-      {/* Market Cards */}
+      {/* Alert List */}
       <section aria-label="Notable trades">
-      <h2 className="sr-only">Markets with Notable Trades</h2>
-      <AlertTable
-        markets={markets}
-        expandedMarketIds={expandedMarketIds}
-        onToggleMarket={handleToggleMarket}
-        onFilterChange={handleFilterChange}
-        filters={filters}
-        loading={loading}
-      />
+        <h2 className="sr-only">Notable Trades</h2>
+        <AlertList
+          alerts={alerts}
+          filters={filters}
+          loading={loading}
+        />
       </section>
 
       {/* Pagination */}

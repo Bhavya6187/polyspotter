@@ -305,7 +305,7 @@ def list_alerts(
                 FROM alerts a
                 LEFT JOIN wallet_profiles wp ON wp.wallet = a.wallet
                 WHERE {where}
-                ORDER BY a.composite_score DESC, a.scanned_at DESC
+                ORDER BY a.created_at DESC, a.composite_score DESC
                 LIMIT %s OFFSET %s""",
             params + [per_page, offset],
         )
