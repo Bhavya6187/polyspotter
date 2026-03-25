@@ -1,29 +1,66 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import AlertTable from "../../../components/AlertTable";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { fetchAlerts } from "../../../lib/api";
+import AlertList from "../../../components/AlertList";
+import Pagination from "../../../components/Pagination";
 
-export default function TagPageClient({ markets }) {
-  const [expandedMarketIds, setExpandedMarketIds] = useState(new Set());
-  const [filters] = useState({ tag: "", resolvesIn: "" });
+export default function TagPageClient({ initialAlerts, initialTotal, tag }) {
+  const [alerts, setAlerts] = useState(initialAlerts);
+  const [total, setTotal] = useState(initialTotal);
+  const [page, setPage] = useState(1);
+  const [perPage] = useState(20);
+  const [loading, setLoading] = useState(false);
 
-  const handleToggleMarket = useCallback((conditionId) => {
-    setExpandedMarketIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(conditionId)) next.delete(conditionId);
-      else next.add(conditionId);
-      return next;
-    });
+  const pageRef = useRef(page);
+  pageRef.current = page;
+
+  const refresh = useCallback(() => {
+    setLoading(true);
+    fetchAlerts({
+      page: pageRef.current,
+      perPage,
+      tag,
+    })
+      .then((data) => {
+        setAlerts(data.alerts || []);
+        setTotal(data.total || 0);
+      })
+      .catch(() => {
+        setAlerts([]);
+        setTotal(0);
+      })
+      .finally(() => setLoading(false));
+  }, [perPage, tag]);
+
+  const [hasInteracted, setHasInteracted] = useState(false);
+
+  useEffect(() => {
+    if (!hasInteracted) return;
+    refresh();
+  }, [page, hasInteracted, refresh]);
+
+  const handlePageChange = useCallback((newPage) => {
+    setHasInteracted(true);
+    setPage(newPage);
   }, []);
 
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+
   return (
-    <AlertTable
-      markets={markets}
-      expandedMarketIds={expandedMarketIds}
-      onToggleMarket={handleToggleMarket}
-      onFilterChange={() => {}}
-      filters={filters}
-      loading={false}
-    />
+    <>
+      <AlertList
+        alerts={alerts}
+        filters={{ tag: "", resolvesIn: "" }}
+        loading={loading}
+      />
+      <nav aria-label="Pagination">
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          onPageChange={handlePageChange}
+        />
+      </nav>
+    </>
   );
 }
