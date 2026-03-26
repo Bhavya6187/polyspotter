@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
 import Link from "next/link";
-import { fetchAlertDetail, fetchMarketLive } from "../lib/api";
+import { useState, useEffect } from "react";
+import { fetchMarketLive } from "../lib/api";
 import { marketSlug } from "../lib/slugify";
 import PriceMovement from "./PriceMovement";
 import StrengthMeter from "./StrengthMeter";
@@ -43,45 +43,24 @@ function priceToCents(price) {
   return `${Math.round(price * 100)}\u00a2`;
 }
 
-function AlertItem({ alert, filters, liveData }) {
-  const [expanded, setExpanded] = useState(false);
-  const [detail, setDetail] = useState(null);
-  const [loadingDetail, setLoadingDetail] = useState(false);
-
+/** A single alert entry within a market group — always fully visible, no expand needed. */
+function AlertEntry({ alert, liveData }) {
   const copyAction = alert.llm_copy_action;
   const alertOutcome = copyAction?.outcome;
   const alertPrice = copyAction?.entry_price;
 
-  // Fetch detail when expanded
-  useEffect(() => {
-    if (!expanded || detail) return;
-    let cancelled = false;
-    setLoadingDetail(true);
-    fetchAlertDetail(alert.id)
-      .then((data) => {
-        if (!cancelled) {
-          setDetail(data);
-          setLoadingDetail(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setLoadingDetail(false);
-      });
-    return () => { cancelled = true; };
-  }, [expanded, alert.id, detail]);
-
-  // Live price from parent-level cache
   const liveMarket = liveData[alert.condition_id];
   const liveOutcome = liveMarket?.outcomes?.find((o) => o.name === alertOutcome);
   const currentPrice = liveOutcome?.price ?? null;
 
-  // Build subtitle from llm_headline / cluster_headline / wallet profile
+  // Subtitle from llm_headline / cluster_headline / wallet profile
   let subtitle = alert.llm_headline || alert.cluster_headline;
   if (!subtitle && alert.win_rate != null) {
     const wr = `${Math.round(alert.win_rate * 100)}% wins`;
-    const pnl = alert.total_pnl != null
-      ? ` \u00b7 ${alert.total_pnl >= 0 ? "+" : ""}${usdFmt.format(alert.total_pnl)}`
-      : "";
+    const pnl =
+      alert.total_pnl != null
+        ? ` \u00b7 ${alert.total_pnl >= 0 ? "+" : ""}${usdFmt.format(alert.total_pnl)}`
+        : "";
     subtitle = `Wallet with ${wr}${pnl}`;
   }
 
@@ -92,75 +71,23 @@ function AlertItem({ alert, filters, liveData }) {
     betSummary = `${usdFmt.format(alert.total_usd)} on ${copyAction.outcome}${priceStr ? ` at ${priceStr}` : ""}`;
   }
 
-  // Resolution
-  const resolution = timeToResolution(alert.end_date);
-  const resolutionMs = alert.end_date ? new Date(alert.end_date).getTime() - Date.now() : null;
-  const resColor =
-    resolutionMs != null && resolutionMs < 3600000
-      ? "text-red-500 dark:text-red-400 font-medium"
-      : resolutionMs != null && resolutionMs < 86400000
-        ? "text-amber-600 dark:text-amber-400"
-        : "text-gray-500 dark:text-gray-400";
+  // Bullets — available directly from the list endpoint
+  const bullets = alert.llm_bullets || [];
 
   // CTA
-  const detailCopyAction = detail?.llm_copy_action || copyAction;
-  const marketUrl = alert.market_url || detail?.market_url;
   let ctaLabel = "";
-  if (detailCopyAction?.outcome) {
-    const side = detailCopyAction.side === "SELL" ? "Sell" : "Buy";
-    ctaLabel = `${side} ${detailCopyAction.outcome}`;
+  const marketUrl = alert.market_url;
+  if (copyAction?.outcome) {
+    const side = copyAction.side === "SELL" ? "Sell" : "Buy";
+    ctaLabel = `${side} ${copyAction.outcome}`;
   }
 
-  // Bullets
-  const bullets = detail?.llm_bullets || [];
-  const displayBullets = bullets.length > 0 ? bullets : detail?.llm_summary ? [detail.llm_summary] : [];
-
-  // Tags
-  const tags = alert.tags || [];
-
   return (
-    <div
-      className={`rounded-lg border bg-white transition-all dark:bg-gray-950 ${
-        expanded
-          ? "border-blue-200 dark:border-blue-900/50 shadow-sm"
-          : "border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700"
-      }`}
-    >
-      {/* Collapsed row — always visible */}
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="w-full text-left px-4 py-3 flex items-start gap-3"
-      >
-        {/* Expand chevron */}
-        <svg
-          className={`mt-0.5 h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500 transition-transform duration-200 ${
-            expanded ? "rotate-90" : ""
-          }`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
-
-        {/* Main content */}
+    <div className="flex flex-col gap-2">
+      {/* Header row: subtitle + bet summary + price movement + CTA */}
+      <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          {/* Row 1: market title + strength + time */}
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <StrengthMeter maxScore={alert.composite_score} />
-              <span className="text-sm font-medium text-gray-900 dark:text-gray-100 leading-snug truncate">
-                {alert.market_title ?? "\u2014"}
-              </span>
-            </div>
-            <span className="shrink-0 text-xs text-gray-400 dark:text-gray-500" suppressHydrationWarning>
-              {relativeTime(alert.created_at)}
-            </span>
-          </div>
-
-          {/* Row 2: subtitle + bet summary + price movement + resolution */}
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
             {subtitle && (
               <span className="text-gray-600 dark:text-gray-300">{subtitle}</span>
             )}
@@ -168,124 +95,150 @@ function AlertItem({ alert, filters, liveData }) {
             {alertPrice > 0 && currentPrice > 0 && (
               <PriceMovement alertPrice={alertPrice} currentPrice={currentPrice} outcome={alertOutcome} compact />
             )}
-            {resolution && (
-              <span className={resColor}>resolves {resolution}</span>
-            )}
           </div>
         </div>
 
-        {/* CTA button — visible even when collapsed */}
-        {copyAction?.outcome && alert.market_url ? (
+        {/* CTA button */}
+        {ctaLabel && marketUrl ? (
           <a
-            href={alert.market_url}
+            href={marketUrl}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="shrink-0 self-center rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700"
+            className="shrink-0 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700"
           >
-            {copyAction.side === "SELL" ? "Sell" : "Buy"} {copyAction.outcome}
+            {ctaLabel}
           </a>
-        ) : copyAction?.outcome ? (
-          <span className="shrink-0 self-center rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-            {copyAction.side === "SELL" ? "Sell" : "Buy"} {copyAction.outcome}
+        ) : ctaLabel ? (
+          <span className="shrink-0 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+            {ctaLabel}
           </span>
         ) : null}
-      </button>
+      </div>
 
-      {/* Expanded detail */}
-      {expanded && (
-        <div className="border-t border-gray-100 dark:border-gray-800 px-4 pb-4 pt-3 ml-7">
-          {loadingDetail ? (
-            <p className="text-xs text-gray-400 dark:text-gray-500">Loading...</p>
-          ) : (
-            <>
-              {/* Bullets */}
-              {displayBullets.length > 0 && (
-                <ul className="space-y-1.5">
-                  {displayBullets.map((bullet, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
-                      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500 dark:bg-blue-400" />
-                      <span>{bullet}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+      {/* Bullets */}
+      {bullets.length > 0 && (
+        <ul className="space-y-1.5">
+          {bullets.map((bullet, i) => (
+            <li key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500 dark:bg-blue-400" />
+              <span>{bullet}</span>
+            </li>
+          ))}
+        </ul>
+      )}
 
-              {/* Payout estimate */}
-              {currentPrice > 0 && currentPrice < 0.99 && (
-                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                  Pay {Math.round(currentPrice * 100)}&cent; &rarr; win $1.00
-                  <span className="ml-1 text-green-600 dark:text-green-400">
-                    ({Math.round(((1 - currentPrice) / currentPrice) * 100)}% return)
-                  </span>
-                </p>
-              )}
-
-              {/* Tags */}
-              {tags.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-1">
-                  {tags.map((t) => (
-                    <Link
-                      key={t}
-                      href={`/tag/${encodeURIComponent(t.toLowerCase().replace(/\s+/g, "-"))}`}
-                      onClick={(e) => e.stopPropagation()}
-                      className="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700 transition-colors"
-                    >
-                      {t}
-                    </Link>
-                  ))}
-                </div>
-              )}
-
-              {/* View market link */}
-              <div className="mt-3 flex items-center gap-3">
-                {ctaLabel && marketUrl && (
-                  <a
-                    href={marketUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700"
-                  >
-                    {ctaLabel}
-                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                    </svg>
-                  </a>
-                )}
-                <Link
-                  href={`/market/${marketSlug(alert.market_title, alert.condition_id)}`}
-                  onClick={(e) => e.stopPropagation()}
-                  className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
-                >
-                  View this market
-                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                  </svg>
-                </Link>
-              </div>
-            </>
-          )}
-        </div>
+      {/* Payout estimate */}
+      {currentPrice > 0 && currentPrice < 0.99 && (
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          Pay {Math.round(currentPrice * 100)}&cent; &rarr; win $1.00
+          <span className="ml-1 text-green-600 dark:text-green-400">
+            ({Math.round(((1 - currentPrice) / currentPrice) * 100)}% return)
+          </span>
+        </p>
       )}
     </div>
   );
 }
 
-export default function AlertList({ alerts, filters, loading }) {
-  const [liveData, setLiveData] = useState({}); // condition_id -> LiveMarketData
+/** Pick the best alert: most recent first, highest score as tiebreaker. */
+function pickBestAlert(alerts) {
+  if (!alerts || alerts.length === 0) return null;
+  if (alerts.length === 1) return alerts[0];
+  return alerts.reduce((best, a) => {
+    const bestTime = best.created_at ? new Date(best.created_at).getTime() : 0;
+    const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+    if (aTime > bestTime) return a;
+    if (aTime === bestTime && a.composite_score > best.composite_score) return a;
+    return best;
+  });
+}
 
-  // Fetch live prices for all visible markets after initial render
+/** A market group card — shows the single best alert with full details. */
+function MarketGroupCard({ market, liveData }) {
+  const alert = pickBestAlert(market.alerts);
+  if (!alert) return null;
+  const tags = market.tags || [];
+
+  const resolution = timeToResolution(market.end_date);
+  const resolutionMs = market.end_date ? new Date(market.end_date).getTime() - Date.now() : null;
+  const resColor =
+    resolutionMs != null && resolutionMs < 3600000
+      ? "text-red-500 dark:text-red-400 font-medium"
+      : resolutionMs != null && resolutionMs < 86400000
+        ? "text-amber-600 dark:text-amber-400"
+        : "text-gray-500 dark:text-gray-400";
+
+  const marketUrl = market.market_url || alert.market_url;
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
+      {/* Market header */}
+      <div className="px-4 py-3 flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <StrengthMeter maxScore={alert.composite_score} />
+          <Link
+            href={`/market/${marketSlug(market.market_title, market.condition_id)}`}
+            className="text-sm font-medium text-gray-900 dark:text-gray-100 leading-snug truncate hover:underline"
+          >
+            {market.market_title ?? "\u2014"}
+          </Link>
+          {resolution && (
+            <span className={`text-xs ${resColor}`}>resolves {resolution}</span>
+          )}
+        </div>
+        <span className="shrink-0 text-xs text-gray-400 dark:text-gray-500" suppressHydrationWarning>
+          {relativeTime(alert.created_at)}
+        </span>
+      </div>
+
+      {/* Single best alert */}
+      <div className="px-4 pb-4">
+        <AlertEntry alert={alert} liveData={liveData} />
+      </div>
+
+      {/* Footer: tags + view market */}
+      <div className="border-t border-gray-100 dark:border-gray-800 px-4 py-3 flex flex-wrap items-center gap-3">
+        {tags.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {tags.map((t) => (
+              <Link
+                key={t}
+                href={`/tag/${encodeURIComponent(t.toLowerCase().replace(/\s+/g, "-"))}`}
+                className="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700 transition-colors"
+              >
+                {t}
+              </Link>
+            ))}
+          </div>
+        )}
+        {marketUrl && (
+          <Link
+            href={`/market/${marketSlug(market.market_title, market.condition_id)}`}
+            className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors ml-auto"
+          >
+            View this market
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function AlertList({ markets, filters, loading }) {
+  const [liveData, setLiveData] = useState({});
+
+  // Fetch live prices for all visible markets
   useEffect(() => {
-    if (!alerts || alerts.length === 0) return;
+    if (!markets || markets.length === 0) return;
 
-    // Dedupe condition_ids
-    const cids = [...new Set(alerts.map((a) => a.condition_id).filter(Boolean))];
+    const cids = markets.map((m) => m.condition_id).filter(Boolean);
     if (cids.length === 0) return;
 
     let cancelled = false;
 
-    // Small delay so the page renders first, then fetch prices in background
     const timer = setTimeout(() => {
       cids.forEach((cid) => {
         fetchMarketLive(cid)
@@ -299,7 +252,7 @@ export default function AlertList({ alerts, filters, loading }) {
     }, 100);
 
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [alerts]);
+  }, [markets]);
 
   if (loading) {
     return (
@@ -309,7 +262,7 @@ export default function AlertList({ alerts, filters, loading }) {
     );
   }
 
-  if (!alerts || alerts.length === 0) {
+  if (!markets || markets.length === 0) {
     return (
       <div className="rounded-lg bg-white p-8 text-center text-gray-400 dark:bg-gray-900 dark:text-gray-500">
         No alerts found.
@@ -324,13 +277,23 @@ export default function AlertList({ alerts, filters, loading }) {
     "7d": 604800000,
   }[filters.resolvesIn] || null;
 
-  const filtered = resolvesInMs
-    ? alerts.filter((a) => {
-        if (!a.end_date) return false;
-        const ms = new Date(a.end_date).getTime() - Date.now();
+  const afterResolve = resolvesInMs
+    ? markets.filter((m) => {
+        if (!m.end_date) return false;
+        const ms = new Date(m.end_date).getTime() - Date.now();
         return ms > 0 && ms <= resolvesInMs;
       })
-    : alerts;
+    : markets;
+
+  // Sort by the picked alert: newest first, highest score as tiebreaker
+  const filtered = [...afterResolve].sort((a, b) => {
+    const aAlert = pickBestAlert(a.alerts);
+    const bAlert = pickBestAlert(b.alerts);
+    const aTime = aAlert?.created_at ? new Date(aAlert.created_at).getTime() : 0;
+    const bTime = bAlert?.created_at ? new Date(bAlert.created_at).getTime() : 0;
+    if (bTime !== aTime) return bTime - aTime;
+    return (bAlert?.composite_score || 0) - (aAlert?.composite_score || 0);
+  });
 
   if (filtered.length === 0) {
     return (
@@ -342,8 +305,8 @@ export default function AlertList({ alerts, filters, loading }) {
 
   return (
     <div className="flex flex-col gap-2">
-      {filtered.map((alert) => (
-        <AlertItem key={alert.id} alert={alert} filters={filters} liveData={liveData} />
+      {filtered.map((market) => (
+        <MarketGroupCard key={market.condition_id} market={market} liveData={liveData} />
       ))}
     </div>
   );

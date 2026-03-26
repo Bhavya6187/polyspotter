@@ -23,6 +23,7 @@ from datetime import datetime, timezone, timedelta
 import requests
 
 from detection_strategies import Signal
+from detection_strategies import win_rate_tracking as _wrt
 from detection_strategies.win_rate_tracking import WinRateTrackingStrategy
 from detection_strategies.new_wallet_large_bet import NewWalletLargeBetStrategy
 from detection_strategies.timing_relative_resolution import TimingRelativeResolutionStrategy
@@ -652,7 +653,7 @@ def scan_once(per_trade_strategies, batch_strategies, all_strategies, strategy_n
         all_signals: list[Signal] = []
 
         # -- per-trade analysis ----------------------------------------------------
-        from detection_strategies import win_rate_tracking as _wrt
+        _wrt.reset_run_state()
         _wrt._total_unique_wallets = len({t.get("proxyWallet", "").lower() for t in trades} - {""})
         per_trade_signal_count = 0
         for i, trade in enumerate(trades, 1):

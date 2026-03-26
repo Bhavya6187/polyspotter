@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { fetchAlerts } from "../lib/api";
+import { fetchMarketAlerts } from "../lib/api";
 import Filters from "../components/Filters";
 import AlertList from "../components/AlertList";
 import Pagination from "../components/Pagination";
@@ -18,8 +18,8 @@ function formatRelativeTime(date) {
   return `${hours}h ago`;
 }
 
-export default function HomeClient({ initialAlerts, initialTotal, tags }) {
-  const [alerts, setAlerts] = useState(initialAlerts);
+export default function HomeClient({ initialMarkets, initialTotal, tags }) {
+  const [markets, setMarkets] = useState(initialMarkets);
   const [total, setTotal] = useState(initialTotal);
   const [page, setPage] = useState(1);
   const [perPage] = useState(20);
@@ -44,18 +44,18 @@ export default function HomeClient({ initialAlerts, initialTotal, tags }) {
 
   const refresh = useCallback(() => {
     setLoading(true);
-    fetchAlerts({
+    fetchMarketAlerts({
       page: pageRef.current,
       perPage,
       tag: filtersRef.current.tag,
     })
       .then((data) => {
-        setAlerts(data.alerts || []);
+        setMarkets(data.markets || []);
         setTotal(data.total || 0);
         setLastUpdated(new Date());
       })
       .catch(() => {
-        setAlerts([]);
+        setMarkets([]);
         setTotal(0);
       })
       .finally(() => setLoading(false));
@@ -137,7 +137,7 @@ export default function HomeClient({ initialAlerts, initialTotal, tags }) {
       <section aria-label="Notable trades">
         <h2 className="sr-only">Notable Trades</h2>
         <AlertList
-          alerts={alerts}
+          markets={markets}
           filters={filters}
           loading={loading}
         />

@@ -136,7 +136,7 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
           </h3>
         )}
         <div className="flex shrink-0 items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
-          {!compact && resolution && (
+          {!compact && !autoExpand && resolution && (
             <span
               className={
                 resolution === "Resolved"
@@ -200,10 +200,18 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
                   </a>
                   {currentPrice > 0 && currentPrice < 0.99 && (
                     <span className="text-xs text-gray-500 dark:text-gray-400">
-                      Pay {Math.round(currentPrice * 100)}&cent; &rarr; win $1.00
-                      <span className="ml-1 text-green-600 dark:text-green-400">
-                        ({Math.round(((1 - currentPrice) / currentPrice) * 100)}% return)
-                      </span>
+                      {(() => {
+                        const isSell = detailCopyAction?.side === "SELL";
+                        const effectiveCost = isSell ? 1 - currentPrice : currentPrice;
+                        return (
+                          <>
+                            Pay {Math.round(effectiveCost * 100)}&cent; &rarr; win $1.00
+                            <span className="ml-1 text-green-600 dark:text-green-400">
+                              ({Math.round(((1 - effectiveCost) / effectiveCost) * 100)}% return)
+                            </span>
+                          </>
+                        );
+                      })()}
                     </span>
                   )}
                 </div>

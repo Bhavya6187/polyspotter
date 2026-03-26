@@ -16,17 +16,17 @@ function tagSlug(tag) {
 async function getTagData(tag) {
   try {
     const res = await fetch(
-      `${API_URL}/api/alerts?page=1&per_page=20&tag=${encodeURIComponent(tag)}`,
+      `${API_URL}/api/alerts/by-market?page=1&per_page=20&tag=${encodeURIComponent(tag)}`,
       { next: { revalidate: 60 } }
     );
-    if (!res.ok) return { alerts: [], total: 0 };
+    if (!res.ok) return { markets: [], total: 0 };
     const data = await res.json();
     return {
-      alerts: data.alerts || [],
+      markets: data.markets || [],
       total: data.total || 0,
     };
   } catch {
-    return { alerts: [], total: 0 };
+    return { markets: [], total: 0 };
   }
 }
 
@@ -57,7 +57,7 @@ export async function generateMetadata({ params }) {
 export default async function TagPage({ params }) {
   const { slug } = await params;
   const tag = tagFromSlug(slug);
-  const { alerts, total } = await getTagData(tag);
+  const { markets, total } = await getTagData(tag);
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
   const tagUrl = `${siteUrl}/tag/${tagSlug(tag)}`;
@@ -129,9 +129,9 @@ export default async function TagPage({ params }) {
       </header>
 
       {/* Trades */}
-      {alerts.length > 0 ? (
+      {markets.length > 0 ? (
         <section aria-label="Notable trades">
-          <TagPageClient initialAlerts={alerts} initialTotal={total} tag={tag} />
+          <TagPageClient initialMarkets={markets} initialTotal={total} tag={tag} />
         </section>
       ) : (
         <div className="rounded-lg bg-white p-8 text-center text-gray-400 dark:bg-gray-900 dark:text-gray-500">

@@ -325,16 +325,16 @@ class TestCorrelatedCrossMarketStrategy(unittest.TestCase):
             self.assertEqual(len(serial_sigs), 1)
             self.assertEqual(serial_sigs[0].severity, 2.0)
 
-    def test_record_wallet_event_trade_called_for_all(
+    def test_record_wallet_event_trade_skips_resolved(
         self, mock_get_mkt, mock_is_sport, mock_record, mock_hist, mock_stats
     ):
-        """record_wallet_event_trade should be called for every trade, including filtered ones."""
+        """record_wallet_event_trade should only be called for active trades, not near-resolved ones."""
         trades = [
             self._make_trade("w1", "event1", "cond1", usd=3000, price=0.50),
             self._make_trade("w1", "event1", "cond2", usd=3000, price=0.99),
         ]
         self.strategy.analyze_all(trades)
-        self.assertEqual(mock_record.call_count, 2)
+        self.assertEqual(mock_record.call_count, 1)
 
 
 if __name__ == "__main__":

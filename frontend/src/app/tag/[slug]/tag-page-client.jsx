@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { fetchAlerts } from "../../../lib/api";
+import { fetchMarketAlerts } from "../../../lib/api";
 import AlertList from "../../../components/AlertList";
 import Pagination from "../../../components/Pagination";
 
-export default function TagPageClient({ initialAlerts, initialTotal, tag }) {
-  const [alerts, setAlerts] = useState(initialAlerts);
+export default function TagPageClient({ initialMarkets, initialTotal, tag }) {
+  const [markets, setMarkets] = useState(initialMarkets);
   const [total, setTotal] = useState(initialTotal);
   const [page, setPage] = useState(1);
   const [perPage] = useState(20);
@@ -17,17 +17,17 @@ export default function TagPageClient({ initialAlerts, initialTotal, tag }) {
 
   const refresh = useCallback(() => {
     setLoading(true);
-    fetchAlerts({
+    fetchMarketAlerts({
       page: pageRef.current,
       perPage,
       tag,
     })
       .then((data) => {
-        setAlerts(data.alerts || []);
+        setMarkets(data.markets || []);
         setTotal(data.total || 0);
       })
       .catch(() => {
-        setAlerts([]);
+        setMarkets([]);
         setTotal(0);
       })
       .finally(() => setLoading(false));
@@ -50,7 +50,7 @@ export default function TagPageClient({ initialAlerts, initialTotal, tag }) {
   return (
     <>
       <AlertList
-        alerts={alerts}
+        markets={markets}
         filters={{ tag: "", resolvesIn: "" }}
         loading={loading}
       />

@@ -62,7 +62,11 @@ class CorrelatedCrossMarketStrategy(DetectionStrategy):
         # not thesis-driven positioning
         active_trades = [
             t for t in trades
-            if float(t.get("price", 0.5)) < RESOLVED_PRICE_THRESHOLD
+            if not (
+                float(t.get("price", 0.5)) >= RESOLVED_PRICE_THRESHOLD
+                or (t.get("side", "").upper() == "SELL"
+                    and float(t.get("price", 0.5)) <= (1 - RESOLVED_PRICE_THRESHOLD))
+            )
         ]
 
         # Build: wallet -> event -> list of trades (current window)
@@ -184,7 +188,7 @@ class CorrelatedCrossMarketStrategy(DetectionStrategy):
         # Record all trades for future cross-run detection — done AFTER
         # analysis so get_wallet_event_history doesn't include current-batch
         # trades, which would cause double-counting of historical USD.
-        for t in trades:
+        for t in active_trades:
             record_wallet_event_trade(t)
 
         if signals:

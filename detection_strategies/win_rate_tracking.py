@@ -95,7 +95,7 @@ def _fetch_positions_page(wallet: str, endpoint: str, position_type: str,
             resp = requests.get(
                 f"{DATA_API}/{endpoint}",
                 params={"user": wallet, "limit": page_size, "offset": offset,
-                        "sortBy": "timestamp"},
+                        "sortBy": "timestamp", "sortDir": "desc"},
                 timeout=15,
             )
             if resp.status_code != 200:
@@ -136,6 +136,22 @@ _total_unique_wallets: int = 0
 # Condition IDs already checked for resolution this run (avoids re-checking
 # the same markets when multiple wallets share unresolved conditions)
 _conditions_checked: set[str] = set()
+
+
+def reset_run_state() -> None:
+    """Clear all per-run tracking sets so each scan iteration starts fresh.
+
+    Must be called at the start of each scan_once() invocation in polybot.py.
+    Without this, continuous mode reuses the same strategy instances and the
+    sets never clear, causing stale P&L data and suppressed signals after the
+    first iteration.
+    """
+    global _total_unique_wallets
+    _pnl_fetched.clear()
+    _win_rate_signaled.clear()
+    _resolutions_updated.clear()
+    _conditions_checked.clear()
+    _total_unique_wallets = 0
 
 
 def _update_resolutions(wallet: str | None = None) -> int:
