@@ -35,8 +35,9 @@ export default function MarketPageClient({ conditionId, initialLive, initialAler
   const resolution = timeToResolution(endDate);
   const totalUsd = alerts.reduce((sum, a) => sum + (a.total_usd || 0), 0);
   const tags = [...new Set(alerts.flatMap((a) => a.tags || []))];
+  const isUrgent = endDate && new Date(endDate).getTime() - Date.now() < 3600000 && new Date(endDate).getTime() - Date.now() > 0;
+  const isSoon = endDate && new Date(endDate).getTime() - Date.now() < 86400000 && new Date(endDate).getTime() - Date.now() > 0;
 
-  // Outcomes from live data
   const outcomes = live?.outcomes || [];
 
   return (
@@ -45,52 +46,63 @@ export default function MarketPageClient({ conditionId, initialLive, initialAler
       <nav className="mb-6 flex items-center justify-between" aria-label="Breadcrumb">
         <Link
           href="/"
-          className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+          className="inline-flex items-center gap-1.5 text-sm font-medium transition-colors"
+          style={{ color: 'var(--text-muted)' }}
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
-          Back to all markets
+          All markets
         </Link>
         <ThemeToggle />
       </nav>
 
       {/* Market header */}
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-50 leading-snug">
+      <header className="mb-8">
+        <h1 className="text-2xl font-bold leading-snug" style={{ color: 'var(--text-primary)' }}>
           {title}
         </h1>
-        <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-gray-500 dark:text-gray-400">
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
           {resolution && (
             <span
-              className={
-                resolution === "Resolved"
-                  ? "text-gray-400 dark:text-gray-600"
-                  : endDate && new Date(endDate).getTime() - Date.now() < 3600000
-                    ? "font-medium text-red-500 dark:text-red-400"
-                    : endDate && new Date(endDate).getTime() - Date.now() < 86400000
-                      ? "text-amber-600 dark:text-amber-400"
-                      : ""
-              }
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium"
+              style={{
+                background: isUrgent ? 'rgba(239, 68, 68, 0.1)' : isSoon ? 'rgba(245, 158, 11, 0.1)' : 'var(--surface-2)',
+                color: resolution === "Resolved"
+                  ? 'var(--text-muted)'
+                  : isUrgent
+                    ? 'var(--bearish)'
+                    : isSoon
+                      ? 'var(--warning)'
+                      : 'var(--text-secondary)',
+              }}
             >
+              {isUrgent && (
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
+                </span>
+              )}
               Resolves in {resolution}
             </span>
           )}
           {totalUsd > 0 && (
-            <span>{usdFmt.format(totalUsd)} in notable trades</span>
+            <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.8rem' }}>
+              {usdFmt.format(totalUsd)} tracked
+            </span>
           )}
           <span>
-            {alerts.length} alert{alerts.length !== 1 ? "s" : ""}
+            {alerts.length} signal{alerts.length !== 1 ? "s" : ""}
           </span>
         </div>
 
-        {/* Tags */}
         {tags.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-1">
+          <div className="mt-3 flex flex-wrap gap-1.5">
             {tags.map((t) => (
               <span
                 key={t}
-                className="inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+                className="inline-block rounded-full px-2.5 py-0.5 text-xs font-medium"
+                style={{ background: 'var(--surface-2)', color: 'var(--text-muted)' }}
               >
                 {t}
               </span>
@@ -101,32 +113,41 @@ export default function MarketPageClient({ conditionId, initialLive, initialAler
 
       {/* Live outcomes */}
       {outcomes.length > 0 && (
-        <div className="mb-6 grid gap-3 sm:grid-cols-2">
-          {outcomes.map((o) => (
-            <div
-              key={o.name}
-              className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900"
-            >
-              <div className="flex items-center justify-between">
-                <span className="font-medium text-gray-900 dark:text-gray-100">
-                  {o.name}
-                </span>
-                <span className="text-lg font-bold text-gray-900 dark:text-gray-50">
-                  {Math.round((o.price || 0) * 100)}&cent;
-                </span>
+        <div className="mb-8 grid gap-3 sm:grid-cols-2">
+          {outcomes.map((o) => {
+            const pct = Math.round((o.price || 0) * 100);
+            return (
+              <div
+                key={o.name}
+                className="rounded-xl border p-4 relative overflow-hidden"
+                style={{ borderColor: 'var(--border)', background: 'var(--surface-card)' }}
+              >
+                {/* Fill bar */}
+                <div
+                  className="absolute inset-y-0 left-0 opacity-[0.06]"
+                  style={{ width: `${pct}%`, background: 'var(--accent)' }}
+                />
+                <div className="relative flex items-center justify-between">
+                  <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                    {o.name}
+                  </span>
+                  <span className="text-lg font-bold" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>
+                    {pct}&cent;
+                  </span>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {/* Alerts */}
       {alerts.length > 0 ? (
         <section className="flex flex-col gap-3" aria-label="Notable trades">
-          <h2 className="text-sm font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+          <h2 className="text-xs font-semibold uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-muted)', fontSize: '0.6rem' }}>
             Notable Trades
           </h2>
-          {alerts.map((alert) => (
+          {alerts.map((alert, i) => (
             <AlertRow
               key={alert.id}
               alert={alert}
@@ -138,8 +159,8 @@ export default function MarketPageClient({ conditionId, initialLive, initialAler
           ))}
         </section>
       ) : (
-        <div className="rounded-lg bg-white p-8 text-center text-gray-400 dark:bg-gray-900 dark:text-gray-500">
-          No alerts found for this market.
+        <div className="rounded-xl border p-12 text-center" style={{ borderColor: 'var(--border)', background: 'var(--surface-card)', color: 'var(--text-muted)' }}>
+          No signals found for this market.
         </div>
       )}
     </main>

@@ -1,21 +1,156 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
 @import "tailwindcss";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Ticker scroll animation */
+/* ── Design tokens ── */
+:root {
+  --font-display: 'JetBrains Mono', ui-monospace, monospace;
+  --font-body: 'DM Sans', system-ui, sans-serif;
+
+  /* Surface */
+  --surface-0: #ffffff;
+  --surface-1: #f8f9fb;
+  --surface-2: #f0f1f4;
+  --surface-card: #ffffff;
+  --surface-card-hover: #f8f9fb;
+  --border: #e2e5ea;
+  --border-subtle: #edf0f3;
+
+  /* Text */
+  --text-primary: #0f1219;
+  --text-secondary: #5a6073;
+  --text-muted: #8b91a3;
+
+  /* Accent */
+  --accent: #00c26a;
+  --accent-hover: #00a85c;
+  --accent-subtle: #e6f9f0;
+  --accent-glow: rgba(0, 194, 106, 0.15);
+
+  /* Semantic */
+  --bullish: #00c26a;
+  --bearish: #ef4444;
+  --warning: #f59e0b;
+  --info: #3b82f6;
+
+  /* Glow */
+  --glow-strong: 0 0 20px rgba(0, 194, 106, 0.2), 0 0 40px rgba(0, 194, 106, 0.05);
+  --glow-medium: 0 0 12px rgba(0, 194, 106, 0.12);
+}
+
+.dark {
+  --surface-0: #060a12;
+  --surface-1: #0c1120;
+  --surface-2: #131a2e;
+  --surface-card: #0d1221;
+  --surface-card-hover: #111729;
+  --border: #1c2540;
+  --border-subtle: #151d33;
+
+  --text-primary: #e8ecf4;
+  --text-secondary: #8892aa;
+  --text-muted: #535e76;
+
+  --accent-subtle: rgba(0, 194, 106, 0.08);
+
+  --glow-strong: 0 0 24px rgba(0, 194, 106, 0.25), 0 0 60px rgba(0, 194, 106, 0.08);
+  --glow-medium: 0 0 16px rgba(0, 194, 106, 0.15);
+}
+
+/* ── Base ── */
+body {
+  font-family: var(--font-body);
+  background: var(--surface-0);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Ticker ── */
 @keyframes ticker-scroll {
-  0% {
-    transform: translateX(0);
-  }
-  100% {
-    transform: translateX(-50%);
-  }
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
 }
 
 .ticker-track {
-  animation: ticker-scroll 40s linear infinite;
+  animation: ticker-scroll 45s linear infinite;
 }
-
 .ticker-track:hover {
   animation-play-state: paused;
+}
+
+/* ── Pulse animation for live indicator ── */
+@keyframes pulse-live {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.5); }
+}
+.animate-pulse-live {
+  animation: pulse-live 2s ease-in-out infinite;
+}
+
+/* ── Urgency pulse for resolving-soon markets ── */
+@keyframes urgency-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.3); }
+  50% { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.05); }
+}
+.animate-urgency {
+  animation: urgency-pulse 2s ease-in-out infinite;
+}
+
+/* ── Staggered entrance ── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up {
+  animation: fade-up 0.4s ease-out both;
+}
+
+/* ── Glow border for strong signals ── */
+@keyframes glow-border {
+  0%, 100% { border-color: rgba(0, 194, 106, 0.3); }
+  50% { border-color: rgba(0, 194, 106, 0.6); }
+}
+.animate-glow-border {
+  animation: glow-border 3s ease-in-out infinite;
+}
+
+/* ── Card hover lift ── */
+.card-hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.card-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+}
+.dark .card-hover:hover {
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+
+/* ── Number ticker animation ── */
+@keyframes count-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-count-up {
+  animation: count-up 0.6s ease-out both;
+}
+
+/* ── Scrollbar styling (dark mode) ── */
+.dark ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.dark ::-webkit-scrollbar-track {
+  background: var(--surface-1);
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+/* ── Signal strength bar gradient ── */
+.strength-bar {
+  background: linear-gradient(to top, var(--accent), #00e87b);
 }

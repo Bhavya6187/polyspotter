@@ -11,30 +11,32 @@ export function scoreToRating(maxScore) {
 
 export default function StrengthMeter({ maxScore }) {
   const rating = scoreToRating(maxScore);
-  if (rating === 0) return <span className="text-xs text-gray-400">—</span>;
+  if (rating === 0) return <span className="text-xs" style={{ color: 'var(--text-muted)' }}>&mdash;</span>;
 
-  const barColors = [
-    // index 0 unused, 1-5 map to rating levels
+  const colors = [
     "",
-    "bg-gray-400 dark:bg-gray-500",
-    "bg-amber-400 dark:bg-amber-500",
-    "bg-amber-500 dark:bg-amber-400",
-    "bg-orange-500 dark:bg-orange-400",
-    "bg-red-500 dark:bg-red-400",
+    "var(--text-muted)",
+    "#f59e0b",
+    "#f97316",
+    "var(--accent)",
+    "var(--accent)",
   ];
 
+  const fillColor = colors[rating];
+
   return (
-    <div className="flex items-center gap-1.5" title={`${LABELS[rating - 1]} signal (${maxScore?.toFixed(1)})`}>
-      <div className="flex items-end gap-0.5">
+    <div className="flex items-center gap-1.5 shrink-0" title={`${LABELS[rating - 1]} signal (${maxScore?.toFixed(1)})`}>
+      <div className="flex items-end gap-[3px]">
         {[1, 2, 3, 4, 5].map((level) => (
           <div
             key={level}
-            className={`w-1 rounded-sm ${
-              level <= rating
-                ? barColors[rating]
-                : "bg-gray-200 dark:bg-gray-700"
-            }`}
-            style={{ height: `${6 + level * 3}px` }}
+            className="rounded-sm transition-all duration-300"
+            style={{
+              width: '3px',
+              height: `${5 + level * 3}px`,
+              background: level <= rating ? fillColor : 'var(--border)',
+              boxShadow: level <= rating && rating >= 4 ? `0 0 4px ${fillColor}` : 'none',
+            }}
           />
         ))}
       </div>

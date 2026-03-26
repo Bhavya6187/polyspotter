@@ -13,28 +13,38 @@ const usdFmt = new Intl.NumberFormat("en-US", {
 function relativeTime(dateStr) {
   if (!dateStr) return "";
   const diffSec = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
-  if (diffSec < 60) return `${diffSec}s ago`;
+  if (diffSec < 60) return `${diffSec}s`;
   const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffMin < 60) return `${diffMin}m`;
   const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  return `${Math.floor(diffHr / 24)}d ago`;
+  if (diffHr < 24) return `${diffHr}h`;
+  return `${Math.floor(diffHr / 24)}d`;
 }
 
 function TickerItem({ alert }) {
   const headline = alert.market_title || "Notable trade";
-  const amount = usdFmt.format(alert.total_usd);
-  const time = relativeTime(alert.scanned_at);
+  const bestAlert = alert.alerts?.[0];
+  const amount = usdFmt.format(bestAlert?.total_usd || 0);
+  const time = relativeTime(bestAlert?.scanned_at || bestAlert?.created_at);
+  const side = bestAlert?.llm_copy_action?.side;
+  const isBuy = side === "BUY" || !side;
 
   return (
     <Link
       href={`/market/${marketSlug(alert.market_title, alert.condition_id)}`}
-      className="inline-flex items-center gap-2 whitespace-nowrap px-5 hover:opacity-80 transition-opacity"
+      className="inline-flex items-center gap-2.5 whitespace-nowrap px-5 transition-opacity hover:opacity-70"
     >
-      <span className="h-1.5 w-1.5 rounded-full bg-blue-500 dark:bg-blue-400 shrink-0" />
-      <span className="font-medium text-gray-900 dark:text-gray-100">{amount}</span>
-      <span className="text-gray-500 dark:text-gray-400 max-w-[280px] truncate">{headline}</span>
-      <span className="text-gray-400 dark:text-gray-500 text-xs">{time}</span>
+      <span
+        className="h-1.5 w-1.5 rounded-full shrink-0"
+        style={{ background: isBuy ? 'var(--bullish)' : 'var(--bearish)' }}
+      />
+      <span className="font-semibold" style={{ fontFamily: 'var(--font-display)', fontSize: '0.8rem', color: isBuy ? 'var(--bullish)' : 'var(--bearish)' }}>
+        {amount}
+      </span>
+      <span className="max-w-[260px] truncate text-sm" style={{ color: 'var(--text-secondary)' }}>
+        {headline}
+      </span>
+      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{time}</span>
     </Link>
   );
 }
@@ -58,7 +68,10 @@ export default function Ticker() {
   if (alerts.length === 0) return null;
 
   return (
-    <div className="overflow-hidden border-b border-gray-200 bg-gray-50/80 dark:border-gray-800 dark:bg-gray-900/50 py-2 text-sm">
+    <div
+      className="overflow-hidden border-y py-2.5 text-sm"
+      style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
+    >
       <div className="ticker-track flex">
         {[...alerts, ...alerts].map((alert, i) => (
           <TickerItem key={`${alert.condition_id}-${i}`} alert={alert} />

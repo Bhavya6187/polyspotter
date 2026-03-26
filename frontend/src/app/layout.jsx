@@ -81,7 +81,7 @@ export default function RootLayout({ children }) {
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
       </head>
-      <body className="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100">
+      <body className="min-h-screen" style={{ background: 'var(--surface-0)', color: 'var(--text-primary)' }}>
         {children}
       </body>
     </html>

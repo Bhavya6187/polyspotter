@@ -56,7 +56,6 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
   const tags = alert.tags || [];
   const copyAction = alert.llm_copy_action;
 
-  // Find the live price for the outcome this alert is about
   const alertOutcome = copyAction?.outcome;
   const alertPrice = copyAction?.entry_price;
   const liveOutcome = liveMarket?.outcomes?.find(
@@ -65,7 +64,6 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
   const currentPrice = liveOutcome?.price ?? null;
   const resolution = timeToResolution(alert.end_date);
 
-  // Auto-fetch detail when rendered in compact (expanded market) mode
   useEffect(() => {
     if (!autoExpand) return;
     let cancelled = false;
@@ -81,7 +79,6 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
     return () => { cancelled = true; };
   }, [alert.id, autoExpand]);
 
-  // Build the bet summary line from copy_action or fallback to raw data
   let betSummary = "";
   if (copyAction && copyAction.outcome) {
     const priceStr = priceToCents(copyAction.entry_price);
@@ -90,7 +87,6 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
     betSummary = `${usdFmt.format(alert.total_usd)}`;
   }
 
-  // Build a compact label: LLM headline > cluster headline > bettor profile > fallback
   let compactLabel = null;
   if (alert.llm_headline) {
     compactLabel = alert.llm_headline;
@@ -99,12 +95,11 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
   } else if (alert.win_rate != null) {
     const wr = `${Math.round(alert.win_rate * 100)}% wins`;
     const pnl = alert.total_pnl != null
-      ? ` · ${alert.total_pnl >= 0 ? "+" : ""}${usdFmt.format(alert.total_pnl)}`
+      ? ` \u00b7 ${alert.total_pnl >= 0 ? "+" : ""}${usdFmt.format(alert.total_pnl)}`
       : "";
     compactLabel = `Wallet with ${wr}${pnl}`;
   }
 
-  // CTA from detail or from alert-level copy action
   const detailCopyAction = detail?.llm_copy_action || copyAction;
   const marketUrl = detail?.market_url;
   let ctaText = "";
@@ -113,40 +108,51 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
     ctaText = `${side} ${detailCopyAction.outcome}`;
   }
 
-  // Bullets from detail
   const bullets = detail?.llm_bullets || [];
   const displayBullets =
     bullets.length > 0 ? bullets : detail?.llm_summary ? [detail.llm_summary] : [];
 
+  const effectivePrice = detailCopyAction?.side === "SELL" && currentPrice > 0 ? 1 - currentPrice : currentPrice;
+
   return (
     <div
-      className={`rounded-lg border bg-white transition-all dark:bg-gray-900 ${
-        compact ? "p-3" : "p-4"
-      } border-gray-200 dark:border-gray-800`}
+      className="rounded-xl border transition-all animate-fade-up"
+      style={{
+        borderColor: 'var(--border)',
+        background: 'var(--surface-card)',
+        padding: compact ? '12px 16px' : '16px 20px',
+      }}
     >
-      {/* Row 1: Market title (full mode) or wallet (compact mode) + resolution */}
+      {/* Row 1: Title/label + resolution */}
       <div className="flex items-start justify-between gap-3">
         {compact ? (
-          <span className="text-xs text-gray-500 dark:text-gray-400">
+          <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
             {compactLabel ?? "\u2014"}
           </span>
         ) : (
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-snug">
+          <h3 className="text-sm font-semibold leading-snug" style={{ color: 'var(--text-primary)' }}>
             {alert.market_title ?? "\u2014"}
           </h3>
         )}
-        <div className="flex shrink-0 items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
+        <div className="flex shrink-0 items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
           {!compact && !autoExpand && resolution && (
             <span
               className={
                 resolution === "Resolved"
-                  ? "text-gray-400 dark:text-gray-600"
+                  ? ""
                   : new Date(alert.end_date).getTime() - Date.now() < 3600000
-                    ? "font-medium text-red-500 dark:text-red-400"
-                    : new Date(alert.end_date).getTime() - Date.now() < 86400000
-                      ? "text-amber-600 dark:text-amber-400"
-                      : ""
+                    ? "font-medium"
+                    : ""
               }
+              style={{
+                color: resolution === "Resolved"
+                  ? 'var(--text-muted)'
+                  : new Date(alert.end_date).getTime() - Date.now() < 3600000
+                    ? 'var(--bearish)'
+                    : new Date(alert.end_date).getTime() - Date.now() < 86400000
+                      ? 'var(--warning)'
+                      : 'var(--text-muted)'
+              }}
             >
               {resolution}
             </span>
@@ -156,8 +162,8 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
       </div>
 
       {/* Row 2: Bet summary + live price */}
-      <div className={`mt-1 flex items-center gap-2 ${compact ? "" : ""}`}>
-        <p className={`text-sm text-gray-600 dark:text-gray-300 ${compact ? "text-xs" : ""}`}>
+      <div className="mt-1.5 flex items-center gap-2">
+        <p className="text-sm font-semibold" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)', fontSize: compact ? '0.8rem' : '0.875rem' }}>
           {betSummary}
         </p>
         {alertPrice > 0 && currentPrice > 0 && (
@@ -170,102 +176,109 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
         )}
       </div>
 
-      {/* Inline detail: bullets + CTA (auto-expanded in compact mode) */}
+      {/* Detail section (auto-expanded) */}
       {autoExpand && (
-        <div className="mt-2">
+        <div className="mt-3">
           {loadingDetail ? (
-            <p className="text-xs text-gray-400 dark:text-gray-500">Loading...</p>
+            <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+              <div className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              Loading...
+            </div>
           ) : (
             <>
               {displayBullets.length > 0 && (
-                <ul className="space-y-1 mt-1">
+                <ul className="space-y-1.5 mt-1">
                   {displayBullets.map((bullet, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
-                      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500 dark:bg-blue-400" />
+                    <li key={i} className="flex items-start gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: 'var(--accent)' }} />
                       <span>{bullet}</span>
                     </li>
                   ))}
                 </ul>
               )}
               {ctaText && marketUrl && (
-                <div className="mt-3 flex items-center gap-3">
+                <div className="mt-4 flex items-center gap-3">
                   <a
                     href={marketUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={(e) => e.stopPropagation()}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-blue-600 bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 dark:border-blue-500 dark:bg-blue-600 dark:hover:bg-blue-700"
+                    className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white transition-all hover:brightness-110 active:scale-[0.98]"
+                    style={{ background: 'var(--accent)', boxShadow: 'var(--glow-medium)' }}
                   >
-                    Copy this trade &rarr; {ctaText}
+                    Copy trade &rarr; {ctaText}
                   </a>
-                  {currentPrice > 0 && currentPrice < 0.99 && (
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                      {(() => {
-                        const isSell = detailCopyAction?.side === "SELL";
-                        const effectiveCost = isSell ? 1 - currentPrice : currentPrice;
-                        return (
-                          <>
-                            Pay {Math.round(effectiveCost * 100)}&cent; &rarr; win $1.00
-                            <span className="ml-1 text-green-600 dark:text-green-400">
-                              ({Math.round(((1 - effectiveCost) / effectiveCost) * 100)}% return)
-                            </span>
-                          </>
-                        );
-                      })()}
+                  {effectivePrice > 0 && effectivePrice < 0.99 && (
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      {Math.round(effectivePrice * 100)}&cent; &rarr; $1.00
+                      <span className="ml-1 font-semibold" style={{ color: 'var(--bullish)' }}>
+                        +{Math.round(((1 - effectivePrice) / effectivePrice) * 100)}%
+                      </span>
                     </span>
                   )}
                 </div>
               )}
 
-              {/* Individual trades toggle */}
+              {/* Individual trades */}
               {detail?.trades?.length > 0 && (
-                <div className="mt-3">
+                <div className="mt-4">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       setShowTrades((v) => !v);
                     }}
-                    className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+                    className="inline-flex items-center gap-1.5 text-xs font-medium transition-colors"
+                    style={{ color: 'var(--text-muted)' }}
                   >
                     <span className={`inline-block transition-transform ${showTrades ? "rotate-90" : ""}`}>&#9654;</span>
                     {showTrades ? "Hide" : "Show"} {detail.trades.length} trade{detail.trades.length !== 1 ? "s" : ""}
                   </button>
 
                   {showTrades && (
-                    <div className="mt-2 overflow-x-auto rounded-md border border-gray-200 dark:border-gray-700">
+                    <div className="mt-2 overflow-x-auto rounded-lg border" style={{ borderColor: 'var(--border)' }}>
                       <table className="w-full text-xs">
                         <thead>
-                          <tr className="bg-gray-50 text-left text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-                            <th className="px-3 py-1.5 font-medium">Wallet</th>
-                            <th className="px-3 py-1.5 font-medium">Side</th>
-                            <th className="px-3 py-1.5 font-medium">Outcome</th>
-                            <th className="px-3 py-1.5 font-medium text-right">Amount</th>
-                            <th className="px-3 py-1.5 font-medium text-right">Price</th>
-                            <th className="px-3 py-1.5 font-medium text-right">When</th>
+                          <tr style={{ background: 'var(--surface-1)' }}>
+                            <th className="px-3 py-2 text-left font-medium" style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-display)', fontSize: '0.65rem' }}>Wallet</th>
+                            <th className="px-3 py-2 text-left font-medium" style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-display)', fontSize: '0.65rem' }}>Side</th>
+                            <th className="px-3 py-2 text-left font-medium" style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-display)', fontSize: '0.65rem' }}>Outcome</th>
+                            <th className="px-3 py-2 text-right font-medium" style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-display)', fontSize: '0.65rem' }}>Amount</th>
+                            <th className="px-3 py-2 text-right font-medium" style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-display)', fontSize: '0.65rem' }}>Price</th>
+                            <th className="px-3 py-2 text-right font-medium" style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-display)', fontSize: '0.65rem' }}>When</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                        <tbody>
                           {detail.trades.map((t, i) => (
-                            <tr key={t.transaction_hash || i} className="text-gray-700 dark:text-gray-300">
-                              <td className="px-3 py-1.5 font-mono">
+                            <tr
+                              key={t.transaction_hash || i}
+                              style={{ borderTop: i > 0 ? '1px solid var(--border-subtle)' : 'none' }}
+                            >
+                              <td className="px-3 py-2" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-secondary)' }}>
                                 <a
                                   href={`https://polygonscan.com/tx/${t.transaction_hash}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   onClick={(e) => e.stopPropagation()}
-                                  className="hover:text-blue-600 dark:hover:text-blue-400"
+                                  className="transition-colors hover:underline"
+                                  style={{ color: 'var(--info)' }}
                                   title={t.wallet}
                                 >
                                   {shortenWallet(t.wallet)}
                                 </a>
                               </td>
-                              <td className={`px-3 py-1.5 font-medium ${t.side === "BUY" ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400"}`}>
+                              <td className="px-3 py-2 font-semibold" style={{ color: t.side === "BUY" ? 'var(--bullish)' : 'var(--bearish)' }}>
                                 {t.side}
                               </td>
-                              <td className="px-3 py-1.5">{t.outcome ?? "\u2014"}</td>
-                              <td className="px-3 py-1.5 text-right font-medium">{usdFmt.format(t.usd_value)}</td>
-                              <td className="px-3 py-1.5 text-right">{priceToCents(t.price) ?? "\u2014"}</td>
-                              <td className="px-3 py-1.5 text-right text-gray-500 dark:text-gray-400">{relativeTime(t.trade_timestamp)}</td>
+                              <td className="px-3 py-2" style={{ color: 'var(--text-secondary)' }}>{t.outcome ?? "\u2014"}</td>
+                              <td className="px-3 py-2 text-right font-semibold" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>
+                                {usdFmt.format(t.usd_value)}
+                              </td>
+                              <td className="px-3 py-2 text-right" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-secondary)' }}>
+                                {priceToCents(t.price) ?? "\u2014"}
+                              </td>
+                              <td className="px-3 py-2 text-right" style={{ color: 'var(--text-muted)' }}>
+                                {relativeTime(t.trade_timestamp)}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -279,19 +292,19 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
         </div>
       )}
 
-      {/* Row 3: Tags (only in full mode, hidden when auto-expanded inside market page) */}
+      {/* Tags (full mode only) */}
       {!compact && !autoExpand && tags.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1">
+        <div className="mt-3 flex flex-wrap gap-1.5">
           {tags.map((t) => (
             <Link
               key={t}
               href={`/tag/${encodeURIComponent(t.toLowerCase().replace(/\s+/g, "-"))}`}
               onClick={(e) => e.stopPropagation()}
-              className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
-                activeTag === t
-                  ? "bg-blue-600 text-blue-50 dark:bg-blue-700 dark:text-blue-100"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
-              }`}
+              className="inline-block rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors"
+              style={{
+                background: activeTag === t ? 'var(--accent)' : 'var(--surface-2)',
+                color: activeTag === t ? '#fff' : 'var(--text-muted)',
+              }}
             >
               {t}
             </Link>

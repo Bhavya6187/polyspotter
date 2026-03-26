@@ -4,6 +4,7 @@ import { fetchMarketLive } from "../lib/api";
 import { marketSlug } from "../lib/slugify";
 import PriceMovement from "./PriceMovement";
 import StrengthMeter from "./StrengthMeter";
+import { scoreToRating } from "./StrengthMeter";
 
 function relativeTime(dateStr) {
   if (!dateStr) return "\u2014";
@@ -43,7 +44,7 @@ function priceToCents(price) {
   return `${Math.round(price * 100)}\u00a2`;
 }
 
-/** A single alert entry within a market group — always fully visible, no expand needed. */
+/** A single alert entry within a market group card. */
 function AlertEntry({ alert, liveData }) {
   const copyAction = alert.llm_copy_action;
   const alertOutcome = copyAction?.outcome;
@@ -53,89 +54,94 @@ function AlertEntry({ alert, liveData }) {
   const liveOutcome = liveMarket?.outcomes?.find((o) => o.name === alertOutcome);
   const currentPrice = liveOutcome?.price ?? null;
 
-  // Subtitle from llm_headline / cluster_headline / wallet profile
   let subtitle = alert.llm_headline || alert.cluster_headline;
   if (!subtitle && alert.win_rate != null) {
-    const wr = `${Math.round(alert.win_rate * 100)}% wins`;
+    const wr = `${Math.round(alert.win_rate * 100)}%`;
     const pnl =
       alert.total_pnl != null
         ? ` \u00b7 ${alert.total_pnl >= 0 ? "+" : ""}${usdFmt.format(alert.total_pnl)}`
         : "";
-    subtitle = `Wallet with ${wr}${pnl}`;
+    subtitle = `${wr} win rate${pnl}`;
   }
 
-  // Bet summary
   let betSummary = usdFmt.format(alert.total_usd);
   if (copyAction?.outcome) {
     const priceStr = priceToCents(copyAction.entry_price);
     betSummary = `${usdFmt.format(alert.total_usd)} on ${copyAction.outcome}${priceStr ? ` at ${priceStr}` : ""}`;
   }
 
-  // Bullets — available directly from the list endpoint
   const bullets = alert.llm_bullets || [];
-
-  // CTA
-  let ctaLabel = "";
   const marketUrl = alert.market_url;
+
+  let ctaLabel = "";
   if (copyAction?.outcome) {
     const side = copyAction.side === "SELL" ? "Sell" : "Buy";
     ctaLabel = `${side} ${copyAction.outcome}`;
   }
 
-  return (
-    <div className="flex flex-col gap-2">
-      {/* Header row: subtitle + bet summary + price movement + CTA */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
-            {subtitle && (
-              <span className="text-gray-600 dark:text-gray-300">{subtitle}</span>
-            )}
-            <span className="font-medium text-gray-700 dark:text-gray-300">{betSummary}</span>
-            {alertPrice > 0 && currentPrice > 0 && (
-              <PriceMovement alertPrice={alertPrice} currentPrice={currentPrice} outcome={alertOutcome} compact />
-            )}
-          </div>
-        </div>
+  // Payout math
+  const effectivePrice = copyAction?.side === "SELL" && currentPrice > 0 ? 1 - currentPrice : currentPrice;
+  const returnPct = effectivePrice > 0 && effectivePrice < 0.99 ? Math.round(((1 - effectivePrice) / effectivePrice) * 100) : 0;
 
-        {/* CTA button */}
-        {ctaLabel && marketUrl ? (
-          <a
-            href={marketUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="shrink-0 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700"
-          >
-            {ctaLabel}
-          </a>
-        ) : ctaLabel ? (
-          <span className="shrink-0 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-            {ctaLabel}
-          </span>
-        ) : null}
+  return (
+    <div className="flex flex-col gap-2.5">
+      {/* Subtitle */}
+      {subtitle && (
+        <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+          {subtitle}
+        </p>
+      )}
+
+      {/* Bet summary + price movement */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="text-sm font-semibold" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>
+          {betSummary}
+        </span>
+        {alertPrice > 0 && currentPrice > 0 && (
+          <PriceMovement alertPrice={alertPrice} currentPrice={currentPrice} outcome={alertOutcome} compact />
+        )}
       </div>
 
       {/* Bullets */}
       {bullets.length > 0 && (
         <ul className="space-y-1.5">
           {bullets.map((bullet, i) => (
-            <li key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500 dark:bg-blue-400" />
+            <li key={i} className="flex items-start gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: 'var(--accent)' }} />
               <span>{bullet}</span>
             </li>
           ))}
         </ul>
       )}
 
-      {/* Payout estimate */}
-      {currentPrice > 0 && currentPrice < 0.99 && (
-        <p className="text-xs text-gray-500 dark:text-gray-400">
-          Pay {Math.round(currentPrice * 100)}&cent; &rarr; win $1.00
-          <span className="ml-1 text-green-600 dark:text-green-400">
-            ({Math.round(((1 - currentPrice) / currentPrice) * 100)}% return)
+      {/* CTA + payout */}
+      <div className="flex items-center gap-3 pt-1">
+        {ctaLabel && marketUrl ? (
+          <a
+            href={marketUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white transition-all hover:brightness-110 active:scale-[0.98]"
+            style={{ background: 'var(--accent)', boxShadow: 'var(--glow-medium)' }}
+          >
+            <span>Copy trade</span>
+            <span style={{ opacity: 0.8 }}>→</span>
+            <span>{ctaLabel}</span>
+          </a>
+        ) : ctaLabel ? (
+          <span className="rounded-lg border px-4 py-2 text-sm font-medium" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
+            {ctaLabel}
           </span>
-        </p>
-      )}
+        ) : null}
+        {effectivePrice > 0 && effectivePrice < 0.99 && returnPct > 0 && (
+          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            {Math.round(effectivePrice * 100)}&cent; → $1.00
+            <span className="ml-1 font-semibold" style={{ color: 'var(--bullish)' }}>
+              +{returnPct}%
+            </span>
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -153,58 +159,88 @@ function pickBestAlert(alerts) {
   });
 }
 
-/** A market group card — shows the single best alert with full details. */
-function MarketGroupCard({ market, liveData }) {
+/** A market group card with signal-based visual hierarchy. */
+function MarketGroupCard({ market, liveData, index }) {
   const alert = pickBestAlert(market.alerts);
   if (!alert) return null;
   const tags = market.tags || [];
+  const rating = scoreToRating(alert.composite_score);
+  const isStrong = rating >= 4;
+  const isHero = index === 0 && rating >= 3;
 
   const resolution = timeToResolution(market.end_date);
   const resolutionMs = market.end_date ? new Date(market.end_date).getTime() - Date.now() : null;
-  const resColor =
-    resolutionMs != null && resolutionMs < 3600000
-      ? "text-red-500 dark:text-red-400 font-medium"
-      : resolutionMs != null && resolutionMs < 86400000
-        ? "text-amber-600 dark:text-amber-400"
-        : "text-gray-500 dark:text-gray-400";
+  const isUrgent = resolutionMs != null && resolutionMs > 0 && resolutionMs < 3600000;
+  const isSoon = resolutionMs != null && resolutionMs > 0 && resolutionMs < 86400000;
 
   const marketUrl = market.market_url || alert.market_url;
 
+  // Card border/glow style based on signal strength
+  const cardStyle = {
+    borderColor: isStrong ? 'rgba(0, 194, 106, 0.3)' : 'var(--border)',
+    background: isHero ? 'var(--surface-card)' : 'var(--surface-card)',
+    boxShadow: isStrong ? 'var(--glow-medium)' : 'none',
+  };
+
   return (
-    <div className="rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
+    <div
+      className={`rounded-xl border card-hover animate-fade-up ${isStrong ? 'animate-glow-border' : ''} ${isUrgent ? 'animate-urgency' : ''}`}
+      style={{ ...cardStyle, animationDelay: `${index * 60}ms` }}
+    >
       {/* Market header */}
-      <div className="px-4 py-3 flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
+      <div className="flex items-start justify-between gap-3 px-5 py-4">
+        <div className="flex items-center gap-3 min-w-0">
           <StrengthMeter maxScore={alert.composite_score} />
           <Link
             href={`/market/${marketSlug(market.market_title, market.condition_id)}`}
-            className="text-sm font-medium text-gray-900 dark:text-gray-100 leading-snug truncate hover:underline"
+            className="text-sm font-semibold leading-snug truncate transition-colors"
+            style={{ color: 'var(--text-primary)' }}
           >
             {market.market_title ?? "\u2014"}
           </Link>
-          {resolution && (
-            <span className={`text-xs ${resColor}`}>resolves {resolution}</span>
-          )}
         </div>
-        <span className="shrink-0 text-xs text-gray-400 dark:text-gray-500" suppressHydrationWarning>
-          {relativeTime(alert.created_at)}
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          {resolution && (
+            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+              isUrgent
+                ? 'text-red-600 dark:text-red-400'
+                : isSoon
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : ''
+            }`} style={{
+              background: isUrgent ? 'rgba(239, 68, 68, 0.1)' : isSoon ? 'rgba(245, 158, 11, 0.1)' : 'var(--surface-2)',
+              color: !isUrgent && !isSoon ? 'var(--text-muted)' : undefined
+            }}>
+              {isUrgent && (
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
+                </span>
+              )}
+              {resolution}
+            </span>
+          )}
+          <span className="text-xs" style={{ color: 'var(--text-muted)' }} suppressHydrationWarning>
+            {relativeTime(alert.created_at)}
+          </span>
+        </div>
       </div>
 
-      {/* Single best alert */}
-      <div className="px-4 pb-4">
+      {/* Alert content */}
+      <div className="px-5 pb-4">
         <AlertEntry alert={alert} liveData={liveData} />
       </div>
 
       {/* Footer: tags + view market */}
-      <div className="border-t border-gray-100 dark:border-gray-800 px-4 py-3 flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3 border-t px-5 py-3" style={{ borderColor: 'var(--border-subtle)' }}>
         {tags.length > 0 && (
-          <div className="flex flex-wrap gap-1">
+          <div className="flex flex-wrap gap-1.5">
             {tags.map((t) => (
               <Link
                 key={t}
                 href={`/tag/${encodeURIComponent(t.toLowerCase().replace(/\s+/g, "-"))}`}
-                className="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700 transition-colors"
+                className="inline-block rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors"
+                style={{ background: 'var(--surface-2)', color: 'var(--text-muted)' }}
               >
                 {t}
               </Link>
@@ -214,9 +250,10 @@ function MarketGroupCard({ market, liveData }) {
         {marketUrl && (
           <Link
             href={`/market/${marketSlug(market.market_title, market.condition_id)}`}
-            className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors ml-auto"
+            className="inline-flex items-center gap-1 text-xs font-medium transition-colors ml-auto"
+            style={{ color: 'var(--text-muted)' }}
           >
-            View this market
+            View market
             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
             </svg>
@@ -230,15 +267,11 @@ function MarketGroupCard({ market, liveData }) {
 export default function AlertList({ markets, filters, loading }) {
   const [liveData, setLiveData] = useState({});
 
-  // Fetch live prices for all visible markets
   useEffect(() => {
     if (!markets || markets.length === 0) return;
-
     const cids = markets.map((m) => m.condition_id).filter(Boolean);
     if (cids.length === 0) return;
-
     let cancelled = false;
-
     const timer = setTimeout(() => {
       cids.forEach((cid) => {
         fetchMarketLive(cid)
@@ -250,22 +283,26 @@ export default function AlertList({ markets, filters, loading }) {
           .catch(() => {});
       });
     }, 100);
-
     return () => { cancelled = true; clearTimeout(timer); };
   }, [markets]);
 
   if (loading) {
     return (
-      <div className="rounded-lg bg-white p-8 text-center text-gray-400 dark:bg-gray-900 dark:text-gray-500">
-        Loading alerts...
+      <div className="flex flex-col gap-3">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="rounded-xl border animate-pulse" style={{ borderColor: 'var(--border)', background: 'var(--surface-card)', height: '160px' }} />
+        ))}
       </div>
     );
   }
 
   if (!markets || markets.length === 0) {
     return (
-      <div className="rounded-lg bg-white p-8 text-center text-gray-400 dark:bg-gray-900 dark:text-gray-500">
-        No alerts found.
+      <div className="rounded-xl border p-12 text-center" style={{ borderColor: 'var(--border)', background: 'var(--surface-card)', color: 'var(--text-muted)' }}>
+        <svg className="mx-auto mb-3 h-8 w-8 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+        </svg>
+        No signals detected yet.
       </div>
     );
   }
@@ -285,7 +322,6 @@ export default function AlertList({ markets, filters, loading }) {
       })
     : markets;
 
-  // Sort by the picked alert: newest first, highest score as tiebreaker
   const filtered = [...afterResolve].sort((a, b) => {
     const aAlert = pickBestAlert(a.alerts);
     const bAlert = pickBestAlert(b.alerts);
@@ -297,16 +333,16 @@ export default function AlertList({ markets, filters, loading }) {
 
   if (filtered.length === 0) {
     return (
-      <div className="rounded-lg bg-white p-8 text-center text-gray-400 dark:bg-gray-900 dark:text-gray-500">
-        No alerts match the current filters.
+      <div className="rounded-xl border p-12 text-center" style={{ borderColor: 'var(--border)', background: 'var(--surface-card)', color: 'var(--text-muted)' }}>
+        No signals match these filters.
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      {filtered.map((market) => (
-        <MarketGroupCard key={market.condition_id} market={market} liveData={liveData} />
+    <div className="flex flex-col gap-3">
+      {filtered.map((market, i) => (
+        <MarketGroupCard key={market.condition_id} market={market} liveData={liveData} index={i} />
       ))}
     </div>
   );

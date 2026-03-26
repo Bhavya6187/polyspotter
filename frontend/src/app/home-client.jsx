@@ -87,45 +87,85 @@ export default function HomeClient({ initialMarkets, initialTotal, tags }) {
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
 
+  // Aggregate stats for the stats bar
+  const totalAlerts = total;
+  const totalVolume = markets.reduce((sum, m) => {
+    const best = m.alerts?.[0];
+    return sum + (best?.total_usd || 0);
+  }, 0);
+  const marketsTracked = markets.length;
+
   return (
     <main className="mx-auto max-w-6xl px-4 py-6">
       {/* Header */}
-      <header className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-50">PolySpotter</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Large bets. Sharp wallets. Early signals.</p>
-        </div>
-        <div className="flex items-center gap-4">
-          <ThemeToggle />
-          <div className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500">
-            <span>Updated {formatRelativeTime(lastUpdated)}</span>
-            <button
-              onClick={refresh}
-              disabled={loading}
-              className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
-              aria-label="Refresh data"
-            >
-              <svg
-                className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M20 20v-5h-5M4.5 15.5A8.5 8.5 0 0119.5 8.5M19.5 8.5A8.5 8.5 0 014.5 15.5" />
+      <header className="mb-8">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {/* Logo mark */}
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg" style={{ background: 'var(--accent)', boxShadow: 'var(--glow-medium)' }}>
+              <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 text-white" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2 12l5-5 4 4 4-6 7 7" />
+                <circle cx="20" cy="12" r="2" fill="currentColor" stroke="none" />
               </svg>
-            </button>
+            </div>
+            <div>
+              <h1 className="text-xl font-bold tracking-tight" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>
+                PolySpotter
+              </h1>
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                Follow the smart money
+              </p>
+            </div>
           </div>
+          <div className="flex items-center gap-3">
+            <ThemeToggle />
+            <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+              <span className="flex items-center gap-1.5">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-pulse-live absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: 'var(--accent)' }} />
+                  <span className="relative inline-flex h-2 w-2 rounded-full" style={{ background: 'var(--accent)' }} />
+                </span>
+                Live
+              </span>
+              <span className="mx-1" style={{ color: 'var(--border)' }}>|</span>
+              <span>{formatRelativeTime(lastUpdated)}</span>
+              <button
+                onClick={refresh}
+                disabled={loading}
+                className="rounded-md p-1 transition-colors hover:opacity-70 disabled:opacity-40"
+                aria-label="Refresh data"
+              >
+                <svg
+                  className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M20 20v-5h-5M4.5 15.5A8.5 8.5 0 0119.5 8.5M19.5 8.5A8.5 8.5 0 014.5 15.5" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Stats bar */}
+        <div className="mt-5 flex items-center gap-6 rounded-xl border px-5 py-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
+          <StatItem label="Signals" value={totalAlerts} />
+          <div className="h-8 w-px" style={{ background: 'var(--border)' }} />
+          <StatItem label="Volume Tracked" value={`$${formatCompact(totalVolume)}`} />
+          <div className="h-8 w-px" style={{ background: 'var(--border)' }} />
+          <StatItem label="Markets" value={marketsTracked} />
         </div>
       </header>
 
       {/* Live ticker */}
-      <section aria-label="Live ticker" className="mb-4 -mx-4 sm:mx-0 sm:rounded-lg sm:overflow-hidden">
+      <section aria-label="Live ticker" className="mb-5 -mx-4 sm:mx-0 sm:rounded-xl sm:overflow-hidden">
         <Ticker />
       </section>
 
       {/* Filters */}
-      <section aria-label="Filters" className="mb-4">
+      <section aria-label="Filters" className="mb-5">
         <Filters
           tags={tags}
           filters={filters}
@@ -153,4 +193,23 @@ export default function HomeClient({ initialMarkets, initialTotal, tags }) {
       </nav>
     </main>
   );
+}
+
+function StatItem({ label, value }) {
+  return (
+    <div className="flex flex-col">
+      <span className="text-xs font-medium uppercase tracking-wider" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-muted)', fontSize: '0.65rem' }}>
+        {label}
+      </span>
+      <span className="text-lg font-bold animate-count-up" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function formatCompact(n) {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+  return n.toLocaleString();
 }

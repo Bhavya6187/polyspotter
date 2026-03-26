@@ -109,21 +109,22 @@ export default async function TagPage({ params }) {
       <nav className="mb-6" aria-label="Breadcrumb">
         <Link
           href="/"
-          className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+          className="inline-flex items-center gap-1.5 text-sm font-medium transition-colors"
+          style={{ color: 'var(--text-muted)' }}
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
-          Back to all markets
+          All markets
         </Link>
       </nav>
 
       {/* Header */}
       <header className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-50">
+        <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
           {tag}
         </h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+        <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
           {total} market{total !== 1 ? "s" : ""} with notable smart money trades
         </p>
       </header>
@@ -134,8 +135,8 @@ export default async function TagPage({ params }) {
           <TagPageClient initialMarkets={markets} initialTotal={total} tag={tag} />
         </section>
       ) : (
-        <div className="rounded-lg bg-white p-8 text-center text-gray-400 dark:bg-gray-900 dark:text-gray-500">
-          No alerts found for &ldquo;{tag}&rdquo;.
+        <div className="rounded-xl border p-12 text-center" style={{ borderColor: 'var(--border)', background: 'var(--surface-card)', color: 'var(--text-muted)' }}>
+          No signals found for &ldquo;{tag}&rdquo;.
         </div>
       )}
     </main>

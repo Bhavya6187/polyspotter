@@ -11,11 +11,13 @@ function Pill({ label, active, onClick }) {
   return (
     <button
       onClick={onClick}
-      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-        active
-          ? "bg-blue-600 text-white dark:bg-blue-500"
-          : "bg-white text-gray-600 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-      }`}
+      className="rounded-lg px-3 py-1.5 text-xs font-medium transition-all"
+      style={{
+        background: active ? 'var(--accent)' : 'var(--surface-card)',
+        color: active ? '#fff' : 'var(--text-secondary)',
+        border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+        boxShadow: active ? 'var(--glow-medium)' : 'none',
+      }}
     >
       {label}
     </button>
@@ -26,11 +28,13 @@ function TagPill({ label, active, href }) {
   return (
     <Link
       href={href}
-      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-        active
-          ? "bg-blue-600 text-white dark:bg-blue-500"
-          : "bg-white text-gray-600 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-      }`}
+      className="rounded-lg px-3 py-1.5 text-xs font-medium transition-all"
+      style={{
+        background: active ? 'var(--accent)' : 'var(--surface-card)',
+        color: active ? '#fff' : 'var(--text-secondary)',
+        border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+        boxShadow: active ? 'var(--glow-medium)' : 'none',
+      }}
     >
       {label}
     </Link>
@@ -47,10 +51,10 @@ export default function Filters({ tags, filters, onFilterChange }) {
     .slice(0, 10);
 
   return (
-    <div className="flex flex-col gap-2">
-      {/* Row 1: Resolves in */}
+    <div className="flex flex-col gap-3">
+      {/* Row 1: Resolution window */}
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500 mr-1">
+        <span className="text-xs font-semibold uppercase tracking-widest mr-1" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-muted)', fontSize: '0.6rem' }}>
           Resolves
         </span>
         {RESOLVE_OPTIONS.map((opt) => (
@@ -67,8 +71,8 @@ export default function Filters({ tags, filters, onFilterChange }) {
 
       {/* Row 2: Tags */}
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500 mr-1">
-          Tag
+        <span className="text-xs font-semibold uppercase tracking-widest mr-1" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-muted)', fontSize: '0.6rem' }}>
+          Topic
         </span>
         <Pill
           label="All"
