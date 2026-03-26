@@ -337,5 +337,154 @@ class TestCorrelatedCrossMarketStrategy(unittest.TestCase):
         self.assertEqual(mock_record.call_count, 1)
 
 
+    def test_sell_at_0_02_filtered(self, *mocks):
+        """SELL trade at price 0.02 should be filtered (complement of BUY >= 0.98)."""
+        trades = [
+            self._make_trade("w1", "event1", "cond1", usd=3000, side="SELL", price=0.02),
+            self._make_trade("w1", "event1", "cond2", usd=3000, side="SELL", price=0.02),
+        ]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 0)
+
+    def test_sell_at_0_03_not_filtered(self, *mocks):
+        """SELL trade at price 0.03 should NOT be filtered (above the 0.02 complement threshold)."""
+        trades = [
+            self._make_trade("w1", "event1", "cond1", usd=3000, side="SELL", price=0.03),
+            self._make_trade("w1", "event1", "cond2", usd=3000, side="SELL", price=0.03),
+        ]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 1)
+
+    def test_empty_wallet_skipped(self, *mocks):
+        """Trade with empty proxyWallet should be skipped in wallet grouping."""
+        trades = [
+            {
+                "proxyWallet": "",
+                "eventSlug": "event1",
+                "conditionId": "cond1",
+                "_usd_value": 3000,
+                "side": "BUY",
+                "price": 0.50,
+                "transactionHash": "0xtx_empty_cond1",
+            },
+            {
+                "proxyWallet": "",
+                "eventSlug": "event1",
+                "conditionId": "cond2",
+                "_usd_value": 3000,
+                "side": "BUY",
+                "price": 0.50,
+                "transactionHash": "0xtx_empty_cond2",
+            },
+        ]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 0)
+
+    def test_empty_event_slug_skipped(self, *mocks):
+        """Trade with empty eventSlug should be skipped in wallet grouping."""
+        trades = [
+            {
+                "proxyWallet": "w1",
+                "eventSlug": "",
+                "conditionId": "cond1",
+                "_usd_value": 3000,
+                "side": "BUY",
+                "price": 0.50,
+                "transactionHash": "0xtx_w1_cond1",
+            },
+            {
+                "proxyWallet": "w1",
+                "eventSlug": "",
+                "conditionId": "cond2",
+                "_usd_value": 3000,
+                "side": "BUY",
+                "price": 0.50,
+                "transactionHash": "0xtx_w1_cond2",
+            },
+        ]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 0)
+
+    def test_severity_boundary_exactly_10k(self, *mocks):
+        """Combined USD exactly $10,000 should get severity 2.0 (>= $10k tier)."""
+        trades = [
+            self._make_trade("w1", "event1", "cond1", usd=5000),
+            self._make_trade("w1", "event1", "cond2", usd=5000),
+        ]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].severity, 2.0)
+
+    def test_severity_boundary_exactly_20k(self, *mocks):
+        """Combined USD exactly $20,000 should get severity 3.0 (>= $20k tier)."""
+        trades = [
+            self._make_trade("w1", "event1", "cond1", usd=10000),
+            self._make_trade("w1", "event1", "cond2", usd=10000),
+        ]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].severity, 3.0)
+
+    def test_severity_boundary_exactly_50k(self, *mocks):
+        """Combined USD exactly $50,000 should get severity 4.0 (>= $50k tier)."""
+        trades = [
+            self._make_trade("w1", "event1", "cond1", usd=25000),
+            self._make_trade("w1", "event1", "cond2", usd=25000),
+        ]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].severity, 4.0)
+
+    def test_missing_transaction_hash(self, *mocks):
+        """Trades without transactionHash should still produce a signal, just with fewer hashes."""
+        trades = [
+            {
+                "proxyWallet": "w1",
+                "eventSlug": "event1",
+                "conditionId": "cond1",
+                "_usd_value": 3000,
+                "side": "BUY",
+                "price": 0.50,
+                # no transactionHash key
+            },
+            {
+                "proxyWallet": "w1",
+                "eventSlug": "event1",
+                "conditionId": "cond2",
+                "_usd_value": 3000,
+                "side": "BUY",
+                "price": 0.50,
+                # no transactionHash key
+            },
+        ]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].trade_hashes, [])
+
+    def test_serial_no_active_trades(
+        self, mock_get_mkt, mock_is_sport, mock_record, mock_hist, mock_stats
+    ):
+        """Serial trader with historical events but no current-window trades should not crash."""
+        mock_stats.return_value = {
+            "distinct_events": 30,
+            "distinct_markets": 50,
+            "total_usd": 100_000,
+            "total_trades": 60,
+        }
+        # All trades are near-resolved (filtered out), so active_trades is empty for this wallet
+        trades = [
+            self._make_trade("w1", "event1", "cond1", usd=3000, side="BUY", price=0.99),
+        ]
+        with patch(
+            "detection_strategies.correlated_cross_market.get_wallet_pnl_summary",
+            return_value={"closed_positions": 20, "wins": 15, "total_pnl": 5000, "total_invested": 10000},
+        ):
+            # Should not raise any exception
+            signals = self.strategy.analyze_all(trades)
+            serial_sigs = [s for s in signals if "Serial" in s.headline]
+            # rep_trade will be None since no active trades match wallet, so serial signal is skipped
+            self.assertEqual(len(serial_sigs), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

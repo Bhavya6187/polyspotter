@@ -556,5 +556,201 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
         self.assertIsNone(second)
 
 
+    @patch("detection_strategies.win_rate_tracking._update_resolutions", return_value=0)
+    @patch("detection_strategies.win_rate_tracking._fetch_wallet_pnl", return_value=None)
+    @patch("db.get_db")
+    def test_missing_wallet_returns_none(self, mock_get_db, mock_fetch_pnl, mock_resolutions):
+        """Trade with no 'proxyWallet' key should return None immediately."""
+        conn = self._make_conn()
+        mock_get_db.return_value = conn
+
+        strategy = WinRateTrackingStrategy()
+        trade = {
+            "conditionId": "cond_1",
+            "outcome": "Yes",
+            "side": "BUY",
+            "_usd_value": 5000,
+            "timestamp": 1700010000,
+        }
+        result = strategy.check_trade(trade)
+        self.assertIsNone(result)
+
+    @patch("detection_strategies.win_rate_tracking._update_resolutions", return_value=0)
+    @patch("detection_strategies.win_rate_tracking._fetch_wallet_pnl", return_value=None)
+    @patch("db.get_db")
+    def test_none_wallet_returns_none(self, mock_get_db, mock_fetch_pnl, mock_resolutions):
+        """Trade with proxyWallet=None should return None immediately."""
+        conn = self._make_conn()
+        mock_get_db.return_value = conn
+
+        strategy = WinRateTrackingStrategy()
+        trade = {
+            "proxyWallet": None,
+            "conditionId": "cond_1",
+            "outcome": "Yes",
+            "side": "BUY",
+            "_usd_value": 5000,
+            "timestamp": 1700010000,
+        }
+        result = strategy.check_trade(trade)
+        self.assertIsNone(result)
+
+    @patch("detection_strategies.win_rate_tracking._update_resolutions", return_value=0)
+    @patch("detection_strategies.win_rate_tracking._fetch_wallet_pnl", return_value=None)
+    @patch("db.get_db")
+    def test_fallback_edge_calculation(self, mock_get_db, mock_fetch_pnl, mock_resolutions):
+        """When wallet_pnl has no closed positions but tracked_bets has >= MIN_RESOLVED_BETS,
+        edge should fall back to win_rate - 0.5 (line 298)."""
+        conn = self._make_conn()
+        # 10 resolved tracked_bets all wins — 100% win rate, edge = 1.0 - 0.5 = 0.5
+        for i in range(10):
+            conn.execute(
+                """INSERT INTO tracked_bets
+                (wallet, condition_id, outcome, side, usd_value, trade_timestamp, recorded_at, resolved, won)
+                VALUES ('0xwallet1', ?, 'Yes', 'BUY', 5000, 1700000000, '2024-01-01', 1, 1)""",
+                (f"cond_{i}",),
+            )
+        conn.commit()
+        # No wallet_pnl rows — avg_closed_price will be 0, fallback edge = win_rate - 0.5
+        mock_get_db.return_value = conn
+
+        strategy = WinRateTrackingStrategy()
+        result = strategy.check_trade(self._make_trade())
+        self.assertIsNotNone(result)
+        self.assertEqual(result.strategy, "win_rate_tracking")
+        # edge = 1.0 - 0.5 = 0.50, which is >= MIN_EDGE_THRESHOLD (0.15)
+        # severity: edge >= 0.50 → 4.0, boosted by +1 (edge >= 0.30 but closed_positions < 10)
+        # Actually closed_positions == 0, so no boost. severity stays 4.0
+        self.assertGreaterEqual(result.severity, 2.0)
+
+    @patch("detection_strategies.win_rate_tracking._update_resolutions", return_value=0)
+    @patch("detection_strategies.win_rate_tracking._fetch_wallet_pnl", return_value=None)
+    @patch("db.get_db")
+    def test_high_edge_severity_4(self, mock_get_db, mock_fetch_pnl, mock_resolutions):
+        """Edge >= 0.50 should give base severity 4.0 (line 311-312)."""
+        conn = self._make_conn()
+        # 11 wins, 1 loss = ~91.7% win rate. avg_price=0.30 → edge = 0.917 - 0.30 = 0.617 >= 0.50
+        for i in range(11):
+            conn.execute(
+                """INSERT INTO wallet_pnl
+                (wallet, condition_id, asset, outcome, avg_price, total_bought, realized_pnl,
+                 cur_price, event_slug, end_date, position_type, recorded_at, api_timestamp)
+                VALUES ('0xwallet1', ?, ?, 'Yes', 0.30, 100.0, 70.0,
+                        1.0, 'slug', '2024-12-01', 'closed', '2024-01-01', 1700000000)""",
+                (f"cond_win_{i}", f"asset_win_{i}"),
+            )
+        conn.execute(
+            """INSERT INTO wallet_pnl
+            (wallet, condition_id, asset, outcome, avg_price, total_bought, realized_pnl,
+             cur_price, event_slug, end_date, position_type, recorded_at, api_timestamp)
+            VALUES ('0xwallet1', 'cond_loss_0', 'asset_loss_0', 'Yes', 0.30, 100.0, -30.0,
+                    0.0, 'slug', '2024-12-01', 'closed', '2024-01-01', 1700000000)"""
+        )
+        conn.commit()
+        mock_get_db.return_value = conn
+
+        strategy = WinRateTrackingStrategy()
+        result = strategy.check_trade(self._make_trade())
+        self.assertIsNotNone(result)
+        # Base severity 4.0 (edge >= 0.50), then boosted +1 since edge >= 0.30 and
+        # closed_positions (12) >= MIN_RESOLVED_BETS (10) → severity = 5.0
+        self.assertGreaterEqual(result.severity, 4.0)
+
+    @patch("detection_strategies.win_rate_tracking._update_resolutions", return_value=0)
+    @patch("detection_strategies.win_rate_tracking._fetch_wallet_pnl", return_value=None)
+    @patch("db.get_db")
+    def test_mid_edge_severity_2(self, mock_get_db, mock_fetch_pnl, mock_resolutions):
+        """Edge in [0.15, 0.30) should give base severity 2.0 (line 315-316)."""
+        conn = self._make_conn()
+        # 10 wins, 2 losses = ~83.3% win rate. avg_price=0.70 → edge = 0.833 - 0.70 = 0.133.
+        # That's below MIN_EDGE_THRESHOLD. Use avg_price=0.65 → edge = 0.833 - 0.65 = 0.183 ∈ [0.15, 0.30)
+        for i in range(10):
+            conn.execute(
+                """INSERT INTO wallet_pnl
+                (wallet, condition_id, asset, outcome, avg_price, total_bought, realized_pnl,
+                 cur_price, event_slug, end_date, position_type, recorded_at, api_timestamp)
+                VALUES ('0xwallet1', ?, ?, 'Yes', 0.65, 100.0, 35.0,
+                        1.0, 'slug', '2024-12-01', 'closed', '2024-01-01', 1700000000)""",
+                (f"cond_win_{i}", f"asset_win_{i}"),
+            )
+        for i in range(2):
+            conn.execute(
+                """INSERT INTO wallet_pnl
+                (wallet, condition_id, asset, outcome, avg_price, total_bought, realized_pnl,
+                 cur_price, event_slug, end_date, position_type, recorded_at, api_timestamp)
+                VALUES ('0xwallet1', ?, ?, 'Yes', 0.65, 100.0, -65.0,
+                        0.0, 'slug', '2024-12-01', 'closed', '2024-01-01', 1700000000)""",
+                (f"cond_loss_{i}", f"asset_loss_{i}"),
+            )
+        conn.commit()
+        mock_get_db.return_value = conn
+
+        strategy = WinRateTrackingStrategy()
+        result = strategy.check_trade(self._make_trade())
+        self.assertIsNotNone(result)
+        # win_rate = 10/12 ≈ 0.833 >= 0.75
+        # edge = 0.833 - 0.65 ≈ 0.183 ∈ [0.15, 0.30) → base severity = 2.0
+        # edge < 0.30 so no boost from line 331 → final severity = 2.0
+        self.assertEqual(result.severity, 2.0)
+
+    @patch("detection_strategies.win_rate_tracking._update_resolutions", return_value=0)
+    @patch("detection_strategies.win_rate_tracking._fetch_wallet_pnl", return_value=None)
+    @patch("db.get_db")
+    def test_case_insensitive_wallet_dedup(self, mock_get_db, mock_fetch_pnl, mock_resolutions):
+        """Calling check_trade with '0xWALLET1' then '0xwallet1' should only signal once
+        (lines 259-260: _win_rate_signaled stores wallet.lower())."""
+        conn = self._make_conn()
+        # 10 wins, 2 losses in wallet_pnl (lowercase wallet key)
+        for i in range(10):
+            conn.execute(
+                """INSERT INTO wallet_pnl
+                (wallet, condition_id, asset, outcome, avg_price, total_bought, realized_pnl,
+                 cur_price, event_slug, end_date, position_type, recorded_at, api_timestamp)
+                VALUES ('0xwallet1', ?, ?, 'Yes', 0.50, 100.0, 50.0,
+                        1.0, 'slug', '2024-12-01', 'closed', '2024-01-01', 1700000000)""",
+                (f"cond_win_{i}", f"asset_win_{i}"),
+            )
+        for i in range(2):
+            conn.execute(
+                """INSERT INTO wallet_pnl
+                (wallet, condition_id, asset, outcome, avg_price, total_bought, realized_pnl,
+                 cur_price, event_slug, end_date, position_type, recorded_at, api_timestamp)
+                VALUES ('0xwallet1', ?, ?, 'Yes', 0.50, 100.0, -50.0,
+                        0.0, 'slug', '2024-12-01', 'closed', '2024-01-01', 1700000000)""",
+                (f"cond_loss_{i}", f"asset_loss_{i}"),
+            )
+        conn.commit()
+        mock_get_db.return_value = conn
+
+        strategy = WinRateTrackingStrategy()
+        first = strategy.check_trade(self._make_trade(wallet="0xWALLET1"))
+        self.assertIsNotNone(first)
+        second = strategy.check_trade(self._make_trade(wallet="0xwallet1"))
+        self.assertIsNone(second)
+
+    @patch("detection_strategies.win_rate_tracking._update_resolutions", return_value=0)
+    @patch("detection_strategies.win_rate_tracking._fetch_wallet_pnl", return_value=None)
+    @patch("db.get_db")
+    def test_headline_without_avg_price(self, mock_get_db, mock_fetch_pnl, mock_resolutions):
+        """When pnl avg_closed_price is 0 (no resolved price data), headline should
+        not include 'avg' (line 328 vs 320-327)."""
+        conn = self._make_conn()
+        # 10 resolved tracked_bets all wins. No wallet_pnl rows → avg_closed_price = 0
+        for i in range(10):
+            conn.execute(
+                """INSERT INTO tracked_bets
+                (wallet, condition_id, outcome, side, usd_value, trade_timestamp, recorded_at, resolved, won)
+                VALUES ('0xwallet1', ?, 'Yes', 'BUY', 5000, 1700000000, '2024-01-01', 1, 1)""",
+                (f"cond_{i}",),
+            )
+        conn.commit()
+        mock_get_db.return_value = conn
+
+        strategy = WinRateTrackingStrategy()
+        result = strategy.check_trade(self._make_trade())
+        self.assertIsNotNone(result)
+        self.assertNotIn("avg", result.headline.lower())
+
+
 if __name__ == "__main__":
     unittest.main()

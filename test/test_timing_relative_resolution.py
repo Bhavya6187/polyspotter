@@ -575,5 +575,179 @@ class TestSportSerialTimerThreshold(unittest.TestCase):
         self.assertIn("SERIAL TIMER", result.headline)
 
 
+# ---------------------------------------------------------------------------
+# New tests: boundary and edge-case coverage
+# ---------------------------------------------------------------------------
+
+@patch(
+    "detection_strategies.timing_relative_resolution.get_wallet_pnl_summary",
+    return_value=EMPTY_PNL,
+)
+@patch(
+    "detection_strategies.timing_relative_resolution.get_wallet_timing_stats",
+    return_value=EMPTY_TIMING_STATS,
+)
+@patch("detection_strategies.timing_relative_resolution.record_timing_flag")
+@patch("detection_strategies.timing_relative_resolution.is_sport_market", return_value=False)
+class TestTimingBoundaryAndEdgeCases(unittest.TestCase):
+    """Boundary conditions and edge cases for timing_relative_resolution."""
+
+    def setUp(self):
+        self.strategy = TimingRelativeResolutionStrategy()
+
+    def _make_trade(self, usd=5000, wallet="0xwallet1", ts=1700000000):
+        return {
+            "conditionId": "cond_1",
+            "proxyWallet": wallet,
+            "_usd_value": usd,
+            "timestamp": ts,
+            "eventSlug": "",
+        }
+
+    # 1. Invalid endDate format should return None (ValueError path in _parse_datetime)
+    @patch("detection_strategies.timing_relative_resolution.get_market_by_condition")
+    def test_invalid_end_date_format_returns_none(self, mock_market, *mocks):
+        """Market with endDate='not-a-date' should return None via ValueError path."""
+        mock_market.return_value = {"endDate": "not-a-date"}
+        result = self.strategy.check_trade(self._make_trade())
+        self.assertIsNone(result)
+
+    # 2. Market with exactly 60-minute duration should NOT be suppressed (boundary: >= SHORT_MARKET_HOURS)
+    @patch("detection_strategies.timing_relative_resolution.get_market_by_condition")
+    def test_market_duration_exactly_1_hour(self, mock_market, *mocks):
+        """Market with exactly 60-minute duration should not be suppressed (boundary: >= SHORT_MARKET_HOURS)."""
+        trade_ts = 1700000000
+        # startDate exactly 60 minutes before endDate
+        start_dt = datetime.fromtimestamp(trade_ts - 55 * 60, tz=timezone.utc)
+        end_dt = datetime.fromtimestamp(trade_ts + 5 * 60, tz=timezone.utc)
+        # duration = 60 minutes = exactly 1 hour => NOT suppressed
+        mock_market.return_value = {
+            "startDate": start_dt.isoformat(),
+            "endDate": end_dt.isoformat(),
+        }
+        result = self.strategy.check_trade(self._make_trade(ts=trade_ts))
+        self.assertIsNotNone(result)
+        self.assertIn("min before resolution", result.headline)
+
+    # 3. Trade with _usd_value exactly 1000 should trigger (boundary: >= MIN_BET_USD)
+    @patch("detection_strategies.timing_relative_resolution.get_market_by_condition")
+    def test_usd_value_exactly_1000_triggers(self, mock_market, *mocks):
+        """Trade with _usd_value exactly 1000 should trigger (boundary: >= MIN_BET_USD)."""
+        trade_ts = 1700000000
+        end_dt = datetime.fromtimestamp(trade_ts + 300, tz=timezone.utc)
+        mock_market.return_value = {"endDate": end_dt.isoformat()}
+        result = self.strategy.check_trade(self._make_trade(usd=1000, ts=trade_ts))
+        self.assertIsNotNone(result)
+        self.assertEqual(result.strategy, "timing_relative_resolution")
+
+    # 4. Edge exactly -0.10 should pass edge gate (boundary: edge >= MIN_EDGE_GATE, not <)
+    @patch("detection_strategies.timing_relative_resolution.get_market_by_condition")
+    def test_edge_exactly_negative_0_10_passes(self, mock_market, mock_is_sport, mock_record, mock_stats, mock_pnl):
+        """Edge exactly -0.10 should pass the edge gate (suppressed only when edge < -0.10)."""
+        mock_pnl.return_value = {**EMPTY_PNL, "closed_positions": 10, "edge": -0.10}
+        trade_ts = 1700000000
+        end_dt = datetime.fromtimestamp(trade_ts + 300, tz=timezone.utc)
+        mock_market.return_value = {"endDate": end_dt.isoformat()}
+        result = self.strategy.check_trade(self._make_trade(usd=3000, ts=trade_ts))
+        self.assertIsNotNone(result)
+        self.assertEqual(result.strategy, "timing_relative_resolution")
+
+    # 5. timing_ratio exactly 0.5 should NOT be labeled routine (boundary: > SERIAL_TIMER_RATIO_CAP, not >=)
+    @patch("detection_strategies.timing_relative_resolution.get_market_by_condition")
+    def test_timing_ratio_exactly_0_5_passes(self, mock_market, mock_is_sport, mock_record, mock_stats_outer, mock_pnl_outer):
+        """timing_ratio exactly 0.5 should NOT be labeled routine (boundary: ratio > 0.5, not >=).
+
+        Uses class-level mock args directly to avoid double-patching the same target.
+        """
+        # total_flags=5, total_positions=10 => ratio=0.5, NOT > 0.5, so not routine
+        mock_stats_outer.return_value = {
+            "total_flags": 5, "distinct_markets": 3,
+            "avg_minutes": 5, "min_minutes": 1, "total_usd": 20000,
+        }
+        mock_pnl_outer.return_value = {
+            **EMPTY_PNL,
+            "total_positions": 10,
+            "closed_positions": 5,
+            "wins": 4, "losses": 1,
+            "total_pnl": 3000, "total_invested": 5000, "edge": 0.20,
+        }
+        trade_ts = 1700000000
+        end_dt = datetime.fromtimestamp(trade_ts + 180, tz=timezone.utc)
+        mock_market.return_value = {"endDate": end_dt.isoformat()}
+        result = self.strategy.check_trade(self._make_trade(ts=trade_ts))
+        self.assertIsNotNone(result)
+        # ratio=0.5 is NOT > 0.5, so not a routine bettor; with total_flags=5 >= REPEAT_THRESHOLD=3,
+        # has_edge=True (closed_positions=5 >= 3, edge=0.20 > 0), SERIAL TIMER should appear
+        self.assertIn("SERIAL TIMER", result.headline)
+
+    # 6. Profitable serial timer should cap severity at 8.0
+    @patch("detection_strategies.timing_relative_resolution.get_market_by_condition")
+    def test_serial_timer_severity_cap_at_8(self, mock_market, mock_is_sport, mock_record, mock_stats_outer, mock_pnl_outer):
+        """Profitable serial timer should have severity capped at 8.0.
+
+        Uses class-level mock args directly to avoid double-patching the same target.
+        """
+        mock_stats_outer.return_value = {
+            "total_flags": 10, "distinct_markets": 6,
+            "avg_minutes": 1, "min_minutes": 0.5, "total_usd": 80000,
+        }
+        mock_pnl_outer.return_value = {
+            **EMPTY_PNL,
+            "total_positions": 100,
+            "closed_positions": 10,
+            "wins": 8, "losses": 2,
+            "total_pnl": 10000, "total_invested": 20000, "edge": 0.40,
+        }
+        trade_ts = 1700000000
+        # Trade 0 minutes before resolution → max base severity = 5.0
+        # +1.5 NON_SPORT_SEVERITY_BOOST → capped at 7.0
+        # +1.0 profitable serial timer → capped at 8.0
+        end_dt = datetime.fromtimestamp(trade_ts, tz=timezone.utc)
+        mock_market.return_value = {"endDate": end_dt.isoformat()}
+        result = self.strategy.check_trade(self._make_trade(ts=trade_ts))
+        self.assertIsNotNone(result)
+        self.assertIn("SERIAL TIMER", result.headline)
+        self.assertLessEqual(result.severity, 8.0)
+        # Ensure it actually hit the cap (severity would exceed 8.0 without it)
+        self.assertEqual(result.severity, 8.0)
+
+    # 7. closed_positions exactly at MIN_CLOSED_FOR_GATE boundary should trigger the gate check
+    @patch("detection_strategies.timing_relative_resolution.get_market_by_condition")
+    def test_closed_positions_exactly_5_triggers_edge_gate(self, mock_market, mock_is_sport, mock_record, mock_stats, mock_pnl):
+        """closed_positions exactly 5 (MIN_CLOSED_FOR_GATE) with bad edge should suppress."""
+        mock_pnl.return_value = {**EMPTY_PNL, "closed_positions": 5, "edge": -0.20}
+        trade_ts = 1700000000
+        end_dt = datetime.fromtimestamp(trade_ts + 300, tz=timezone.utc)
+        mock_market.return_value = {"endDate": end_dt.isoformat()}
+        result = self.strategy.check_trade(self._make_trade(usd=3000, ts=trade_ts))
+        self.assertIsNone(result)
+
+    # 8. closed_positions exactly 3 should satisfy has_edge check for serial timer
+    @patch("detection_strategies.timing_relative_resolution.get_market_by_condition")
+    def test_closed_positions_exactly_3_for_serial(self, mock_market, mock_is_sport, mock_record, mock_stats_outer, mock_pnl_outer):
+        """closed_positions exactly 3 with positive edge should satisfy has_edge for serial timer.
+
+        Uses the class-level mock arguments directly to avoid double-patching the same target.
+        """
+        mock_stats_outer.return_value = {
+            "total_flags": 5, "distinct_markets": 3,
+            "avg_minutes": 5, "min_minutes": 1, "total_usd": 20000,
+        }
+        mock_pnl_outer.return_value = {
+            **EMPTY_PNL,
+            "total_positions": 100,
+            "closed_positions": 3,  # exactly at the boundary (>= 3)
+            "wins": 2, "losses": 1,
+            "total_pnl": 2000, "total_invested": 5000, "edge": 0.15,
+        }
+        trade_ts = 1700000000
+        end_dt = datetime.fromtimestamp(trade_ts + 180, tz=timezone.utc)
+        mock_market.return_value = {"endDate": end_dt.isoformat()}
+        result = self.strategy.check_trade(self._make_trade(ts=trade_ts))
+        self.assertIsNotNone(result)
+        # closed_positions=3 >= 3 and edge=0.15 > 0 → has_edge=True → SERIAL TIMER
+        self.assertIn("SERIAL TIMER", result.headline)
+
+
 if __name__ == "__main__":
     unittest.main()

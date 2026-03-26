@@ -299,5 +299,276 @@ class TestNewWalletLargeBetStrategy(unittest.TestCase):
         self.assertIsNone(result)
 
 
+    # ------------------------------------------------------------------
+    # Severity boundary tests
+    # ------------------------------------------------------------------
+
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_pnl_summary")
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_wallet",
+        return_value={
+            "times_flagged": 1,
+            "total_usd_flagged": 5000,
+            "first_flagged_at": "2024-01-01",
+            "last_flagged_at": "2024-01-01",
+        },
+    )
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_trade_event",
+        return_value=True,
+    )
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_profile")
+    def test_severity_boundary_exactly_7_days(
+        self, mock_profile, mock_trade_event, mock_record, mock_pnl
+    ):
+        # delta == 7 falls into elif delta < 14 branch -> severity 2.5 (not 3.5)
+        created = datetime.now(timezone.utc) - timedelta(days=7)
+        mock_profile.return_value = (created, {})
+        mock_pnl.return_value = {
+            "total_positions": 0,
+            "closed_positions": 0,
+            "total_pnl": 0,
+        }
+        trade = self._make_trade()
+        result = self.strategy.check_trade(trade)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, 2.5)
+
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_pnl_summary")
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_wallet",
+        return_value={
+            "times_flagged": 1,
+            "total_usd_flagged": 5000,
+            "first_flagged_at": "2024-01-01",
+            "last_flagged_at": "2024-01-01",
+        },
+    )
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_trade_event",
+        return_value=True,
+    )
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_profile")
+    def test_severity_boundary_exactly_14_days(
+        self, mock_profile, mock_trade_event, mock_record, mock_pnl
+    ):
+        # delta == 14 falls into else branch -> severity 1.5 (not 2.5)
+        created = datetime.now(timezone.utc) - timedelta(days=14)
+        mock_profile.return_value = (created, {})
+        mock_pnl.return_value = {
+            "total_positions": 0,
+            "closed_positions": 0,
+            "total_pnl": 0,
+        }
+        trade = self._make_trade()
+        result = self.strategy.check_trade(trade)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, 1.5)
+
+    # ------------------------------------------------------------------
+    # Severity cap test
+    # ------------------------------------------------------------------
+
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_pnl_summary")
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_wallet",
+        return_value={
+            "times_flagged": 10,
+            "total_usd_flagged": 50000,
+            "first_flagged_at": "2024-01-01",
+            "last_flagged_at": "2024-01-10",
+        },
+    )
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_trade_event",
+        return_value=True,
+    )
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_profile")
+    def test_severity_cap_at_7(
+        self, mock_profile, mock_trade_event, mock_record, mock_pnl
+    ):
+        # times_flagged=10: repeat_bonus = min(2.0, 10*0.5) = 2.0
+        # base 3.5 + 2.0 = 5.5; + 0.5 PnL bonus = 6.0 — still under cap
+        # Use very high closed_positions/pnl to try to exceed 7.0
+        created = datetime.now(timezone.utc) - timedelta(days=2)
+        mock_profile.return_value = (created, {})
+        mock_pnl.return_value = {
+            "total_positions": 5,
+            "closed_positions": 5,
+            "total_pnl": 1000,
+        }
+        trade = self._make_trade()
+        result = self.strategy.check_trade(trade)
+        self.assertIsNotNone(result)
+        # base 3.5 + repeat_bonus min(2.0, 5.0)=2.0 = 5.5, then +0.5 PnL = 6.0, capped at 7.0
+        self.assertLessEqual(result.severity, 7.0)
+
+    # ------------------------------------------------------------------
+    # PnL bonus edge cases
+    # ------------------------------------------------------------------
+
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_pnl_summary")
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_wallet",
+        return_value={
+            "times_flagged": 1,
+            "total_usd_flagged": 5000,
+            "first_flagged_at": "2024-01-01",
+            "last_flagged_at": "2024-01-01",
+        },
+    )
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_trade_event",
+        return_value=True,
+    )
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_profile")
+    def test_pnl_bonus_negative_pnl(
+        self, mock_profile, mock_trade_event, mock_record, mock_pnl
+    ):
+        # closed_positions >= 3 but total_pnl < 0: no severity bonus
+        created = datetime.now(timezone.utc) - timedelta(days=3)
+        mock_profile.return_value = (created, {})
+        mock_pnl.return_value = {
+            "total_positions": 5,
+            "closed_positions": 4,
+            "total_pnl": -200,
+        }
+        trade = self._make_trade()
+        result = self.strategy.check_trade(trade)
+        self.assertIsNotNone(result)
+        # Base 3.5 only — no PnL bonus for negative P&L
+        self.assertEqual(result.severity, 3.5)
+        self.assertNotIn("P&L", result.headline)
+
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_pnl_summary")
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_wallet",
+        return_value={
+            "times_flagged": 1,
+            "total_usd_flagged": 5000,
+            "first_flagged_at": "2024-01-01",
+            "last_flagged_at": "2024-01-01",
+        },
+    )
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_trade_event",
+        return_value=True,
+    )
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_profile")
+    def test_pnl_bonus_insufficient_closed(
+        self, mock_profile, mock_trade_event, mock_record, mock_pnl
+    ):
+        # total_positions > 0 but closed_positions < 3: headline updated, no severity bonus
+        created = datetime.now(timezone.utc) - timedelta(days=3)
+        mock_profile.return_value = (created, {})
+        mock_pnl.return_value = {
+            "total_positions": 3,
+            "closed_positions": 2,
+            "total_pnl": 500,
+        }
+        trade = self._make_trade()
+        result = self.strategy.check_trade(trade)
+        self.assertIsNotNone(result)
+        # Headline should mention positions but no P&L bonus
+        self.assertIn("positions", result.headline)
+        self.assertNotIn("P&L", result.headline)
+        # Severity stays at base 3.5 (no PnL bonus)
+        self.assertEqual(result.severity, 3.5)
+
+    # ------------------------------------------------------------------
+    # Position filter boundary
+    # ------------------------------------------------------------------
+
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_pnl_summary")
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_profile")
+    def test_exactly_10_positions_filtered(self, mock_profile, mock_pnl):
+        # total_positions >= 10 should be skipped (line 175)
+        created = datetime.now(timezone.utc) - timedelta(days=3)
+        mock_profile.return_value = (created, {"pseudonym": "active_trader"})
+        mock_pnl.return_value = {
+            "total_positions": 10,
+            "closed_positions": 0,
+            "total_pnl": 0,
+        }
+        trade = self._make_trade()
+        result = self.strategy.check_trade(trade)
+        self.assertIsNone(result)
+
+    # ------------------------------------------------------------------
+    # Repeat bonus cap
+    # ------------------------------------------------------------------
+
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_pnl_summary")
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_wallet",
+        return_value={
+            "times_flagged": 5,
+            "total_usd_flagged": 25000,
+            "first_flagged_at": "2024-01-01",
+            "last_flagged_at": "2024-01-05",
+        },
+    )
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_trade_event",
+        return_value=True,
+    )
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_profile")
+    def test_repeat_bonus_cap_at_2(
+        self, mock_profile, mock_trade_event, mock_record, mock_pnl
+    ):
+        # times_flagged=5: repeat_bonus = min(2.0, 5*0.5) = 2.0 (capped)
+        created = datetime.now(timezone.utc) - timedelta(days=2)
+        mock_profile.return_value = (created, {})
+        mock_pnl.return_value = {
+            "total_positions": 0,
+            "closed_positions": 0,
+            "total_pnl": 0,
+        }
+        trade = self._make_trade()
+        result = self.strategy.check_trade(trade)
+        self.assertIsNotNone(result)
+        # base 3.5 + min(2.0, 5*0.5)=2.0 = 5.5
+        self.assertEqual(result.severity, 5.5)
+
+    # ------------------------------------------------------------------
+    # Combined repeat and PnL bonus
+    # ------------------------------------------------------------------
+
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_pnl_summary")
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_wallet",
+        return_value={
+            "times_flagged": 3,
+            "total_usd_flagged": 15000,
+            "first_flagged_at": "2024-01-01",
+            "last_flagged_at": "2024-01-03",
+        },
+    )
+    @patch(
+        "detection_strategies.new_wallet_large_bet.record_flagged_trade_event",
+        return_value=True,
+    )
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_profile")
+    def test_combined_repeat_and_pnl_bonus(
+        self, mock_profile, mock_trade_event, mock_record, mock_pnl
+    ):
+        # times_flagged=3: repeat_bonus = min(2.0, 3*0.5) = 1.5
+        # closed_positions=4 >= 3 and total_pnl=300 > 0: PnL bonus 0.5
+        # base 3.5 + 1.5 + 0.5 = 5.5
+        created = datetime.now(timezone.utc) - timedelta(days=2)
+        mock_profile.return_value = (created, {})
+        mock_pnl.return_value = {
+            "total_positions": 5,
+            "closed_positions": 4,
+            "total_pnl": 300,
+        }
+        trade = self._make_trade()
+        result = self.strategy.check_trade(trade)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.severity, 5.5)
+        self.assertIn("REPEAT x3", result.headline)
+        self.assertIn("P&L", result.headline)
+
+
 if __name__ == "__main__":
     unittest.main()
