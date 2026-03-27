@@ -112,34 +112,69 @@ export default function MarketPageClient({ conditionId, initialLive, initialAler
       </header>
 
       {/* Live outcomes */}
-      {outcomes.length > 0 && (
-        <div className="mb-8 grid gap-3 sm:grid-cols-2">
-          {outcomes.map((o) => {
-            const pct = Math.round((o.price || 0) * 100);
-            return (
-              <div
-                key={o.name}
-                className="rounded-xl border p-4 relative overflow-hidden"
-                style={{ borderColor: 'var(--border)', background: 'var(--surface-card)' }}
-              >
-                {/* Fill bar */}
+      {outcomes.length > 0 && (() => {
+        const maxPct = Math.max(...outcomes.map((o) => Math.round((o.price || 0) * 100)));
+        return (
+          <div className="mb-8 grid gap-3 sm:grid-cols-2">
+            {outcomes.map((o) => {
+              const pct = Math.round((o.price || 0) * 100);
+              const isLeading = pct === maxPct && pct > 50;
+              return (
                 <div
-                  className="absolute inset-y-0 left-0 opacity-[0.06]"
-                  style={{ width: `${pct}%`, background: 'var(--accent)' }}
-                />
-                <div className="relative flex items-center justify-between">
-                  <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
-                    {o.name}
-                  </span>
-                  <span className="text-lg font-bold" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>
-                    {pct}&cent;
-                  </span>
+                  key={o.name}
+                  className="rounded-xl border p-4 relative overflow-hidden"
+                  style={{
+                    borderColor: isLeading ? 'rgba(0, 194, 106, 0.3)' : 'var(--border)',
+                    background: 'var(--surface-card)',
+                    boxShadow: isLeading ? 'var(--glow-medium)' : 'none',
+                  }}
+                >
+                  {/* Background fill */}
+                  <div
+                    className="absolute inset-y-0 left-0 transition-all duration-700"
+                    style={{
+                      width: `${pct}%`,
+                      background: isLeading
+                        ? 'linear-gradient(90deg, rgba(0, 194, 106, 0.10) 0%, rgba(0, 194, 106, 0.04) 100%)'
+                        : 'linear-gradient(90deg, rgba(139, 145, 163, 0.07) 0%, rgba(139, 145, 163, 0.02) 100%)',
+                    }}
+                  />
+                  <div className="relative flex items-center justify-between mb-3">
+                    <span className="font-medium text-[0.95rem]" style={{ color: 'var(--text-primary)' }}>
+                      {o.name}
+                    </span>
+                    <span
+                      className="text-xl font-bold tabular-nums"
+                      style={{
+                        fontFamily: 'var(--font-display)',
+                        color: isLeading ? 'var(--accent)' : 'var(--text-primary)',
+                      }}
+                    >
+                      {pct}&cent;
+                    </span>
+                  </div>
+                  {/* Probability bar */}
+                  <div
+                    className="h-2 w-full rounded-full overflow-hidden"
+                    style={{ background: 'var(--surface-2)' }}
+                  >
+                    <div
+                      className="h-full rounded-full transition-all duration-700"
+                      style={{
+                        width: `${pct}%`,
+                        background: isLeading
+                          ? 'linear-gradient(90deg, var(--accent), #00e87b)'
+                          : 'var(--text-muted)',
+                        opacity: isLeading ? 1 : 0.35,
+                      }}
+                    />
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* Alerts */}
       {alerts.length > 0 ? (
