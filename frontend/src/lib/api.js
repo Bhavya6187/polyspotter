@@ -24,13 +24,14 @@ export function fetchAlerts({ page, perPage, minScore, wallet, tag } = {}) {
   });
 }
 
-export function fetchMarketAlerts({ page, perPage, minScore, wallet, tag } = {}) {
+export function fetchMarketAlerts({ page, perPage, minScore, wallet, tag, resolvesWithin } = {}) {
   return request("/api/alerts/by-market", {
     page,
     per_page: perPage,
     min_score: minScore || undefined,
     wallet: wallet || undefined,
     tag: tag || undefined,
+    resolves_within: resolvesWithin || undefined,
   });
 }
 

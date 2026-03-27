@@ -328,6 +328,7 @@ def list_alerts_by_market(
     wallet: str | None = Query(None),
     event_slug: str | None = Query(None),
     tag: str | None = Query(None),
+    resolves_within: str | None = Query(None, description="Filter by resolution window: 6h, 24h, 7d"),
 ):
     """List alerts grouped by market (condition_id)."""
     conditions = [
@@ -335,6 +336,11 @@ def list_alerts_by_market(
         "(a.end_date IS NULL OR a.end_date > NOW())",
     ]
     params: list = [min_score]
+
+    resolve_hours = {"6h": 6, "24h": 24, "7d": 168}.get(resolves_within)
+    if resolve_hours is not None:
+        conditions.append("a.end_date IS NOT NULL AND a.end_date <= NOW() + make_interval(hours => %s)")
+        params.append(resolve_hours)
 
     if wallet:
         conditions.append("a.wallet = %s")

@@ -48,6 +48,7 @@ export default function HomeClient({ initialMarkets, initialTotal, tags }) {
       page: pageRef.current,
       perPage,
       tag: filtersRef.current.tag,
+      resolvesWithin: filtersRef.current.resolvesIn,
     })
       .then((data) => {
         setMarkets(data.markets || []);
