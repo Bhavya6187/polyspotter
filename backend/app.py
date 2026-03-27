@@ -365,13 +365,16 @@ def list_alerts_by_market(
     with db() as conn:
         cur = conn.cursor()
 
-        # Count distinct markets
+        # Count distinct markets and total alerts
         cur.execute(
-            f"""SELECT COUNT(DISTINCT a.condition_id) as cnt
+            f"""SELECT COUNT(DISTINCT a.condition_id) as cnt,
+                       COUNT(*) as alert_cnt
                 FROM alerts a WHERE {where} AND a.condition_id IS NOT NULL""",
             params,
         )
-        total = cur.fetchone()["cnt"]
+        counts = cur.fetchone()
+        total = counts["cnt"]
+        total_alerts = counts["alert_cnt"]
 
         # Get paginated market groups
         cur.execute(
@@ -444,6 +447,7 @@ def list_alerts_by_market(
     return PaginatedMarkets(
         markets=markets,
         total=total,
+        total_alerts=total_alerts,
         page=page,
         per_page=per_page,
     )

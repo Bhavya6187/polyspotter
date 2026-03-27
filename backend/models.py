@@ -165,6 +165,7 @@ class MarketGroup(BaseModel):
 class PaginatedMarkets(BaseModel):
     markets: list[MarketGroup]
     total: int
+    total_alerts: int = 0
     page: int
     per_page: int
 

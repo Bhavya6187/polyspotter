@@ -188,16 +188,18 @@ function MarketGroupCard({ market, liveData, index }) {
       style={{ ...cardStyle, animationDelay: `${index * 60}ms` }}
     >
       {/* Market header */}
-      <div className="flex items-start justify-between gap-3 px-5 py-4">
+      <Link
+        href={`/market/${marketSlug(market.market_title, market.condition_id)}`}
+        className="group/header flex items-start justify-between gap-3 px-5 py-4 rounded-t-xl transition-all hover:bg-[var(--accent-subtle)]"
+      >
         <div className="flex items-center gap-3 min-w-0">
           <StrengthMeter maxScore={alert.composite_score} />
-          <Link
-            href={`/market/${marketSlug(market.market_title, market.condition_id)}`}
-            className="text-sm font-semibold leading-snug truncate transition-colors"
+          <span
+            className="text-sm font-semibold leading-snug truncate transition-colors group-hover/header:text-[var(--accent)]"
             style={{ color: 'var(--text-primary)' }}
           >
             {market.market_title ?? "\u2014"}
-          </Link>
+          </span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {resolution && (
@@ -208,7 +210,7 @@ function MarketGroupCard({ market, liveData, index }) {
                   ? 'text-amber-600 dark:text-amber-400'
                   : ''
             }`} style={{
-              background: isUrgent ? 'rgba(239, 68, 68, 0.1)' : isSoon ? 'rgba(245, 158, 11, 0.1)' : 'var(--surface-2)',
+              background: isUrgent ? 'rgba(239, 68, 68, 0.1)' : isSoon ? 'rgba(245, 158, 11, 0.1)' : 'var(--surface-card)',
               color: !isUrgent && !isSoon ? 'var(--text-muted)' : undefined
             }}>
               {isUrgent && (
@@ -223,8 +225,11 @@ function MarketGroupCard({ market, liveData, index }) {
           <span className="text-xs" style={{ color: 'var(--text-muted)' }} suppressHydrationWarning>
             {relativeTime(alert.created_at)}
           </span>
+          <svg className="h-4 w-4 shrink-0 opacity-30 group-hover/header:opacity-70 group-hover/header:translate-x-0.5 transition-all duration-200" style={{ color: 'var(--text-muted)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
         </div>
-      </div>
+      </Link>
 
       {/* Alert content */}
       <div className="px-5 pb-4">

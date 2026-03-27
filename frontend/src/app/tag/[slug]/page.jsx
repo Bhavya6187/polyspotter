@@ -24,6 +24,7 @@ async function getTagData(tag) {
     return {
       markets: data.markets || [],
       total: data.total || 0,
+      total_alerts: data.total_alerts || 0,
     };
   } catch {
     return { markets: [], total: 0 };
@@ -57,7 +58,7 @@ export async function generateMetadata({ params }) {
 export default async function TagPage({ params }) {
   const { slug } = await params;
   const tag = tagFromSlug(slug);
-  const { markets, total } = await getTagData(tag);
+  const { markets, total, total_alerts } = await getTagData(tag);
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
   const tagUrl = `${siteUrl}/tag/${tagSlug(tag)}`;
@@ -125,14 +126,14 @@ export default async function TagPage({ params }) {
           {tag}
         </h1>
         <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
-          {total} market{total !== 1 ? "s" : ""} with notable smart money trades
+          {total_alerts} signal{total_alerts !== 1 ? "s" : ""} across {total} market{total !== 1 ? "s" : ""}
         </p>
       </header>
 
       {/* Trades */}
       {markets.length > 0 ? (
         <section aria-label="Notable trades">
-          <TagPageClient initialMarkets={markets} initialTotal={total} tag={tag} />
+          <TagPageClient initialMarkets={markets} initialTotal={total} initialTotalAlerts={total_alerts} tag={tag} />
         </section>
       ) : (
         <div className="rounded-xl border p-12 text-center" style={{ borderColor: 'var(--border)', background: 'var(--surface-card)', color: 'var(--text-muted)' }}>
