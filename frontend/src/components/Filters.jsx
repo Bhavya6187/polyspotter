@@ -2,7 +2,7 @@ import Link from "next/link";
 
 const RESOLVE_OPTIONS = [
   { label: "Any", value: "" },
-  { label: "< 1h", value: "1h" },
+  { label: "< 6h", value: "6h" },
   { label: "< 24h", value: "24h" },
   { label: "< 7d", value: "7d" },
 ];

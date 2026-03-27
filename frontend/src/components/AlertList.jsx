@@ -309,7 +309,7 @@ export default function AlertList({ markets, filters, loading }) {
 
   // Client-side resolve window filter
   const resolvesInMs = {
-    "1h": 3600000,
+    "6h": 21600000,
     "24h": 86400000,
     "7d": 604800000,
   }[filters.resolvesIn] || null;
