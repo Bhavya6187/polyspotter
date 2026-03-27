@@ -32,7 +32,7 @@ function TickerItem({ alert }) {
   return (
     <Link
       href={`/market/${marketSlug(alert.market_title, alert.condition_id)}`}
-      className="inline-flex items-center gap-2.5 whitespace-nowrap px-5 transition-opacity hover:opacity-70"
+      className="inline-flex items-center gap-2.5 whitespace-nowrap px-5 cursor-pointer rounded-md py-1 transition-all hover:bg-[var(--surface-2)]"
     >
       <span
         className="h-1.5 w-1.5 rounded-full shrink-0"
