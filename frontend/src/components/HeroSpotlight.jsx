@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import Link from "next/link";
 import { useSpotlight } from "../hooks/useSpotlight";
 import { useCountdown } from "../hooks/useCountdown";
+import { marketSlug } from "../lib/slugify";
 import Sparkline from "./Sparkline";
 
 function SpotlightSlide({ alert }) {
@@ -12,9 +14,11 @@ function SpotlightSlide({ alert }) {
 
   const usdFmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
+  const href = `/market/${marketSlug(alert.market_title, alert.condition_id)}`;
+
   return (
-    <div className="flex flex-col gap-3 px-5 py-5 rounded-xl"
-      style={{ background: "var(--surface-1)", border: "1px solid var(--border)" }}>
+    <Link href={href} className="block flex flex-col gap-3 px-5 py-5 rounded-xl transition-shadow hover:shadow-md"
+      style={{ background: "var(--surface-1)", border: "1px solid var(--border)", textDecoration: "none", color: "inherit" }}>
       <div className="flex justify-between items-start gap-4">
         <div className="flex-1 min-w-0">
           <p className="text-xs uppercase tracking-wider" style={{ color: "var(--text-muted)", fontFamily: "var(--font-display)" }}>
@@ -41,7 +45,7 @@ function SpotlightSlide({ alert }) {
         )}
         <span>{"\u23f1\ufe0f"} Resolves in {countdown.label}</span>
       </div>
-    </div>
+    </Link>
   );
 }
 
