@@ -98,5 +98,51 @@ CREATE TABLE IF NOT EXISTS wallet_profiles (
     win_rate        DOUBLE PRECISION,
     times_flagged   INTEGER DEFAULT 0,
     first_seen_at   TIMESTAMPTZ,
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    current_streak  INTEGER DEFAULT 0
 );
+
+ALTER TABLE wallet_profiles ADD COLUMN IF NOT EXISTS current_streak INTEGER DEFAULT 0;
+
+-- Price candle data for sparklines (pushed from local SQLite)
+CREATE TABLE IF NOT EXISTS price_candles (
+    id SERIAL PRIMARY KEY,
+    condition_id TEXT NOT NULL,
+    token_id TEXT NOT NULL,
+    outcome TEXT,
+    t DOUBLE PRECISION NOT NULL,
+    p DOUBLE PRECISION NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_price_candles_unique ON price_candles (token_id, t);
+CREATE INDEX IF NOT EXISTS idx_price_candles_condition ON price_candles (condition_id, t);
+
+-- Cross-market thesis groupings
+CREATE TABLE IF NOT EXISTS wallet_theses (
+    id SERIAL PRIMARY KEY,
+    wallet TEXT NOT NULL,
+    event_slug TEXT NOT NULL,
+    thesis_headline TEXT,
+    markets JSONB NOT NULL DEFAULT '[]',
+    total_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
+    composite_score DOUBLE PRECISION DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(wallet, event_slug)
+);
+CREATE INDEX IF NOT EXISTS idx_wallet_theses_score ON wallet_theses (composite_score DESC);
+
+-- Resolved alert outcomes (win/loss tracking)
+CREATE TABLE IF NOT EXISTS alert_outcomes (
+    id SERIAL PRIMARY KEY,
+    alert_id INTEGER REFERENCES alerts(id) ON DELETE CASCADE,
+    condition_id TEXT NOT NULL,
+    market_title TEXT NOT NULL,
+    won BOOLEAN NOT NULL,
+    entry_price DOUBLE PRECISION,
+    resolution_price DOUBLE PRECISION,
+    pnl_usd DOUBLE PRECISION,
+    resolved_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_alert_outcomes_resolved ON alert_outcomes (resolved_at DESC);
