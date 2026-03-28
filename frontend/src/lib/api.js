@@ -58,3 +58,19 @@ export function fetchMarketLive(conditionId) {
 export function fetchHealth() {
   return request("/api/health");
 }
+
+export function fetchSpotlight() {
+  return request("/api/spotlight");
+}
+
+export function fetchResolvingSoon() {
+  return request("/api/resolving-soon");
+}
+
+export function fetchResolved(hours = 24) {
+  return request("/api/resolved", { hours });
+}
+
+export function fetchTheses(page = 1, perPage = 5) {
+  return request("/api/theses", { page, per_page: perPage });
+}
