@@ -75,30 +75,20 @@ def db():
 POLYMARKET_DATA_API = "https://data-api.polymarket.com"
 
 
-def _fetch_all_closed_positions(wallet: str) -> list[dict]:
-    """Fetch all closed positions from Polymarket Data API, paginating."""
-    all_positions: list[dict] = []
-    offset = 0
-    while True:
-        try:
-            resp = _requests.get(
-                f"{POLYMARKET_DATA_API}/closed-positions",
-                params={"user": wallet, "limit": 50, "offset": offset,
-                        "sortBy": "timestamp", "sortDir": "desc"},
-                timeout=10,
-            )
-            if resp.status_code != 200:
-                break
-            batch = resp.json()
-            if not batch:
-                break
-            all_positions.extend(batch)
-            offset += 50
-            if offset > 2000:  # API ceiling safety
-                break
-        except Exception:
-            break
-    return all_positions
+def _fetch_closed_positions(wallet: str) -> list[dict]:
+    """Fetch the most recent closed positions from Polymarket Data API (single call, max 50)."""
+    try:
+        resp = _requests.get(
+            f"{POLYMARKET_DATA_API}/closed-positions",
+            params={"user": wallet, "limit": 50,
+                    "sortBy": "timestamp", "sortDir": "desc"},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return []
+        return resp.json()
+    except Exception:
+        return []
 
 
 def _positions_to_bets(positions: list[dict]) -> list[WalletBet]:
@@ -631,8 +621,8 @@ def get_wallet(wallet_address: str):
     """Get wallet profile computed live from Polymarket Data API."""
     wallet = wallet_address.lower()
 
-    # Fetch all closed positions from live API
-    positions = _fetch_all_closed_positions(wallet)
+    # Fetch most recent closed positions from live API (single call, max 50)
+    positions = _fetch_closed_positions(wallet)
     if not positions:
         raise HTTPException(status_code=404, detail="Wallet not found")
 
