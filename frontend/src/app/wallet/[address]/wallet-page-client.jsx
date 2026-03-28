@@ -77,7 +77,7 @@ export default function WalletPageClient({ wallet, address }) {
                       </p>
                     )}
                     {b.pnl_usd != null && (
-                      <p className="text-[10px]" style={{ color: b.pnl_usd >= 0 ? "var(--bullish)" : "var(--bearish)" }}>
+                      <p className="text-[10px]" style={{ color: resolved ? (b.won ? "var(--bullish)" : "var(--bearish)") : "var(--text-muted)" }}>
                         {b.pnl_usd >= 0 ? "+" : ""}{usdFmt.format(b.pnl_usd)}
                       </p>
                     )}
