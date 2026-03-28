@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useSpotlight } from "../hooks/useSpotlight";
 import { useCountdown } from "../hooks/useCountdown";
 import Sparkline from "./Sparkline";
@@ -48,20 +48,26 @@ function SpotlightSlide({ alert }) {
 export default function HeroSpotlight() {
   const { data, loading } = useSpotlight();
   const [activeIndex, setActiveIndex] = useState(0);
+  const paused = useRef(false);
 
-  // Auto-rotate every 8s
+  // Auto-rotate every 8s, pausing on hover
   useEffect(() => {
     if (data.length <= 1) return;
     const timer = setInterval(() => {
-      setActiveIndex((i) => (i + 1) % data.length);
+      if (!paused.current) {
+        setActiveIndex((i) => (i + 1) % data.length);
+      }
     }, 8000);
     return () => clearInterval(timer);
   }, [data.length]);
 
+  const handleMouseEnter = useCallback(() => { paused.current = true; }, []);
+  const handleMouseLeave = useCallback(() => { paused.current = false; }, []);
+
   if (loading || data.length === 0) return null;
 
   return (
-    <div className="mb-4">
+    <div className="mb-4" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
       <SpotlightSlide alert={data[activeIndex]} />
 
       {data.length > 1 && (

@@ -536,13 +536,18 @@ def check_resolutions_and_push() -> int:
     except Exception:
         return 0
 
-    outcomes = []
+    # Deduplicate by condition_id — pick highest composite_score alert per market
+    seen_conditions = {}
     for alert in alerts:
-        end_date = alert.get("end_date")
-        condition_id = alert.get("condition_id")
-        if not end_date or not condition_id:
+        cid = alert.get("condition_id")
+        if not cid or not alert.get("end_date"):
             continue
+        existing = seen_conditions.get(cid)
+        if not existing or (alert.get("composite_score", 0) or 0) > (existing.get("composite_score", 0) or 0):
+            seen_conditions[cid] = alert
 
+    outcomes = []
+    for condition_id, alert in seen_conditions.items():
         market = get_market_by_condition(condition_id)
         if not market:
             continue
@@ -593,11 +598,15 @@ def check_resolutions_and_push() -> int:
         elif alert_side == "SELL" and alert_outcome != resolved_outcome:
             won = True
 
+        total_usd = alert.get("total_usd", 0)
         pnl_usd = 0
         if won and entry_price > 0:
-            pnl_usd = alert.get("total_usd", 0) * ((1.0 / entry_price) - 1.0)
+            if alert_side == "SELL":
+                pnl_usd = total_usd * ((1.0 / (1.0 - entry_price)) - 1.0)
+            else:
+                pnl_usd = total_usd * ((1.0 / entry_price) - 1.0)
         elif not won:
-            pnl_usd = -alert.get("total_usd", 0)
+            pnl_usd = -total_usd
 
         outcomes.append({
             "condition_id": condition_id,

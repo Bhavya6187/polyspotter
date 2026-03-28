@@ -9,6 +9,10 @@ export default function ResolvedSection() {
 
   useEffect(() => {
     fetchResolved(24).then(setData).catch(() => {});
+    const id = setInterval(() => {
+      fetchResolved(24).then(setData).catch(() => {});
+    }, 300_000);
+    return () => clearInterval(id);
   }, []);
 
   if (!data || !data.outcomes || data.outcomes.length === 0) return null;
