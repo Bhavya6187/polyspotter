@@ -113,9 +113,9 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
               </svg>
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>
+              <span className="text-xl font-bold tracking-tight" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>
                 PolySpotter
-              </h1>
+              </span>
               <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                 Follow the smart money
               </p>
@@ -189,7 +189,7 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
 
       {/* Alert List */}
       <section aria-label="Notable trades">
-        <h2 className="sr-only">Notable Trades</h2>
+        <h2 className="sr-only" aria-hidden="true">Notable Trades</h2>
         <AlertList
           markets={markets}
           filters={filters}
