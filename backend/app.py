@@ -1072,10 +1072,14 @@ def get_market_holders(condition_id: str):
     if cached and cached[0] > now:
         return cached[1]
 
+    # Get outcome names from live market data
+    live = get_market_live(condition_id)
+    outcome_names = {o.token_id: o.name for o in live.outcomes} if live.outcomes else {}
+
     try:
         resp = _requests.get(
-            f"{DATA_API}/positions",
-            params={"market": condition_id, "sizeThreshold": "100", "limit": "20"},
+            f"{DATA_API}/holders",
+            params={"market": condition_id},
             timeout=10,
         )
         resp.raise_for_status()
@@ -1086,10 +1090,19 @@ def get_market_holders(condition_id: str):
     if not isinstance(raw, list):
         raw = []
 
-    raw.sort(key=lambda p: abs(float(p.get("size", 0))), reverse=True)
-    raw = raw[:10]
+    # Flatten: response is [{token, holders: [...]}, ...] per outcome
+    flat = []
+    for outcome_group in raw:
+        token = outcome_group.get("token", "")
+        outcome_name = outcome_names.get(token, f"Outcome {outcome_group.get('token', '?')[:8]}")
+        for h in outcome_group.get("holders", []):
+            h["_outcome"] = outcome_name
+            flat.append(h)
 
-    wallets = [p.get("proxyWallet", "").lower() for p in raw if p.get("proxyWallet")]
+    flat.sort(key=lambda p: abs(float(p.get("amount", 0))), reverse=True)
+    flat = flat[:10]
+
+    wallets = [p.get("proxyWallet", "").lower() for p in flat if p.get("proxyWallet")]
 
     wallet_stats = {}
     if wallets:
@@ -1104,15 +1117,15 @@ def get_market_holders(condition_id: str):
                 wallet_stats[row["wallet"]] = row
 
     holders = []
-    for p in raw:
+    for p in flat:
         w = (p.get("proxyWallet") or "").lower()
         stats = wallet_stats.get(w, {})
-        size_val = abs(float(p.get("size", 0)))
+        amount = abs(float(p.get("amount", 0)))
         holders.append(HolderEntry(
             wallet=w,
-            position_size=size_val,
-            outcome=p.get("outcome", ""),
-            side="long" if float(p.get("size", 0)) > 0 else "short",
+            position_size=amount,
+            outcome=p.get("_outcome", ""),
+            side="long",
             win_rate=stats.get("win_rate"),
             total_pnl=stats.get("total_pnl"),
             total_invested=stats.get("total_invested"),
