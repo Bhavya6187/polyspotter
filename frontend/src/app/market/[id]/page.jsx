@@ -6,7 +6,6 @@ export const revalidate = 60;
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 async function resolveConditionId(partialId) {
-  // If it already looks like a full condition ID (66 chars), use it directly
   if (/^0x[a-fA-F0-9]{64}$/.test(partialId)) return partialId;
   try {
     const res = await fetch(`${API_URL}/api/market/resolve/${partialId}`, {
@@ -22,24 +21,26 @@ async function resolveConditionId(partialId) {
 
 async function getMarketData(conditionId) {
   try {
-    const [liveRes, alertsRes, priceRes, holdersRes, thesesRes] = await Promise.all([
-      fetch(`${API_URL}/api/market/${conditionId}/live`, {
-        next: { revalidate: 60 },
-      }),
-      fetch(
-        `${API_URL}/api/alerts?condition_id=${conditionId}&per_page=50`,
-        { next: { revalidate: 60 } }
-      ),
-      fetch(`${API_URL}/api/market/${conditionId}/price-history?range=7d`, {
-        next: { revalidate: 60 },
-      }),
-      fetch(`${API_URL}/api/market/${conditionId}/holders`, {
-        next: { revalidate: 300 },
-      }),
-      fetch(`${API_URL}/api/market/${conditionId}/theses`, {
-        next: { revalidate: 300 },
-      }),
-    ]);
+    const [liveRes, alertsRes, priceRes, holdersRes, thesesRes] =
+      await Promise.all([
+        fetch(`${API_URL}/api/market/${conditionId}/live`, {
+          next: { revalidate: 60 },
+        }),
+        fetch(
+          `${API_URL}/api/alerts?condition_id=${conditionId}&per_page=50`,
+          { next: { revalidate: 60 } }
+        ),
+        fetch(
+          `${API_URL}/api/market/${conditionId}/price-history?range=7d`,
+          { next: { revalidate: 60 } }
+        ),
+        fetch(`${API_URL}/api/market/${conditionId}/holders`, {
+          next: { revalidate: 300 },
+        }),
+        fetch(`${API_URL}/api/market/${conditionId}/theses`, {
+          next: { revalidate: 300 },
+        }),
+      ]);
 
     const live = liveRes.ok ? await liveRes.json() : null;
     const alertsData = alertsRes.ok ? await alertsRes.json() : null;
@@ -55,7 +56,13 @@ async function getMarketData(conditionId) {
       theses: thesesData?.theses || [],
     };
   } catch {
-    return { live: null, alerts: [], priceHistory: null, holders: [], theses: [] };
+    return {
+      live: null,
+      alerts: [],
+      priceHistory: null,
+      holders: [],
+      theses: [],
+    };
   }
 }
 
@@ -77,14 +84,17 @@ export async function generateMetadata({ params }) {
 
   const description =
     alertCount > 0
-      ? `${alertCount} notable trade${alertCount !== 1 ? "s" : ""} detected totaling ${usdStr}. Large bets. Sharp wallets. Early signals.`
-      : `Large bets. Sharp wallets. Early signals. "${title}" — live on Polymarket.`;
+      ? `${alertCount} smart money signal${alertCount !== 1 ? "s" : ""} on "${title}" totaling ${usdStr}. Track sharp bettors and whale trades on PolySpotter.`
+      : `"${title}" — track smart money, whale trades, and sharp bettor signals on PolySpotter.`;
 
   const canonicalSlug = marketSlug(title, conditionId);
 
-  const bestAlert = [...alerts].sort((a, b) => (b.composite_score || 0) - (a.composite_score || 0))[0];
+  const bestAlert = [...alerts].sort(
+    (a, b) => (b.composite_score || 0) - (a.composite_score || 0)
+  )[0];
   const alertId = bestAlert?.id;
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
+  const siteUrl =
+    process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
 
   return {
     title,
@@ -109,21 +119,43 @@ export default async function MarketPage({ params }) {
   const { id } = await params;
   const partialId = partialIdFromSlug(id);
   const conditionId = await resolveConditionId(partialId);
-  const { live, alerts, priceHistory, holders, theses } = await getMarketData(conditionId);
+  const { live, alerts, priceHistory, holders, theses } =
+    await getMarketData(conditionId);
 
   const title = live?.title || alerts?.[0]?.market_title || "Market";
   const alertCount = alerts.length;
   const totalUsd = alerts.reduce((sum, a) => sum + (a.total_usd || 0), 0);
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
+  const siteUrl =
+    process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
   const marketUrl = `${siteUrl}/market/${marketSlug(title, conditionId)}`;
 
-  const jsonLd = {
+  const usdFmt = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  });
+
+  // Event JSON-LD — prediction markets are events with outcomes
+  const eventLd = {
     "@context": "https://schema.org",
-    "@type": "WebPage",
+    "@type": "Event",
     name: title,
-    description: `${alertCount} notable trade${alertCount !== 1 ? "s" : ""} detected on "${title}" — ${new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(totalUsd)} in smart money flow.`,
+    description:
+      live?.description ||
+      `Prediction market: ${title}. ${alertCount} smart money signals detected.`,
     url: marketUrl,
+    eventStatus: "https://schema.org/EventScheduled",
+    ...(live?.end_date && { endDate: live.end_date }),
+    location: {
+      "@type": "VirtualLocation",
+      url: live?.market_url || "https://polymarket.com",
+    },
+    organizer: {
+      "@type": "Organization",
+      name: "Polymarket",
+      url: "https://polymarket.com",
+    },
     isPartOf: {
       "@type": "WebSite",
       name: "PolySpotter",
@@ -150,24 +182,145 @@ export default async function MarketPage({ params }) {
     ],
   };
 
+  // FAQ JSON-LD from alert headlines + summaries
+  const faqItems = alerts
+    .filter((a) => a.llm_headline && a.llm_summary)
+    .slice(0, 5)
+    .map((a) => ({
+      "@type": "Question",
+      name: a.llm_headline,
+      acceptedAnswer: {
+        "@type": "Answer",
+        text:
+          a.llm_bullets?.length > 0
+            ? a.llm_bullets.join(" ")
+            : a.llm_summary,
+      },
+    }));
+
+  const faqLd =
+    faqItems.length > 0
+      ? {
+          "@context": "https://schema.org",
+          "@type": "FAQPage",
+          mainEntity: faqItems,
+        }
+      : null;
+
   return (
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(eventLd) }}
       />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
       />
+      {faqLd && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd) }}
+        />
+      )}
+
+      {/* Server-rendered SEO content */}
+      <div className="seo-content">
+        <article>
+          <nav aria-label="Breadcrumb">
+            <a href="/">PolySpotter</a> &gt; <span>{title}</span>
+          </nav>
+
+          <h1>{title}</h1>
+          <p>
+            {alertCount} smart money signal{alertCount !== 1 ? "s" : ""}{" "}
+            detected{totalUsd > 0 ? `, totaling ${usdFmt.format(totalUsd)}` : ""}.
+            {live?.end_date && (
+              <>
+                {" "}
+                Resolution date:{" "}
+                {new Date(live.end_date).toLocaleDateString("en-US", {
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                })}
+                .
+              </>
+            )}
+          </p>
+
+          {alerts.length > 0 && (
+            <section>
+              <h2>Notable Trades</h2>
+              {alerts.slice(0, 10).map((alert) => (
+                <article key={alert.id}>
+                  <h3>{alert.llm_headline || alert.market_title}</h3>
+                  {alert.llm_summary && <p>{alert.llm_summary}</p>}
+                  {alert.llm_bullets?.length > 0 && (
+                    <ul>
+                      {alert.llm_bullets.map((b, i) => (
+                        <li key={i}>{b}</li>
+                      ))}
+                    </ul>
+                  )}
+                  <p>
+                    {usdFmt.format(alert.total_usd || 0)}
+                    {alert.llm_copy_action?.outcome &&
+                      ` on ${alert.llm_copy_action.outcome}`}
+                    {alert.win_rate != null &&
+                      ` | Wallet win rate: ${Math.round(alert.win_rate * 100)}%`}
+                  </p>
+                </article>
+              ))}
+            </section>
+          )}
+
+          {holders.length > 0 && (
+            <section>
+              <h2>Top Holders</h2>
+              <ol>
+                {holders.slice(0, 10).map((h, i) => (
+                  <li key={h.wallet || i}>
+                    <a href={`/wallet/${h.wallet}`}>
+                      {h.wallet?.slice(0, 6)}...{h.wallet?.slice(-4)}
+                    </a>{" "}
+                    — {h.outcome},{" "}
+                    {usdFmt.format(h.position_size || 0)}
+                    {h.win_rate != null &&
+                      ` (${Math.round(h.win_rate * 100)}% win rate)`}
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
+
+          {theses.length > 0 && (
+            <section>
+              <h2>Related Theses</h2>
+              {theses.map((t) => (
+                <div key={t.id}>
+                  <h3>
+                    <a href={`/thesis/${t.id}`}>{t.thesis_headline}</a>
+                  </h3>
+                  <p>
+                    Covers {(t.markets || []).length} related market
+                    {(t.markets || []).length !== 1 ? "s" : ""}
+                  </p>
+                </div>
+              ))}
+            </section>
+          )}
+        </article>
+      </div>
+
       <MarketPageClient
-  conditionId={conditionId}
-  initialLive={live}
-  initialAlerts={alerts}
-  priceHistory={priceHistory}
-  holders={holders}
-  theses={theses}
-/>
+        conditionId={conditionId}
+        initialLive={live}
+        initialAlerts={alerts}
+        priceHistory={priceHistory}
+        holders={holders}
+        theses={theses}
+      />
     </>
   );
 }
