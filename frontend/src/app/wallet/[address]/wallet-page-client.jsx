@@ -9,8 +9,7 @@ export default function WalletPageClient({ wallet, address }) {
   const stats = [
     { label: "P&L", value: wallet.total_pnl != null ? usdFmt.format(wallet.total_pnl) : "—", color: wallet.total_pnl >= 0 ? "var(--bullish)" : "var(--bearish)" },
     { label: "Win Rate", value: wallet.win_rate != null ? `${Math.round(wallet.win_rate * 100)}%` : "—" },
-    { label: "Streak", value: wallet.current_streak != null ? `${wallet.current_streak}W` : "—", color: "var(--warning)" },
-    { label: "Markets", value: wallet.total_positions || 0 },
+{ label: "Markets", value: wallet.total_positions || 0 },
     { label: "W/L", value: `${wallet.wins || 0}/${wallet.losses || 0}` },
     { label: "Flagged", value: `${wallet.times_flagged || 0}x` },
   ];

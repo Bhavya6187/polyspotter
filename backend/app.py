@@ -125,25 +125,6 @@ def _compute_wallet_stats(positions: list[dict]) -> dict:
     if win_prices:
         avg_win_price = sum(win_prices) / len(win_prices)
 
-    # Compute current streak (consecutive wins or losses, most recent first)
-    current_streak = None
-    for p in positions:
-        cp = p.get("curPrice")
-        if cp == 1.0:
-            if current_streak is None:
-                current_streak = 1
-            elif current_streak > 0:
-                current_streak += 1
-            else:
-                break
-        elif cp == 0.0:
-            if current_streak is None:
-                current_streak = -1
-            elif current_streak < 0:
-                current_streak -= 1
-            else:
-                break
-
     return {
         "total_positions": len(positions),
         "closed_positions": resolved,
@@ -153,7 +134,6 @@ def _compute_wallet_stats(positions: list[dict]) -> dict:
         "total_invested": total_invested,
         "avg_win_price": avg_win_price,
         "win_rate": win_rate,
-        "current_streak": current_streak,
     }
 
 
@@ -660,7 +640,6 @@ def get_wallet(wallet_address: str):
         avg_win_price=stats["avg_win_price"],
         win_rate=stats["win_rate"],
         times_flagged=times_flagged,
-        current_streak=stats["current_streak"],
         recent_alerts=recent_alerts,
         bet_history=bet_history,
     )
