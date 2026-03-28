@@ -143,6 +143,7 @@ CREATE TABLE IF NOT EXISTS alert_outcomes (
     resolution_price DOUBLE PRECISION,
     pnl_usd DOUBLE PRECISION,
     resolved_at TIMESTAMPTZ NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(condition_id)
 );
 CREATE INDEX IF NOT EXISTS idx_alert_outcomes_resolved ON alert_outcomes (resolved_at DESC);

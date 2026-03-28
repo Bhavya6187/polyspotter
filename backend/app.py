@@ -279,6 +279,11 @@ def ingest(payload: IngestPayload):
             cur.execute("""
                 INSERT INTO alert_outcomes (alert_id, condition_id, market_title, won, entry_price, resolution_price, pnl_usd, resolved_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (condition_id) DO UPDATE SET
+                    won = EXCLUDED.won,
+                    resolution_price = EXCLUDED.resolution_price,
+                    pnl_usd = EXCLUDED.pnl_usd,
+                    resolved_at = EXCLUDED.resolved_at
             """, (alert_id, ao.condition_id, ao.market_title, ao.won,
                   ao.entry_price, ao.resolution_price, ao.pnl_usd, ao.resolved_at))
             outcomes_count += 1

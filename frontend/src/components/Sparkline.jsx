@@ -1,6 +1,9 @@
 "use client";
 
+import { useId } from "react";
+
 export default function Sparkline({ candles, entryPrice, width = 200, height = 50 }) {
+  const gradientId = useId();
   if (!candles || candles.length < 2) return null;
 
   const prices = candles.map((c) => c.p);
@@ -28,7 +31,7 @@ export default function Sparkline({ candles, entryPrice, width = 200, height = 5
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="overflow-visible">
       {/* Gradient fill */}
       <defs>
-        <linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.15" />
           <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
         </linearGradient>
@@ -37,7 +40,7 @@ export default function Sparkline({ candles, entryPrice, width = 200, height = 5
       {/* Fill area */}
       <polygon
         points={`0,${height} ${points} ${width},${height}`}
-        fill="url(#sparkFill)"
+        fill={`url(#${gradientId})`}
       />
 
       {/* Line */}
