@@ -75,24 +75,37 @@ def db():
 POLYMARKET_DATA_API = "https://data-api.polymarket.com"
 
 
-def _fetch_closed_positions(wallet: str, limit: int = 20) -> list[WalletBet]:
-    """Fetch closed positions from Polymarket Data API for a wallet."""
-    try:
-        resp = _requests.get(
-            f"{POLYMARKET_DATA_API}/closed-positions",
-            params={"user": wallet, "limit": limit, "sortBy": "timestamp", "sortDir": "desc"},
-            timeout=10,
-        )
-        if resp.status_code != 200:
-            return []
-        positions = resp.json()
-    except Exception:
-        return []
+def _fetch_all_closed_positions(wallet: str) -> list[dict]:
+    """Fetch all closed positions from Polymarket Data API, paginating."""
+    all_positions: list[dict] = []
+    offset = 0
+    while True:
+        try:
+            resp = _requests.get(
+                f"{POLYMARKET_DATA_API}/closed-positions",
+                params={"user": wallet, "limit": 50, "offset": offset,
+                        "sortBy": "timestamp", "sortDir": "desc"},
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                break
+            batch = resp.json()
+            if not batch:
+                break
+            all_positions.extend(batch)
+            offset += 50
+            if offset > 2000:  # API ceiling safety
+                break
+        except Exception:
+            break
+    return all_positions
 
+
+def _positions_to_bets(positions: list[dict]) -> list[WalletBet]:
+    """Convert raw API positions to WalletBet models."""
     bets = []
     for pos in positions:
         cur_price = pos.get("curPrice")
-        realized_pnl = pos.get("realizedPnl")
         won = cur_price == 1.0 if cur_price is not None else None
         bets.append(WalletBet(
             market_title=pos.get("title"),
@@ -101,11 +114,57 @@ def _fetch_closed_positions(wallet: str, limit: int = 20) -> list[WalletBet]:
             outcome=pos.get("outcome"),
             entry_price=pos.get("avgPrice"),
             resolution_price=cur_price,
-            pnl_usd=realized_pnl,
+            pnl_usd=pos.get("realizedPnl"),
             total_usd=pos.get("totalBought"),
             resolved_at=None,
         ))
     return bets
+
+
+def _compute_wallet_stats(positions: list[dict]) -> dict:
+    """Compute wallet profile stats from raw closed positions."""
+    wins = sum(1 for p in positions if p.get("curPrice") == 1.0)
+    losses = sum(1 for p in positions if p.get("curPrice") == 0.0)
+    resolved = wins + losses
+    win_rate = wins / resolved if resolved > 0 else None
+    total_pnl = sum(p.get("realizedPnl", 0) or 0 for p in positions)
+    total_invested = sum(p.get("totalBought", 0) or 0 for p in positions)
+    avg_win_price = None
+    win_prices = [p.get("avgPrice") for p in positions
+                  if p.get("curPrice") == 1.0 and p.get("avgPrice") is not None]
+    if win_prices:
+        avg_win_price = sum(win_prices) / len(win_prices)
+
+    # Compute current streak (consecutive wins or losses, most recent first)
+    current_streak = None
+    for p in positions:
+        cp = p.get("curPrice")
+        if cp == 1.0:
+            if current_streak is None:
+                current_streak = 1
+            elif current_streak > 0:
+                current_streak += 1
+            else:
+                break
+        elif cp == 0.0:
+            if current_streak is None:
+                current_streak = -1
+            elif current_streak < 0:
+                current_streak -= 1
+            else:
+                break
+
+    return {
+        "total_positions": len(positions),
+        "closed_positions": resolved,
+        "wins": wins,
+        "losses": losses,
+        "total_pnl": total_pnl,
+        "total_invested": total_invested,
+        "avg_win_price": avg_win_price,
+        "win_rate": win_rate,
+        "current_streak": current_streak,
+    }
 
 
 def _alert_from_row(row: dict) -> AlertOut:
@@ -569,17 +628,24 @@ def get_alert(alert_id: int):
 
 @app.get("/api/wallets/{wallet_address}", response_model=WalletProfileDetailOut)
 def get_wallet(wallet_address: str):
-    """Get wallet profile with recent alerts."""
+    """Get wallet profile computed live from Polymarket Data API."""
+    wallet = wallet_address.lower()
+
+    # Fetch all closed positions from live API
+    positions = _fetch_all_closed_positions(wallet)
+    if not positions:
+        raise HTTPException(status_code=404, detail="Wallet not found")
+
+    # Compute stats on the fly
+    stats = _compute_wallet_stats(positions)
+
+    # Only times_flagged and recent_alerts come from our DB
     with db() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT * FROM wallet_profiles WHERE wallet = %s", (wallet_address.lower(),))
-        row = cur.fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Wallet not found")
+        cur.execute("SELECT times_flagged FROM wallet_profiles WHERE wallet = %s", (wallet,))
+        wp_row = cur.fetchone()
+        times_flagged = wp_row["times_flagged"] if wp_row else 0
 
-        profile = WalletProfileOut(**row)
-
-        # Fetch recent alerts
         cur.execute("""
             SELECT a.id, a.market_title, a.composite_score, a.total_usd,
                    a.llm_headline, a.created_at, a.condition_id
@@ -587,17 +653,27 @@ def get_wallet(wallet_address: str):
             WHERE a.wallet = %s
             ORDER BY a.created_at DESC
             LIMIT 5
-        """, (wallet_address.lower(),))
+        """, (wallet,))
         recent_alerts = [WalletRecentAlert(**arow) for arow in cur.fetchall()]
 
-        # Fetch resolved bet history from Polymarket Data API
-        bet_history = _fetch_closed_positions(wallet_address.lower())
+    # Build response — bet_history is the most recent 20 positions
+    bet_history = _positions_to_bets(positions[:20])
 
-        return WalletProfileDetailOut(
-            **profile.model_dump(),
-            recent_alerts=recent_alerts,
-            bet_history=bet_history,
-        )
+    return WalletProfileDetailOut(
+        wallet=wallet,
+        total_positions=stats["total_positions"],
+        closed_positions=stats["closed_positions"],
+        wins=stats["wins"],
+        losses=stats["losses"],
+        total_pnl=stats["total_pnl"],
+        total_invested=stats["total_invested"],
+        avg_win_price=stats["avg_win_price"],
+        win_rate=stats["win_rate"],
+        times_flagged=times_flagged,
+        current_streak=stats["current_streak"],
+        recent_alerts=recent_alerts,
+        bet_history=bet_history,
+    )
 
 
 @app.get("/api/strategies")
