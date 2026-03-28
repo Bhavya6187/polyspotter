@@ -130,19 +130,3 @@ CREATE TABLE IF NOT EXISTS wallet_theses (
 );
 CREATE INDEX IF NOT EXISTS idx_wallet_theses_score ON wallet_theses (composite_score DESC);
 
--- Resolved alert outcomes (win/loss tracking)
-CREATE TABLE IF NOT EXISTS alert_outcomes (
-    id SERIAL PRIMARY KEY,
-    alert_id INTEGER REFERENCES alerts(id) ON DELETE CASCADE,
-    condition_id TEXT NOT NULL,
-    market_title TEXT NOT NULL,
-    won BOOLEAN NOT NULL,
-    entry_price DOUBLE PRECISION,
-    resolution_price DOUBLE PRECISION,
-    pnl_usd DOUBLE PRECISION,
-    resolved_at TIMESTAMPTZ NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(alert_id, condition_id)
-);
-CREATE INDEX IF NOT EXISTS idx_alert_outcomes_resolved ON alert_outcomes (resolved_at DESC);
-CREATE INDEX IF NOT EXISTS idx_alert_outcomes_condition ON alert_outcomes (condition_id);

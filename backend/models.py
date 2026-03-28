@@ -119,36 +119,11 @@ class ThesisOut(BaseModel):
     updated_at: datetime | None = None
 
 
-class AlertOutcomeIn(BaseModel):
-    alert_id: int | None = None
-    condition_id: str
-    market_title: str
-    won: bool
-    entry_price: float | None = None
-    resolution_price: float | None = None
-    pnl_usd: float | None = None
-    resolved_at: datetime
-    dedup_key: str | None = None
-
-
-class AlertOutcomeOut(BaseModel):
-    id: int
-    alert_id: int | None = None
-    condition_id: str
-    market_title: str
-    won: bool
-    entry_price: float | None = None
-    resolution_price: float | None = None
-    pnl_usd: float | None = None
-    resolved_at: datetime | None = None
-
-
 class IngestPayload(BaseModel):
     alerts: list[AlertIn] = []
     wallet_profiles: list[WalletProfileIn] = []
     price_candles: list[PriceCandleIn] = []
     theses: list[ThesisIn] = []
-    alert_outcomes: list[AlertOutcomeIn] = []
 
 
 # -- Response models -----------------------------------------------------------
@@ -227,8 +202,21 @@ class WalletRecentAlert(BaseModel):
     condition_id: str | None = None
 
 
+class WalletBet(BaseModel):
+    market_title: str | None = None
+    condition_id: str | None = None
+    won: bool | None = None
+    outcome: str | None = None
+    entry_price: float | None = None
+    resolution_price: float | None = None
+    pnl_usd: float | None = None
+    total_usd: float | None = None
+    resolved_at: datetime | None = None
+
+
 class WalletProfileDetailOut(WalletProfileOut):
     recent_alerts: list[WalletRecentAlert] = []
+    bet_history: list[WalletBet] = []
 
 
 class PaginatedAlerts(BaseModel):

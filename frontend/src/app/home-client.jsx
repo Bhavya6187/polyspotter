@@ -9,7 +9,6 @@ import Ticker from "../components/Ticker";
 import ThemeToggle from "../components/ThemeToggle";
 import HeroSpotlight from "../components/HeroSpotlight";
 import ResolvingSoonStrip from "../components/ResolvingSoonStrip";
-import ResolvedSection from "../components/ResolvedSection";
 
 function formatRelativeTime(date) {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -199,10 +198,6 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
         />
       </section>
 
-      {/* Resolved Markets */}
-      <section aria-label="Resolved markets" className="mb-5">
-        <ResolvedSection />
-      </section>
 
       {/* Pagination */}
       <nav aria-label="Pagination">

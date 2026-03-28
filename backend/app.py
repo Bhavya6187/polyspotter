@@ -33,6 +33,7 @@ from models import (
     WalletProfileOut,
     WalletProfileDetailOut,
     WalletRecentAlert,
+    WalletBet,
     PaginatedAlerts,
     MarketGroup,
     PaginatedMarkets,
@@ -69,6 +70,42 @@ def db():
         raise
     finally:
         conn.close()
+
+
+POLYMARKET_DATA_API = "https://data-api.polymarket.com"
+
+
+def _fetch_closed_positions(wallet: str, limit: int = 20) -> list[WalletBet]:
+    """Fetch closed positions from Polymarket Data API for a wallet."""
+    try:
+        resp = _requests.get(
+            f"{POLYMARKET_DATA_API}/closed-positions",
+            params={"user": wallet, "limit": limit, "sortBy": "timestamp", "sortDir": "desc"},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return []
+        positions = resp.json()
+    except Exception:
+        return []
+
+    bets = []
+    for pos in positions:
+        cur_price = pos.get("curPrice")
+        realized_pnl = pos.get("realizedPnl")
+        won = cur_price == 1.0 if cur_price is not None else None
+        bets.append(WalletBet(
+            market_title=pos.get("title"),
+            condition_id=pos.get("conditionId"),
+            won=won,
+            outcome=pos.get("outcome"),
+            entry_price=pos.get("avgPrice"),
+            resolution_price=cur_price,
+            pnl_usd=realized_pnl,
+            total_usd=pos.get("totalBought"),
+            resolved_at=None,
+        ))
+    return bets
 
 
 def _alert_from_row(row: dict) -> AlertOut:
@@ -271,28 +308,6 @@ def ingest(payload: IngestPayload):
                   th.total_usd, th.composite_score))
             theses_count += 1
 
-        # Ingest alert outcomes
-        outcomes_count = 0
-        for ao in payload.alert_outcomes:
-            alert_id = ao.alert_id
-            if not alert_id and ao.dedup_key:
-                cur.execute("SELECT id FROM alerts WHERE dedup_key = %s", (ao.dedup_key,))
-                row = cur.fetchone()
-                alert_id = row["id"] if row else None
-            if alert_id is None:
-                continue
-            cur.execute("""
-                INSERT INTO alert_outcomes (alert_id, condition_id, market_title, won, entry_price, resolution_price, pnl_usd, resolved_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (alert_id, condition_id) DO UPDATE SET
-                    won = EXCLUDED.won,
-                    resolution_price = EXCLUDED.resolution_price,
-                    pnl_usd = EXCLUDED.pnl_usd,
-                    resolved_at = EXCLUDED.resolved_at
-            """, (alert_id, ao.condition_id, ao.market_title, ao.won,
-                  ao.entry_price, ao.resolution_price, ao.pnl_usd, ao.resolved_at))
-            outcomes_count += 1
-
         # Cleanup old price candles (keep only 7 days)
         cur.execute("DELETE FROM price_candles WHERE created_at < NOW() - INTERVAL '7 days'")
 
@@ -304,7 +319,6 @@ def ingest(payload: IngestPayload):
         "wallet_profiles": len(payload.wallet_profiles),
         "price_candles": candles_count,
         "theses": theses_count,
-        "alert_outcomes": outcomes_count,
     }
 
 
@@ -576,7 +590,14 @@ def get_wallet(wallet_address: str):
         """, (wallet_address.lower(),))
         recent_alerts = [WalletRecentAlert(**arow) for arow in cur.fetchall()]
 
-        return WalletProfileDetailOut(**profile.model_dump(), recent_alerts=recent_alerts)
+        # Fetch resolved bet history from Polymarket Data API
+        bet_history = _fetch_closed_positions(wallet_address.lower())
+
+        return WalletProfileDetailOut(
+            **profile.model_dump(),
+            recent_alerts=recent_alerts,
+            bet_history=bet_history,
+        )
 
 
 @app.get("/api/strategies")
@@ -724,45 +745,6 @@ def get_resolving_soon():
 
         results.sort(key=lambda x: x["end_date"] or "")
         return results
-
-
-@app.get("/api/resolved")
-def get_resolved(hours: int = Query(24, ge=1, le=168)):
-    """Recently resolved alerts with win/loss outcomes."""
-    with db() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT ao.id, ao.alert_id, ao.condition_id, ao.market_title,
-                   ao.won, ao.entry_price, ao.resolution_price, ao.pnl_usd, ao.resolved_at
-            FROM alert_outcomes ao
-            WHERE ao.resolved_at > NOW() - make_interval(hours => %s)
-            ORDER BY ao.resolved_at DESC
-        """, (hours,))
-        outcomes = []
-        for row in cur.fetchall():
-            o = dict(row)
-            if o.get("resolved_at"):
-                o["resolved_at"] = o["resolved_at"].isoformat()
-            outcomes.append(o)
-
-        # 7-day aggregate win rate
-        cur.execute("""
-            SELECT COUNT(*) FILTER (WHERE won = TRUE) AS wins,
-                   COUNT(*) AS total
-            FROM alert_outcomes
-            WHERE resolved_at > NOW() - INTERVAL '7 days'
-        """)
-        stats = cur.fetchone()
-        wins_7d = stats["wins"] or 0
-        total_7d = stats["total"] or 0
-        win_rate_7d = round(wins_7d / total_7d, 2) if total_7d > 0 else None
-
-        return {
-            "outcomes": outcomes,
-            "wins_7d": wins_7d,
-            "total_7d": total_7d,
-            "win_rate_7d": win_rate_7d,
-        }
 
 
 def _thesis_from_row(row: dict) -> dict:

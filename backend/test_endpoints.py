@@ -36,7 +36,6 @@ skip_no_db = pytest.mark.skipif(not _has_db, reason="DATABASE_URL not set")
 def _clean_test_data(conn):
     """Remove test data created during tests."""
     cur = conn.cursor()
-    cur.execute("DELETE FROM alert_outcomes WHERE market_title LIKE 'TEST:%%'")
     cur.execute("DELETE FROM alert_signals WHERE alert_id IN (SELECT id FROM alerts WHERE market_title LIKE 'TEST:%%')")
     cur.execute("DELETE FROM alert_trades WHERE alert_id IN (SELECT id FROM alerts WHERE market_title LIKE 'TEST:%%')")
     cur.execute("DELETE FROM alerts WHERE market_title LIKE 'TEST:%%'")
@@ -216,38 +215,6 @@ class TestResolvingSoon:
         data = resp.json()
         far_ids = [d for d in data if d.get("condition_id") == "test_far_cond"]
         assert len(far_ids) == 0
-
-
-# ---------------------------------------------------------------------------
-# /api/resolved endpoint tests
-# ---------------------------------------------------------------------------
-
-@skip_no_db
-class TestResolved:
-    def test_resolved_returns_structure(self):
-        resp = client.get("/api/resolved")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "outcomes" in data
-        assert "wins_7d" in data
-        assert "win_rate_7d" in data
-
-    def test_resolved_with_outcome(self):
-        with db() as conn:
-            cur = conn.cursor()
-            alert_id = _seed_alert(cur, dedup_key="test_resolved_alert")
-            cur.execute(
-                """INSERT INTO alert_outcomes (alert_id, condition_id, market_title, won, entry_price, resolution_price, pnl_usd, resolved_at)
-                   VALUES (%s, 'test_cond_resolved', 'TEST: Resolved Market', TRUE, 0.6, 1.0, 500.0, NOW())""",
-                (alert_id,),
-            )
-
-        resp = client.get("/api/resolved?hours=1")
-        assert resp.status_code == 200
-        data = resp.json()
-        resolved_tests = [o for o in data["outcomes"] if o["condition_id"] == "test_cond_resolved"]
-        assert len(resolved_tests) == 1
-        assert resolved_tests[0]["won"] is True
 
 
 # ---------------------------------------------------------------------------

@@ -9,7 +9,7 @@ export default function WalletPageClient({ wallet, address }) {
   const stats = [
     { label: "P&L", value: wallet.total_pnl != null ? usdFmt.format(wallet.total_pnl) : "—", color: wallet.total_pnl >= 0 ? "var(--bullish)" : "var(--bearish)" },
     { label: "Win Rate", value: wallet.win_rate != null ? `${Math.round(wallet.win_rate * 100)}%` : "—" },
-    { label: "Streak", value: wallet.current_streak ? `${wallet.current_streak}W` : "—", color: "var(--warning)" },
+    { label: "Streak", value: wallet.current_streak != null ? `${wallet.current_streak}W` : "—", color: "var(--warning)" },
     { label: "Markets", value: wallet.total_positions || 0 },
     { label: "W/L", value: `${wallet.wins || 0}/${wallet.losses || 0}` },
     { label: "Flagged", value: `${wallet.times_flagged || 0}x` },
@@ -36,6 +36,58 @@ export default function WalletPageClient({ wallet, address }) {
           </div>
         ))}
       </div>
+
+      {/* Bet history */}
+      {wallet.bet_history?.length > 0 && (
+        <div className="mb-8">
+          <h3 className="text-xs uppercase tracking-wider mb-3" style={{ color: "var(--text-muted)", fontFamily: "var(--font-display)" }}>
+            Past Positions
+          </h3>
+          <div className="flex flex-col gap-2">
+            {wallet.bet_history.map((b, i) => {
+              const resolved = b.won != null;
+              const badgeStyle = !resolved
+                ? { background: "rgba(156,163,175,0.15)", color: "var(--text-muted)" }
+                : b.won
+                  ? { background: "rgba(34,197,94,0.15)", color: "var(--bullish)" }
+                  : { background: "rgba(239,68,68,0.15)", color: "var(--bearish)" };
+              const badgeLabel = !resolved ? "OPEN" : b.won ? "WIN" : "LOSS";
+
+              return (
+                <div key={i}
+                  className="flex items-center justify-between rounded-lg px-4 py-3"
+                  style={{ background: "var(--surface-1)", border: "1px solid var(--border)" }}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-xs font-bold px-2 py-0.5 rounded shrink-0" style={badgeStyle}>
+                      {badgeLabel}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>{b.market_title}</p>
+                      <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                        {b.outcome && <span>{b.outcome} · </span>}
+                        {b.entry_price != null && `Entry ${Math.round(b.entry_price * 100)}¢`}
+                        {resolved && b.resolution_price != null && ` → ${Math.round(b.resolution_price * 100)}¢`}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0 ml-3">
+                    {b.total_usd != null && (
+                      <p className="text-xs font-bold" style={{ color: "var(--accent)", fontFamily: "var(--font-display)" }}>
+                        {usdFmt.format(b.total_usd)}
+                      </p>
+                    )}
+                    {b.pnl_usd != null && (
+                      <p className="text-[10px]" style={{ color: b.pnl_usd >= 0 ? "var(--bullish)" : "var(--bearish)" }}>
+                        {b.pnl_usd >= 0 ? "+" : ""}{usdFmt.format(b.pnl_usd)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Recent alerts */}
       {wallet.recent_alerts?.length > 0 && (
