@@ -30,9 +30,12 @@ export async function generateMetadata({ params }) {
   const title = thesis.thesis_headline || "Cross-Market Thesis";
   const marketCount = thesis.markets?.length || 0;
   const totalUsd = Math.round(thesis.total_usd || 0);
-  const description = `${thesis.wallet?.slice(0, 8)}... is betting $${totalUsd.toLocaleString()} across ${marketCount} markets.`;
+  const walletShort = thesis.wallet?.slice(0, 8) || "Unknown";
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
+  const description = `"${title}" — ${walletShort}... is betting $${totalUsd.toLocaleString()} across ${marketCount} Polymarket markets on this cross-market thesis. View positions, entry prices, and wallet performance on PolySpotter.`;
+
+  const siteUrl =
+    process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
   const thesisUrl = `${siteUrl}/thesis/${id}`;
 
   return {
@@ -81,6 +84,22 @@ export default async function ThesisPage({ params }) {
     headline: title,
     description: `${thesis.wallet?.slice(0, 8)}... is betting ${usdFmt.format(totalUsd)} across ${marketCount} markets.`,
     url: thesisUrl,
+    mainEntityOfPage: { "@type": "WebPage", "@id": thesisUrl },
+    author: {
+      "@type": "Person",
+      name: `Wallet ${thesis.wallet?.slice(0, 8)}...`,
+      url: `${siteUrl}/wallet/${thesis.wallet}`,
+    },
+    publisher: {
+      "@type": "Organization",
+      name: "PolySpotter",
+      url: siteUrl,
+    },
+    about: (thesis.markets || []).map((m) => ({
+      "@type": "Thing",
+      name: m.market_title,
+      url: `${siteUrl}/market/${marketSlug(m.market_title, m.condition_id)}`,
+    })),
     isPartOf: {
       "@type": "WebSite",
       name: "PolySpotter",
@@ -144,6 +163,22 @@ export default async function ThesisPage({ params }) {
           &ldquo;{title}&rdquo;
         </h1>
       </header>
+
+      {/* Thesis explanation */}
+      <p
+        className="mb-6 text-sm leading-relaxed"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        This trader is expressing a view that{" "}
+        {(thesis.markets || [])
+          .slice(0, 3)
+          .map((m) => m.market_title)
+          .join(", ")}
+        {marketCount > 3 ? `, and ${marketCount - 3} more` : ""}{" "}
+        are correlated outcomes, committing {usdFmt.format(totalUsd)} to
+        this thesis across {marketCount} prediction market
+        {marketCount !== 1 ? "s" : ""} on Polymarket.
+      </p>
 
       {/* Wallet + Stats */}
       <div
