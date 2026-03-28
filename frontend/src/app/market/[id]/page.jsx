@@ -67,6 +67,10 @@ export async function generateMetadata({ params }) {
 
   const canonicalSlug = marketSlug(title, conditionId);
 
+  const bestAlert = [...alerts].sort((a, b) => (b.composite_score || 0) - (a.composite_score || 0))[0];
+  const alertId = bestAlert?.id;
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
+
   return {
     title,
     description,
@@ -76,6 +80,7 @@ export async function generateMetadata({ params }) {
     openGraph: {
       title: `${title} | PolySpotter`,
       description,
+      images: alertId ? [`${siteUrl}/api/og/${alertId}`] : [],
     },
     twitter: {
       card: "summary_large_image",
