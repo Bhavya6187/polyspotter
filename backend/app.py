@@ -210,8 +210,8 @@ def ingest(payload: IngestPayload):
                 """INSERT INTO wallet_profiles
                    (wallet, total_positions, closed_positions, wins, losses,
                     total_pnl, total_invested, avg_win_price, win_rate,
-                    times_flagged, first_seen_at, updated_at)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, NOW())
+                    times_flagged, first_seen_at, current_streak, updated_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, NOW())
                    ON CONFLICT (wallet) DO UPDATE SET
                     total_positions = EXCLUDED.total_positions,
                     closed_positions = EXCLUDED.closed_positions,
@@ -223,6 +223,7 @@ def ingest(payload: IngestPayload):
                     win_rate = EXCLUDED.win_rate,
                     times_flagged = EXCLUDED.times_flagged,
                     first_seen_at = COALESCE(EXCLUDED.first_seen_at, wallet_profiles.first_seen_at),
+                    current_streak = EXCLUDED.current_streak,
                     updated_at = NOW()""",
                 (
                     wp.wallet.lower(),
@@ -236,8 +237,51 @@ def ingest(payload: IngestPayload):
                     wp.win_rate,
                     wp.times_flagged,
                     wp.first_seen_at,
+                    wp.current_streak,
                 ),
             )
+
+        # Ingest price candles
+        candles_count = 0
+        for pc in payload.price_candles:
+            cur.execute("""
+                INSERT INTO price_candles (condition_id, token_id, outcome, t, p)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (token_id, t) DO UPDATE SET p = EXCLUDED.p
+            """, (pc.condition_id, pc.token_id, pc.outcome, pc.t, pc.p))
+            candles_count += 1
+
+        # Ingest theses
+        theses_count = 0
+        for th in payload.theses:
+            cur.execute("""
+                INSERT INTO wallet_theses (wallet, event_slug, thesis_headline, markets, total_usd, composite_score, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (wallet, event_slug) DO UPDATE SET
+                    thesis_headline = EXCLUDED.thesis_headline,
+                    markets = EXCLUDED.markets,
+                    total_usd = EXCLUDED.total_usd,
+                    composite_score = EXCLUDED.composite_score,
+                    updated_at = NOW()
+            """, (th.wallet, th.event_slug, th.thesis_headline,
+                  json.dumps([m.model_dump() for m in th.markets]),
+                  th.total_usd, th.composite_score))
+            theses_count += 1
+
+        # Ingest alert outcomes
+        outcomes_count = 0
+        for ao in payload.alert_outcomes:
+            alert_id = ao.alert_id
+            if not alert_id and ao.dedup_key:
+                cur.execute("SELECT id FROM alerts WHERE dedup_key = %s", (ao.dedup_key,))
+                row = cur.fetchone()
+                alert_id = row["id"] if row else None
+            cur.execute("""
+                INSERT INTO alert_outcomes (alert_id, condition_id, market_title, won, entry_price, resolution_price, pnl_usd, resolved_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, (alert_id, ao.condition_id, ao.market_title, ao.won,
+                  ao.entry_price, ao.resolution_price, ao.pnl_usd, ao.resolved_at))
+            outcomes_count += 1
 
     return {
         "status": "ok",
@@ -245,6 +289,9 @@ def ingest(payload: IngestPayload):
         "updated_alerts": updated_alerts,
         "skipped_alerts": skipped_alerts,
         "wallet_profiles": len(payload.wallet_profiles),
+        "price_candles": candles_count,
+        "theses": theses_count,
+        "alert_outcomes": outcomes_count,
     }
 
 
