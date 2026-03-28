@@ -244,3 +244,140 @@ class TestWalletProfile:
     def test_wallet_profile_404(self):
         resp = client.get("/api/wallets/nonexistent_wallet_xyz")
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# /api/market/{condition_id}/price-history endpoint tests
+# ---------------------------------------------------------------------------
+
+@skip_no_db
+class TestPriceHistory:
+    def test_price_history_returns_structure(self, monkeypatch):
+        """Mock upstream CLOB + Gamma calls, verify response shape."""
+        def mock_fetch_live(cid):
+            from models import LiveMarketData, OutcomePrice
+            return LiveMarketData(
+                condition_id=cid,
+                outcomes=[
+                    OutcomePrice(name="Yes", token_id="tok_yes_123", price=0.21),
+                    OutcomePrice(name="No", token_id="tok_no_456", price=0.79),
+                ],
+            )
+
+        class MockResp:
+            status_code = 200
+            def raise_for_status(self): pass
+            def json(self):
+                return {"history": [
+                    {"t": 1700000000, "p": 0.75},
+                    {"t": 1700003600, "p": 0.78},
+                    {"t": 1700007200, "p": 0.80},
+                ]}
+
+        import app as app_mod
+        monkeypatch.setattr(app_mod, "_fetch_live_market", mock_fetch_live)
+        monkeypatch.setattr(app_mod._requests, "get", lambda *a, **kw: MockResp())
+
+        app_mod._live_cache.clear()
+        app_mod._price_history_cache.clear()
+
+        resp = client.get("/api/market/test_cond_001/price-history?range=7d")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["condition_id"] == "test_cond_001"
+        assert data["outcome"] == "No"
+        assert len(data["history"]) == 3
+        assert data["history"][0]["t"] == 1700000000
+
+    def test_price_history_invalid_range(self):
+        """Invalid range param returns 422."""
+        resp = client.get("/api/market/test_cond_001/price-history?range=invalid")
+        assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# /api/market/{condition_id}/holders endpoint tests
+# ---------------------------------------------------------------------------
+
+@skip_no_db
+class TestMarketHolders:
+    def test_holders_returns_enriched_list(self, monkeypatch):
+        """Mock Data API /positions, seed wallet_profiles, verify enrichment."""
+        with db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """INSERT INTO wallet_profiles (wallet, total_positions, closed_positions,
+                   wins, losses, total_pnl, total_invested, avg_win_price, win_rate, times_flagged)
+                   VALUES ('test_wallet_holder1', 50, 40, 30, 10, 5000, 20000, 0.65, 0.75, 3)
+                   ON CONFLICT (wallet) DO NOTHING"""
+            )
+            conn.commit()
+
+        class MockResp:
+            status_code = 200
+            def raise_for_status(self): pass
+            def json(self):
+                return [
+                    {"proxyWallet": "test_wallet_holder1", "size": "1500.0",
+                     "outcome": "Yes", "curPrice": "0.21", "cashBalance": "0"},
+                    {"proxyWallet": "test_wallet_holder2", "size": "800.0",
+                     "outcome": "No", "curPrice": "0.79", "cashBalance": "0"},
+                ]
+
+        import app as app_mod
+        monkeypatch.setattr(app_mod._requests, "get", lambda *a, **kw: MockResp())
+        app_mod._holders_cache.clear()
+
+        resp = client.get("/api/market/test_cond_001/holders")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["condition_id"] == "test_cond_001"
+        assert len(data["holders"]) == 2
+        h1 = data["holders"][0]
+        assert h1["wallet"] == "test_wallet_holder1"
+        assert h1["win_rate"] == 0.75
+        assert h1["total_pnl"] == 5000
+
+    def test_holders_empty_market(self, monkeypatch):
+        """Market with no holders returns empty list."""
+        class MockResp:
+            status_code = 200
+            def raise_for_status(self): pass
+            def json(self): return []
+
+        import app as app_mod
+        monkeypatch.setattr(app_mod._requests, "get", lambda *a, **kw: MockResp())
+        app_mod._holders_cache.clear()
+
+        resp = client.get("/api/market/test_cond_empty/holders")
+        assert resp.status_code == 200
+        assert resp.json()["holders"] == []
+
+
+# ---------------------------------------------------------------------------
+# /api/market/{condition_id}/theses endpoint tests
+# ---------------------------------------------------------------------------
+
+@skip_no_db
+class TestMarketTheses:
+    def test_theses_for_market(self):
+        """Returns theses from wallets that have alerts in this market."""
+        with db() as conn:
+            cur = conn.cursor()
+            _seed_alert(cur, wallet="test_wallet_thesis1", condition_id="test_cond_thesis",
+                        dedup_key="test_thesis_dedup_1")
+            _seed_thesis(cur, wallet="test_wallet_thesis1", event_slug="test-thesis-event",
+                         thesis_headline="TEST: Geopolitics stability bet")
+            conn.commit()
+
+        resp = client.get("/api/market/test_cond_thesis/theses")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["theses"]) == 1
+        assert data["theses"][0]["thesis_headline"] == "TEST: Geopolitics stability bet"
+
+    def test_theses_empty_market(self):
+        """Market with no alerts returns empty theses."""
+        resp = client.get("/api/market/test_cond_notheses/theses")
+        assert resp.status_code == 200
+        assert resp.json()["theses"] == []

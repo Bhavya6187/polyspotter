@@ -70,3 +70,15 @@ export function fetchResolvingSoon() {
 export function fetchTheses(page = 1, perPage = 5) {
   return request("/api/theses", { page, per_page: perPage });
 }
+
+export function fetchPriceHistory(conditionId, range = "7d") {
+  return request(`/api/market/${conditionId}/price-history`, { range });
+}
+
+export function fetchMarketHolders(conditionId) {
+  return request(`/api/market/${conditionId}/holders`);
+}
+
+export function fetchMarketTheses(conditionId) {
+  return request(`/api/market/${conditionId}/theses`);
+}

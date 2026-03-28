@@ -4,6 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import AlertRow from "../../../components/AlertRow";
 import PriceMovement from "../../../components/PriceMovement";
+import PriceChart from "../../../components/PriceChart";
+import MarketStats from "../../../components/MarketStats";
+import HoldersLeaderboard from "../../../components/HoldersLeaderboard";
+import MarketPulse from "../../../components/MarketPulse";
+import MarketTheses from "../../../components/MarketTheses";
 import useLiveMarket from "../../../hooks/useLiveMarket";
 import ThemeToggle from "../../../components/ThemeToggle";
 
@@ -25,7 +30,14 @@ function timeToResolution(dateStr) {
   return `${Math.floor(diffHr / 24)}d`;
 }
 
-export default function MarketPageClient({ conditionId, initialLive, initialAlerts }) {
+export default function MarketPageClient({
+  conditionId,
+  initialLive,
+  initialAlerts,
+  priceHistory,
+  holders,
+  theses,
+}) {
   const { data: liveMarket } = useLiveMarket(conditionId);
   const live = liveMarket || initialLive;
   const alerts = initialAlerts || [];
@@ -41,7 +53,7 @@ export default function MarketPageClient({ conditionId, initialLive, initialAler
   const outcomes = live?.outcomes || [];
 
   return (
-    <main className="mx-auto max-w-4xl px-4 py-6">
+    <main className="mx-auto max-w-5xl px-4 py-6">
       {/* Nav */}
       <nav className="mb-6 flex items-center justify-between" aria-label="Breadcrumb">
         <Link
@@ -115,7 +127,7 @@ export default function MarketPageClient({ conditionId, initialLive, initialAler
       {outcomes.length > 0 && (() => {
         const maxPct = Math.max(...outcomes.map((o) => Math.round((o.price || 0) * 100)));
         return (
-          <div className="mb-8 grid gap-3 sm:grid-cols-2">
+          <div className="mb-6 grid gap-3 sm:grid-cols-2">
             {outcomes.map((o) => {
               const pct = Math.round((o.price || 0) * 100);
               const isLeading = pct === maxPct && pct > 50;
@@ -129,7 +141,6 @@ export default function MarketPageClient({ conditionId, initialLive, initialAler
                     boxShadow: isLeading ? 'var(--glow-medium)' : 'none',
                   }}
                 >
-                  {/* Background fill */}
                   <div
                     className="absolute inset-y-0 left-0 transition-all duration-700"
                     style={{
@@ -153,7 +164,6 @@ export default function MarketPageClient({ conditionId, initialLive, initialAler
                       {pct}&cent;
                     </span>
                   </div>
-                  {/* Probability bar */}
                   <div
                     className="h-2 w-full rounded-full overflow-hidden"
                     style={{ background: 'var(--surface-2)' }}
@@ -176,26 +186,82 @@ export default function MarketPageClient({ conditionId, initialLive, initialAler
         );
       })()}
 
-      {/* Alerts */}
-      {alerts.length > 0 ? (
-        <section className="flex flex-col gap-3" aria-label="Notable trades">
-          <h2 className="text-xs font-semibold uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-muted)', fontSize: '0.6rem' }}>
-            Notable Trades
-          </h2>
-          {alerts.map((alert, i) => (
-            <AlertRow
-              key={alert.id}
-              alert={alert}
-              autoExpand
-              activeTag=""
-              onTagClick={() => {}}
-              liveMarket={live}
-            />
-          ))}
+      {/* Price Chart */}
+      {priceHistory && priceHistory.history?.length > 1 && (
+        <div className="mb-6">
+          <PriceChart
+            history={priceHistory.history}
+            outcome={priceHistory.outcome}
+            alerts={alerts}
+            conditionId={conditionId}
+          />
+        </div>
+      )}
+
+      {/* Market Stats */}
+      <div className="mb-6">
+        <MarketStats
+          volume24h={live?.volume_24h}
+          liquidity={live?.liquidity}
+          spread={live?.spread}
+          alerts={alerts}
+        />
+      </div>
+
+      {/* Two-column: Notable Trades + Holders/Pulse */}
+      <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+        {/* Left: Notable Trades */}
+        <section>
+          {alerts.length > 0 ? (
+            <div className="flex flex-col gap-3">
+              <h2
+                className="text-xs font-semibold uppercase tracking-widest"
+                style={{
+                  fontFamily: 'var(--font-display)',
+                  color: 'var(--text-muted)',
+                  fontSize: '0.6rem',
+                }}
+              >
+                Notable Trades
+              </h2>
+              {alerts.map((alert) => (
+                <AlertRow
+                  key={alert.id}
+                  alert={alert}
+                  autoExpand
+                  activeTag=""
+                  onTagClick={() => {}}
+                  liveMarket={live}
+                />
+              ))}
+            </div>
+          ) : (
+            <div
+              className="rounded-xl border p-12 text-center"
+              style={{
+                borderColor: 'var(--border)',
+                background: 'var(--surface-card)',
+                color: 'var(--text-muted)',
+              }}
+            >
+              No signals found for this market.
+            </div>
+          )}
         </section>
-      ) : (
-        <div className="rounded-xl border p-12 text-center" style={{ borderColor: 'var(--border)', background: 'var(--surface-card)', color: 'var(--text-muted)' }}>
-          No signals found for this market.
+
+        {/* Right: Holders + Pulse */}
+        {(holders?.length > 0 || alerts.length > 0) && (
+          <aside>
+            <HoldersLeaderboard holders={holders} />
+            <MarketPulse alerts={alerts} volume24h={live?.volume_24h} />
+          </aside>
+        )}
+      </div>
+
+      {/* Related Theses */}
+      {theses?.length > 0 && (
+        <div className="mt-8">
+          <MarketTheses theses={theses} />
         </div>
       )}
     </main>

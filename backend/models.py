@@ -280,3 +280,33 @@ class LiveMarketData(BaseModel):
     volume_24h: float | None = None
     liquidity: float | None = None
     description: str | None = None
+    spread: float | None = None  # bid-ask spread in cents for leading outcome
+
+
+# -- Price history (proxied from CLOB API) ------------------------------------
+
+class PricePoint(BaseModel):
+    t: int  # unix timestamp
+    p: float  # price 0.00–1.00
+
+class PriceHistoryData(BaseModel):
+    condition_id: str
+    token_id: str
+    outcome: str
+    history: list[PricePoint] = []
+
+
+# -- Market holders (from Polymarket Data API + wallet_profiles) ---------------
+
+class HolderEntry(BaseModel):
+    wallet: str
+    position_size: float  # USD value
+    outcome: str
+    side: str  # "long" or "short"
+    win_rate: float | None = None
+    total_pnl: float | None = None
+    total_invested: float | None = None
+
+class MarketHoldersData(BaseModel):
+    condition_id: str
+    holders: list[HolderEntry] = []

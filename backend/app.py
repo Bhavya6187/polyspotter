@@ -39,6 +39,10 @@ from models import (
     PaginatedMarkets,
     LiveMarketData,
     OutcomePrice,
+    PriceHistoryData,
+    PricePoint,
+    HolderEntry,
+    MarketHoldersData,
 )
 
 
@@ -862,10 +866,17 @@ def get_thesis(thesis_id: int):
 
 GAMMA_API = "https://gamma-api.polymarket.com"
 CLOB_API = "https://clob.polymarket.com"
+DATA_API = "https://data-api.polymarket.com"
 
 # Simple in-memory cache: key -> (expiry_ts, data)
 _live_cache: dict[str, tuple[float, LiveMarketData]] = {}
 _LIVE_CACHE_TTL = 30  # seconds
+
+_price_history_cache: dict[str, tuple[float, "PriceHistoryData"]] = {}
+_PRICE_HISTORY_CACHE_TTL = 60  # seconds
+
+_holders_cache: dict[str, tuple[float, "MarketHoldersData"]] = {}
+_HOLDERS_CACHE_TTL = 300  # 5 minutes
 
 
 def _fetch_live_market(condition_id: str) -> LiveMarketData:
@@ -937,12 +948,29 @@ def _fetch_live_market(condition_id: str) -> LiveMarketData:
             price = 0
         outcome_prices.append(OutcomePrice(name=name, token_id=tid, price=price))
 
+    # Fetch spread for the leading outcome
+    spread = None
+    if outcome_prices:
+        leading_token = max(outcome_prices, key=lambda o: o.price).token_id
+        try:
+            spread_resp = _requests.get(
+                f"{CLOB_API}/spread",
+                params={"token_id": leading_token},
+                timeout=5,
+            )
+            if spread_resp.ok:
+                spread_data = spread_resp.json()
+                spread = float(spread_data.get("spread", 0)) * 100  # convert to cents
+        except Exception:
+            pass  # spread is non-critical
+
     return LiveMarketData(
         condition_id=condition_id,
         outcomes=outcome_prices,
         volume_24h=_safe_float(market.get("volume24hr")),
         liquidity=_safe_float(market.get("liquidity")),
         description=market.get("description"),
+        spread=spread,
     )
 
 
@@ -973,6 +1001,156 @@ def get_market_live(condition_id: str):
 
     _live_cache[condition_id] = (now + _LIVE_CACHE_TTL, data)
     return data
+
+
+_RANGE_PARAMS = {
+    "24h": ("1", "minute"),
+    "7d": ("7", "hour"),
+    "30d": ("30", "hour"),
+    "all": ("max", "day"),
+}
+
+
+@app.get("/api/market/{condition_id}/price-history", response_model=PriceHistoryData)
+def get_price_history(
+    condition_id: str,
+    range: str = Query("7d", pattern="^(24h|7d|30d|all)$"),
+):
+    """Get price history for the leading outcome of a market.
+
+    Proxies CLOB /prices-history. Cached for 60 seconds."""
+    cache_key = f"{condition_id}:{range}"
+    now = _time.time()
+    cached = _price_history_cache.get(cache_key)
+    if cached and cached[0] > now:
+        return cached[1]
+
+    # Get token IDs from live market data (itself cached for 30s)
+    live = get_market_live(condition_id)
+    if not live.outcomes:
+        raise HTTPException(status_code=404, detail="No outcomes found for market")
+
+    # Pick the leading outcome (highest price)
+    leading = max(live.outcomes, key=lambda o: o.price)
+    fidelity, interval = _RANGE_PARAMS[range]
+
+    try:
+        resp = _requests.get(
+            f"{CLOB_API}/prices-history",
+            params={
+                "market": leading.token_id,
+                "interval": interval,
+                "fidelity": fidelity,
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        raw = resp.json()
+    except _requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"CLOB API error: {e}")
+
+    history_list = raw.get("history", [])
+    points = [PricePoint(t=int(pt["t"]), p=float(pt["p"])) for pt in history_list]
+
+    data = PriceHistoryData(
+        condition_id=condition_id,
+        token_id=leading.token_id,
+        outcome=leading.name,
+        history=points,
+    )
+    _price_history_cache[cache_key] = (now + _PRICE_HISTORY_CACHE_TTL, data)
+    return data
+
+
+@app.get("/api/market/{condition_id}/holders", response_model=MarketHoldersData)
+def get_market_holders(condition_id: str):
+    """Get top holders for a market, enriched with wallet profile stats.
+
+    Proxies Polymarket Data API /positions. Cached for 5 minutes."""
+    now = _time.time()
+    cached = _holders_cache.get(condition_id)
+    if cached and cached[0] > now:
+        return cached[1]
+
+    try:
+        resp = _requests.get(
+            f"{DATA_API}/positions",
+            params={"market": condition_id, "sizeThreshold": "100", "limit": "20"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        raw = resp.json()
+    except _requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"Data API error: {e}")
+
+    if not isinstance(raw, list):
+        raw = []
+
+    raw.sort(key=lambda p: abs(float(p.get("size", 0))), reverse=True)
+    raw = raw[:10]
+
+    wallets = [p.get("proxyWallet", "").lower() for p in raw if p.get("proxyWallet")]
+
+    wallet_stats = {}
+    if wallets:
+        with db() as conn:
+            cur = conn.cursor()
+            placeholders = ",".join(["%s"] * len(wallets))
+            cur.execute(
+                f"SELECT wallet, win_rate, total_pnl, total_invested FROM wallet_profiles WHERE wallet IN ({placeholders})",
+                wallets,
+            )
+            for row in cur.fetchall():
+                wallet_stats[row["wallet"]] = row
+
+    holders = []
+    for p in raw:
+        w = (p.get("proxyWallet") or "").lower()
+        stats = wallet_stats.get(w, {})
+        size_val = abs(float(p.get("size", 0)))
+        holders.append(HolderEntry(
+            wallet=w,
+            position_size=size_val,
+            outcome=p.get("outcome", ""),
+            side="long" if float(p.get("size", 0)) > 0 else "short",
+            win_rate=stats.get("win_rate"),
+            total_pnl=stats.get("total_pnl"),
+            total_invested=stats.get("total_invested"),
+        ))
+
+    data = MarketHoldersData(condition_id=condition_id, holders=holders)
+    _holders_cache[condition_id] = (now + _HOLDERS_CACHE_TTL, data)
+    return data
+
+
+@app.get("/api/market/{condition_id}/theses")
+def get_market_theses(condition_id: str):
+    """Get cross-market theses from wallets active in this market."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT DISTINCT wallet FROM alerts WHERE condition_id = %s LIMIT 20",
+            (condition_id,),
+        )
+        wallets = [r["wallet"] for r in cur.fetchall()]
+
+        if not wallets:
+            return {"theses": []}
+
+        placeholders = ",".join(["%s"] * len(wallets))
+        cur.execute(
+            f"""SELECT wt.*, wp.win_rate, wp.total_pnl, wp.total_invested
+                FROM wallet_theses wt
+                LEFT JOIN wallet_profiles wp ON wt.wallet = wp.wallet
+                WHERE wt.wallet IN ({placeholders})
+                ORDER BY wt.composite_score DESC
+                LIMIT 10""",
+            wallets,
+        )
+        rows = cur.fetchall()
+        theses = [_thesis_from_row(row) for row in rows]
+
+    return {"theses": theses}
 
 
 @app.get("/api/market/resolve/{partial_id}")

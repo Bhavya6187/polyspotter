@@ -22,7 +22,7 @@ async function resolveConditionId(partialId) {
 
 async function getMarketData(conditionId) {
   try {
-    const [liveRes, alertsRes] = await Promise.all([
+    const [liveRes, alertsRes, priceRes, holdersRes, thesesRes] = await Promise.all([
       fetch(`${API_URL}/api/market/${conditionId}/live`, {
         next: { revalidate: 60 },
       }),
@@ -30,17 +30,32 @@ async function getMarketData(conditionId) {
         `${API_URL}/api/alerts?condition_id=${conditionId}&per_page=50`,
         { next: { revalidate: 60 } }
       ),
+      fetch(`${API_URL}/api/market/${conditionId}/price-history?range=7d`, {
+        next: { revalidate: 60 },
+      }),
+      fetch(`${API_URL}/api/market/${conditionId}/holders`, {
+        next: { revalidate: 300 },
+      }),
+      fetch(`${API_URL}/api/market/${conditionId}/theses`, {
+        next: { revalidate: 300 },
+      }),
     ]);
 
     const live = liveRes.ok ? await liveRes.json() : null;
     const alertsData = alertsRes.ok ? await alertsRes.json() : null;
+    const priceData = priceRes.ok ? await priceRes.json() : null;
+    const holdersData = holdersRes.ok ? await holdersRes.json() : null;
+    const thesesData = thesesRes.ok ? await thesesRes.json() : null;
 
     return {
       live,
       alerts: alertsData?.alerts || [],
+      priceHistory: priceData,
+      holders: holdersData?.holders || [],
+      theses: thesesData?.theses || [],
     };
   } catch {
-    return { live: null, alerts: [] };
+    return { live: null, alerts: [], priceHistory: null, holders: [], theses: [] };
   }
 }
 
@@ -94,7 +109,7 @@ export default async function MarketPage({ params }) {
   const { id } = await params;
   const partialId = partialIdFromSlug(id);
   const conditionId = await resolveConditionId(partialId);
-  const { live, alerts } = await getMarketData(conditionId);
+  const { live, alerts, priceHistory, holders, theses } = await getMarketData(conditionId);
 
   const title = live?.title || alerts?.[0]?.market_title || "Market";
   const alertCount = alerts.length;
@@ -145,7 +160,14 @@ export default async function MarketPage({ params }) {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
       />
-      <MarketPageClient conditionId={conditionId} initialLive={live} initialAlerts={alerts} />
+      <MarketPageClient
+  conditionId={conditionId}
+  initialLive={live}
+  initialAlerts={alerts}
+  priceHistory={priceHistory}
+  holders={holders}
+  theses={theses}
+/>
     </>
   );
 }
