@@ -153,3 +153,18 @@ body {
 .strength-bar {
   background: linear-gradient(to top, var(--accent), #00e87b);
 }
+
+/* SEO content: visible to crawlers, hidden for JS-enabled users.
+   Content is in the DOM for crawlers, but visually hidden with CSS.
+   Screen readers also skip it since the client component renders the same content accessibly. */
+.seo-content {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
