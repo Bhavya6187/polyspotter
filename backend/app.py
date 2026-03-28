@@ -464,6 +464,7 @@ def list_alerts_by_market(
                 f"""SELECT a.*,
                            wp.win_rate,
                            wp.total_pnl,
+                           wp.total_invested,
                            COALESCE(
                                (SELECT MAX(t.trade_timestamp)
                                 FROM alert_trades t
