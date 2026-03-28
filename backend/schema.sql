@@ -102,8 +102,6 @@ CREATE TABLE IF NOT EXISTS wallet_profiles (
     current_streak  INTEGER DEFAULT 0
 );
 
-ALTER TABLE wallet_profiles ADD COLUMN IF NOT EXISTS current_streak INTEGER DEFAULT 0;
-
 -- Price candle data for sparklines (pushed from local SQLite)
 CREATE TABLE IF NOT EXISTS price_candles (
     id SERIAL PRIMARY KEY,
@@ -144,6 +142,7 @@ CREATE TABLE IF NOT EXISTS alert_outcomes (
     pnl_usd DOUBLE PRECISION,
     resolved_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(condition_id)
+    UNIQUE(alert_id, condition_id)
 );
 CREATE INDEX IF NOT EXISTS idx_alert_outcomes_resolved ON alert_outcomes (resolved_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alert_outcomes_condition ON alert_outcomes (condition_id);

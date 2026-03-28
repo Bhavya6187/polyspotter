@@ -552,7 +552,12 @@ def check_resolutions_and_push() -> int:
         if not market:
             continue
 
-        # Check if resolved via CLOB midpoints
+        # Check if market has resolved via Gamma API status
+        is_resolved = market.get("closed") is True or market.get("active") is False
+        if not is_resolved:
+            continue
+
+        # Determine the winning outcome from CLOB midpoints (post-resolution, prices are 0 or 1)
         try:
             token_ids = [t.get("token_id", "") for t in market.get("tokens", []) if t.get("token_id")]
             if not token_ids:

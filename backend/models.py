@@ -216,6 +216,20 @@ class WalletProfileOut(BaseModel):
     current_streak: int | None = None
 
 
+class WalletRecentAlert(BaseModel):
+    id: int
+    market_title: str | None = None
+    composite_score: float = 0
+    total_usd: float = 0
+    llm_headline: str | None = None
+    created_at: datetime | None = None
+    condition_id: str | None = None
+
+
+class WalletProfileDetailOut(WalletProfileOut):
+    recent_alerts: list[WalletRecentAlert] = []
+
+
 class PaginatedAlerts(BaseModel):
     alerts: list[AlertOut]
     total: int

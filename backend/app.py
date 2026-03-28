@@ -31,6 +31,8 @@ from models import (
     TradeOut,
     SignalOut,
     WalletProfileOut,
+    WalletProfileDetailOut,
+    WalletRecentAlert,
     PaginatedAlerts,
     MarketGroup,
     PaginatedMarkets,
@@ -279,7 +281,7 @@ def ingest(payload: IngestPayload):
             cur.execute("""
                 INSERT INTO alert_outcomes (alert_id, condition_id, market_title, won, entry_price, resolution_price, pnl_usd, resolved_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (condition_id) DO UPDATE SET
+                ON CONFLICT (alert_id, condition_id) DO UPDATE SET
                     won = EXCLUDED.won,
                     resolution_price = EXCLUDED.resolution_price,
                     pnl_usd = EXCLUDED.pnl_usd,
@@ -287,6 +289,9 @@ def ingest(payload: IngestPayload):
             """, (alert_id, ao.condition_id, ao.market_title, ao.won,
                   ao.entry_price, ao.resolution_price, ao.pnl_usd, ao.resolved_at))
             outcomes_count += 1
+
+        # Cleanup old price candles (keep only 7 days)
+        cur.execute("DELETE FROM price_candles WHERE created_at < NOW() - INTERVAL '7 days'")
 
     return {
         "status": "ok",
@@ -544,7 +549,7 @@ def get_alert(alert_id: int):
     return AlertDetail(**data, trades=trades, signals=signals)
 
 
-@app.get("/api/wallets/{wallet_address}")
+@app.get("/api/wallets/{wallet_address}", response_model=WalletProfileDetailOut)
 def get_wallet(wallet_address: str):
     """Get wallet profile with recent alerts."""
     with db() as conn:
@@ -554,11 +559,7 @@ def get_wallet(wallet_address: str):
         if not row:
             raise HTTPException(status_code=404, detail="Wallet not found")
 
-        profile = dict(row)
-        # Convert datetime fields to iso
-        for field in ("first_seen_at", "updated_at"):
-            if profile.get(field) and hasattr(profile[field], "isoformat"):
-                profile[field] = profile[field].isoformat()
+        profile = WalletProfileOut(**row)
 
         # Fetch recent alerts
         cur.execute("""
@@ -569,20 +570,9 @@ def get_wallet(wallet_address: str):
             ORDER BY a.created_at DESC
             LIMIT 5
         """, (wallet_address.lower(),))
-        recent_alerts = []
-        for arow in cur.fetchall():
-            recent_alerts.append({
-                "id": arow["id"],
-                "market_title": arow["market_title"],
-                "composite_score": arow["composite_score"],
-                "total_usd": arow["total_usd"],
-                "llm_headline": arow["llm_headline"],
-                "created_at": arow["created_at"].isoformat() if arow["created_at"] else None,
-                "condition_id": arow["condition_id"],
-            })
+        recent_alerts = [WalletRecentAlert(**arow) for arow in cur.fetchall()]
 
-        profile["recent_alerts"] = recent_alerts
-        return profile
+        return WalletProfileDetailOut(**profile.model_dump(), recent_alerts=recent_alerts)
 
 
 @app.get("/api/strategies")
@@ -771,6 +761,30 @@ def get_resolved(hours: int = Query(24, ge=1, le=168)):
         }
 
 
+def _thesis_from_row(row: dict) -> dict:
+    """Build a thesis dict from a DB row, parsing JSON markets."""
+    markets = row["markets"]
+    if isinstance(markets, str):
+        try:
+            markets = json.loads(markets)
+        except (json.JSONDecodeError, TypeError):
+            markets = []
+    return {
+        "id": row["id"],
+        "wallet": row["wallet"],
+        "event_slug": row["event_slug"],
+        "thesis_headline": row["thesis_headline"],
+        "markets": markets,
+        "total_usd": row["total_usd"],
+        "composite_score": row["composite_score"],
+        "win_rate": row["win_rate"],
+        "total_pnl": row["total_pnl"],
+        "total_invested": row["total_invested"],
+        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+        "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+    }
+
+
 @app.get("/api/theses")
 def list_theses(page: int = Query(1, ge=1), per_page: int = Query(10, ge=1, le=50)):
     """Active cross-market thesis cards, sorted by composite_score."""
@@ -789,30 +803,26 @@ def list_theses(page: int = Query(1, ge=1), per_page: int = Query(10, ge=1, le=5
         """, (per_page, offset))
         rows = cur.fetchall()
 
-        theses = []
-        for row in rows:
-            markets = row["markets"]
-            if isinstance(markets, str):
-                try:
-                    markets = json.loads(markets)
-                except (json.JSONDecodeError, TypeError):
-                    markets = []
-            theses.append({
-                "id": row["id"],
-                "wallet": row["wallet"],
-                "event_slug": row["event_slug"],
-                "thesis_headline": row["thesis_headline"],
-                "markets": markets,
-                "total_usd": row["total_usd"],
-                "composite_score": row["composite_score"],
-                "win_rate": row["win_rate"],
-                "total_pnl": row["total_pnl"],
-                "total_invested": row["total_invested"],
-                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
-                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
-            })
+        theses = [_thesis_from_row(row) for row in rows]
 
         return {"theses": theses, "total": total, "page": page, "per_page": per_page}
+
+
+@app.get("/api/theses/{thesis_id}")
+def get_thesis(thesis_id: int):
+    """Get a single thesis by ID."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT wt.*, wp.win_rate, wp.total_pnl, wp.total_invested
+            FROM wallet_theses wt
+            LEFT JOIN wallet_profiles wp ON wt.wallet = wp.wallet
+            WHERE wt.id = %s
+        """, (thesis_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Thesis not found")
+        return _thesis_from_row(row)
 
 
 # ---------------------------------------------------------------------------
