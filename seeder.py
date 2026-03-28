@@ -562,9 +562,9 @@ def check_resolutions_and_push() -> int:
             token_ids = [t.get("token_id", "") for t in market.get("tokens", []) if t.get("token_id")]
             if not token_ids:
                 continue
-            clob_resp = _requests.get(
+            clob_resp = _requests.post(
                 "https://clob.polymarket.com/midpoints",
-                params={"token_ids": ",".join(token_ids)},
+                json={"token_ids": token_ids},
                 timeout=5,
             )
             if clob_resp.status_code != 200:

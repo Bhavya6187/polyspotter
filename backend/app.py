@@ -86,6 +86,7 @@ def _alert_from_row(row: dict) -> AlertOut:
     # Wallet profile fields (present when query joins wallet_profiles)
     data.setdefault("win_rate", None)
     data.setdefault("total_pnl", None)
+    data.setdefault("total_invested", None)
     return AlertOut(**data)
 
 
@@ -278,6 +279,8 @@ def ingest(payload: IngestPayload):
                 cur.execute("SELECT id FROM alerts WHERE dedup_key = %s", (ao.dedup_key,))
                 row = cur.fetchone()
                 alert_id = row["id"] if row else None
+            if alert_id is None:
+                continue
             cur.execute("""
                 INSERT INTO alert_outcomes (alert_id, condition_id, market_title, won, entry_price, resolution_price, pnl_usd, resolved_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
@@ -358,7 +361,7 @@ def list_alerts(
         total = cur.fetchone()["cnt"]
 
         cur.execute(
-            f"""SELECT a.*, wp.win_rate, wp.total_pnl
+            f"""SELECT a.*, wp.win_rate, wp.total_pnl, wp.total_invested
                 FROM alerts a
                 LEFT JOIN wallet_profiles wp ON wp.wallet = a.wallet
                 WHERE {where}
@@ -517,7 +520,7 @@ def get_alert(alert_id: int):
         cur = conn.cursor()
 
         cur.execute(
-            """SELECT a.*, wp.win_rate, wp.total_pnl
+            """SELECT a.*, wp.win_rate, wp.total_pnl, wp.total_invested
                FROM alerts a
                LEFT JOIN wallet_profiles wp ON wp.wallet = a.wallet
                WHERE a.id = %s""",

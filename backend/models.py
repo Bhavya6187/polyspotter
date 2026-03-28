@@ -193,6 +193,7 @@ class AlertOut(BaseModel):
     created_at: datetime | None = None
     win_rate: float | None = None
     total_pnl: float | None = None
+    total_invested: float | None = None
 
 
 class AlertDetail(AlertOut):
