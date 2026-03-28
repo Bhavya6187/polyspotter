@@ -7,6 +7,9 @@ import AlertList from "../components/AlertList";
 import Pagination from "../components/Pagination";
 import Ticker from "../components/Ticker";
 import ThemeToggle from "../components/ThemeToggle";
+import HeroSpotlight from "../components/HeroSpotlight";
+import ResolvingSoonStrip from "../components/ResolvingSoonStrip";
+import ResolvedSection from "../components/ResolvedSection";
 
 function formatRelativeTime(date) {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -18,9 +21,10 @@ function formatRelativeTime(date) {
   return `${hours}h ago`;
 }
 
-export default function HomeClient({ initialMarkets, initialTotal, tags }) {
+export default function HomeClient({ initialMarkets, initialTotal, tags, initialTheses }) {
   const [markets, setMarkets] = useState(initialMarkets);
   const [total, setTotal] = useState(initialTotal);
+  const [theses] = useState(initialTheses || []);
   const [page, setPage] = useState(1);
   const [perPage] = useState(20);
   const [filters, setFilters] = useState({
@@ -160,9 +164,19 @@ export default function HomeClient({ initialMarkets, initialTotal, tags }) {
         </div>
       </header>
 
+      {/* Hero Spotlight */}
+      <section aria-label="Spotlight" className="mb-5">
+        <HeroSpotlight />
+      </section>
+
       {/* Live ticker */}
       <section aria-label="Live ticker" className="mb-5 -mx-4 sm:mx-0 sm:rounded-xl sm:overflow-hidden">
         <Ticker />
+      </section>
+
+      {/* Resolving Soon */}
+      <section aria-label="Resolving soon" className="mb-5">
+        <ResolvingSoonStrip />
       </section>
 
       {/* Filters */}
@@ -181,7 +195,13 @@ export default function HomeClient({ initialMarkets, initialTotal, tags }) {
           markets={markets}
           filters={filters}
           loading={loading}
+          theses={theses}
         />
+      </section>
+
+      {/* Resolved Markets */}
+      <section aria-label="Resolved markets" className="mb-5">
+        <ResolvedSection />
       </section>
 
       {/* Pagination */}
