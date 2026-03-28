@@ -37,9 +37,9 @@ function SpotlightSlide({ alert }) {
 
       <div className="flex items-center gap-4 text-xs" style={{ color: "var(--text-muted)", fontFamily: "var(--font-display)" }}>
         {alert.best_win_rate != null && (
-          <span>\u{1F3AF} {Math.round(alert.best_win_rate * 100)}% win rate wallet</span>
+          <span>{"\ud83c\udfaf"} {Math.round(alert.best_win_rate * 100)}% win rate wallet</span>
         )}
-        <span>\u23F1 Resolves in {countdown.label}</span>
+        <span>{"\u23f1\ufe0f"} Resolves in {countdown.label}</span>
       </div>
     </div>
   );

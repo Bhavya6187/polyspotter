@@ -34,7 +34,7 @@ export default function ShareButton({ url, compact = false }) {
         border: "1px solid var(--border-subtle)",
       }}
     >
-      {copied ? "\u2713 Copied" : "\u{1F4E4} Share"}
+      {copied ? "\u2713 Copied" : "\ud83d\udce4 Share"}
     </button>
   );
 }

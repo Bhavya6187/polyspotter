@@ -31,7 +31,7 @@ export default function WalletBadge({ wallet, winRate, totalPnl, totalInvested, 
           color: tier.color,
         }}
       >
-        {tier.name === "Diamond" ? "\u{1F48E}" : tier.name === "Gold" ? "\u{1F3C6}" : tier.name === "Silver" ? "\u{1F948}" : "\u{1F949}"}
+        {tier.name === "Diamond" ? "\ud83d\udc8e" : tier.name === "Gold" ? "\ud83c\udfc6" : tier.name === "Silver" ? "\ud83e\udd48" : "\ud83e\udd49"}
       </div>
 
       <div className="flex flex-col min-w-0">
