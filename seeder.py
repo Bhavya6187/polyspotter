@@ -19,7 +19,7 @@ import requests
 from dotenv import load_dotenv
 
 from detection_strategies import Signal
-from db import get_wallet_pnl_summary, get_flagged_wallet_stats
+from db import get_wallet_pnl_summary, get_flagged_wallet_stats, get_wallet_current_streak
 from gamma_cache import get_market_tags, get_market_by_condition
 
 load_dotenv()
@@ -399,7 +399,7 @@ def build_alerts_payload(
         wins = pnl.get("wins", 0)
         win_rate = (wins / closed) if closed > 0 else None
 
-        wallet_profiles.append({
+        profile = {
             "wallet": wallet,
             "total_positions": pnl.get("total_positions"),
             "closed_positions": closed,
@@ -410,12 +410,218 @@ def build_alerts_payload(
             "avg_win_price": pnl.get("avg_win_price"),
             "win_rate": win_rate,
             "times_flagged": flagged["times_flagged"] if flagged else 0,
-        })
+        }
+        profile["current_streak"] = get_wallet_current_streak(wallet)
+        wallet_profiles.append(profile)
 
     return {
         "alerts": alerts,
         "wallet_profiles": wallet_profiles,
     }
+
+
+def build_theses_payload(signals: list, trades: list[dict]) -> list[dict]:
+    """Build thesis payloads from correlated_cross_market signals."""
+    from db import get_wallet_event_history
+    from gamma_cache import get_market_by_condition
+
+    cross_signals = [s for s in signals if s.strategy == "correlated_cross_market"]
+    if not cross_signals:
+        return []
+
+    # Group by (wallet, event_slug)
+    groups: dict[tuple[str, str], list] = {}
+    for sig in cross_signals:
+        wallet = sig.trade.get("proxyWallet", "").lower()
+        event_slug = sig.trade.get("eventSlug", "")
+        if wallet and event_slug:
+            groups.setdefault((wallet, event_slug), []).append(sig)
+
+    theses = []
+    for (wallet, event_slug), sigs in groups.items():
+        seen_cids = set()
+        markets = []
+        for sig in sigs:
+            cid = sig.condition_id or sig.trade.get("conditionId", "")
+            if cid in seen_cids:
+                continue
+            seen_cids.add(cid)
+            market_info = get_market_by_condition(cid) or {}
+            markets.append({
+                "condition_id": cid,
+                "market_title": market_info.get("title", sig.trade.get("title", "")),
+                "outcome": sig.trade.get("outcome", ""),
+                "side": sig.trade.get("side", ""),
+                "usd_value": float(sig.trade.get("_usd_value", 0)),
+                "entry_price": float(sig.trade.get("price", 0)),
+            })
+
+        # Also pull historical positions from wallet_event_history
+        history = get_wallet_event_history(wallet, event_slug)
+        for h in history:
+            if h["condition_id"] not in seen_cids:
+                seen_cids.add(h["condition_id"])
+                hmarket = get_market_by_condition(h["condition_id"]) or {}
+                markets.append({
+                    "condition_id": h["condition_id"],
+                    "market_title": hmarket.get("title", ""),
+                    "outcome": h["outcome"],
+                    "side": h["side"],
+                    "usd_value": float(h["usd_value"]),
+                    "entry_price": 0,
+                })
+
+        total_usd = sum(m["usd_value"] for m in markets)
+        composite_score = max((s.severity for s in sigs), default=0)
+
+        theses.append({
+            "wallet": wallet,
+            "event_slug": event_slug,
+            "thesis_headline": None,  # Will be filled by LLM
+            "markets": markets,
+            "total_usd": total_usd,
+            "composite_score": composite_score,
+        })
+
+    return theses
+
+
+def _generate_thesis_headline(thesis: dict) -> str | None:
+    """Generate a short thesis headline from market titles and bet directions."""
+    market_descriptions = []
+    for m in thesis["markets"]:
+        direction = f"{m['side']} {m['outcome']}" if m.get("side") and m.get("outcome") else ""
+        market_descriptions.append(f"{m.get('market_title', '')} ({direction})")
+
+    prompt = (
+        f"A trader is betting across these related markets:\n"
+        + "\n".join(f"- {d}" for d in market_descriptions)
+        + f"\nTotal position: ${thesis['total_usd']:,.0f}"
+        + "\n\nWrite a 3-6 word thesis headline capturing what this trader believes. "
+        + "Examples: 'Iran talks will collapse', 'Lakers sweep the series', 'Fed holds rates steady'. "
+        + "Return ONLY the headline, no quotes."
+    )
+
+    try:
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        if not api_key:
+            return None
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+        resp = client.chat.completions.create(
+            model="gpt-5.4",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=30,
+            temperature=0.3,
+        )
+        return resp.choices[0].message.content.strip().strip('"')
+    except Exception:
+        return None
+
+
+def check_resolutions_and_push() -> int:
+    """Check if any previously-alerted markets have resolved, compute outcomes, push to backend."""
+    import json as _json
+    import requests as _requests
+    from gamma_cache import get_market_by_condition
+
+    BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
+
+    # Get recent alerts to check for resolution
+    try:
+        resp = _requests.get(f"{BACKEND_URL}/api/alerts", params={"per_page": 100, "page": 1}, timeout=10)
+        if resp.status_code != 200:
+            return 0
+        alerts = resp.json().get("alerts", [])
+    except Exception:
+        return 0
+
+    outcomes = []
+    for alert in alerts:
+        end_date = alert.get("end_date")
+        condition_id = alert.get("condition_id")
+        if not end_date or not condition_id:
+            continue
+
+        market = get_market_by_condition(condition_id)
+        if not market:
+            continue
+
+        # Check if resolved via CLOB midpoints
+        try:
+            token_ids = [t.get("token_id", "") for t in market.get("tokens", []) if t.get("token_id")]
+            if not token_ids:
+                continue
+            clob_resp = _requests.get(
+                "https://clob.polymarket.com/midpoints",
+                params={"token_ids": ",".join(token_ids)},
+                timeout=5,
+            )
+            if clob_resp.status_code != 200:
+                continue
+            midpoints = clob_resp.json()
+        except Exception:
+            continue
+
+        resolved_outcome = None
+        resolution_price = None
+        for token in market.get("tokens", []):
+            tid = token.get("token_id", "")
+            price = float(midpoints.get(tid, 0))
+            if price >= 0.95:
+                resolved_outcome = token.get("outcome", "")
+                resolution_price = price
+                break
+
+        if not resolved_outcome:
+            continue
+
+        copy_action = alert.get("llm_copy_action") or {}
+        if isinstance(copy_action, str):
+            try:
+                copy_action = _json.loads(copy_action)
+            except Exception:
+                copy_action = {}
+
+        alert_outcome = copy_action.get("outcome", "")
+        alert_side = copy_action.get("side", "")
+        entry_price = copy_action.get("entry_price", 0)
+
+        won = False
+        if alert_side == "BUY" and alert_outcome == resolved_outcome:
+            won = True
+        elif alert_side == "SELL" and alert_outcome != resolved_outcome:
+            won = True
+
+        pnl_usd = 0
+        if won and entry_price > 0:
+            pnl_usd = alert.get("total_usd", 0) * ((1.0 / entry_price) - 1.0)
+        elif not won:
+            pnl_usd = -alert.get("total_usd", 0)
+
+        outcomes.append({
+            "condition_id": condition_id,
+            "market_title": alert.get("market_title", ""),
+            "won": won,
+            "entry_price": entry_price,
+            "resolution_price": resolution_price,
+            "pnl_usd": round(pnl_usd, 2),
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
+            "dedup_key": alert.get("dedup_key"),
+        })
+
+    if not outcomes:
+        return 0
+
+    try:
+        resp = _requests.post(
+            f"{BACKEND_URL}/api/ingest",
+            json={"alert_outcomes": outcomes},
+            timeout=30,
+        )
+        return resp.json().get("alert_outcomes", 0) if resp.status_code == 200 else 0
+    except Exception:
+        return 0
 
 
 def push_to_backend(signals: list[Signal], trades: list[dict]) -> int:
@@ -440,6 +646,23 @@ def push_to_backend(signals: list[Signal], trades: list[dict]) -> int:
         print("[seeder] All alerts discarded by LLM filter. Nothing to push.")
         return 0
 
+    # Gather price candles for alerted markets
+    from db import get_recent_price_candles
+    alerted_cids = list({a["condition_id"] for a in payload["alerts"] if a.get("condition_id")})
+    raw_candles = get_recent_price_candles(alerted_cids, since_hours=24)
+    payload["price_candles"] = [
+        {"condition_id": c["condition_id"], "token_id": c["token_id"],
+         "outcome": c["outcome"], "t": c["t"], "p": c["p"]}
+        for c in raw_candles
+    ]
+
+    # Build and add theses
+    theses = build_theses_payload(signals, trades)
+    for thesis in theses:
+        if not thesis["thesis_headline"]:
+            thesis["thesis_headline"] = _generate_thesis_headline(thesis)
+    payload["theses"] = theses
+
     n_alerts = len(payload["alerts"])
     n_profiles = len(payload["wallet_profiles"])
     print(f"[seeder] Pushing {n_alerts} alert(s) and {n_profiles} wallet profile(s) to {BACKEND_URL}...")
@@ -457,6 +680,15 @@ def push_to_backend(signals: list[Signal], trades: list[dict]) -> int:
             f"updated: {result.get('updated_alerts', 0)}, "
             f"skipped: {result.get('skipped_alerts', 0)}"
         )
+
+        # Check for newly resolved markets
+        try:
+            resolved_count = check_resolutions_and_push()
+            if resolved_count:
+                print(f"  Pushed {resolved_count} resolution outcomes")
+        except Exception as e:
+            print(f"  Resolution check failed: {e}")
+
         return n_alerts
     except requests.RequestException as e:
         print(f"[seeder] ERROR pushing to backend: {e}", file=sys.stderr)
