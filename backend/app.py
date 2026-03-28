@@ -699,7 +699,7 @@ def list_tags():
 
 @app.get("/api/spotlight")
 def get_spotlight():
-    """Top 3 unresolved alerts by composite score, enriched with wallet count and candles."""
+    """Top 7 unresolved alerts by composite score, enriched with wallet count and candles."""
     with db() as conn:
         cur = conn.cursor()
         cur.execute("""
@@ -712,7 +712,7 @@ def get_spotlight():
             LEFT JOIN wallet_profiles wp ON a.wallet = wp.wallet
             WHERE a.end_date IS NOT NULL AND a.end_date > NOW()
             ORDER BY a.composite_score DESC
-            LIMIT 3
+            LIMIT 7
         """)
         rows = cur.fetchall()
 

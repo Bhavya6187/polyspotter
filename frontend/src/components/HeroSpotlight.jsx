@@ -68,10 +68,39 @@ export default function HeroSpotlight() {
   const handleMouseEnter = useCallback(() => { paused.current = true; }, []);
   const handleMouseLeave = useCallback(() => { paused.current = false; }, []);
 
+  const goPrev = useCallback(() => {
+    setActiveIndex((i) => (i - 1 + data.length) % data.length);
+  }, [data.length]);
+
+  const goNext = useCallback(() => {
+    setActiveIndex((i) => (i + 1) % data.length);
+  }, [data.length]);
+
   if (loading || data.length === 0) return null;
 
   return (
-    <div className="mb-4" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+    <div className="mb-4 relative group" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+      {data.length > 1 && (
+        <>
+          <button
+            onClick={goPrev}
+            className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-3 z-10 hidden md:group-hover:flex items-center justify-center w-8 h-8 rounded-full transition-opacity"
+            style={{ background: "var(--surface-1)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+            aria-label="Previous alert"
+          >
+            &#8249;
+          </button>
+          <button
+            onClick={goNext}
+            className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-3 z-10 hidden md:group-hover:flex items-center justify-center w-8 h-8 rounded-full transition-opacity"
+            style={{ background: "var(--surface-1)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+            aria-label="Next alert"
+          >
+            &#8250;
+          </button>
+        </>
+      )}
+
       <SpotlightSlide alert={data[activeIndex]} />
 
       {data.length > 1 && (
