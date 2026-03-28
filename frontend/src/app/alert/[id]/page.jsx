@@ -1,4 +1,5 @@
-import { redirect } from "next/navigation";
+import { permanentRedirect } from "next/navigation";
+import { marketSlug } from "../../../lib/slugify";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -20,16 +21,16 @@ export async function generateMetadata({ params }) {
   const description = alert?.llm_summary || alert?.llm_headline || "Smart money signal detected on Polymarket.";
 
   return {
-    title: `${title} | PolySpotter`,
+    title,
     description,
     openGraph: {
-      title: `${title} | PolySpotter`,
+      title,
       description,
       images: [`${siteUrl}/api/og/${id}`],
     },
     twitter: {
       card: "summary_large_image",
-      title: `${title} | PolySpotter`,
+      title,
       description,
     },
   };
@@ -42,8 +43,9 @@ export default async function AlertPage({ params }) {
   const conditionId = alert?.condition_id;
 
   if (conditionId) {
-    redirect(`/market/${conditionId.slice(0, 7)}`);
+    const title = alert?.market_title || "";
+    permanentRedirect(`/market/${marketSlug(title, conditionId)}`);
   }
 
-  redirect("/");
+  permanentRedirect("/");
 }

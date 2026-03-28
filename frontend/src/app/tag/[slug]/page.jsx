@@ -13,13 +13,15 @@ function tagSlug(tag) {
   return encodeURIComponent(tag.toLowerCase().replace(/\s+/g, "-"));
 }
 
-async function getTagData(tag) {
+const PER_PAGE = 20;
+
+async function getTagData(tag, page = 1) {
   try {
     const res = await fetch(
-      `${API_URL}/api/alerts/by-market?page=1&per_page=20&tag=${encodeURIComponent(tag)}`,
+      `${API_URL}/api/alerts/by-market?page=${page}&per_page=${PER_PAGE}&tag=${encodeURIComponent(tag)}`,
       { next: { revalidate: 60 } }
     );
-    if (!res.ok) return { markets: [], total: 0 };
+    if (!res.ok) return { markets: [], total: 0, total_alerts: 0 };
     const data = await res.json();
     return {
       markets: data.markets || [],
@@ -27,21 +29,27 @@ async function getTagData(tag) {
       total_alerts: data.total_alerts || 0,
     };
   } catch {
-    return { markets: [], total: 0 };
+    return { markets: [], total: 0, total_alerts: 0 };
   }
 }
 
-export async function generateMetadata({ params }) {
+export async function generateMetadata({ params, searchParams }) {
   const { slug } = await params;
+  const page = Math.max(1, parseInt((await searchParams)?.page) || 1);
   const tag = tagFromSlug(slug);
-  const title = `${tag} — Polymarket Smart Money Trades`;
+  const title = page > 1
+    ? `${tag} (Page ${page}) — Polymarket Smart Money Trades`
+    : `${tag} — Polymarket Smart Money Trades`;
   const description = `Notable trades and smart money alerts for ${tag} markets on Polymarket. Track large bets, sharp bettors, and coordinated flow.`;
+  const canonical = page > 1
+    ? `/tag/${tagSlug(tag)}?page=${page}`
+    : `/tag/${tagSlug(tag)}`;
 
   return {
     title,
     description,
     alternates: {
-      canonical: `/tag/${tagSlug(tag)}`,
+      canonical,
     },
     openGraph: {
       title: `${title} | PolySpotter`,
@@ -55,10 +63,12 @@ export async function generateMetadata({ params }) {
   };
 }
 
-export default async function TagPage({ params }) {
+export default async function TagPage({ params, searchParams }) {
   const { slug } = await params;
+  const page = Math.max(1, parseInt((await searchParams)?.page) || 1);
   const tag = tagFromSlug(slug);
-  const { markets, total, total_alerts } = await getTagData(tag);
+  const { markets, total, total_alerts } = await getTagData(tag, page);
+  const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
   const tagUrl = `${siteUrl}/tag/${tagSlug(tag)}`;
@@ -127,13 +137,14 @@ export default async function TagPage({ params }) {
         </h1>
         <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
           {total_alerts} signal{total_alerts !== 1 ? "s" : ""} across {total} market{total !== 1 ? "s" : ""}
+          {page > 1 && ` — Page ${page} of ${totalPages}`}
         </p>
       </header>
 
       {/* Trades */}
       {markets.length > 0 ? (
         <section aria-label="Notable trades">
-          <TagPageClient initialMarkets={markets} initialTotal={total} initialTotalAlerts={total_alerts} tag={tag} />
+          <TagPageClient markets={markets} page={page} totalPages={totalPages} slug={tagSlug(tag)} />
         </section>
       ) : (
         <div className="rounded-xl border p-12 text-center" style={{ borderColor: 'var(--border)', background: 'var(--surface-card)', color: 'var(--text-muted)' }}>

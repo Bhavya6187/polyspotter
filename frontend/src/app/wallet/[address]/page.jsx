@@ -1,4 +1,7 @@
+import { notFound } from "next/navigation";
 import WalletPageClient from "./wallet-page-client";
+import { computeTier } from "../../../lib/tiers";
+import { walletPseudonym } from "../../../lib/pseudonym";
 
 export const revalidate = 60;
 
@@ -15,21 +18,39 @@ async function getWalletData(address) {
 }
 
 export async function generateMetadata({ params }) {
-  const { address } = await params;
-  return { title: `Wallet ${address.slice(0, 8)}... | PolySpotter` };
+  const { address: rawAddress } = await params;
+  const address = rawAddress.toLowerCase();
+  const data = await getWalletData(address);
+
+  const tier = data ? computeTier(data.win_rate, data.total_invested) : null;
+  const pseudonym = data ? walletPseudonym(address, tier) : `${address.slice(0, 6)}...${address.slice(-4)}`;
+
+  const descParts = [`Polymarket trader ${pseudonym}`];
+  if (data?.win_rate != null) descParts.push(`with a ${Math.round(data.win_rate * 100)}% win rate`);
+  if (data?.total_pnl != null) {
+    const pnl = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(data.total_pnl);
+    descParts.push(`and ${pnl} P&L`);
+  }
+  descParts.push("— view positions and alerts on PolySpotter.");
+  const description = descParts.join(" ");
+
+  const title = `${pseudonym} — Polymarket Trader`;
+
+  return {
+    title,
+    description,
+    alternates: { canonical: `/wallet/${address}` },
+    openGraph: { title, description, url: `/wallet/${address}`, type: "profile" },
+    twitter: { card: "summary", title, description },
+  };
 }
 
 export default async function WalletPage({ params }) {
-  const { address } = await params;
+  const { address: rawAddress } = await params;
+  const address = rawAddress.toLowerCase();
   const data = await getWalletData(address);
 
-  if (!data) {
-    return (
-      <div className="mx-auto max-w-4xl px-4 py-12 text-center" style={{ color: "var(--text-muted)" }}>
-        Wallet not found
-      </div>
-    );
-  }
+  if (!data) notFound();
 
   return <WalletPageClient wallet={data} address={address} />;
 }

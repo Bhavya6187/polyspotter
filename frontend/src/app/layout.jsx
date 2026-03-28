@@ -1,6 +1,22 @@
 import Script from "next/script";
+import { JetBrains_Mono, DM_Sans } from "next/font/google";
 import "./globals.css";
 import { themeScript } from "./theme-script";
+
+const jbMono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+  variable: "--font-jb-mono",
+});
+
+const dmSans = DM_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  style: ["normal", "italic"],
+  display: "swap",
+  variable: "--font-dm-sans",
+});
 
 const GA_ID = "G-CDJT9HKLCR";
 
@@ -61,8 +77,16 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={`${jbMono.variable} ${dmSans.variable}`} suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+      </head>
+      <body className="min-h-screen" style={{ background: 'var(--surface-0)', color: 'var(--text-primary)' }}>
+        {children}
         <Script
           src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
           strategy="afterInteractive"
@@ -75,14 +99,6 @@ export default function RootLayout({ children }) {
             gtag('config', '${GA_ID}');
           `}
         </Script>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-        />
-      </head>
-      <body className="min-h-screen" style={{ background: 'var(--surface-0)', color: 'var(--text-primary)' }}>
-        {children}
       </body>
     </html>
   );
