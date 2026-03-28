@@ -1136,3 +1136,37 @@ def get_last_scan_trade_ts() -> float | None:
     if row and row[0] is not None:
         return row[0]
     return None
+
+
+def get_wallet_current_streak(wallet: str) -> int:
+    """Count consecutive wins from the most recent resolved bet backward."""
+    conn = get_db()
+    cur = conn.execute("""
+        SELECT won FROM tracked_bets
+        WHERE wallet = ? AND resolved = 1 AND won IS NOT NULL
+        ORDER BY trade_timestamp DESC
+    """, (wallet,))
+    streak = 0
+    for row in cur.fetchall():
+        if row[0] == 1:
+            streak += 1
+        else:
+            break
+    return streak
+
+
+def get_recent_price_candles(condition_ids: list[str], since_hours: int = 24) -> list[dict]:
+    """Get price candles for given condition_ids from the last N hours."""
+    if not condition_ids:
+        return []
+    conn = get_db()
+    import time
+    cutoff = time.time() - (since_hours * 3600)
+    placeholders = ",".join("?" for _ in condition_ids)
+    cur = conn.execute(f"""
+        SELECT condition_id, token_id, outcome, t, p FROM price_candles
+        WHERE condition_id IN ({placeholders}) AND t > ?
+        ORDER BY t ASC
+    """, (*condition_ids, cutoff))
+    return [{"condition_id": r[0], "token_id": r[1], "outcome": r[2], "t": r[3], "p": r[4]}
+            for r in cur.fetchall()]

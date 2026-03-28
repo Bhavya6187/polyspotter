@@ -31,6 +31,8 @@ from models import (
     TradeOut,
     SignalOut,
     WalletProfileOut,
+    WalletProfileDetailOut,
+    WalletRecentAlert,
     PaginatedAlerts,
     MarketGroup,
     PaginatedMarkets,
@@ -84,6 +86,7 @@ def _alert_from_row(row: dict) -> AlertOut:
     # Wallet profile fields (present when query joins wallet_profiles)
     data.setdefault("win_rate", None)
     data.setdefault("total_pnl", None)
+    data.setdefault("total_invested", None)
     return AlertOut(**data)
 
 
@@ -210,8 +213,8 @@ def ingest(payload: IngestPayload):
                 """INSERT INTO wallet_profiles
                    (wallet, total_positions, closed_positions, wins, losses,
                     total_pnl, total_invested, avg_win_price, win_rate,
-                    times_flagged, first_seen_at, updated_at)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, NOW())
+                    times_flagged, first_seen_at, current_streak, updated_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, NOW())
                    ON CONFLICT (wallet) DO UPDATE SET
                     total_positions = EXCLUDED.total_positions,
                     closed_positions = EXCLUDED.closed_positions,
@@ -223,6 +226,7 @@ def ingest(payload: IngestPayload):
                     win_rate = EXCLUDED.win_rate,
                     times_flagged = EXCLUDED.times_flagged,
                     first_seen_at = COALESCE(EXCLUDED.first_seen_at, wallet_profiles.first_seen_at),
+                    current_streak = EXCLUDED.current_streak,
                     updated_at = NOW()""",
                 (
                     wp.wallet.lower(),
@@ -236,8 +240,61 @@ def ingest(payload: IngestPayload):
                     wp.win_rate,
                     wp.times_flagged,
                     wp.first_seen_at,
+                    wp.current_streak,
                 ),
             )
+
+        # Ingest price candles
+        candles_count = 0
+        for pc in payload.price_candles:
+            cur.execute("""
+                INSERT INTO price_candles (condition_id, token_id, outcome, t, p)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (token_id, t) DO UPDATE SET p = EXCLUDED.p
+            """, (pc.condition_id, pc.token_id, pc.outcome, pc.t, pc.p))
+            candles_count += 1
+
+        # Ingest theses
+        theses_count = 0
+        for th in payload.theses:
+            cur.execute("""
+                INSERT INTO wallet_theses (wallet, event_slug, thesis_headline, markets, total_usd, composite_score, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (wallet, event_slug) DO UPDATE SET
+                    thesis_headline = EXCLUDED.thesis_headline,
+                    markets = EXCLUDED.markets,
+                    total_usd = EXCLUDED.total_usd,
+                    composite_score = EXCLUDED.composite_score,
+                    updated_at = NOW()
+            """, (th.wallet, th.event_slug, th.thesis_headline,
+                  json.dumps([m.model_dump() for m in th.markets]),
+                  th.total_usd, th.composite_score))
+            theses_count += 1
+
+        # Ingest alert outcomes
+        outcomes_count = 0
+        for ao in payload.alert_outcomes:
+            alert_id = ao.alert_id
+            if not alert_id and ao.dedup_key:
+                cur.execute("SELECT id FROM alerts WHERE dedup_key = %s", (ao.dedup_key,))
+                row = cur.fetchone()
+                alert_id = row["id"] if row else None
+            if alert_id is None:
+                continue
+            cur.execute("""
+                INSERT INTO alert_outcomes (alert_id, condition_id, market_title, won, entry_price, resolution_price, pnl_usd, resolved_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (alert_id, condition_id) DO UPDATE SET
+                    won = EXCLUDED.won,
+                    resolution_price = EXCLUDED.resolution_price,
+                    pnl_usd = EXCLUDED.pnl_usd,
+                    resolved_at = EXCLUDED.resolved_at
+            """, (alert_id, ao.condition_id, ao.market_title, ao.won,
+                  ao.entry_price, ao.resolution_price, ao.pnl_usd, ao.resolved_at))
+            outcomes_count += 1
+
+        # Cleanup old price candles (keep only 7 days)
+        cur.execute("DELETE FROM price_candles WHERE created_at < NOW() - INTERVAL '7 days'")
 
     return {
         "status": "ok",
@@ -245,6 +302,9 @@ def ingest(payload: IngestPayload):
         "updated_alerts": updated_alerts,
         "skipped_alerts": skipped_alerts,
         "wallet_profiles": len(payload.wallet_profiles),
+        "price_candles": candles_count,
+        "theses": theses_count,
+        "alert_outcomes": outcomes_count,
     }
 
 
@@ -301,7 +361,7 @@ def list_alerts(
         total = cur.fetchone()["cnt"]
 
         cur.execute(
-            f"""SELECT a.*, wp.win_rate, wp.total_pnl
+            f"""SELECT a.*, wp.win_rate, wp.total_pnl, wp.total_invested
                 FROM alerts a
                 LEFT JOIN wallet_profiles wp ON wp.wallet = a.wallet
                 WHERE {where}
@@ -460,7 +520,7 @@ def get_alert(alert_id: int):
         cur = conn.cursor()
 
         cur.execute(
-            """SELECT a.*, wp.win_rate, wp.total_pnl
+            """SELECT a.*, wp.win_rate, wp.total_pnl, wp.total_invested
                FROM alerts a
                LEFT JOIN wallet_profiles wp ON wp.wallet = a.wallet
                WHERE a.id = %s""",
@@ -492,20 +552,30 @@ def get_alert(alert_id: int):
     return AlertDetail(**data, trades=trades, signals=signals)
 
 
-@app.get("/api/wallets/{wallet_address}", response_model=WalletProfileOut)
+@app.get("/api/wallets/{wallet_address}", response_model=WalletProfileDetailOut)
 def get_wallet(wallet_address: str):
-    """Get wallet profile and stats."""
+    """Get wallet profile with recent alerts."""
     with db() as conn:
         cur = conn.cursor()
-        cur.execute(
-            "SELECT * FROM wallet_profiles WHERE wallet = %s",
-            (wallet_address.lower(),),
-        )
+        cur.execute("SELECT * FROM wallet_profiles WHERE wallet = %s", (wallet_address.lower(),))
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Wallet not found")
 
-    return WalletProfileOut(**row)
+        profile = WalletProfileOut(**row)
+
+        # Fetch recent alerts
+        cur.execute("""
+            SELECT a.id, a.market_title, a.composite_score, a.total_usd,
+                   a.llm_headline, a.created_at, a.condition_id
+            FROM alerts a
+            WHERE a.wallet = %s
+            ORDER BY a.created_at DESC
+            LIMIT 5
+        """, (wallet_address.lower(),))
+        recent_alerts = [WalletRecentAlert(**arow) for arow in cur.fetchall()]
+
+        return WalletProfileDetailOut(**profile.model_dump(), recent_alerts=recent_alerts)
 
 
 @app.get("/api/strategies")
@@ -558,6 +628,204 @@ def list_tags():
         selected.append({"tag": best_tag, "alert_count": len(new_covered)})
 
     return selected
+
+
+@app.get("/api/spotlight")
+def get_spotlight():
+    """Top 3 unresolved alerts by composite score, enriched with wallet count and candles."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT a.id, a.market_title, a.condition_id, a.event_slug,
+                   a.composite_score, a.total_usd, a.end_date,
+                   a.llm_headline, a.llm_summary, a.llm_copy_action,
+                   (SELECT COUNT(DISTINCT at2.wallet) FROM alert_trades at2 WHERE at2.alert_id = a.id) AS wallet_count,
+                   wp.win_rate AS best_win_rate, wp.total_pnl AS best_total_pnl
+            FROM alerts a
+            LEFT JOIN wallet_profiles wp ON a.wallet = wp.wallet
+            WHERE a.end_date IS NOT NULL AND a.end_date > NOW()
+            ORDER BY a.composite_score DESC
+            LIMIT 3
+        """)
+        rows = cur.fetchall()
+
+        results = []
+        for row in rows:
+            candles = []
+            if row["condition_id"]:
+                cur.execute("""
+                    SELECT t, p FROM price_candles
+                    WHERE condition_id = %s AND t > EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours')
+                    ORDER BY t ASC
+                """, (row["condition_id"],))
+                candles = [{"t": c["t"], "p": c["p"]} for c in cur.fetchall()]
+
+            copy_action = row["llm_copy_action"]
+            if isinstance(copy_action, str):
+                try:
+                    copy_action = json.loads(copy_action)
+                except (json.JSONDecodeError, TypeError):
+                    copy_action = {}
+
+            results.append({
+                "id": row["id"],
+                "market_title": row["market_title"],
+                "condition_id": row["condition_id"],
+                "event_slug": row["event_slug"],
+                "composite_score": row["composite_score"],
+                "total_usd": row["total_usd"],
+                "end_date": row["end_date"].isoformat() if row["end_date"] else None,
+                "llm_headline": row["llm_headline"],
+                "llm_summary": row["llm_summary"],
+                "llm_copy_action": copy_action,
+                "wallet_count": row["wallet_count"] or 0,
+                "best_win_rate": row["best_win_rate"],
+                "best_total_pnl": row["best_total_pnl"],
+                "candles": candles,
+            })
+        return results
+
+
+@app.get("/api/resolving-soon")
+def get_resolving_soon():
+    """Alerts resolving within 6 hours, sorted by end_date ASC."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT DISTINCT ON (a.condition_id)
+                a.id, a.condition_id, a.market_title, a.end_date,
+                a.total_usd, a.composite_score, a.llm_copy_action
+            FROM alerts a
+            WHERE a.end_date IS NOT NULL
+              AND a.end_date > NOW()
+              AND a.end_date <= NOW() + INTERVAL '6 hours'
+            ORDER BY a.condition_id, a.composite_score DESC
+        """)
+        rows = cur.fetchall()
+
+        results = []
+        for row in rows:
+            copy_action = row["llm_copy_action"]
+            if isinstance(copy_action, str):
+                try:
+                    copy_action = json.loads(copy_action)
+                except (json.JSONDecodeError, TypeError):
+                    copy_action = {}
+            results.append({
+                "id": row["id"],
+                "condition_id": row["condition_id"],
+                "market_title": row["market_title"],
+                "end_date": row["end_date"].isoformat() if row["end_date"] else None,
+                "total_usd": row["total_usd"],
+                "composite_score": row["composite_score"],
+                "dominant_side": copy_action.get("side") if copy_action else None,
+            })
+
+        results.sort(key=lambda x: x["end_date"] or "")
+        return results
+
+
+@app.get("/api/resolved")
+def get_resolved(hours: int = Query(24, ge=1, le=168)):
+    """Recently resolved alerts with win/loss outcomes."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT ao.id, ao.alert_id, ao.condition_id, ao.market_title,
+                   ao.won, ao.entry_price, ao.resolution_price, ao.pnl_usd, ao.resolved_at
+            FROM alert_outcomes ao
+            WHERE ao.resolved_at > NOW() - make_interval(hours => %s)
+            ORDER BY ao.resolved_at DESC
+        """, (hours,))
+        outcomes = []
+        for row in cur.fetchall():
+            o = dict(row)
+            if o.get("resolved_at"):
+                o["resolved_at"] = o["resolved_at"].isoformat()
+            outcomes.append(o)
+
+        # 7-day aggregate win rate
+        cur.execute("""
+            SELECT COUNT(*) FILTER (WHERE won = TRUE) AS wins,
+                   COUNT(*) AS total
+            FROM alert_outcomes
+            WHERE resolved_at > NOW() - INTERVAL '7 days'
+        """)
+        stats = cur.fetchone()
+        wins_7d = stats["wins"] or 0
+        total_7d = stats["total"] or 0
+        win_rate_7d = round(wins_7d / total_7d, 2) if total_7d > 0 else None
+
+        return {
+            "outcomes": outcomes,
+            "wins_7d": wins_7d,
+            "total_7d": total_7d,
+            "win_rate_7d": win_rate_7d,
+        }
+
+
+def _thesis_from_row(row: dict) -> dict:
+    """Build a thesis dict from a DB row, parsing JSON markets."""
+    markets = row["markets"]
+    if isinstance(markets, str):
+        try:
+            markets = json.loads(markets)
+        except (json.JSONDecodeError, TypeError):
+            markets = []
+    return {
+        "id": row["id"],
+        "wallet": row["wallet"],
+        "event_slug": row["event_slug"],
+        "thesis_headline": row["thesis_headline"],
+        "markets": markets,
+        "total_usd": row["total_usd"],
+        "composite_score": row["composite_score"],
+        "win_rate": row["win_rate"],
+        "total_pnl": row["total_pnl"],
+        "total_invested": row["total_invested"],
+        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+        "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+    }
+
+
+@app.get("/api/theses")
+def list_theses(page: int = Query(1, ge=1), per_page: int = Query(10, ge=1, le=50)):
+    """Active cross-market thesis cards, sorted by composite_score."""
+    offset = (page - 1) * per_page
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) AS cnt FROM wallet_theses")
+        total = cur.fetchone()["cnt"]
+
+        cur.execute("""
+            SELECT wt.*, wp.win_rate, wp.total_pnl, wp.total_invested
+            FROM wallet_theses wt
+            LEFT JOIN wallet_profiles wp ON wt.wallet = wp.wallet
+            ORDER BY wt.composite_score DESC
+            LIMIT %s OFFSET %s
+        """, (per_page, offset))
+        rows = cur.fetchall()
+
+        theses = [_thesis_from_row(row) for row in rows]
+
+        return {"theses": theses, "total": total, "page": page, "per_page": per_page}
+
+
+@app.get("/api/theses/{thesis_id}")
+def get_thesis(thesis_id: int):
+    """Get a single thesis by ID."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT wt.*, wp.win_rate, wp.total_pnl, wp.total_invested
+            FROM wallet_theses wt
+            LEFT JOIN wallet_profiles wp ON wt.wallet = wp.wallet
+            WHERE wt.id = %s
+        """, (thesis_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Thesis not found")
+        return _thesis_from_row(row)
 
 
 # ---------------------------------------------------------------------------

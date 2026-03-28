@@ -1,10 +1,13 @@
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { fetchMarketLive } from "../lib/api";
 import { marketSlug } from "../lib/slugify";
 import PriceMovement from "./PriceMovement";
 import StrengthMeter from "./StrengthMeter";
 import { scoreToRating } from "./StrengthMeter";
+import ThesisCard from "./ThesisCard";
+import WalletBadge from "./WalletBadge";
+import ShareButton from "./ShareButton";
 
 function relativeTime(dateStr) {
   if (!dateStr) return "\u2014";
@@ -92,6 +95,17 @@ function AlertEntry({ alert, liveData }) {
         </p>
       )}
 
+      {/* Wallet badge */}
+      {alert.wallet && alert.win_rate != null && (
+        <WalletBadge
+          wallet={alert.wallet}
+          winRate={alert.win_rate}
+          totalPnl={alert.total_pnl}
+          totalInvested={alert.total_invested}
+          compact
+        />
+      )}
+
       {/* Bet summary + price movement */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="text-sm font-semibold" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>
@@ -133,6 +147,10 @@ function AlertEntry({ alert, liveData }) {
             {ctaLabel}
           </span>
         ) : null}
+        <ShareButton
+          url={`${typeof window !== 'undefined' ? window.location.origin : ''}/alert/${alert.id}`}
+          compact
+        />
         {effectivePrice > 0 && effectivePrice < 0.99 && returnPct > 0 && (
           <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
             {Math.round(effectivePrice * 100)}&cent; → $1.00
@@ -269,7 +287,7 @@ function MarketGroupCard({ market, liveData, index }) {
   );
 }
 
-export default function AlertList({ markets, filters, loading }) {
+export default function AlertList({ markets, filters, loading, theses = [] }) {
   const [liveData, setLiveData] = useState({});
 
   useEffect(() => {
@@ -347,7 +365,12 @@ export default function AlertList({ markets, filters, loading }) {
   return (
     <div className="flex flex-col gap-3">
       {filtered.map((market, i) => (
-        <MarketGroupCard key={market.condition_id} market={market} liveData={liveData} index={i} />
+        <Fragment key={market.condition_id}>
+          <MarketGroupCard market={market} liveData={liveData} index={i} />
+          {(i + 1) % 4 === 0 && theses[Math.floor(i / 4)] && (
+            <ThesisCard thesis={theses[Math.floor(i / 4)]} />
+          )}
+        </Fragment>
       ))}
     </div>
   );

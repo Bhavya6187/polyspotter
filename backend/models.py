@@ -70,11 +70,85 @@ class WalletProfileIn(BaseModel):
     win_rate: float | None = None
     times_flagged: int | None = None
     first_seen_at: datetime | None = None
+    current_streak: int | None = None
+
+
+class PriceCandleIn(BaseModel):
+    condition_id: str
+    token_id: str
+    outcome: str | None = None
+    t: float
+    p: float
+
+
+class PriceCandleOut(BaseModel):
+    t: float
+    p: float
+
+
+class ThesisMarket(BaseModel):
+    condition_id: str
+    market_title: str
+    outcome: str
+    side: str
+    usd_value: float = 0
+    entry_price: float = 0
+
+
+class ThesisIn(BaseModel):
+    wallet: str
+    event_slug: str
+    thesis_headline: str | None = None
+    markets: list[ThesisMarket] = []
+    total_usd: float = 0
+    composite_score: float = 0
+
+
+class ThesisOut(BaseModel):
+    id: int
+    wallet: str
+    event_slug: str
+    thesis_headline: str | None = None
+    markets: list[dict] = []
+    total_usd: float = 0
+    composite_score: float = 0
+    win_rate: float | None = None
+    total_pnl: float | None = None
+    total_invested: float | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class AlertOutcomeIn(BaseModel):
+    alert_id: int | None = None
+    condition_id: str
+    market_title: str
+    won: bool
+    entry_price: float | None = None
+    resolution_price: float | None = None
+    pnl_usd: float | None = None
+    resolved_at: datetime
+    dedup_key: str | None = None
+
+
+class AlertOutcomeOut(BaseModel):
+    id: int
+    alert_id: int | None = None
+    condition_id: str
+    market_title: str
+    won: bool
+    entry_price: float | None = None
+    resolution_price: float | None = None
+    pnl_usd: float | None = None
+    resolved_at: datetime | None = None
 
 
 class IngestPayload(BaseModel):
     alerts: list[AlertIn] = []
     wallet_profiles: list[WalletProfileIn] = []
+    price_candles: list[PriceCandleIn] = []
+    theses: list[ThesisIn] = []
+    alert_outcomes: list[AlertOutcomeIn] = []
 
 
 # -- Response models -----------------------------------------------------------
@@ -119,6 +193,7 @@ class AlertOut(BaseModel):
     created_at: datetime | None = None
     win_rate: float | None = None
     total_pnl: float | None = None
+    total_invested: float | None = None
 
 
 class AlertDetail(AlertOut):
@@ -139,6 +214,21 @@ class WalletProfileOut(BaseModel):
     times_flagged: int | None = None
     first_seen_at: datetime | None = None
     updated_at: datetime | None = None
+    current_streak: int | None = None
+
+
+class WalletRecentAlert(BaseModel):
+    id: int
+    market_title: str | None = None
+    composite_score: float = 0
+    total_usd: float = 0
+    llm_headline: str | None = None
+    created_at: datetime | None = None
+    condition_id: str | None = None
+
+
+class WalletProfileDetailOut(WalletProfileOut):
+    recent_alerts: list[WalletRecentAlert] = []
 
 
 class PaginatedAlerts(BaseModel):
@@ -168,6 +258,25 @@ class PaginatedMarkets(BaseModel):
     total_alerts: int = 0
     page: int
     per_page: int
+
+
+class SpotlightAlert(BaseModel):
+    id: int
+    market_title: str | None = None
+    condition_id: str | None = None
+    event_slug: str | None = None
+    composite_score: float = 0
+    total_usd: float = 0
+    end_date: datetime | None = None
+    llm_headline: str | None = None
+    llm_summary: str | None = None
+    wallet_count: int = 0
+    best_win_rate: float | None = None
+    best_total_pnl: float | None = None
+    current_price: float | None = None
+    price_change_24h: float | None = None
+    candles: list[PriceCandleOut] = []
+    llm_copy_action: dict | None = None
 
 
 # -- Live market data (proxied from Polymarket CLOB/Gamma APIs) ----------------
