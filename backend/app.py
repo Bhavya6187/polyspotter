@@ -1004,10 +1004,10 @@ def get_market_live(condition_id: str):
 
 
 _RANGE_PARAMS = {
-    "24h": ("1", "minute"),
-    "7d": ("7", "hour"),
-    "30d": ("30", "hour"),
-    "all": ("max", "day"),
+    "24h": (100, "1d"),
+    "7d": (150, "1w"),
+    "30d": (200, "max"),
+    "all": (300, "max"),
 }
 
 
