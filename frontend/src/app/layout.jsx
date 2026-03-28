@@ -28,7 +28,12 @@ const jsonLd = {
   name: "PolySpotter",
   url: SITE_URL,
   description:
-    "Track smart money on Polymarket. PolySpotter surfaces large bets from sharp bettors, coordinated flow, and high-conviction positioning.",
+    "Track whale trades and smart money on Polymarket. PolySpotter surfaces large bets from sharp bettors, coordinated flow, and high-conviction positioning.",
+  publisher: {
+    "@type": "Organization",
+    name: "PolySpotter",
+    url: SITE_URL,
+  },
 };
 
 export const metadata = {
@@ -37,11 +42,11 @@ export const metadata = {
     canonical: "/",
   },
   title: {
-    default: "PolySpotter — Follow the Smart Money on Polymarket",
+    default: "PolySpotter — Polymarket Whale Trades & Smart Money Alerts",
     template: "%s | PolySpotter",
   },
   description:
-    "Track smart money on Polymarket. PolySpotter surfaces large bets from sharp bettors, coordinated flow, and high-conviction positioning - updated in real time.",
+    "Track whale trades and smart money on Polymarket in real time. PolySpotter surfaces large bets, sharp bettors, and coordinated flow across prediction markets — updated every minute.",
   keywords: [
     "Polymarket",
     "smart money",
@@ -50,25 +55,37 @@ export const metadata = {
     "sharp bettors",
     "polymarket alerts",
     "polymarket trades",
+    "polymarket whale tracker",
+    "prediction market signals",
+    "polymarket biggest bets",
   ],
   robots: {
     index: true,
     follow: true,
   },
   openGraph: {
-    title: "PolySpotter — Follow the Smart Money on Polymarket",
+    title: "PolySpotter — Polymarket Whale Trades & Smart Money Alerts",
     description:
-      "Real-time alerts for notable Polymarket trades: Large bets, sharp bettors, and coordinated flow.",
+      "Real-time alerts for notable Polymarket trades: whale bets, sharp bettors, and coordinated flow.",
     url: SITE_URL,
     siteName: "PolySpotter",
     type: "website",
     locale: "en_US",
+    images: [
+      {
+        url: "/og-default.png",
+        width: 1200,
+        height: 630,
+        alt: "PolySpotter — Polymarket Whale Trade Tracker",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "PolySpotter — Follow the Smart Money on Polymarket",
+    title: "PolySpotter — Polymarket Whale Trades & Smart Money Alerts",
     description:
-      "Real-time alerts for notable Polymarket trades: Large bets, sharp bettors, and coordinated flow.",
+      "Real-time alerts for notable Polymarket trades: whale bets, sharp bettors, and coordinated flow.",
+    images: ["/og-default.png"],
   },
   icons: {
     icon: "/favicon.svg",
