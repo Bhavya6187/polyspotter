@@ -765,6 +765,7 @@ def get_spotlight():
             FROM alerts a
             LEFT JOIN wallet_profiles wp ON a.wallet = wp.wallet
             WHERE a.end_date IS NOT NULL AND a.end_date > NOW()
+              AND a.created_at > NOW() - INTERVAL '1 day'
             ORDER BY a.composite_score DESC
             LIMIT 7
         """)
