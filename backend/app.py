@@ -503,7 +503,7 @@ def list_alerts_by_market(
                 FROM alerts a
                 WHERE {where} AND a.condition_id IS NOT NULL
                 GROUP BY a.condition_id
-                ORDER BY max_score DESC, scanned_at DESC
+                ORDER BY scanned_at DESC, max_score DESC
                 LIMIT %s OFFSET %s""",
             params + [per_page, offset],
         )
