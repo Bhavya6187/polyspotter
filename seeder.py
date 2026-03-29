@@ -22,6 +22,8 @@ from detection_strategies import Signal
 from db import get_wallet_pnl_summary, get_flagged_wallet_stats, get_wallet_current_streak
 from gamma_cache import get_market_tags, get_market_by_condition
 
+import json
+
 load_dotenv()
 
 BACKEND_URL = os.environ.get("POLYBOT_BACKEND_URL", "http://localhost:8000")
@@ -388,6 +390,32 @@ def build_alerts_payload(
                 f"{len(cluster_events)} event(s) with strong cluster alerts",
             )
         alerts = capped_alerts
+
+    # --- Drop sell-only alerts on multi-outcome markets ---
+    # On binary markets (Yes/No), sells can be converted to equivalent buys
+    # (Sell Yes → Buy No). On multi-outcome markets there's no single clear
+    # opposite outcome, so we drop alerts where every trade is a SELL.
+    pre_filter = len(alerts)
+    filtered_alerts = []
+    for a in alerts:
+        trades_list = a.get("trades", [])
+        if trades_list and all(t.get("side", "").upper() == "SELL" for t in trades_list):
+            cid = a.get("condition_id", "")
+            market = get_market_by_condition(cid) if cid else None
+            if market:
+                try:
+                    outcomes = json.loads(market.get("outcomes", "[]"))
+                except (json.JSONDecodeError, TypeError):
+                    outcomes = []
+                if len(outcomes) > 2:
+                    continue  # skip: sell-only on multi-outcome market
+        filtered_alerts.append(a)
+    if len(filtered_alerts) < pre_filter:
+        print(
+            f"[seeder] Dropped {pre_filter - len(filtered_alerts)} sell-only alert(s) "
+            f"on multi-outcome markets (no actionable copy trade)"
+        )
+    alerts = filtered_alerts
 
     # --- Build wallet profiles ---
     wallet_profiles: list[dict] = []

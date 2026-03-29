@@ -47,7 +47,7 @@ RESPONSE_SCHEMA = {
                 "type": "object",
                 "properties": {
                     "outcome": {"type": "string"},
-                    "side": {"type": "string"},
+                    "side": {"type": "string", "description": "Always 'BUY'."},
                     "entry_price": {"type": "number"},
                     "max_price": {"type": "number"},
                 },

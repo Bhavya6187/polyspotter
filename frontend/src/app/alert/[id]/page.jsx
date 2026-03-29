@@ -331,7 +331,7 @@ export default async function AlertPage({ params }) {
       )}
 
       {/* Copy trade action */}
-      {alert.llm_copy_action && (
+      {alert.llm_copy_action?.outcome && (
         <div
           className="rounded-xl p-4 mb-6"
           style={{
@@ -347,7 +347,7 @@ export default async function AlertPage({ params }) {
           </p>
           <p className="text-sm" style={{ color: "var(--text-primary)" }}>
             <strong>
-              {alert.llm_copy_action.side} {alert.llm_copy_action.outcome}
+              Buy {alert.llm_copy_action.outcome}
             </strong>{" "}
             at {Math.round((alert.llm_copy_action.entry_price || 0) * 100)}
             &cent;

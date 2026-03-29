@@ -104,15 +104,14 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
   const marketUrl = detail?.market_url;
   let ctaText = "";
   if (detailCopyAction && detailCopyAction.outcome) {
-    const side = detailCopyAction.side === "SELL" ? "Sell" : "Buy";
-    ctaText = `${side} ${detailCopyAction.outcome}`;
+    ctaText = `Buy ${detailCopyAction.outcome}`;
   }
 
   const bullets = detail?.llm_bullets || [];
   const displayBullets =
     bullets.length > 0 ? bullets : detail?.llm_summary ? [detail.llm_summary] : [];
 
-  const effectivePrice = detailCopyAction?.side === "SELL" && currentPrice > 0 ? 1 - currentPrice : currentPrice;
+  const effectivePrice = currentPrice;
 
   return (
     <div

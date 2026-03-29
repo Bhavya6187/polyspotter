@@ -809,7 +809,7 @@ def get_resolving_soon():
                 "end_date": row["end_date"].isoformat() if row["end_date"] else None,
                 "total_usd": row["total_usd"],
                 "composite_score": row["composite_score"],
-                "dominant_side": copy_action.get("side") if copy_action else None,
+                "dominant_side": copy_action.get("outcome") if copy_action else None,
             })
 
         results.sort(key=lambda x: x["end_date"] or "")

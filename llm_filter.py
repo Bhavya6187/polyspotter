@@ -178,10 +178,17 @@ SYSTEM_PROMPT = (
     "they stand out (e.g. '19-wallet funded cluster', 'Serial timer with 91%% win rate', "
     "'New whale scaling into NO'). Do not repeat the market name.\n"
     "- copy_action (object): what the user should do to copy the trade, with fields: "
-    "outcome (string, e.g. 'Utah'), side (string, 'BUY' or 'SELL'), "
-    "entry_price (number, the trader's entry price like 0.41), "
+    "outcome (string, e.g. 'Utah' or 'Yes'), side (string, ALWAYS 'BUY'), "
+    "entry_price (number, the effective entry price on 0-1 scale), "
     "max_price (number, suggested max price to enter — entry_price + ~10%% "
-    "buffer, capped at 0.95)\n\n"
+    "buffer, capped at 0.95).\n"
+    "IMPORTANT: side must ALWAYS be 'BUY'. Users can only buy outcomes, not sell "
+    "shares they don't hold. Convert sell trades to equivalent buys:\n"
+    "  - Binary markets (Yes/No): Sell Yes at X¢ → BUY No at (1-X)¢. "
+    "Sell No at X¢ → BUY Yes at (1-X)¢.\n"
+    "  - Multi-outcome markets: If the original trade is a SELL, omit the "
+    "copy_action (return empty object {}) since there is no clear single "
+    "outcome to recommend buying.\n\n"
 
     "## Bullet style rules\n\n"
     "- Use plain English anyone can understand. Say 'a bettor who wins 90%% of "
@@ -233,7 +240,7 @@ RESPONSE_SCHEMA = {
                         },
                         "side": {
                             "type": "string",
-                            "description": "'BUY' or 'SELL'.",
+                            "description": "Always 'BUY'. Sells must be converted to equivalent buys.",
                         },
                         "entry_price": {
                             "type": "number",

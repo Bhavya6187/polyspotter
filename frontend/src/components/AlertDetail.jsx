@@ -48,8 +48,7 @@ export default function AlertDetail({ alertId }) {
   // Build copy CTA text
   let ctaText = "";
   if (copyAction && copyAction.outcome) {
-    const side = copyAction.side === "SELL" ? "Sell" : "Buy";
-    ctaText = `${side} ${copyAction.outcome}`;
+    ctaText = `Buy ${copyAction.outcome}`;
   }
 
   // Find live price for this alert's outcome
