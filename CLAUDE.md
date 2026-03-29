@@ -33,23 +33,51 @@ Order matters — some strategies depend on data written by earlier ones.
 - `db.py` — centralized SQLite database module with all table definitions and query helpers
 - `gamma_cache.py` — shared Gamma API market metadata cache
 - `test/` — pytest test suite for individual strategies
+- `backend/` — FastAPI REST API serving alerts, wallets, strategies, and market data
+  - `backend/app.py` — API endpoints (ingest, alerts, wallets, strategies, markets, health)
+  - `backend/database.py` — PostgreSQL connection via psycopg2 (reads `DATABASE_URL`)
+  - `backend/models.py` — Pydantic models for request/response schemas
+  - `backend/test_endpoints.py` — endpoint tests
+- `frontend/` — Next.js 15 web app (React 19, Tailwind CSS 4)
+  - `frontend/src/app/` — Next.js App Router pages (alerts, markets, wallets, tags, theses)
+  - `frontend/src/components/` — UI components (AlertTable, MarketCard, PriceChart, HeroSpotlight, etc.)
+  - `frontend/src/lib/api.js` — API client
+  - `frontend/src/hooks/` — custom React hooks (useLiveMarket, useCountdown, useSpotlight)
 
 ## Running
 
+Scanner:
 ```bash
 python polybot.py
 ```
 
+Backend API:
+```bash
+cd backend && uvicorn app:app --reload
+```
+
+Frontend:
+```bash
+cd frontend && npm run dev
+```
+
 Tests:
 ```bash
-pytest
+pytest                          # scanner tests
+cd backend && pytest            # backend tests
+cd frontend && npm run lint     # frontend lint
 ```
+
+## Hosted Backend API
+
+The backend is hosted at `https://api.polyspotter.com`. When working on the frontend, feel free to use it instead of running the backend locally. The frontend API client (`frontend/src/lib/api.js`) can be pointed at this URL.
 
 ## Key APIs
 
 - **Polymarket Data API**: `https://data-api.polymarket.com` — trade data, wallet positions
 - **Gamma API**: `https://gamma-api.polymarket.com` — market metadata
 - **Etherscan API** — used for wallet funding/age lookups in clustering strategies
+- **Polybot Backend API**: `https://api.polyspotter.com` — hosted backend serving alerts, wallets, markets
 
 ## API Documentation References
 
@@ -61,8 +89,19 @@ When working with Etherscan API (wallet lookups, transaction history, funder tra
 
 ## Tech Stack
 
+**Scanner:**
 - Python 3.13
 - SQLite (WAL mode) via `db.py`
 - `requests` for HTTP
 - `pytest` for testing
 - Virtual env in `venv/`
+
+**Backend:**
+- Python 3.13 + FastAPI
+- PostgreSQL via psycopg2
+- Pydantic for data validation
+
+**Frontend:**
+- Next.js 15 (App Router)
+- React 19
+- Tailwind CSS 4
