@@ -791,27 +791,27 @@ def get_resolving_soon():
     with db() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT DISTINCT ON (a.condition_id)
+            SELECT DISTINCT ON (COALESCE(a.event_slug, a.condition_id))
                 a.id, a.condition_id, a.market_title, a.end_date,
                 a.total_usd, a.composite_score, a.llm_copy_action
             FROM alerts a
             WHERE a.end_date IS NOT NULL
               AND a.end_date > NOW()
               AND a.end_date <= NOW() + INTERVAL '6 hours'
-            ORDER BY a.condition_id, a.composite_score DESC
+            ORDER BY COALESCE(a.event_slug, a.condition_id), a.composite_score DESC
         """)
         rows = cur.fetchall()
 
         # Fallback: top 5 soonest-resolving markets
         if not rows:
             cur.execute("""
-                SELECT DISTINCT ON (a.condition_id)
+                SELECT DISTINCT ON (COALESCE(a.event_slug, a.condition_id))
                     a.id, a.condition_id, a.market_title, a.end_date,
                     a.total_usd, a.composite_score, a.llm_copy_action
                 FROM alerts a
                 WHERE a.end_date IS NOT NULL
                   AND a.end_date > NOW()
-                ORDER BY a.condition_id, a.composite_score DESC
+                ORDER BY COALESCE(a.event_slug, a.condition_id), a.composite_score DESC
             """)
             all_rows = cur.fetchall()
             all_rows.sort(key=lambda r: r["end_date"])
