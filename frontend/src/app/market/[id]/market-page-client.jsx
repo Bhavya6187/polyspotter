@@ -11,6 +11,7 @@ import MarketPulse from "../../../components/MarketPulse";
 import MarketTheses from "../../../components/MarketTheses";
 import useLiveMarket from "../../../hooks/useLiveMarket";
 import ThemeToggle from "../../../components/ThemeToggle";
+import TwitterFeed from "../../../components/TwitterFeed";
 
 const usdFmt = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -312,6 +313,9 @@ export default function MarketPageClient({
               <MarketPulse alerts={alerts} volume24h={live?.volume_24h} />
             </>
           )}
+
+          {/* X/Twitter Feed */}
+          <TwitterFeed title={title} />
         </aside>
       </div>
 
