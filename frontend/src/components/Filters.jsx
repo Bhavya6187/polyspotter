@@ -7,6 +7,13 @@ const RESOLVE_OPTIONS = [
   { label: "< 7d", value: "7d" },
 ];
 
+const SEVERITY_OPTIONS = [
+  { label: "All", value: "" },
+  { label: "Medium+", value: "6" },
+  { label: "Strong+", value: "10" },
+  { label: "Very Strong", value: "15" },
+];
+
 function Pill({ label, active, onClick }) {
   return (
     <button
@@ -69,7 +76,24 @@ export default function Filters({ tags, filters, onFilterChange }) {
         ))}
       </div>
 
-      {/* Row 2: Tags */}
+      {/* Row 2: Severity */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold uppercase tracking-widest mr-1" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-muted)', fontSize: '0.6rem' }}>
+          Severity
+        </span>
+        {SEVERITY_OPTIONS.map((opt) => (
+          <Pill
+            key={opt.value}
+            label={opt.label}
+            active={(filters.minScore || "") === opt.value}
+            onClick={() =>
+              onFilterChange({ ...filters, minScore: opt.value })
+            }
+          />
+        ))}
+      </div>
+
+      {/* Row 3: Tags */}
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-semibold uppercase tracking-widest mr-1" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-muted)', fontSize: '0.6rem' }}>
           Topic

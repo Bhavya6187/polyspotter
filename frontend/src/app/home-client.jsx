@@ -29,6 +29,7 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
   const [filters, setFilters] = useState({
     tag: "",
     resolvesIn: "",
+    minScore: "",
   });
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(() => new Date());
@@ -52,6 +53,7 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
       perPage,
       tag: filtersRef.current.tag,
       resolvesWithin: filtersRef.current.resolvesIn,
+      minScore: filtersRef.current.minScore || undefined,
     })
       .then((data) => {
         setMarkets(data.markets || []);
