@@ -1,18 +1,30 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import WalletBadge from "./WalletBadge";
 import ShareButton from "./ShareButton";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
 
 export default function ThesisCard({ thesis }) {
+  const router = useRouter();
   const usdFmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
   return (
-    <Link
-      href={`/thesis/${thesis.id}`}
-      className="block rounded-xl p-4 mb-3 animate-fade-up transition-shadow hover:shadow-lg"
+    <div
+      role="link"
+      tabIndex={0}
+      onClick={(e) => {
+        // Don't navigate if clicking an inner link or button
+        if (e.target.closest("a") || e.target.closest("button")) return;
+        router.push(`/thesis/${thesis.id}`);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !e.target.closest("a") && !e.target.closest("button")) {
+          router.push(`/thesis/${thesis.id}`);
+        }
+      }}
+      className="block rounded-xl p-4 mb-3 animate-fade-up transition-shadow hover:shadow-lg cursor-pointer"
       style={{
         background: "var(--surface-card)",
         border: "1px solid var(--border)",
@@ -66,6 +78,6 @@ export default function ThesisCard({ thesis }) {
       <div className="flex gap-2">
         <ShareButton url={`${SITE_URL}/thesis/${thesis.id}`} />
       </div>
-    </Link>
+    </div>
   );
 }
