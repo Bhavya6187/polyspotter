@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import WalletBadge from "./WalletBadge";
 import ShareButton from "./ShareButton";
 
@@ -9,13 +10,16 @@ export default function ThesisCard({ thesis }) {
   const usdFmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
   return (
-    <div
-      className="rounded-xl p-4 mb-3 animate-fade-up"
+    <Link
+      href={`/thesis/${thesis.id}`}
+      className="block rounded-xl p-4 mb-3 animate-fade-up transition-shadow hover:shadow-lg"
       style={{
         background: "var(--surface-card)",
         border: "1px solid var(--border)",
         borderLeftWidth: 4,
         borderLeftColor: "#8b5cf6",
+        textDecoration: "none",
+        color: "inherit",
       }}
     >
       {/* Header */}
@@ -62,6 +66,6 @@ export default function ThesisCard({ thesis }) {
       <div className="flex gap-2">
         <ShareButton url={`${SITE_URL}/thesis/${thesis.id}`} />
       </div>
-    </div>
+    </Link>
   );
 }
