@@ -663,6 +663,18 @@ def list_strategies():
         return cur.fetchall()
 
 
+TAG_DESCRIPTIONS = {
+    "Sports": "Track smart money flowing into sports prediction markets on Polymarket. PolySpotter surfaces large bets from sharp bettors across NFL, NBA, MLB, soccer, tennis, and more — highlighting coordinated flow, whale positions, and high-conviction wagers.",
+    "Politics": "Monitor sharp bettor activity in political prediction markets. From elections to policy decisions, see where informed money is positioning on Polymarket's political events.",
+    "Geopolitics": "Follow whale trades in geopolitical prediction markets on Polymarket. Track sharp bettors wagering on international diplomacy, conflicts, treaties, and global power shifts.",
+    "Crypto": "Follow whale trades in crypto prediction markets on Polymarket. Track sharp bettors wagering on Bitcoin price targets, Ethereum milestones, DeFi outcomes, and regulatory decisions.",
+    "Culture": "Track smart money in culture and entertainment prediction markets on Polymarket — from awards shows to viral moments and media events.",
+    "Finance": "Monitor sharp bettor activity in finance prediction markets on Polymarket. Track whale trades on interest rates, economic indicators, and market events.",
+    "Weather": "Follow smart money signals in weather prediction markets on Polymarket — hurricane paths, temperature records, and climate events.",
+    "Soccer": "Track whale trades in soccer prediction markets on Polymarket. Sharp bettors positioning on Premier League, Champions League, La Liga, and international matches.",
+}
+
+
 @app.get("/api/tags")
 def list_tags():
     """Return top 10 tags using greedy set-cover for maximum diversity.
@@ -685,7 +697,7 @@ def list_tags():
         return []
 
     # Greedy set-cover: pick tag covering most uncovered alerts each round
-    selected = []
+    selected_tags = []
     covered = set()
     for _ in range(10):
         if not tag_alerts:
@@ -696,9 +708,13 @@ def list_tags():
         if marginal == 0:
             break
         covered |= new_covered
-        selected.append({"tag": best_tag, "alert_count": len(new_covered)})
+        selected_tags.append({
+            "tag": best_tag,
+            "alert_count": len(new_covered),
+            "description": TAG_DESCRIPTIONS.get(best_tag),
+        })
 
-    return selected
+    return selected_tags
 
 
 @app.get("/api/spotlight")

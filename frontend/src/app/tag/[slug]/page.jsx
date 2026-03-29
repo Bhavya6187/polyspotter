@@ -20,24 +20,20 @@ function tagSlug(tag) {
 
 const PER_PAGE = 20;
 
-const TAG_DESCRIPTIONS = {
-  sports:
-    "Track smart money flowing into sports prediction markets on Polymarket. PolySpotter surfaces large bets from sharp bettors across NFL, NBA, MLB, soccer, tennis, and more — highlighting coordinated flow, whale positions, and high-conviction wagers.",
-  politics:
-    "Monitor sharp bettor activity in political prediction markets. From elections to policy decisions, see where informed money is positioning on Polymarket's political events.",
-  geopolitics:
-    "Follow whale trades in geopolitical prediction markets on Polymarket. Track sharp bettors wagering on international diplomacy, conflicts, treaties, and global power shifts.",
-  crypto:
-    "Follow whale trades in crypto prediction markets on Polymarket. Track sharp bettors wagering on Bitcoin price targets, Ethereum milestones, DeFi outcomes, and regulatory decisions.",
-  culture:
-    "Track smart money in culture and entertainment prediction markets on Polymarket — from awards shows to viral moments and media events.",
-  finance:
-    "Monitor sharp bettor activity in finance prediction markets on Polymarket. Track whale trades on interest rates, economic indicators, and market events.",
-  weather:
-    "Follow smart money signals in weather prediction markets on Polymarket — hurricane paths, temperature records, and climate events.",
-  soccer:
-    "Track whale trades in soccer prediction markets on Polymarket. Sharp bettors positioning on Premier League, Champions League, La Liga, and international matches.",
-};
+async function getTagDescription(tag) {
+  try {
+    const res = await fetch(`${API_URL}/api/tags`, { next: { revalidate: 300 } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const tags = data?.tags || data || [];
+    const match = tags.find(
+      (t) => (typeof t === "string" ? t : t.tag).toLowerCase() === tag.toLowerCase()
+    );
+    return match?.description || null;
+  } catch {
+    return null;
+  }
+}
 
 async function getTagData(tag, page = 1) {
   try {
@@ -63,12 +59,13 @@ export async function generateMetadata({ params, searchParams }) {
   const tag = tagFromSlug(slug);
   const display = tagDisplayName(tag);
 
+  const tagDesc = await getTagDescription(tag);
   const title =
     page > 1
       ? `${display} Prediction Market Smart Money Alerts (Page ${page})`
       : `${display} — Polymarket Smart Money Trades & Whale Alerts`;
   const description =
-    TAG_DESCRIPTIONS[tag.toLowerCase()] ||
+    tagDesc ||
     `Notable trades and smart money alerts for ${display} markets on Polymarket. Track large bets, sharp bettors, and coordinated flow.`;
   const canonical =
     page > 1
@@ -116,7 +113,7 @@ export default async function TagPage({ params, searchParams }) {
     "@type": "CollectionPage",
     name: `${display} — Polymarket Smart Money Trades`,
     description:
-      TAG_DESCRIPTIONS[tag.toLowerCase()] ||
+      tagDesc ||
       `Notable trades for ${display} markets on Polymarket.`,
     url: tagUrl,
     isPartOf: {
@@ -158,7 +155,7 @@ export default async function TagPage({ params, searchParams }) {
     ],
   };
 
-  const tagDesc = TAG_DESCRIPTIONS[tag.toLowerCase()];
+  const tagDesc = await getTagDescription(tag);
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6">
