@@ -91,13 +91,6 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
 
-  // Aggregate stats for the stats bar
-  const totalAlerts = total;
-  const totalVolume = markets.reduce((sum, m) => {
-    const best = m.alerts?.[0];
-    return sum + (best?.total_usd || 0);
-  }, 0);
-  const marketsTracked = markets.length;
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6">
@@ -152,15 +145,6 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
             </div>
           </div>
         </div>
-
-        {/* Stats bar */}
-        <div className="mt-5 flex items-center gap-6 rounded-xl border px-5 py-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
-          <StatItem label="Signals" value={totalAlerts} />
-          <div className="h-8 w-px" style={{ background: 'var(--border)' }} />
-          <StatItem label="Volume Tracked" value={`$${formatCompact(totalVolume)}`} />
-          <div className="h-8 w-px" style={{ background: 'var(--border)' }} />
-          <StatItem label="Markets" value={marketsTracked} />
-        </div>
       </header>
 
       {/* Hero Spotlight */}
@@ -209,23 +193,4 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
       </nav>
     </main>
   );
-}
-
-function StatItem({ label, value }) {
-  return (
-    <div className="flex flex-col">
-      <span className="text-xs font-medium uppercase tracking-wider" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-muted)', fontSize: '0.65rem' }}>
-        {label}
-      </span>
-      <span className="text-lg font-bold animate-count-up" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function formatCompact(n) {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
-  return n.toLocaleString();
 }
