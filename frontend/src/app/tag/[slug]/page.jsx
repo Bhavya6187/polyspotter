@@ -64,9 +64,7 @@ export async function generateMetadata({ params, searchParams }) {
     page > 1
       ? `${display} Prediction Market Smart Money Alerts (Page ${page})`
       : `${display} — Polymarket Smart Money Trades & Whale Alerts`;
-  const description =
-    tagDesc ||
-    `Notable trades and smart money alerts for ${display} markets on Polymarket. Track large bets, sharp bettors, and coordinated flow.`;
+  const description = tagDesc || `Notable trades and smart money alerts for ${display} markets on Polymarket.`;
   const canonical =
     page > 1
       ? `/tag/${tagSlug(tag)}?page=${page}`

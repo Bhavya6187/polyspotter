@@ -708,10 +708,14 @@ def list_tags():
         if marginal == 0:
             break
         covered |= new_covered
+        desc = TAG_DESCRIPTIONS.get(best_tag) or (
+            f"Notable trades and smart money alerts for {best_tag} markets on Polymarket. "
+            f"Track large bets, sharp bettors, and coordinated flow."
+        )
         selected_tags.append({
             "tag": best_tag,
             "alert_count": len(new_covered),
-            "description": TAG_DESCRIPTIONS.get(best_tag),
+            "description": desc,
         })
 
     return selected_tags
