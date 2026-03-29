@@ -25,6 +25,11 @@ _market_cache: dict[str, dict] = {}
 _event_tags_cache: dict[str, list[dict]] = {}
 
 
+def invalidate_market(condition_id: str) -> None:
+    """Remove a cached market entry so the next lookup fetches fresh data."""
+    _market_cache.pop(condition_id, None)
+
+
 def get_market_by_condition(condition_id: str) -> dict | None:
     """Fetch market metadata from Gamma API by conditionId.
     Results are cached so repeated calls across strategies are free."""

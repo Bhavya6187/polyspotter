@@ -20,7 +20,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 
 from db import get_llm_evaluation, get_wallet_market_positions, get_wallet_pnl_summary, save_llm_evaluation
-from gamma_cache import get_market_by_condition
+from gamma_cache import get_market_by_condition, invalidate_market
 
 load_dotenv()
 
@@ -309,9 +309,12 @@ def _build_prompt(alert: dict) -> str:
         parts.append(f"Wallet: {alert['wallet']}")
 
     # Market metadata from Gamma API
+    # Invalidate cache to get fresh prices — the cached entry may predate
+    # the trades in this alert, causing the LLM to see stale prices.
     condition_id = alert.get("condition_id")
     current_prices: dict[str, float] = {}  # outcome -> current price (reused for trade lines)
     if condition_id:
+        invalidate_market(condition_id)
         mkt = get_market_by_condition(condition_id)
         if mkt:
             parts.append("\nMarket context:")
