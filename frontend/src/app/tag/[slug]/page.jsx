@@ -100,6 +100,8 @@ export default async function TagPage({ params, searchParams }) {
     process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
   const tagUrl = `${siteUrl}/tag/${tagSlug(tag)}`;
 
+  const tagDesc = await getTagDescription(tag);
+
   const usdFmt = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
@@ -152,8 +154,6 @@ export default async function TagPage({ params, searchParams }) {
       },
     ],
   };
-
-  const tagDesc = await getTagDescription(tag);
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6">
