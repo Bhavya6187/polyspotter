@@ -15,6 +15,7 @@ async function getAlert(id) {
   return null;
 }
 
+
 export async function generateMetadata({ params }) {
   const { id } = await params;
   const siteUrl =
@@ -209,6 +210,38 @@ export default async function AlertPage({ params }) {
       >
         {title}
       </h1>
+
+      {/* Market image + description */}
+      {(alert.market_image || alert.market_description) && (
+        <div
+          className="rounded-xl overflow-hidden mb-6"
+          style={{
+            background: "var(--surface-card)",
+            border: "1px solid var(--border)",
+          }}
+        >
+          {alert.market_image && (
+            <div className="relative w-full" style={{ aspectRatio: "16/9" }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={alert.market_image}
+                alt={alert.market_title || "Market"}
+                className="w-full h-full object-cover"
+              />
+            </div>
+          )}
+          {alert.market_description && (
+            <div className="px-4 py-3">
+              <p
+                className="text-sm leading-relaxed"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                {alert.market_description}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Summary */}
       {alert.llm_summary && (

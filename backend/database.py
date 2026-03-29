@@ -30,6 +30,7 @@ def init_db():
             cur.execute(sql)
             _migrate_category_to_tags(cur)
             _migrate_add_llm_fields(cur)
+            _migrate_add_market_media(cur)
         conn.commit()
     finally:
         conn.close()
@@ -72,3 +73,14 @@ def _migrate_add_llm_fields(cur):
         """, (col,))
         if not cur.fetchone():
             cur.execute(f"ALTER TABLE alerts ADD COLUMN {col} TEXT DEFAULT {default}")
+
+
+def _migrate_add_market_media(cur):
+    """Add market_image and market_description columns if they don't exist."""
+    for col in ("market_image", "market_description"):
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'alerts' AND column_name = %s
+        """, (col,))
+        if not cur.fetchone():
+            cur.execute(f"ALTER TABLE alerts ADD COLUMN {col} TEXT")

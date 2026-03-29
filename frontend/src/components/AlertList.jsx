@@ -211,6 +211,13 @@ function MarketGroupCard({ market, liveData, index }) {
         className="group/header flex items-start justify-between gap-3 px-5 py-4 rounded-t-xl transition-all hover:bg-[var(--accent-subtle)]"
       >
         <div className="flex items-center gap-3 min-w-0">
+          {market.market_image && (
+            <img
+              src={market.market_image}
+              alt=""
+              className="h-8 w-8 rounded-lg object-cover shrink-0"
+            />
+          )}
           <StrengthMeter maxScore={alert.composite_score} />
           <span
             className="text-sm font-semibold leading-snug truncate transition-colors group-hover/header:text-[var(--accent)]"

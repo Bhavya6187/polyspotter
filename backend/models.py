@@ -43,6 +43,8 @@ class AlertIn(BaseModel):
     condition_id: str | None = None
     event_slug: str | None = None
     market_url: str | None = None
+    market_image: str | None = None
+    market_description: str | None = None
     wallet: str | None = None
     total_usd: float = 0
     trade_count: int = 1
@@ -155,6 +157,8 @@ class AlertOut(BaseModel):
     condition_id: str | None = None
     event_slug: str | None = None
     market_url: str | None = None
+    market_image: str | None = None
+    market_description: str | None = None
     wallet: str | None = None
     total_usd: float
     trade_count: int
@@ -230,6 +234,7 @@ class MarketGroup(BaseModel):
     condition_id: str
     market_title: str | None = None
     market_url: str | None = None
+    market_image: str | None = None
     event_slug: str | None = None
     end_date: datetime | None = None
     total_usd: float = 0
@@ -280,6 +285,7 @@ class LiveMarketData(BaseModel):
     volume_24h: float | None = None
     liquidity: float | None = None
     description: str | None = None
+    image: str | None = None  # market image URL from Gamma API
     spread: float | None = None  # bid-ask spread in cents for leading outcome
 
 

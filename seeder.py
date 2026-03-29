@@ -143,6 +143,16 @@ def _resolve_end_date(condition_id: str | None) -> str | None:
     return _parse_end_date_from_title(title)
 
 
+def _resolve_market_media(condition_id: str | None) -> tuple[str | None, str | None]:
+    """Return (image_url, description) from Gamma cache for a market."""
+    if not condition_id:
+        return None, None
+    market = get_market_by_condition(condition_id)
+    if not market:
+        return None, None
+    return market.get("image"), market.get("description")
+
+
 def _signal_to_dict(sig: Signal) -> dict:
     return {
         "strategy": sig.strategy,
@@ -219,6 +229,7 @@ def build_alerts_payload(
 
         event_slug = sample.get("eventSlug", "")
         cluster_dir = f"{sample.get('outcome', '')}:{sample.get('side', '')}"
+        m_image, m_desc = _resolve_market_media(cid)
         alerts.append({
             "alert_type": "cluster",
             "composite_score": max_score,
@@ -227,6 +238,8 @@ def build_alerts_payload(
             "condition_id": cid,
             "event_slug": event_slug,
             "market_url": f"https://polymarket.com/event/{event_slug}" if event_slug else None,
+            "market_image": m_image,
+            "market_description": m_desc,
             "wallet": None,
             "total_usd": total_usd,
             "trade_count": len(cluster_trades),
@@ -302,6 +315,7 @@ def build_alerts_payload(
         total_usd = sum(float(t.get("_usd_value", 0)) for t in all_entry_trades)
         primary_trade = entries[0][1]
         cid = primary_trade.get("conditionId", "")
+        m_image, m_desc = _resolve_market_media(cid)
 
         alerts.append({
             "alert_type": "composite",
@@ -311,6 +325,8 @@ def build_alerts_payload(
             "condition_id": cid,
             "event_slug": evt,
             "market_url": f"https://polymarket.com/event/{evt}" if evt else None,
+            "market_image": m_image,
+            "market_description": m_desc,
             "wallet": wallet,
             "total_usd": total_usd,
             "trade_count": len(all_entry_trades),
@@ -334,6 +350,7 @@ def build_alerts_payload(
         wallet = trade.get("proxyWallet", "")
         event_slug = trade.get("eventSlug", "")
 
+        m_image, m_desc = _resolve_market_media(cid)
         alerts.append({
             "alert_type": "composite",
             "composite_score": total_severity,
@@ -342,6 +359,8 @@ def build_alerts_payload(
             "condition_id": cid,
             "event_slug": event_slug,
             "market_url": f"https://polymarket.com/event/{event_slug}" if event_slug else None,
+            "market_image": m_image,
+            "market_description": m_desc,
             "wallet": wallet,
             "total_usd": float(trade.get("_usd_value", 0)),
             "trade_count": 1,

@@ -69,6 +69,23 @@ export default function MarketPageClient({
         <ThemeToggle />
       </nav>
 
+      {/* Market image */}
+      {(alerts?.[0]?.market_image || live?.image) && (
+        <div
+          className="rounded-xl overflow-hidden mb-6"
+          style={{ border: "1px solid var(--border)" }}
+        >
+          <div className="relative w-full" style={{ aspectRatio: "16/9" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={alerts[0]?.market_image || live?.image}
+              alt={title}
+              className="w-full h-full object-cover"
+            />
+          </div>
+        </div>
+      )}
+
       {/* Market header */}
       <header className="mb-8">
         <h1 className="text-2xl font-bold leading-snug" style={{ color: 'var(--text-primary)' }}>
@@ -120,6 +137,15 @@ export default function MarketPageClient({
               </span>
             ))}
           </div>
+        )}
+
+        {(alerts?.[0]?.market_description || live?.description) && (
+          <p
+            className="mt-3 text-sm leading-relaxed"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            {alerts[0]?.market_description || live?.description}
+          </p>
         )}
       </header>
 

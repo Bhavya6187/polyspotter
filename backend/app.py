@@ -185,10 +185,11 @@ def ingest(payload: IngestPayload):
                 cur.execute(
                     """INSERT INTO alerts
                        (alert_type, composite_score, tags, market_title, condition_id,
-                        event_slug, market_url, wallet, total_usd, trade_count,
+                        event_slug, market_url, market_image, market_description,
+                        wallet, total_usd, trade_count,
                         cluster_headline, end_date, llm_headline, llm_summary,
                         llm_bullets, llm_copy_action, scanned_at, dedup_key)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        ON CONFLICT (dedup_key) DO UPDATE SET
                         composite_score = EXCLUDED.composite_score,
                         tags = EXCLUDED.tags,
@@ -200,6 +201,8 @@ def ingest(payload: IngestPayload):
                         llm_summary = EXCLUDED.llm_summary,
                         llm_bullets = EXCLUDED.llm_bullets,
                         llm_copy_action = EXCLUDED.llm_copy_action,
+                        market_image = COALESCE(EXCLUDED.market_image, alerts.market_image),
+                        market_description = COALESCE(EXCLUDED.market_description, alerts.market_description),
                         scanned_at = EXCLUDED.scanned_at
                        RETURNING id, (xmax = 0) AS inserted""",
                     (
@@ -210,6 +213,8 @@ def ingest(payload: IngestPayload):
                         alert.condition_id,
                         alert.event_slug,
                         alert.market_url,
+                        alert.market_image,
+                        alert.market_description,
                         alert.wallet,
                         alert.total_usd,
                         alert.trade_count,
@@ -488,6 +493,7 @@ def list_alerts_by_market(
             f"""SELECT a.condition_id,
                        MAX(a.market_title) as market_title,
                        MAX(a.market_url) as market_url,
+                       MAX(a.market_image) as market_image,
                        MAX(a.event_slug) as event_slug,
                        MAX(a.end_date) as end_date,
                        SUM(a.total_usd) as total_usd,
@@ -541,6 +547,7 @@ def list_alerts_by_market(
                     condition_id=cid,
                     market_title=mrow["market_title"],
                     market_url=mrow["market_url"],
+                    market_image=mrow["market_image"],
                     event_slug=mrow["event_slug"],
                     end_date=mrow["end_date"],
                     total_usd=mrow["total_usd"],
@@ -936,6 +943,7 @@ def _fetch_live_market(condition_id: str) -> LiveMarketData:
             volume_24h=_safe_float(market.get("volume24hr")),
             liquidity=_safe_float(market.get("liquidity")),
             description=market.get("description"),
+            image=market.get("image"),
         )
 
     # 2. Get live midpoints from CLOB API (batch)
@@ -990,6 +998,7 @@ def _fetch_live_market(condition_id: str) -> LiveMarketData:
         volume_24h=_safe_float(market.get("volume24hr")),
         liquidity=_safe_float(market.get("liquidity")),
         description=market.get("description"),
+        image=market.get("image"),
         spread=spread,
     )
 

@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS alerts (
     condition_id    TEXT,
     event_slug      TEXT,
     market_url      TEXT,
+    market_image    TEXT,        -- Polymarket market image URL (from Gamma API)
+    market_description TEXT,    -- Polymarket market description/resolution criteria
 
     -- wallet (primary wallet for composite, NULL for cluster)
     wallet          TEXT,
