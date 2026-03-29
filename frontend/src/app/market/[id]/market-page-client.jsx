@@ -70,19 +70,18 @@ export default function MarketPageClient({
       </nav>
 
       {/* Market image */}
-      {(alerts?.[0]?.market_image || live?.image) && (
+      {alerts?.[0]?.market_image && (
         <div
           className="rounded-xl overflow-hidden mb-6"
-          style={{ border: "1px solid var(--border)" }}
+          style={{ border: "1px solid var(--border)", maxHeight: "240px" }}
         >
-          <div className="relative w-full" style={{ aspectRatio: "16/9" }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={alerts[0]?.market_image || live?.image}
-              alt={title}
-              className="w-full h-full object-cover"
-            />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={alerts[0].market_image}
+            alt={title}
+            className="w-full h-full object-cover"
+            style={{ maxHeight: "240px" }}
+          />
         </div>
       )}
 

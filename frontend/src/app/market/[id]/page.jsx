@@ -232,6 +232,7 @@ export default async function MarketPage({ params }) {
           </nav>
 
           <h1>{title}</h1>
+          {live?.description && <p>{live.description}</p>}
           <p>
             {alertCount} smart money signal{alertCount !== 1 ? "s" : ""}{" "}
             detected{totalUsd > 0 ? `, totaling ${usdFmt.format(totalUsd)}` : ""}.
