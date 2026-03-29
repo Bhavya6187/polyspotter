@@ -248,8 +248,8 @@ export default async function ThesisPage({ params }) {
                   >
                     {i + 1}
                   </span>
-                  <span className="truncate text-sm" style={{ color: "var(--text-primary)" }}>
-                    {m.market_title}
+                  <span className="truncate text-sm" style={{ color: m.market_title ? "var(--text-primary)" : "var(--text-muted)" }}>
+                    {m.market_title || `${m.condition_id.slice(0, 10)}…`}
                   </span>
                 </div>
                 <span

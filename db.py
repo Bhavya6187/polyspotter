@@ -31,6 +31,7 @@ def get_db() -> sqlite3.Connection:
     _conn = sqlite3.connect(DB_PATH)
     _conn.execute("PRAGMA journal_mode=WAL")
     _init_tables(_conn)
+    _migrate(_conn)
     return _conn
 
 
@@ -108,7 +109,9 @@ def _init_tables(conn: sqlite3.Connection) -> None:
             side TEXT NOT NULL,
             usd_value REAL NOT NULL,
             trade_timestamp REAL NOT NULL,
-            recorded_at TEXT NOT NULL
+            recorded_at TEXT NOT NULL,
+            price REAL,
+            market_title TEXT
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_weh_wallet ON wallet_event_history(wallet)")
@@ -253,6 +256,16 @@ def _init_tables(conn: sqlite3.Connection) -> None:
         )
     """)
 
+    conn.commit()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns to existing tables (safe to re-run)."""
+    cursor = conn.execute("PRAGMA table_info(wallet_event_history)")
+    existing = {row[1] for row in cursor.fetchall()}
+    for col, typ in [("price", "REAL"), ("market_title", "TEXT")]:
+        if col not in existing:
+            conn.execute(f"ALTER TABLE wallet_event_history ADD COLUMN {col} {typ}")
     conn.commit()
 
 
@@ -534,8 +547,8 @@ def record_wallet_event_trade(trade: dict) -> None:
     conn = get_db()
     conn.execute(
         """INSERT OR IGNORE INTO wallet_event_history
-           (wallet, event_slug, condition_id, outcome, side, usd_value, trade_timestamp, recorded_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+           (wallet, event_slug, condition_id, outcome, side, usd_value, trade_timestamp, recorded_at, price, market_title)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             wallet,
             event_slug,
@@ -545,6 +558,8 @@ def record_wallet_event_trade(trade: dict) -> None:
             float(trade.get("_usd_value", 0)),
             trade.get("timestamp", 0),
             datetime.now(timezone.utc).isoformat(),
+            float(trade.get("price", 0)) or None,
+            trade.get("title", "") or None,
         ),
     )
     conn.commit()
@@ -554,7 +569,7 @@ def get_wallet_event_history(wallet: str, event_slug: str) -> list[dict]:
     """Get all historical trades for a wallet on a specific event."""
     conn = get_db()
     rows = conn.execute(
-        """SELECT condition_id, outcome, side, usd_value, trade_timestamp
+        """SELECT condition_id, outcome, side, usd_value, trade_timestamp, price, market_title
            FROM wallet_event_history
            WHERE wallet = ? AND event_slug = ?
            ORDER BY trade_timestamp""",
@@ -567,6 +582,8 @@ def get_wallet_event_history(wallet: str, event_slug: str) -> list[dict]:
             "side": r[2],
             "usd_value": r[3],
             "trade_timestamp": r[4],
+            "price": r[5],
+            "market_title": r[6],
         }
         for r in rows
     ]

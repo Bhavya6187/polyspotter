@@ -508,14 +508,19 @@ def build_theses_payload(signals: list, trades: list[dict]) -> list[dict]:
         for h in history:
             if h["condition_id"] not in seen_cids:
                 seen_cids.add(h["condition_id"])
-                hmarket = get_market_by_condition(h["condition_id"]) or {}
+                # Use stored title/price, fall back to Gamma API
+                title = h.get("market_title") or ""
+                price = h.get("price") or 0
+                if not title:
+                    hmarket = get_market_by_condition(h["condition_id"]) or {}
+                    title = hmarket.get("title", "")
                 markets.append({
                     "condition_id": h["condition_id"],
-                    "market_title": hmarket.get("title", ""),
+                    "market_title": title,
                     "outcome": h["outcome"],
                     "side": h["side"],
                     "usd_value": float(h["usd_value"]),
-                    "entry_price": 0,
+                    "entry_price": float(price),
                 })
 
         total_usd = sum(m["usd_value"] for m in markets)
