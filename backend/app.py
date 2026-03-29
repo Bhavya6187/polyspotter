@@ -786,7 +786,8 @@ def get_spotlight():
 
 @app.get("/api/resolving-soon")
 def get_resolving_soon():
-    """Alerts resolving within 6 hours, sorted by end_date ASC."""
+    """Alerts resolving within 6 hours, sorted by end_date ASC.
+    Falls back to top 5 soonest-resolving markets if none within 6 hours."""
     with db() as conn:
         cur = conn.cursor()
         cur.execute("""
@@ -800,6 +801,21 @@ def get_resolving_soon():
             ORDER BY a.condition_id, a.composite_score DESC
         """)
         rows = cur.fetchall()
+
+        # Fallback: top 5 soonest-resolving markets
+        if not rows:
+            cur.execute("""
+                SELECT DISTINCT ON (a.condition_id)
+                    a.id, a.condition_id, a.market_title, a.end_date,
+                    a.total_usd, a.composite_score, a.llm_copy_action
+                FROM alerts a
+                WHERE a.end_date IS NOT NULL
+                  AND a.end_date > NOW()
+                ORDER BY a.condition_id, a.composite_score DESC
+            """)
+            all_rows = cur.fetchall()
+            all_rows.sort(key=lambda r: r["end_date"])
+            rows = all_rows[:5]
 
         results = []
         for row in rows:
