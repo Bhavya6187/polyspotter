@@ -41,6 +41,7 @@ export default function MarketPageClient({
   const { data: liveMarket } = useLiveMarket(conditionId);
   const live = liveMarket || initialLive;
   const alerts = initialAlerts || [];
+  const [descExpanded, setDescExpanded] = useState(false);
 
   const title = live?.title || alerts?.[0]?.market_title || "Market";
   const endDate = live?.end_date || alerts?.[0]?.end_date;
@@ -51,11 +52,12 @@ export default function MarketPageClient({
   const isSoon = endDate && new Date(endDate).getTime() - Date.now() < 86400000 && new Date(endDate).getTime() - Date.now() > 0;
 
   const outcomes = live?.outcomes || [];
+  const description = alerts?.[0]?.market_description || live?.description;
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-6">
+    <main className="mx-auto max-w-5xl px-4 py-4">
       {/* Nav */}
-      <nav className="mb-6 flex items-center justify-between" aria-label="Breadcrumb">
+      <nav className="mb-4 flex items-center justify-between" aria-label="Breadcrumb">
         <Link
           href="/"
           className="inline-flex items-center gap-1.5 text-sm font-medium transition-colors"
@@ -69,172 +71,181 @@ export default function MarketPageClient({
         <ThemeToggle />
       </nav>
 
-      {/* Market image */}
-      {alerts?.[0]?.market_image && (
-        <div
-          className="rounded-xl overflow-hidden mb-6"
-          style={{ border: "1px solid var(--border)", maxHeight: "240px" }}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={alerts[0].market_image}
-            alt={title}
-            className="w-full h-full object-cover"
-            style={{ maxHeight: "240px" }}
-          />
-        </div>
-      )}
-
-      {/* Market header */}
-      <header className="mb-8">
-        <h1 className="text-2xl font-bold leading-snug" style={{ color: 'var(--text-primary)' }}>
-          {title}
-        </h1>
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
-          {resolution && (
-            <span
-              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium"
+      {/* Compact header: image thumbnail + title + outcomes in one band */}
+      <header className="mb-4">
+        <div className="flex gap-4 items-start">
+          {/* Thumbnail */}
+          {alerts?.[0]?.market_image && (
+            <div
+              className="shrink-0 rounded-lg overflow-hidden"
               style={{
-                background: isUrgent ? 'rgba(239, 68, 68, 0.1)' : isSoon ? 'rgba(245, 158, 11, 0.1)' : 'var(--surface-2)',
-                color: resolution === "Resolved"
-                  ? 'var(--text-muted)'
-                  : isUrgent
-                    ? 'var(--bearish)'
-                    : isSoon
-                      ? 'var(--warning)'
-                      : 'var(--text-secondary)',
+                width: "72px",
+                height: "72px",
+                border: "1px solid var(--border)",
               }}
             >
-              {isUrgent && (
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
-                </span>
-              )}
-              Resolves in {resolution}
-            </span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={alerts[0].market_image}
+                alt=""
+                className="w-full h-full object-cover"
+              />
+            </div>
           )}
-          {totalUsd > 0 && (
-            <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.8rem' }}>
-              {usdFmt.format(totalUsd)} tracked
-            </span>
-          )}
-          <span>
-            {alerts.length} signal{alerts.length !== 1 ? "s" : ""}
-          </span>
-        </div>
 
-        {tags.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {tags.map((t) => (
-              <span
-                key={t}
-                className="inline-block rounded-full px-2.5 py-0.5 text-xs font-medium"
-                style={{ background: 'var(--surface-2)', color: 'var(--text-muted)' }}
-              >
-                {t}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {(alerts?.[0]?.market_description || live?.description) && (
-          <p
-            className="mt-3 text-sm leading-relaxed"
-            style={{ color: 'var(--text-secondary)' }}
-          >
-            {alerts[0]?.market_description || live?.description}
-          </p>
-        )}
-      </header>
-
-      {/* Live outcomes */}
-      {outcomes.length > 0 && (() => {
-        const maxPct = Math.max(...outcomes.map((o) => Math.round((o.price || 0) * 100)));
-        return (
-          <div className="mb-6 grid gap-3 sm:grid-cols-2">
-            {outcomes.map((o) => {
-              const pct = Math.round((o.price || 0) * 100);
-              const isLeading = pct === maxPct && pct > 50;
-              return (
-                <div
-                  key={o.name}
-                  className="rounded-xl border p-4 relative overflow-hidden"
+          {/* Title + meta */}
+          <div className="flex-1 min-w-0">
+            <h1
+              className="text-lg font-bold leading-tight"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              {title}
+            </h1>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+              {resolution && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium"
                   style={{
-                    borderColor: isLeading ? 'rgba(0, 194, 106, 0.3)' : 'var(--border)',
-                    background: 'var(--surface-card)',
-                    boxShadow: isLeading ? 'var(--glow-medium)' : 'none',
+                    background: isUrgent ? 'rgba(239, 68, 68, 0.1)' : isSoon ? 'rgba(245, 158, 11, 0.1)' : 'var(--surface-2)',
+                    color: resolution === "Resolved"
+                      ? 'var(--text-muted)'
+                      : isUrgent
+                        ? 'var(--bearish)'
+                        : isSoon
+                          ? 'var(--warning)'
+                          : 'var(--text-secondary)',
+                    fontSize: '0.65rem',
                   }}
                 >
-                  <div
-                    className="absolute inset-y-0 left-0 transition-all duration-700"
-                    style={{
-                      width: `${pct}%`,
-                      background: isLeading
-                        ? 'linear-gradient(90deg, rgba(0, 194, 106, 0.10) 0%, rgba(0, 194, 106, 0.04) 100%)'
-                        : 'linear-gradient(90deg, rgba(139, 145, 163, 0.07) 0%, rgba(139, 145, 163, 0.02) 100%)',
-                    }}
-                  />
-                  <div className="relative flex items-center justify-between mb-3">
-                    <span className="font-medium text-[0.95rem]" style={{ color: 'var(--text-primary)' }}>
-                      {o.name}
+                  {isUrgent && (
+                    <span className="relative flex h-1.5 w-1.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
                     </span>
-                    <span
-                      className="text-xl font-bold tabular-nums"
+                  )}
+                  {resolution}
+                </span>
+              )}
+              {totalUsd > 0 && (
+                <span style={{ fontFamily: 'var(--font-display)' }}>
+                  {usdFmt.format(totalUsd)} tracked
+                </span>
+              )}
+              <span>{alerts.length} signal{alerts.length !== 1 ? "s" : ""}</span>
+              {tags.map((t) => (
+                <span
+                  key={t}
+                  className="rounded-full px-1.5 py-0.5"
+                  style={{ background: 'var(--surface-2)', color: 'var(--text-muted)', fontSize: '0.6rem' }}
+                >
+                  {t}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Inline outcome pills — right side */}
+          {outcomes.length > 0 && (
+            <div className="hidden sm:flex items-center gap-2 shrink-0">
+              {outcomes.map((o) => {
+                const pct = Math.round((o.price || 0) * 100);
+                const maxPct = Math.max(...outcomes.map((oo) => Math.round((oo.price || 0) * 100)));
+                const isLeading = pct === maxPct && pct > 50;
+                return (
+                  <div
+                    key={o.name}
+                    className="rounded-lg border px-3 py-1.5 text-center"
+                    style={{
+                      borderColor: isLeading ? 'rgba(0, 194, 106, 0.3)' : 'var(--border)',
+                      background: 'var(--surface-card)',
+                      boxShadow: isLeading ? 'var(--glow-medium)' : 'none',
+                      minWidth: '72px',
+                    }}
+                  >
+                    <div className="text-[0.6rem] uppercase tracking-wider" style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-display)' }}>
+                      {o.name}
+                    </div>
+                    <div
+                      className="text-lg font-bold tabular-nums leading-tight"
                       style={{
                         fontFamily: 'var(--font-display)',
                         color: isLeading ? 'var(--accent)' : 'var(--text-primary)',
                       }}
                     >
                       {pct}&cent;
-                    </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Mobile-only outcome row */}
+        {outcomes.length > 0 && (
+          <div className="sm:hidden mt-3 flex gap-2">
+            {outcomes.map((o) => {
+              const pct = Math.round((o.price || 0) * 100);
+              const maxPct = Math.max(...outcomes.map((oo) => Math.round((oo.price || 0) * 100)));
+              const isLeading = pct === maxPct && pct > 50;
+              return (
+                <div
+                  key={o.name}
+                  className="flex-1 rounded-lg border px-3 py-1.5 text-center"
+                  style={{
+                    borderColor: isLeading ? 'rgba(0, 194, 106, 0.3)' : 'var(--border)',
+                    background: 'var(--surface-card)',
+                    boxShadow: isLeading ? 'var(--glow-medium)' : 'none',
+                  }}
+                >
+                  <div className="text-[0.6rem] uppercase tracking-wider" style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-display)' }}>
+                    {o.name}
                   </div>
                   <div
-                    className="h-2 w-full rounded-full overflow-hidden"
-                    style={{ background: 'var(--surface-2)' }}
+                    className="text-lg font-bold tabular-nums leading-tight"
+                    style={{
+                      fontFamily: 'var(--font-display)',
+                      color: isLeading ? 'var(--accent)' : 'var(--text-primary)',
+                    }}
                   >
-                    <div
-                      className="h-full rounded-full transition-all duration-700"
-                      style={{
-                        width: `${pct}%`,
-                        background: isLeading
-                          ? 'linear-gradient(90deg, var(--accent), #00e87b)'
-                          : 'var(--text-muted)',
-                        opacity: isLeading ? 1 : 0.35,
-                      }}
-                    />
+                    {pct}&cent;
                   </div>
                 </div>
               );
             })}
           </div>
-        );
-      })()}
+        )}
 
-      {/* Price Chart */}
-      {priceHistory && priceHistory.history?.length > 1 && (
-        <div className="mb-6">
-          <PriceChart
-            history={priceHistory.history}
-            outcome={priceHistory.outcome}
-            alerts={alerts}
-            conditionId={conditionId}
-          />
-        </div>
-      )}
+        {/* Collapsible description */}
+        {description && (
+          <div className="mt-2">
+            <p
+              className="text-xs leading-relaxed"
+              style={{
+                color: 'var(--text-muted)',
+                display: '-webkit-box',
+                WebkitLineClamp: descExpanded ? 'unset' : 2,
+                WebkitBoxOrient: 'vertical',
+                overflow: descExpanded ? 'visible' : 'hidden',
+              }}
+            >
+              {description}
+            </p>
+            {description.length > 140 && (
+              <button
+                onClick={() => setDescExpanded(!descExpanded)}
+                className="mt-0.5 text-xs font-medium cursor-pointer"
+                style={{ color: 'var(--accent)', background: 'none', border: 'none', padding: 0 }}
+              >
+                {descExpanded ? "Less" : "More"}
+              </button>
+            )}
+          </div>
+        )}
+      </header>
 
-      {/* Market Stats */}
-      <div className="mb-6">
-        <MarketStats
-          volume24h={live?.volume_24h}
-          liquidity={live?.liquidity}
-          spread={live?.spread}
-          alerts={alerts}
-        />
-      </div>
-
-      {/* Two-column: Notable Trades + Holders/Pulse */}
-      <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+      {/* Two-column: Trades (primary) + Sidebar (chart, stats, holders) */}
+      <div className="grid gap-5 lg:grid-cols-[1.3fr_1fr]">
         {/* Left: Notable Trades */}
         <section>
           {alerts.length > 0 ? (
@@ -274,13 +285,34 @@ export default function MarketPageClient({
           )}
         </section>
 
-        {/* Right: Holders + Pulse */}
-        {(holders?.length > 0 || alerts.length > 0) && (
-          <aside>
-            <HoldersLeaderboard holders={holders} />
-            <MarketPulse alerts={alerts} volume24h={live?.volume_24h} />
-          </aside>
-        )}
+        {/* Right sidebar: Chart + Stats + Holders + Pulse */}
+        <aside className="flex flex-col gap-4">
+          {/* Price Chart */}
+          {priceHistory && priceHistory.history?.length > 1 && (
+            <PriceChart
+              history={priceHistory.history}
+              outcome={priceHistory.outcome}
+              alerts={alerts}
+              conditionId={conditionId}
+            />
+          )}
+
+          {/* Market Stats */}
+          <MarketStats
+            volume24h={live?.volume_24h}
+            liquidity={live?.liquidity}
+            spread={live?.spread}
+            alerts={alerts}
+          />
+
+          {/* Holders + Pulse */}
+          {(holders?.length > 0 || alerts.length > 0) && (
+            <>
+              <HoldersLeaderboard holders={holders} />
+              <MarketPulse alerts={alerts} volume24h={live?.volume_24h} />
+            </>
+          )}
+        </aside>
       </div>
 
       {/* Related Theses */}
