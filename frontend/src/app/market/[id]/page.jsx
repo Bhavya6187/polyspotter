@@ -136,33 +136,6 @@ export default async function MarketPage({ params }) {
     maximumFractionDigits: 0,
   });
 
-  // Event JSON-LD — prediction markets are events with outcomes
-  const eventLd = {
-    "@context": "https://schema.org",
-    "@type": "Event",
-    name: title,
-    description:
-      live?.description ||
-      `Prediction market: ${title}. ${alertCount} smart money signals detected.`,
-    url: marketUrl,
-    eventStatus: "https://schema.org/EventScheduled",
-    ...(live?.end_date && { endDate: live.end_date }),
-    location: {
-      "@type": "VirtualLocation",
-      url: live?.market_url || "https://polymarket.com",
-    },
-    organizer: {
-      "@type": "Organization",
-      name: "Polymarket",
-      url: "https://polymarket.com",
-    },
-    isPartOf: {
-      "@type": "WebSite",
-      name: "PolySpotter",
-      url: siteUrl,
-    },
-  };
-
   const breadcrumbLd = {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
@@ -209,10 +182,6 @@ export default async function MarketPage({ params }) {
 
   return (
     <>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(eventLd) }}
-      />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
