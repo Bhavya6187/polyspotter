@@ -24,9 +24,18 @@ function SpotlightSlide({ alert }) {
           <p className="text-xs uppercase tracking-wider" style={{ color: "var(--text-muted)", fontFamily: "var(--font-display)" }}>
             Biggest move right now
           </p>
-          <h2 className="text-lg font-bold mt-1 truncate" style={{ color: "var(--text-primary)" }}>
-            {alert.market_title}
-          </h2>
+          <div className="flex items-center gap-2.5 mt-1">
+            {alert.market_image && (
+              <img
+                src={alert.market_image}
+                alt=""
+                className="h-8 w-8 rounded-lg object-cover shrink-0"
+              />
+            )}
+            <h2 className="text-lg font-bold truncate" style={{ color: "var(--text-primary)" }}>
+              {alert.market_title}
+            </h2>
+          </div>
           <p className="text-sm mt-1" style={{ color: "var(--accent)" }}>
             {usdFmt.format(alert.total_usd)} in smart money flow
             {alert.wallet_count > 1 ? ` \u00b7 ${alert.wallet_count} sharp wallets aligned` : ""}

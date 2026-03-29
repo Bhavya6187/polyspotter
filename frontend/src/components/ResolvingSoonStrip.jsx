@@ -25,9 +25,18 @@ function ResolvingCard({ alert }) {
           maxWidth: 260,
         }}
       >
-        <p className="text-xs font-medium truncate" style={{ color: "var(--text-primary)" }}>
-          {alert.market_title}
-        </p>
+        <div className="flex items-center gap-2 mb-0.5">
+          {alert.market_image && (
+            <img
+              src={alert.market_image}
+              alt=""
+              className="h-5 w-5 rounded object-cover shrink-0"
+            />
+          )}
+          <p className="text-xs font-medium truncate" style={{ color: "var(--text-primary)" }}>
+            {alert.market_title}
+          </p>
+        </div>
         <p
           className="text-lg font-bold mt-0.5"
           style={{ color: urgent ? "var(--bearish)" : "var(--warning)", fontFamily: "var(--font-display)" }}

@@ -736,7 +736,7 @@ def get_spotlight():
         cur.execute("""
             SELECT a.id, a.market_title, a.condition_id, a.event_slug,
                    a.composite_score, a.total_usd, a.end_date,
-                   a.llm_headline, a.llm_summary, a.llm_copy_action,
+                   a.llm_headline, a.llm_summary, a.llm_copy_action, a.market_image,
                    (SELECT COUNT(DISTINCT at2.wallet) FROM alert_trades at2 WHERE at2.alert_id = a.id) AS wallet_count,
                    wp.win_rate AS best_win_rate, wp.total_pnl AS best_total_pnl
             FROM alerts a
@@ -780,6 +780,7 @@ def get_spotlight():
                 "best_win_rate": row["best_win_rate"],
                 "best_total_pnl": row["best_total_pnl"],
                 "candles": candles,
+                "market_image": row["market_image"],
             })
         return results
 
@@ -793,7 +794,7 @@ def get_resolving_soon():
         cur.execute("""
             SELECT DISTINCT ON (COALESCE(a.event_slug, a.condition_id))
                 a.id, a.condition_id, a.market_title, a.end_date,
-                a.total_usd, a.composite_score, a.llm_copy_action
+                a.total_usd, a.composite_score, a.llm_copy_action, a.market_image
             FROM alerts a
             WHERE a.end_date IS NOT NULL
               AND a.end_date > NOW()
@@ -807,7 +808,7 @@ def get_resolving_soon():
             cur.execute("""
                 SELECT DISTINCT ON (COALESCE(a.event_slug, a.condition_id))
                     a.id, a.condition_id, a.market_title, a.end_date,
-                    a.total_usd, a.composite_score, a.llm_copy_action
+                    a.total_usd, a.composite_score, a.llm_copy_action, a.market_image
                 FROM alerts a
                 WHERE a.end_date IS NOT NULL
                   AND a.end_date > NOW()
@@ -833,6 +834,7 @@ def get_resolving_soon():
                 "total_usd": row["total_usd"],
                 "composite_score": row["composite_score"],
                 "dominant_side": copy_action.get("outcome") if copy_action else None,
+                "market_image": row["market_image"],
             })
 
         results.sort(key=lambda x: x["end_date"] or "")

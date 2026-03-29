@@ -34,10 +34,18 @@ function TickerItem({ alert }) {
       href={`/market/${marketSlug(alert.market_title, alert.condition_id)}`}
       className="inline-flex items-center gap-2.5 whitespace-nowrap px-5 cursor-pointer rounded-md py-1 transition-all hover:bg-[var(--surface-2)]"
     >
-      <span
-        className="h-1.5 w-1.5 rounded-full shrink-0"
-        style={{ background: isBuy ? 'var(--bullish)' : 'var(--bearish)' }}
-      />
+      {alert.market_image ? (
+        <img
+          src={alert.market_image}
+          alt=""
+          className="h-5 w-5 rounded object-cover shrink-0"
+        />
+      ) : (
+        <span
+          className="h-1.5 w-1.5 rounded-full shrink-0"
+          style={{ background: isBuy ? 'var(--bullish)' : 'var(--bearish)' }}
+        />
+      )}
       <span className="font-semibold" style={{ fontFamily: 'var(--font-display)', fontSize: '0.8rem', color: isBuy ? 'var(--bullish)' : 'var(--bearish)' }}>
         {amount}
       </span>
