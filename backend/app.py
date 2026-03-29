@@ -609,23 +609,46 @@ def get_alert(alert_id: int):
 
 @app.get("/api/wallets/{wallet_address}", response_model=WalletProfileDetailOut)
 def get_wallet(wallet_address: str):
-    """Get wallet profile computed live from Polymarket Data API."""
+    """Get wallet profile with stats from DB (accumulated by seeder) and
+    bet_history from live Polymarket Data API."""
     wallet = wallet_address.lower()
 
-    # Fetch most recent closed positions from live API (single call, max 50)
+    # Fetch recent closed positions for bet_history display
     positions = _fetch_closed_positions(wallet)
     if not positions:
         raise HTTPException(status_code=404, detail="Wallet not found")
 
-    # Compute stats on the fly
-    stats = _compute_wallet_stats(positions)
-
-    # Only times_flagged and recent_alerts come from our DB
     with db() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT times_flagged FROM wallet_profiles WHERE wallet = %s", (wallet,))
+
+        # Use wallet_profiles from DB — seeder accumulates positions over
+        # multiple runs, giving more accurate stats than the Data API's
+        # limited retention window (which may only return the last 50).
+        cur.execute(
+            """SELECT total_positions, closed_positions, wins, losses,
+                      total_pnl, total_invested, avg_win_price, win_rate,
+                      times_flagged
+               FROM wallet_profiles WHERE wallet = %s""",
+            (wallet,),
+        )
         wp_row = cur.fetchone()
-        times_flagged = wp_row["times_flagged"] if wp_row else 0
+
+        if wp_row:
+            stats = {
+                "total_positions": wp_row["total_positions"],
+                "closed_positions": wp_row["closed_positions"],
+                "wins": wp_row["wins"],
+                "losses": wp_row["losses"],
+                "total_pnl": wp_row["total_pnl"],
+                "total_invested": wp_row["total_invested"],
+                "avg_win_price": wp_row["avg_win_price"],
+                "win_rate": wp_row["win_rate"],
+            }
+            times_flagged = wp_row["times_flagged"] or 0
+        else:
+            # Wallet not in our DB yet — fall back to live computation
+            stats = _compute_wallet_stats(positions)
+            times_flagged = 0
 
         cur.execute("""
             SELECT a.id, a.market_title, a.composite_score, a.total_usd,
