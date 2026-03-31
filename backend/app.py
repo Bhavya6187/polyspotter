@@ -442,12 +442,14 @@ def list_alerts_by_market(
     event_slug: str | None = Query(None),
     tag: str | None = Query(None),
     resolves_within: str | None = Query(None, description="Filter by resolution window: 6h, 24h, 7d"),
+    include_resolved: bool = Query(False, description="Include resolved/expired markets"),
 ):
     """List alerts grouped by market (condition_id)."""
     conditions = [
         "a.composite_score >= %s",
-        "(a.end_date IS NULL OR a.end_date > NOW())",
     ]
+    if not include_resolved:
+        conditions.append("(a.end_date IS NULL OR a.end_date > NOW())")
     params: list = [min_score]
 
     resolve_hours = {"6h": 6, "24h": 24, "7d": 168}.get(resolves_within)
@@ -504,7 +506,7 @@ def list_alerts_by_market(
                 FROM alerts a
                 WHERE {where} AND a.condition_id IS NOT NULL
                 GROUP BY a.condition_id
-                ORDER BY scanned_at DESC, max_score DESC
+                ORDER BY {"CASE WHEN MAX(a.end_date) IS NULL OR MAX(a.end_date) > NOW() THEN 0 ELSE 1 END, " if include_resolved else ""}scanned_at DESC, max_score DESC
                 LIMIT %s OFFSET %s""",
             params + [per_page, offset],
         )

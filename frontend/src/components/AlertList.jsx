@@ -188,6 +188,7 @@ function MarketGroupCard({ market, liveData, index }) {
 
   const resolution = timeToResolution(market.end_date);
   const resolutionMs = market.end_date ? new Date(market.end_date).getTime() - Date.now() : null;
+  const isResolved = resolutionMs != null && resolutionMs <= 0;
   const isUrgent = resolutionMs != null && resolutionMs > 0 && resolutionMs < 3600000;
   const isSoon = resolutionMs != null && resolutionMs > 0 && resolutionMs < 86400000;
 
@@ -202,8 +203,8 @@ function MarketGroupCard({ market, liveData, index }) {
 
   return (
     <div
-      className={`rounded-xl border card-hover animate-fade-up ${isStrong ? 'animate-glow-border' : ''} ${isUrgent ? 'animate-urgency' : ''}`}
-      style={{ ...cardStyle, animationDelay: `${index * 60}ms` }}
+      className={`rounded-xl border card-hover animate-fade-up ${isStrong && !isResolved ? 'animate-glow-border' : ''} ${isUrgent ? 'animate-urgency' : ''}`}
+      style={{ ...cardStyle, opacity: isResolved ? 0.6 : 1, animationDelay: `${index * 60}ms` }}
     >
       {/* Market header */}
       <Link
@@ -227,7 +228,11 @@ function MarketGroupCard({ market, liveData, index }) {
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {resolution && (
+          {isResolved ? (
+            <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium" style={{ background: 'var(--surface-2)', color: 'var(--text-muted)' }}>
+              Resolved
+            </span>
+          ) : resolution && (
             <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
               isUrgent
                 ? 'text-red-600 dark:text-red-400'

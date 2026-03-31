@@ -38,7 +38,7 @@ async function getTagDescription(tag) {
 async function getTagData(tag, page = 1) {
   try {
     const res = await fetch(
-      `${API_URL}/api/alerts/by-market?page=${page}&per_page=${PER_PAGE}&tag=${encodeURIComponent(tag)}`,
+      `${API_URL}/api/alerts/by-market?page=${page}&per_page=${PER_PAGE}&tag=${encodeURIComponent(tag)}&include_resolved=true`,
       { next: { revalidate: 60 } }
     );
     if (!res.ok) return { markets: [], total: 0, total_alerts: 0 };
