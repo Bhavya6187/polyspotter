@@ -24,6 +24,7 @@ from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import get_conn, init_db
+from basketball import get_basketball_data
 from models import (
     IngestPayload,
     AlertOut,
@@ -1072,6 +1073,42 @@ def get_market_live(condition_id: str):
 
     _live_cache[condition_id] = (now + _LIVE_CACHE_TTL, data)
     return data
+
+
+@app.get("/api/market/{condition_id}/basketball")
+def get_market_basketball(condition_id: str):
+    """Get live basketball game data for a market.
+
+    Matches the market title to an NBA/NCAA game and returns live scores,
+    play-by-play, box scores, DraftKings odds, win probability, injuries,
+    and season series. Returns null if no matching game is found."""
+    # Get market metadata to extract title
+    try:
+        live = _fetch_live_market(condition_id)
+    except _requests.RequestException:
+        return None
+
+    title = live.description or ""
+    # Try to get title from Gamma if description doesn't have team names
+    if " vs" not in title.lower():
+        try:
+            gamma_resp = _requests.get(
+                f"{GAMMA_API}/markets",
+                params={"condition_ids": condition_id},
+                timeout=10,
+            )
+            if gamma_resp.ok:
+                markets = gamma_resp.json()
+                if markets:
+                    market = markets[0]
+                    title = market.get("question", market.get("groupItemTitle", title))
+        except _requests.RequestException:
+            pass
+
+    league = "nba"  # default, extend later for NCAA detection
+
+    game_data = get_basketball_data(title, [], league=league)
+    return game_data
 
 
 _RANGE_PARAMS = {

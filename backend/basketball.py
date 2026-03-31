@@ -415,3 +415,179 @@ def _parse_nba_boxscore(box_data: dict | None) -> GameBoxScore | None:
         home=parse_team(game.get("homeTeam", {})),
         away=parse_team(game.get("awayTeam", {})),
     )
+
+# ---------------------------------------------------------------------------
+# Cache — per-field TTLs, keyed by game_id
+# ---------------------------------------------------------------------------
+
+_CACHE_TTL = {
+    "score":          15,
+    "plays":          15,
+    "box_score":      30,
+    "odds":           60,
+    "win_probability": 60,
+    "injuries":       300,
+    "season_series":  600,
+}
+
+_game_cache: dict[str, dict[str, tuple[float, object]]] = {}
+
+
+def _cache_get(game_id: str, field: str):
+    entry = _game_cache.get(game_id, {}).get(field)
+    if entry and entry[0] > _time.time():
+        return entry[1]
+    return None
+
+
+def _cache_set(game_id: str, field: str, data: object):
+    if game_id not in _game_cache:
+        _game_cache[game_id] = {}
+    ttl = _CACHE_TTL.get(field, 30)
+    _game_cache[game_id][field] = (_time.time() + ttl, data)
+
+
+# ---------------------------------------------------------------------------
+# Main orchestrator
+# ---------------------------------------------------------------------------
+
+def get_basketball_data(
+    title: str, tags: list[str], *, league: str = "nba"
+) -> GameData | None:
+    """Main entry point: resolve a market title to live basketball game data."""
+    parsed = parse_team_names(title)
+    if not parsed:
+        return None
+    name_a, name_b = parsed
+
+    tri_a = resolve_tricode(name_a)
+    tri_b = resolve_tricode(name_b)
+    if not tri_a or not tri_b:
+        return None
+
+    scoreboard = _cache_get("__scoreboard__", "nba")
+    if scoreboard is None:
+        scoreboard = _fetch_nba_scoreboard()
+        if scoreboard:
+            _cache_set("__scoreboard__", "nba", scoreboard)
+    if not scoreboard:
+        return None
+
+    nba_game = _match_game_in_scoreboard(scoreboard, tri_a, tri_b)
+    if not nba_game:
+        return None
+
+    game_id = nba_game["gameId"]
+    home_team = nba_game["homeTeam"]
+    away_team = nba_game["awayTeam"]
+    status = _parse_game_status(nba_game.get("gameStatus", 1))
+    clock = _parse_game_clock(nba_game.get("gameClock", ""))
+    period = nba_game.get("period", 0)
+
+    period_label = ""
+    if period > 0 and period <= 4:
+        period_label = f"Q{period}"
+    elif period > 4:
+        period_label = f"OT{period - 4}"
+
+    home = GameTeam(
+        tricode=home_team.get("teamTricode", ""),
+        name=home_team.get("teamName", ""),
+        city=home_team.get("teamCity", ""),
+        score=home_team.get("score", 0),
+        record=f"{home_team.get('wins', 0)}-{home_team.get('losses', 0)}",
+        quarter_scores=[int(p.get("score", 0)) for p in home_team.get("periods", [])],
+    )
+    away = GameTeam(
+        tricode=away_team.get("teamTricode", ""),
+        name=away_team.get("teamName", ""),
+        city=away_team.get("teamCity", ""),
+        score=away_team.get("score", 0),
+        record=f"{away_team.get('wins', 0)}-{away_team.get('losses', 0)}",
+        quarter_scores=[int(p.get("score", 0)) for p in away_team.get("periods", [])],
+    )
+
+    plays = []
+    if status in ("live", "final"):
+        plays = _cache_get(game_id, "plays")
+        if plays is None:
+            pbp_data = _fetch_nba_play_by_play(game_id)
+            plays = _parse_nba_plays(pbp_data)
+            _cache_set(game_id, "plays", plays)
+
+    box_score = None
+    if status in ("live", "final"):
+        box_score = _cache_get(game_id, "box_score")
+        if box_score is None:
+            box_data = _fetch_nba_boxscore(game_id)
+            box_score = _parse_nba_boxscore(box_data)
+            if box_score:
+                _cache_set(game_id, "box_score", box_score)
+
+    espn_game_id = None
+    odds = _cache_get(game_id, "odds")
+    win_prob = _cache_get(game_id, "win_probability")
+    injuries = _cache_get(game_id, "injuries")
+    season_series = _cache_get(game_id, "season_series")
+    venue = None
+    broadcast = None
+
+    needs_espn = odds is None or win_prob is None or injuries is None or season_series is None
+    if needs_espn:
+        espn_scoreboard = _fetch_espn_scoreboard(league)
+        espn_game_id = _match_espn_game(espn_scoreboard, tri_a, tri_b)
+        if espn_game_id:
+            summary = _fetch_espn_summary(espn_game_id, league)
+            if summary:
+                if odds is None:
+                    odds = _parse_espn_odds(
+                        summary.get("pickcenter"),
+                        away_abbr=away.tricode,
+                        home_abbr=home.tricode,
+                    )
+                    if odds:
+                        _cache_set(game_id, "odds", odds)
+
+                if win_prob is None:
+                    win_prob = _parse_espn_win_probability(summary.get("winprobability"))
+                    if win_prob:
+                        _cache_set(game_id, "win_probability", win_prob)
+
+                if injuries is None:
+                    injuries = _parse_espn_injuries(summary.get("injuries"))
+                    _cache_set(game_id, "injuries", injuries)
+
+                if season_series is None:
+                    season_series = _parse_espn_season_series(summary.get("seasonseries"))
+                    if season_series:
+                        _cache_set(game_id, "season_series", season_series)
+
+                header = summary.get("header", {})
+                comps = header.get("competitions", [{}])
+                if comps:
+                    venue_info = comps[0].get("venue", {})
+                    venue = venue_info.get("fullName")
+                    broadcasts = comps[0].get("broadcasts", [])
+                    if broadcasts:
+                        names = broadcasts[0].get("names", [])
+                        broadcast = names[0] if names else None
+
+    return GameData(
+        game_id=game_id,
+        espn_game_id=espn_game_id,
+        league=league,
+        status=status,
+        clock=clock,
+        period=period,
+        period_label=period_label,
+        home=home,
+        away=away,
+        odds=odds,
+        win_probability=win_prob,
+        plays=plays[:50],
+        box_score=box_score,
+        injuries=injuries or [],
+        season_series=season_series,
+        venue=venue,
+        broadcast=broadcast,
+    )

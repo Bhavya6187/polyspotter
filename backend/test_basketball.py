@@ -274,3 +274,15 @@ def test_parse_nba_boxscore():
     assert p.starter is True
     assert p.plus_minus == -3
     assert box.away.team == "LAC"
+
+
+def test_get_basketball_data_no_match():
+    from basketball import get_basketball_data
+    result = get_basketball_data("Will Bitcoin hit 100k?", [])
+    assert result is None
+
+
+def test_get_basketball_data_unknown_teams():
+    from basketball import get_basketball_data
+    result = get_basketball_data("Unicorns vs. Dragons", ["Sports"])
+    assert result is None
