@@ -185,3 +185,233 @@ def _fetch_nba_boxscore(game_id: str) -> dict | None:
         return resp.json()
     except _requests.RequestException:
         return None
+
+
+# ---------------------------------------------------------------------------
+# ESPN API fetching
+# ---------------------------------------------------------------------------
+
+def _fetch_espn_scoreboard(league: str = "nba") -> dict | None:
+    """Fetch today's scoreboard from ESPN. league: 'nba' or 'mens-college-basketball'."""
+    sport = "nba" if league == "nba" else "mens-college-basketball"
+    try:
+        resp = _requests.get(
+            f"{ESPN_API}/{sport}/scoreboard",
+            timeout=_REQUEST_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except _requests.RequestException:
+        return None
+
+
+def _match_espn_game(scoreboard: dict, tricode_a: str, tricode_b: str) -> str | None:
+    """Find ESPN game ID matching two team abbreviations."""
+    if not scoreboard:
+        return None
+    pair = {tricode_a.upper(), tricode_b.upper()}
+    for event in scoreboard.get("events", []):
+        comps = event.get("competitions", [])
+        if not comps:
+            continue
+        competitors = comps[0].get("competitors", [])
+        abbrs = {c.get("team", {}).get("abbreviation", "").upper() for c in competitors}
+        if pair <= abbrs:
+            return event.get("id")
+    return None
+
+
+def _fetch_espn_summary(espn_game_id: str, league: str = "nba") -> dict | None:
+    """Fetch game summary (odds, win prob, injuries, plays) from ESPN."""
+    sport = "nba" if league == "nba" else "mens-college-basketball"
+    try:
+        resp = _requests.get(
+            f"{ESPN_API}/{sport}/summary",
+            params={"event": espn_game_id},
+            timeout=_REQUEST_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except _requests.RequestException:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# ESPN data parsers
+# ---------------------------------------------------------------------------
+
+def _parse_espn_odds(
+    pickcenter: list | None, *, away_abbr: str, home_abbr: str
+) -> GameOdds | None:
+    """Parse DraftKings odds from ESPN pickcenter array."""
+    if not pickcenter:
+        return None
+    pick = None
+    for p in pickcenter:
+        if p.get("provider", {}).get("name") == "DraftKings":
+            pick = p
+            break
+    if pick is None:
+        pick = pickcenter[0]
+
+    details = pick.get("details", "")
+    spread_val = pick.get("spread")
+    ou = pick.get("overUnder")
+    away_ml = pick.get("awayTeamOdds", {}).get("moneyLine")
+    home_ml = pick.get("homeTeamOdds", {}).get("moneyLine")
+
+    spread_info = None
+    if spread_val is not None and details:
+        spread_team = away_abbr if spread_val > 0 else home_abbr
+        display = details
+        spread_info = SpreadInfo(
+            display=display,
+            value=-abs(spread_val) if spread_team == away_abbr else abs(spread_val),
+            team=spread_team,
+        )
+
+    ml_info = None
+    if away_ml is not None and home_ml is not None:
+        ml_info = MoneylineInfo(
+            home=f"+{int(home_ml)}" if home_ml > 0 else str(int(home_ml)),
+            away=f"+{int(away_ml)}" if away_ml > 0 else str(int(away_ml)),
+        )
+
+    return GameOdds(
+        provider=pick.get("provider", {}).get("name", "Unknown"),
+        spread=spread_info,
+        over_under=float(ou) if ou is not None else None,
+        moneyline=ml_info,
+    )
+
+
+def _parse_espn_win_probability(winprob: list | None) -> WinProbability | None:
+    """Parse latest win probability from ESPN winprobability array."""
+    if not winprob:
+        return None
+    latest = winprob[-1]
+    home_wp = latest.get("homeWinPercentage", 0.5)
+    return WinProbability(home=round(home_wp, 4), away=round(1 - home_wp, 4))
+
+
+def _parse_espn_injuries(injuries_data: list | None) -> list[InjuryEntry]:
+    """Parse injuries from ESPN summary injuries array."""
+    if not injuries_data:
+        return []
+    result = []
+    for team_block in injuries_data:
+        team_abbr = team_block.get("team", {}).get("abbreviation", "")
+        for inj in team_block.get("injuries", []):
+            athlete = inj.get("athlete", {})
+            result.append(InjuryEntry(
+                team=team_abbr,
+                player=athlete.get("displayName", "Unknown"),
+                status=inj.get("status", "Unknown"),
+                detail=inj.get("type", {}).get("detail", ""),
+            ))
+    return result
+
+
+def _parse_espn_season_series(series_data: list | None) -> GameSeasonSeries | None:
+    """Parse season series from ESPN summary."""
+    if not series_data:
+        return None
+    total = len(series_data)
+    if total == 0:
+        return None
+    home_wins = 0
+    away_wins = 0
+    for game in series_data:
+        comps = game.get("competitions", [{}])
+        if not comps:
+            continue
+        for comp in comps[0].get("competitors", []):
+            if comp.get("winner") and comp.get("homeAway") == "home":
+                home_wins += 1
+            elif comp.get("winner") and comp.get("homeAway") == "away":
+                away_wins += 1
+    return GameSeasonSeries(
+        home_wins=home_wins,
+        away_wins=away_wins,
+        total_games=total,
+    )
+
+
+# ---------------------------------------------------------------------------
+# NBA CDN data parsers
+# ---------------------------------------------------------------------------
+
+def _parse_player_minutes(iso_minutes: str) -> str:
+    """Convert ISO duration like 'PT12M00.00S' to '12:00'."""
+    if not iso_minutes:
+        return "0:00"
+    m = re.match(r"PT(\d+)M([\d.]+)S", iso_minutes)
+    if not m:
+        return iso_minutes
+    mins = int(m.group(1))
+    secs = int(float(m.group(2)))
+    return f"{mins}:{secs:02d}"
+
+
+def _parse_nba_plays(pbp_data: dict | None) -> list[GamePlay]:
+    """Parse play-by-play from NBA CDN response. Returns newest-first."""
+    if not pbp_data:
+        return []
+    actions = pbp_data.get("game", {}).get("actions", [])
+    plays = []
+    for a in actions:
+        scoring = a.get("isFieldGoal", False) or a.get("actionType") == "freethrow" and "Made" in a.get("description", "")
+        plays.append(GamePlay(
+            id=a.get("actionNumber", 0),
+            clock=_parse_game_clock(a.get("clock", "")),
+            period=a.get("period", 0),
+            text=a.get("description", ""),
+            away_score=int(a.get("scoreAway", 0) or 0),
+            home_score=int(a.get("scoreHome", 0) or 0),
+            type=a.get("actionType", ""),
+            team=a.get("teamTricode", ""),
+            scoring=bool(scoring),
+        ))
+    plays.reverse()
+    return plays
+
+
+def _parse_nba_boxscore(box_data: dict | None) -> GameBoxScore | None:
+    """Parse box score from NBA CDN response."""
+    if not box_data:
+        return None
+    game = box_data.get("game", {})
+
+    def parse_team(team_data: dict) -> TeamBoxScore:
+        players = []
+        for p in team_data.get("players", []):
+            stats = p.get("statistics", {})
+            if not stats or p.get("status") != "ACTIVE":
+                continue
+            fgm = stats.get("fieldGoalsMade", 0)
+            fga = stats.get("fieldGoalsAttempted", 0)
+            tpm = stats.get("threePointersMade", 0)
+            tpa = stats.get("threePointersAttempted", 0)
+            ftm = stats.get("freeThrowsMade", 0)
+            fta = stats.get("freeThrowsAttempted", 0)
+            players.append(BoxScorePlayer(
+                name=p.get("nameI", p.get("name", "")),
+                position=p.get("position", ""),
+                starter=str(p.get("starter", "0")) == "1",
+                minutes=_parse_player_minutes(stats.get("minutes", "")),
+                points=stats.get("points", 0),
+                rebounds=stats.get("reboundsTotal", 0),
+                assists=stats.get("assists", 0),
+                steals=stats.get("steals", 0),
+                blocks=stats.get("blocks", 0),
+                fg=f"{fgm}-{fga}",
+                three_pt=f"{tpm}-{tpa}",
+                ft=f"{ftm}-{fta}",
+                plus_minus=int(stats.get("plusMinusPoints", 0)),
+            ))
+        return TeamBoxScore(team=team_data.get("teamTricode", ""), players=players)
+
+    return GameBoxScore(
+        home=parse_team(game.get("homeTeam", {})),
+        away=parse_team(game.get("awayTeam", {})),
+    )
