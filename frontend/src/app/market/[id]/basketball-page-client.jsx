@@ -255,7 +255,7 @@ export default function BasketballPageClient({
 
       {/* Live Score Banner */}
       <LiveScoreBanner
-        gameData={gameData}
+        game={gameData}
         polymarketPrice={outcomes?.[0]?.price}
       />
 
@@ -323,10 +323,18 @@ export default function BasketballPageClient({
           {/* Basketball Game Widgets */}
           {gameData && (
             <>
-              <PlayByPlayFeed gameData={gameData} />
-              <BoxScore gameData={gameData} />
-              <InjuryReport gameData={gameData} />
-              <SeasonSeries gameData={gameData} />
+              {gameData.plays?.length > 0 && (
+                <PlayByPlayFeed plays={gameData.plays} homeTricode={gameData.home.tricode} awayTricode={gameData.away.tricode} />
+              )}
+              {gameData.box_score && (
+                <BoxScore boxScore={gameData.box_score} homeTricode={gameData.home.tricode} awayTricode={gameData.away.tricode} />
+              )}
+              {gameData.injuries?.length > 0 && (
+                <InjuryReport injuries={gameData.injuries} homeTricode={gameData.home.tricode} awayTricode={gameData.away.tricode} />
+              )}
+              {gameData.season_series && (
+                <SeasonSeries series={gameData.season_series} homeTricode={gameData.home.tricode} awayTricode={gameData.away.tricode} />
+              )}
             </>
           )}
 
