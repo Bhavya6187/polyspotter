@@ -1,4 +1,5 @@
 import MarketPageClient from "./market-page-client";
+import BasketballPageClient from "./basketball-page-client";
 import { partialIdFromSlug, marketSlug } from "../../../lib/slugify";
 
 export const revalidate = 60;
@@ -21,7 +22,7 @@ async function resolveConditionId(partialId) {
 
 async function getMarketData(conditionId) {
   try {
-    const [liveRes, alertsRes, priceRes, holdersRes, thesesRes] =
+    const [liveRes, alertsRes, priceRes, holdersRes, thesesRes, basketballRes] =
       await Promise.all([
         fetch(`${API_URL}/api/market/${conditionId}/live`, {
           next: { revalidate: 60 },
@@ -40,6 +41,9 @@ async function getMarketData(conditionId) {
         fetch(`${API_URL}/api/market/${conditionId}/theses`, {
           next: { revalidate: 300 },
         }),
+        fetch(`${API_URL}/api/market/${conditionId}/basketball`, {
+          next: { revalidate: 15 },
+        }).catch(() => null),
       ]);
 
     const live = liveRes.ok ? await liveRes.json() : null;
@@ -47,6 +51,7 @@ async function getMarketData(conditionId) {
     const priceData = priceRes.ok ? await priceRes.json() : null;
     const holdersData = holdersRes.ok ? await holdersRes.json() : null;
     const thesesData = thesesRes.ok ? await thesesRes.json() : null;
+    const basketballData = basketballRes?.ok ? await basketballRes.json() : null;
 
     return {
       live,
@@ -54,6 +59,7 @@ async function getMarketData(conditionId) {
       priceHistory: priceData,
       holders: holdersData?.holders || [],
       theses: thesesData?.theses || [],
+      basketballData,
     };
   } catch {
     return {
@@ -62,6 +68,7 @@ async function getMarketData(conditionId) {
       priceHistory: null,
       holders: [],
       theses: [],
+      basketballData: null,
     };
   }
 }
@@ -119,7 +126,7 @@ export default async function MarketPage({ params }) {
   const { id } = await params;
   const partialId = partialIdFromSlug(id);
   const conditionId = await resolveConditionId(partialId);
-  const { live, alerts, priceHistory, holders, theses } =
+  const { live, alerts, priceHistory, holders, theses, basketballData } =
     await getMarketData(conditionId);
 
   const title = live?.title || alerts?.[0]?.market_title || "Market";
@@ -283,14 +290,20 @@ export default async function MarketPage({ params }) {
         </article>
       </div>
 
-      <MarketPageClient
-        conditionId={conditionId}
-        initialLive={live}
-        initialAlerts={alerts}
-        priceHistory={priceHistory}
-        holders={holders}
-        theses={theses}
-      />
+      {(() => {
+        const isBasketball = !!basketballData;
+        const PageClient = isBasketball ? BasketballPageClient : MarketPageClient;
+        const clientProps = {
+          conditionId,
+          initialLive: live,
+          initialAlerts: alerts,
+          priceHistory,
+          holders,
+          theses,
+          ...(isBasketball ? { initialGameData: basketballData } : {}),
+        };
+        return <PageClient {...clientProps} />;
+      })()}
     </>
   );
 }
