@@ -57,9 +57,10 @@ async function getMarketData(conditionId) {
     );
     let basketballData = null;
     if (maybeBasketball) {
+      const marketTitle = live?.title || (alertsData?.alerts || [])[0]?.market_title || "";
       try {
         const basketballRes = await fetch(
-          `${API_URL}/api/market/${conditionId}/basketball`,
+          `${API_URL}/api/market/${conditionId}/basketball?title=${encodeURIComponent(marketTitle)}`,
           { next: { revalidate: 15 } }
         );
         basketballData = basketballRes?.ok ? await basketballRes.json() : null;

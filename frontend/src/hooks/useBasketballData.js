@@ -7,7 +7,7 @@ const POLL_INTERVALS = {
   final: null,
 };
 
-export default function useBasketballData(conditionId, { initialData = null } = {}) {
+export default function useBasketballData(conditionId, { initialData = null, title = "" } = {}) {
   const [data, setData] = useState(initialData);
   const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState(null);
@@ -28,7 +28,7 @@ export default function useBasketballData(conditionId, { initialData = null } = 
 
     const load = async () => {
       try {
-        const result = await fetchBasketballData(conditionId);
+        const result = await fetchBasketballData(conditionId, title);
         if (cancelled) return;
 
         setData(result);
@@ -61,7 +61,7 @@ export default function useBasketballData(conditionId, { initialData = null } = 
       cancelled = true;
       clearPoll();
     };
-  }, [conditionId, clearPoll]);
+  }, [conditionId, title, clearPoll]);
 
   return { data, loading, error };
 }

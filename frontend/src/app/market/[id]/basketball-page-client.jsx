@@ -50,7 +50,8 @@ export default function BasketballPageClient({
   const alerts = initialAlerts || [];
   const [descExpanded, setDescExpanded] = useState(false);
 
-  const { data: gameData } = useBasketballData(conditionId, { initialData: initialGameData });
+  const marketTitle = live?.title || alerts?.[0]?.market_title || "";
+  const { data: gameData } = useBasketballData(conditionId, { initialData: initialGameData, title: marketTitle });
 
   const title = live?.title || alerts?.[0]?.market_title || "Market";
   const endDate = live?.end_date || alerts?.[0]?.end_date;
