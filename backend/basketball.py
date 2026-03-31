@@ -205,6 +205,23 @@ def _fetch_espn_scoreboard(league: str = "nba") -> dict | None:
         return None
 
 
+# ESPN uses different abbreviations than NBA CDN for some teams
+_ESPN_TRICODE_MAP = {
+    "UTAH": "UTA",
+    "WSH": "WAS",
+    "SA": "SAS",
+    "GS": "GSW",
+    "NY": "NYK",
+    "NO": "NOP",
+    "PHO": "PHX",
+}
+
+
+def _normalize_espn_abbr(abbr: str) -> str:
+    """Normalize ESPN abbreviation to NBA CDN tricode."""
+    return _ESPN_TRICODE_MAP.get(abbr.upper(), abbr.upper())
+
+
 def _match_espn_game(scoreboard: dict, tricode_a: str, tricode_b: str) -> str | None:
     """Find ESPN game ID matching two team abbreviations."""
     if not scoreboard:
@@ -215,7 +232,7 @@ def _match_espn_game(scoreboard: dict, tricode_a: str, tricode_b: str) -> str | 
         if not comps:
             continue
         competitors = comps[0].get("competitors", [])
-        abbrs = {c.get("team", {}).get("abbreviation", "").upper() for c in competitors}
+        abbrs = {_normalize_espn_abbr(c.get("team", {}).get("abbreviation", "")) for c in competitors}
         if pair <= abbrs:
             return event.get("id")
     return None
