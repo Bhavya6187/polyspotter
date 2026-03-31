@@ -22,7 +22,7 @@ async function resolveConditionId(partialId) {
 
 async function getMarketData(conditionId) {
   try {
-    const [liveRes, alertsRes, priceRes, holdersRes, thesesRes, basketballRes] =
+    const [liveRes, alertsRes, priceRes, holdersRes, thesesRes] =
       await Promise.all([
         fetch(`${API_URL}/api/market/${conditionId}/live`, {
           next: { revalidate: 60 },
@@ -41,9 +41,6 @@ async function getMarketData(conditionId) {
         fetch(`${API_URL}/api/market/${conditionId}/theses`, {
           next: { revalidate: 300 },
         }),
-        fetch(`${API_URL}/api/market/${conditionId}/basketball`, {
-          next: { revalidate: 15 },
-        }).catch(() => null),
       ]);
 
     const live = liveRes.ok ? await liveRes.json() : null;
@@ -51,7 +48,23 @@ async function getMarketData(conditionId) {
     const priceData = priceRes.ok ? await priceRes.json() : null;
     const holdersData = holdersRes.ok ? await holdersRes.json() : null;
     const thesesData = thesesRes.ok ? await thesesRes.json() : null;
-    const basketballData = basketballRes?.ok ? await basketballRes.json() : null;
+
+    // Only fetch basketball data if tags suggest it's a basketball market
+    const basketballTags = ["sports", "nba", "basketball", "ncaa", "march madness", "cbb", "games"];
+    const tags = (alertsData?.alerts || []).flatMap((a) => a.tags || []);
+    const maybeBasketball = tags.some((t) =>
+      basketballTags.includes(t.toLowerCase())
+    );
+    let basketballData = null;
+    if (maybeBasketball) {
+      try {
+        const basketballRes = await fetch(
+          `${API_URL}/api/market/${conditionId}/basketball`,
+          { next: { revalidate: 15 } }
+        );
+        basketballData = basketballRes?.ok ? await basketballRes.json() : null;
+      } catch {}
+    }
 
     return {
       live,
