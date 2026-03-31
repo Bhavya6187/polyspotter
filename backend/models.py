@@ -316,3 +316,97 @@ class HolderEntry(BaseModel):
 class MarketHoldersData(BaseModel):
     condition_id: str
     holders: list[HolderEntry] = []
+
+
+# -- Basketball game data (proxied from NBA CDN + ESPN APIs) --------------------
+
+class GameTeam(BaseModel):
+    tricode: str
+    name: str
+    city: str
+    score: int = 0
+    record: str | None = None
+    quarter_scores: list[int] = []
+
+class SpreadInfo(BaseModel):
+    display: str          # e.g. "LAC -17.5"
+    value: float          # e.g. -17.5
+    team: str             # tricode of favored team
+
+class MoneylineInfo(BaseModel):
+    home: str             # e.g. "+800"
+    away: str             # e.g. "-1350"
+
+class GameOdds(BaseModel):
+    provider: str = "DraftKings"
+    spread: SpreadInfo | None = None
+    over_under: float | None = None
+    moneyline: MoneylineInfo | None = None
+
+class WinProbability(BaseModel):
+    home: float = 0.5
+    away: float = 0.5
+
+class GamePlay(BaseModel):
+    id: int
+    clock: str
+    period: int
+    text: str
+    away_score: int = 0
+    home_score: int = 0
+    type: str = ""        # "2pt", "3pt", "freethrow", "foul", "timeout", "turnover", "rebound", "substitution"
+    team: str = ""        # tricode
+    scoring: bool = False
+
+class BoxScorePlayer(BaseModel):
+    name: str
+    position: str = ""
+    starter: bool = False
+    minutes: str = "0:00"
+    points: int = 0
+    rebounds: int = 0
+    assists: int = 0
+    steals: int = 0
+    blocks: int = 0
+    fg: str = "0-0"       # "made-attempted"
+    three_pt: str = "0-0"
+    ft: str = "0-0"
+    plus_minus: int = 0
+
+class TeamBoxScore(BaseModel):
+    team: str             # tricode
+    players: list[BoxScorePlayer] = []
+
+class GameBoxScore(BaseModel):
+    home: TeamBoxScore
+    away: TeamBoxScore
+
+class InjuryEntry(BaseModel):
+    team: str
+    player: str
+    status: str           # "Out", "Doubtful", "Questionable", "Probable"
+    detail: str = ""
+
+class GameSeasonSeries(BaseModel):
+    home_wins: int = 0
+    away_wins: int = 0
+    total_games: int = 0
+
+class GameData(BaseModel):
+    game_id: str
+    espn_game_id: str | None = None
+    league: str = "nba"   # "nba" or "ncaa"
+    status: str = "pre"   # "pre", "live", "final"
+    clock: str = ""
+    period: int = 0
+    period_label: str = ""
+    home: GameTeam
+    away: GameTeam
+    odds: GameOdds | None = None
+    win_probability: WinProbability | None = None
+    plays: list[GamePlay] = []
+    box_score: GameBoxScore | None = None
+    injuries: list[InjuryEntry] = []
+    season_series: GameSeasonSeries | None = None
+    venue: str | None = None
+    broadcast: str | None = None
