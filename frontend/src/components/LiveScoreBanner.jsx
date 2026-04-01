@@ -100,9 +100,9 @@ export default function LiveScoreBanner({ game, polymarketPrice }) {
               {period_label} {clock}
             </div>
           )}
-          {status === "pre" && (
+          {status === "pre" && (game.game_time || game.tipoff) && (
             <div className="mt-1 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
-              <Countdown targetDate={game.tipoff || ""} />
+              <Countdown targetDate={game.game_time || game.tipoff || ""} />
             </div>
           )}
           {venue && (

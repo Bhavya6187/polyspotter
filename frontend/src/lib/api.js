@@ -83,6 +83,6 @@ export function fetchMarketTheses(conditionId) {
   return request(`/api/market/${conditionId}/theses`);
 }
 
-export function fetchBasketballData(conditionId, title = "") {
-  return request(`/api/market/${conditionId}/basketball`, { title });
+export function fetchBasketballData(conditionId, { title = "", event_slug = "" } = {}) {
+  return request(`/api/market/${conditionId}/basketball`, { title, event_slug });
 }

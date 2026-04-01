@@ -392,6 +392,47 @@ class GameSeasonSeries(BaseModel):
     away_wins: int = 0
     total_games: int = 0
 
+class TeamStats(BaseModel):
+    """Season averages and recent form for a team."""
+    avg_points: float | None = None
+    avg_points_against: float | None = None
+    field_goal_pct: float | None = None
+    three_point_pct: float | None = None
+    avg_rebounds: float | None = None
+    avg_assists: float | None = None
+    avg_blocks: float | None = None
+    avg_steals: float | None = None
+    streak: str | None = None           # e.g. "W3", "L1"
+    last_ten: str | None = None         # e.g. "7-3"
+
+class TeamLeader(BaseModel):
+    """A team's stat leader in a given category."""
+    category: str                       # "pointsPerGame", "assistsPerGame", "reboundsPerGame"
+    display_category: str = ""          # "PPG", "APG", "RPG"
+    player: str
+    value: str                          # "29.3"
+    headshot: str | None = None
+
+class LastFiveGame(BaseModel):
+    """A single result from a team's last 5 games."""
+    opponent: str                       # tricode
+    at_vs: str = ""                     # "@" or "vs"
+    result: str = ""                    # "W" or "L"
+    score: str = ""                     # "113-110"
+
+class PreGameTeamData(BaseModel):
+    """Pre-game stats bundle for one team."""
+    stats: TeamStats | None = None
+    leaders: list[TeamLeader] = []
+    last_five: list[LastFiveGame] = []
+    record_home: str | None = None      # "28-9"
+    record_away: str | None = None      # "21-15"
+
+class Predictor(BaseModel):
+    """ESPN matchup predictor win percentages."""
+    home_pct: float = 50.0
+    away_pct: float = 50.0
+
 class GameData(BaseModel):
     game_id: str
     espn_game_id: str | None = None
@@ -400,13 +441,17 @@ class GameData(BaseModel):
     clock: str = ""
     period: int = 0
     period_label: str = ""
+    game_time: str | None = None        # ISO datetime for scheduled tip-off
     home: GameTeam
     away: GameTeam
     odds: GameOdds | None = None
     win_probability: WinProbability | None = None
+    predictor: Predictor | None = None
     plays: list[GamePlay] = []
     box_score: GameBoxScore | None = None
     injuries: list[InjuryEntry] = []
     season_series: GameSeasonSeries | None = None
+    home_pregame: PreGameTeamData | None = None
+    away_pregame: PreGameTeamData | None = None
     venue: str | None = None
     broadcast: str | None = None

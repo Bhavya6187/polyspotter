@@ -14,6 +14,7 @@ import PlayByPlayFeed from "../../../components/PlayByPlayFeed";
 import BoxScore from "../../../components/BoxScore";
 import InjuryReport from "../../../components/InjuryReport";
 import SeasonSeries from "../../../components/SeasonSeries";
+import PreGameStats from "../../../components/PreGameStats";
 import useLiveMarket from "../../../hooks/useLiveMarket";
 import useBasketballData from "../../../hooks/useBasketballData";
 import ThemeToggle from "../../../components/ThemeToggle";
@@ -44,6 +45,7 @@ export default function BasketballPageClient({
   holders,
   theses,
   initialGameData,
+  eventSlug = "",
 }) {
   const { data: liveMarket } = useLiveMarket(conditionId);
   const live = liveMarket || initialLive;
@@ -51,7 +53,8 @@ export default function BasketballPageClient({
   const [descExpanded, setDescExpanded] = useState(false);
 
   const marketTitle = live?.title || alerts?.[0]?.market_title || "";
-  const { data: gameData } = useBasketballData(conditionId, { initialData: initialGameData, title: marketTitle });
+  const slug = eventSlug || alerts?.[0]?.event_slug || "";
+  const { data: gameData } = useBasketballData(conditionId, { initialData: initialGameData, title: marketTitle, eventSlug: slug });
 
   const title = live?.title || alerts?.[0]?.market_title || "Market";
   const endDate = live?.end_date || alerts?.[0]?.end_date;
@@ -324,6 +327,19 @@ export default function BasketballPageClient({
           {/* Basketball Game Widgets */}
           {gameData && (
             <>
+              {/* Pre-game stats for upcoming games */}
+              {gameData.status === "pre" && (gameData.home_pregame || gameData.away_pregame || gameData.predictor) && (
+                <PreGameStats
+                  home={gameData.home}
+                  away={gameData.away}
+                  homePregame={gameData.home_pregame}
+                  awayPregame={gameData.away_pregame}
+                  predictor={gameData.predictor}
+                  gameTime={gameData.game_time}
+                  venue={gameData.venue}
+                  broadcast={gameData.broadcast}
+                />
+              )}
               {gameData.plays?.length > 0 && (
                 <PlayByPlayFeed plays={gameData.plays} homeTricode={gameData.home.tricode} awayTricode={gameData.away.tricode} />
               )}

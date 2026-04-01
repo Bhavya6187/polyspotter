@@ -1081,12 +1081,15 @@ def get_market_live(condition_id: str):
 def get_market_basketball(
     condition_id: str,
     title: str = Query(default="", description="Market title, e.g. 'Clippers vs. Bucks'"),
+    event_slug: str = Query(default="", description="Event slug, e.g. 'nba-min-det-2026-04-02'"),
 ):
     """Get live basketball game data for a market.
 
     Matches the market title to an NBA/NCAA game and returns live scores,
     play-by-play, box scores, DraftKings odds, win probability, injuries,
-    and season series. Returns null if no matching game is found.
+    and season series. For upcoming games not on today's schedule, uses the
+    event_slug date to find the game on ESPN. Returns null if no matching
+    game is found.
 
     Pass the market title as a query param to avoid redundant Gamma API calls."""
     if not title:
@@ -1094,7 +1097,7 @@ def get_market_basketball(
 
     league = "nba"  # default, extend later for NCAA detection
 
-    game_data = get_basketball_data(title, [], league=league)
+    game_data = get_basketball_data(title, [], league=league, event_slug=event_slug)
     return game_data
 
 

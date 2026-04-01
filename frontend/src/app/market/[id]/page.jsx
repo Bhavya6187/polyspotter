@@ -58,9 +58,11 @@ async function getMarketData(conditionId) {
     let basketballData = null;
     if (maybeBasketball) {
       const marketTitle = live?.title || (alertsData?.alerts || [])[0]?.market_title || "";
+      const eventSlug = (alertsData?.alerts || [])[0]?.event_slug || "";
       try {
+        const bbParams = new URLSearchParams({ title: marketTitle, event_slug: eventSlug });
         const basketballRes = await fetch(
-          `${API_URL}/api/market/${conditionId}/basketball?title=${encodeURIComponent(marketTitle)}`,
+          `${API_URL}/api/market/${conditionId}/basketball?${bbParams}`,
           { next: { revalidate: 15 } }
         );
         basketballData = basketballRes?.ok ? await basketballRes.json() : null;
@@ -314,7 +316,7 @@ export default async function MarketPage({ params }) {
           priceHistory,
           holders,
           theses,
-          ...(isBasketball ? { initialGameData: basketballData } : {}),
+          ...(isBasketball ? { initialGameData: basketballData, eventSlug: alerts?.[0]?.event_slug || "" } : {}),
         };
         return <PageClient {...clientProps} />;
       })()}
