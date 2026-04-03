@@ -509,6 +509,7 @@ def evaluate_alert(alert: dict) -> dict:
         return {
             "interesting": bool(result.get("interesting")),
             "summary": result.get("summary", ""),
+            "headline": result.get("headline"),
             "bullets": result.get("bullets", []),
             "copy_action": result.get("copy_action", {}),
         }
