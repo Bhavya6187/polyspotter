@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
 import { partialIdFromSlug } from "../../../lib/slugify";
 
+export const runtime = "edge";
 export const alt = "PolySpotter Market";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
@@ -11,7 +12,7 @@ async function resolveConditionId(partialId) {
   if (/^0x[a-fA-F0-9]{64}$/.test(partialId)) return partialId;
   try {
     const res = await fetch(`${API_URL}/api/market/resolve/${partialId}`, {
-      next: { revalidate: 60 },
+      signal: AbortSignal.timeout(5000),
     });
     if (res.ok) {
       const data = await res.json();
@@ -25,11 +26,11 @@ async function getMarketData(conditionId) {
   try {
     const [liveRes, alertsRes] = await Promise.all([
       fetch(`${API_URL}/api/market/${conditionId}/live`, {
-        next: { revalidate: 60 },
+        signal: AbortSignal.timeout(5000),
       }),
       fetch(
         `${API_URL}/api/alerts?condition_id=${conditionId}&per_page=50`,
-        { next: { revalidate: 60 } }
+        { signal: AbortSignal.timeout(5000) }
       ),
     ]);
     const live = liveRes.ok ? await liveRes.json() : null;
