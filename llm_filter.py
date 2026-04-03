@@ -24,7 +24,8 @@ from gamma_cache import get_market_by_condition, invalidate_market
 
 load_dotenv()
 
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+AZURE_OPENAI_API_KEY = os.environ.get("AZURE_OPENAI_API_KEY", "")
+AZURE_OPENAI_ENDPOINT = "https://gpt-5-mati-labs.cognitiveservices.azure.com/openai/v1/"
 MODEL = "gpt-5.4"
 PROMPT_LOG_FILE = Path(__file__).parent / "llm_prompts.jsonl"
 
@@ -465,10 +466,10 @@ def evaluate_alert(alert: dict) -> dict:
 
     Returns a dict with keys: interesting, summary, bullets, copy_action.
     """
-    if not OPENAI_API_KEY:
+    if not AZURE_OPENAI_API_KEY:
         return {"interesting": False, "summary": "", "bullets": [], "copy_action": {}}
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    client = OpenAI(base_url=AZURE_OPENAI_ENDPOINT, api_key=AZURE_OPENAI_API_KEY)
     alert_text = _build_prompt(alert)
 
     messages = [
@@ -531,8 +532,8 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
     Returns only the alerts the LLM considers interesting, with an
     'llm_summary' field added to each.
     """
-    if not OPENAI_API_KEY:
-        print("[llm_filter] No OPENAI_API_KEY set — skipping LLM filter, pushing all alerts.")
+    if not AZURE_OPENAI_API_KEY:
+        print("[llm_filter] No AZURE_OPENAI_API_KEY set — skipping LLM filter, pushing all alerts.")
         return alerts
 
     kept = []

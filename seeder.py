@@ -555,11 +555,12 @@ def _generate_thesis_headline(thesis: dict) -> str | None:
     )
 
     try:
-        api_key = os.environ.get("OPENAI_API_KEY", "")
+        api_key = os.environ.get("AZURE_OPENAI_API_KEY", "")
         if not api_key:
             return None
         from openai import OpenAI
-        client = OpenAI(api_key=api_key)
+        endpoint = "https://gpt-5-mati-labs.cognitiveservices.azure.com/openai/v1/"
+        client = OpenAI(base_url=endpoint, api_key=api_key)
         resp = client.chat.completions.create(
             model="gpt-5.4",
             messages=[{"role": "user", "content": prompt}],

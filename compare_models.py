@@ -115,12 +115,13 @@ def main():
         print(f"Error: {args.prompts} not found. Run polybot.py first to generate prompts.")
         sys.exit(1)
 
-    api_key = os.environ.get("OPENAI_API_KEY", "")
+    api_key = os.environ.get("AZURE_OPENAI_API_KEY", "")
     if not api_key:
-        print("Error: OPENAI_API_KEY not set.")
+        print("Error: AZURE_OPENAI_API_KEY not set.")
         sys.exit(1)
 
-    client = OpenAI(api_key=api_key)
+    endpoint = "https://gpt-5-mati-labs.cognitiveservices.azure.com/openai/v1/"
+    client = OpenAI(base_url=endpoint, api_key=api_key)
     prompts = load_prompts(args.prompts)
     print(f"Loaded {len(prompts)} prompts from {args.prompts}")
 

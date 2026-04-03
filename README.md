@@ -84,7 +84,7 @@ Create a `.env` file in the repo root:
 ```bash
 # Required
 ETHERSCAN_API_KEY=<your-etherscan-api-key>    # Polygon wallet funding lookups
-OPENAI_API_KEY=<your-openai-api-key>          # GPT-5.4 LLM filtering
+AZURE_OPENAI_API_KEY=<your-azure-openai-api-key>  # Azure OpenAI GPT-5.4 LLM filtering
 POLYBOT_BACKEND_URL=<your-backend-url>        # Backend API for alert ingestion
 DATABASE_URL=<postgres-connection-string>     # PostgreSQL (backend only)
 

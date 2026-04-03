@@ -12,9 +12,10 @@ from db import get_llm_evaluation, save_llm_evaluation
 
 load_dotenv()
 
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-if not OPENAI_API_KEY:
-    print("ERROR: OPENAI_API_KEY not set")
+AZURE_OPENAI_API_KEY = os.environ.get("AZURE_OPENAI_API_KEY", "")
+AZURE_OPENAI_ENDPOINT = "https://gpt-5-mati-labs.cognitiveservices.azure.com/openai/v1/"
+if not AZURE_OPENAI_API_KEY:
+    print("ERROR: AZURE_OPENAI_API_KEY not set")
     sys.exit(1)
 
 mock_alert = {
@@ -41,7 +42,7 @@ print("=== PROMPT ===")
 print(prompt)
 print()
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+client = OpenAI(base_url=AZURE_OPENAI_ENDPOINT, api_key=AZURE_OPENAI_API_KEY)
 
 
 def call_llm(prompt, label):
