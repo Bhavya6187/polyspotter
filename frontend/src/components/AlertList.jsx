@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { useState, useEffect, Fragment } from "react";
 import { fetchMarketLive } from "../lib/api";
 import { marketSlug } from "../lib/slugify";
@@ -213,9 +214,11 @@ function MarketGroupCard({ market, liveData, index }) {
       >
         <div className="flex items-center gap-3 min-w-0">
           {market.market_image && (
-            <img
+            <Image
               src={market.market_image}
               alt=""
+              width={32}
+              height={32}
               className="h-8 w-8 rounded-lg object-cover shrink-0"
             />
           )}

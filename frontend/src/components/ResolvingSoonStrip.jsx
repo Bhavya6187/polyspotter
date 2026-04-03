@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { fetchResolvingSoon } from "../lib/api";
 import { useCountdown } from "../hooks/useCountdown";
 import { marketSlug } from "../lib/slugify";
@@ -27,9 +28,11 @@ function ResolvingCard({ alert }) {
       >
         <div className="flex items-center gap-2 mb-0.5">
           {alert.market_image && (
-            <img
+            <Image
               src={alert.market_image}
               alt=""
+              width={20}
+              height={20}
               className="h-5 w-5 rounded object-cover shrink-0"
             />
           )}

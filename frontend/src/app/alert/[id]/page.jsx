@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { marketSlug } from "../../../lib/slugify";
 
 export const revalidate = 60;
@@ -222,11 +223,11 @@ export default async function AlertPage({ params }) {
         >
           {alert.market_image && (
             <div className="relative w-full" style={{ aspectRatio: "16/9" }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <Image
                 src={alert.market_image}
                 alt={alert.market_title || "Market"}
-                className="w-full h-full object-cover"
+                fill
+                className="object-cover"
               />
             </div>
           )}

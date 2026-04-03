@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { fetchMarketAlerts } from "../lib/api";
 import { marketSlug } from "../lib/slugify";
 
@@ -35,9 +36,11 @@ function TickerItem({ alert }) {
       className="inline-flex items-center gap-2.5 whitespace-nowrap px-5 cursor-pointer rounded-md py-1 transition-all hover:bg-[var(--surface-2)]"
     >
       {alert.market_image ? (
-        <img
+        <Image
           src={alert.market_image}
           alt=""
+          width={20}
+          height={20}
           className="h-5 w-5 rounded object-cover shrink-0"
         />
       ) : (

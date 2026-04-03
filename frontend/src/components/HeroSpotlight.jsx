@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useSpotlight } from "../hooks/useSpotlight";
 import { useCountdown } from "../hooks/useCountdown";
 import { marketSlug } from "../lib/slugify";
@@ -26,9 +27,11 @@ function SpotlightSlide({ alert }) {
           </p>
           <div className="flex items-center gap-2.5 mt-1">
             {alert.market_image && (
-              <img
+              <Image
                 src={alert.market_image}
                 alt=""
+                width={32}
+                height={32}
                 className="h-8 w-8 rounded-lg object-cover shrink-0"
               />
             )}

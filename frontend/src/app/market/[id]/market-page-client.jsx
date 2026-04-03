@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import AlertRow from "../../../components/AlertRow";
 import PriceMovement from "../../../components/PriceMovement";
 import PriceChart from "../../../components/PriceChart";
@@ -84,11 +85,11 @@ export default function MarketPageClient({
                 border: "1px solid var(--border)",
               }}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <Image
                 src={alerts[0].market_image}
                 alt=""
-                className="w-full h-full object-cover"
+                fill
+                className="object-cover"
               />
             </div>
           )}
