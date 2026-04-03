@@ -47,13 +47,11 @@ Instead of a single blended win rate, break it down:
 
 **Why:** An 87% NBA bettor on an NBA market is much more interesting than the same wallet betting crypto at 52%. The LLM currently only sees the blended number.
 
-**Implementation:** New `get_wallet_category_win_rates(wallet)` function in `db.py`.
+**Implementation:**
 
-`tracked_bets` has `condition_id` but no category column. Category is resolved via `gamma_cache.get_market_category(condition_id)` which calls the Gamma API. For a wallet with hundreds of bets, calling this for every condition_id would be expensive.
+**Step 1: Store category at write time.** Add a `category TEXT` column to `tracked_bets`. When `win_rate_tracking` calls `record_tracked_bet(trade)`, resolve the category via `gamma_cache.get_market_category(condition_id)` — the gamma cache is already warm at this point (populated by `filter_short_markets()` and `filter_resolved_markets()` in `polybot.py`), so this adds zero API calls. Store it alongside the bet. For existing rows without a category, backfill lazily (resolve on read if NULL, or run a one-time migration using cached condition_ids).
 
-Approach: query all distinct `condition_id` values from `tracked_bets` for the wallet (with resolved status), then resolve category only for those already present in the in-memory gamma cache (`_market_cache`), skipping the rest. Most recent/active markets will be in cache from the current scan. Returns `{category: {wins, losses, closed, win_rate}}` for top 5 categories by closed positions. Uncategorized bets are grouped under "Other".
-
-If the gamma cache hit rate is too low in practice (<50% of a wallet's bets), fall back to deriving category from `event_slug` patterns in `wallet_event_history` (e.g., slugs containing "nba", "nfl", "premier-league" map to known categories via simple keyword matching).
+**Step 2: Query by category.** New `get_wallet_category_win_rates(wallet)` function in `db.py` — a simple `GROUP BY category` on `tracked_bets WHERE resolved=1 AND category IS NOT NULL`. Returns `{category: {wins, losses, closed, win_rate}}` for top 5 categories by closed positions. Fast, no API calls, pure SQL.
 
 ### 1c. Same-Scan Market Context
 
@@ -252,7 +250,8 @@ When "Other alerts on this market" appears, use it:
 
 | File | Change |
 |------|--------|
-| `db.py` | Add `get_wallet_flag_summary(wallet)` and `get_wallet_category_win_rates(wallet)` helpers |
+| `db.py` | Add `category` column to `tracked_bets`. Add `get_wallet_flag_summary(wallet)` and `get_wallet_category_win_rates(wallet)` helpers. Update `record_tracked_bet()` to accept category. |
+| `detection_strategies/win_rate_tracking.py` | Pass `get_market_category(condition_id)` to `record_tracked_bet()` |
 | `llm_filter.py` | Enrich `_build_prompt()` with flag history, category win rates, volume trend, same-market peers. Overhaul `SYSTEM_PROMPT`. Add `PROMPT_VERSION` to cache key. Update `filter_alerts()` to pre-group by condition_id and pass peer context. |
 
 ### 3b. `get_wallet_flag_summary(wallet)` in db.py
@@ -263,7 +262,11 @@ def get_wallet_flag_summary(wallet: str) -> dict | None:
     # Query flagged_wallets for: times_flagged, total_usd_flagged, first_flagged_at
 ```
 
-### 3c. `get_wallet_category_win_rates(wallet)` in db.py
+### 3c. Store category in `tracked_bets`
+
+Add `category TEXT` column to the `tracked_bets` table schema in `db.py`. Update `record_tracked_bet()` to accept and store category. Update `win_rate_tracking.py` to pass `get_market_category(condition_id)` when calling `record_tracked_bet()`.
+
+### 3d. `get_wallet_category_win_rates(wallet)` in db.py
 
 ```python
 def get_wallet_category_win_rates(wallet: str) -> dict[str, dict]:
@@ -271,14 +274,11 @@ def get_wallet_category_win_rates(wallet: str) -> dict[str, dict]:
     
     Returns {category: {wins, losses, closed, win_rate}} for top 5 categories.
     """
-    # 1. Query all distinct (condition_id, won) from tracked_bets WHERE resolved=1
-    # 2. For each condition_id, check gamma_cache._market_cache (in-memory only, no API calls)
-    # 3. Resolve category via get_market_category() only for cached markets
-    # 4. Group wins/losses by category, compute win_rate
-    # 5. Return top 5 categories by closed positions; rest grouped as "Other"
+    # GROUP BY category on tracked_bets WHERE resolved=1 AND category IS NOT NULL
+    # Pure SQL, no API calls needed
 ```
 
-### 3d. `_build_prompt()` Changes
+### 3e. `_build_prompt()` Changes
 
 New parameter: `peer_alerts: list[dict] | None = None`
 
@@ -288,14 +288,14 @@ New sections appended to the prompt:
 - `volume1wk` and `volume1mo` added to market context
 - "Other alerts on this market" section from `peer_alerts`
 
-### 3e. `filter_alerts()` Changes
+### 3f. `filter_alerts()` Changes
 
 Before the evaluation loop:
 1. Group alerts by `condition_id` into a dict
 2. For each alert, build a peer summary list (excluding itself)
 3. Pass peer summaries into `_build_prompt()`
 
-### 3f. Cache Invalidation
+### 3g. Cache Invalidation
 
 Add `PROMPT_VERSION = "v2"` constant. Include it in the cache key computation so all existing cache entries naturally miss and get re-evaluated with the new prompt.
 
