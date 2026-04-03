@@ -41,25 +41,7 @@ async function getMarketData(conditionId) {
   }
 }
 
-export default async function OGImage({ params }) {
-  const { id } = await params;
-  const partialId = partialIdFromSlug(id);
-  const conditionId = await resolveConditionId(partialId);
-  const { live, alerts } = await getMarketData(conditionId);
-
-  const title = live?.title || alerts?.[0]?.market_title || "Market";
-  const alertCount = alerts.length;
-  const totalUsd = alerts.reduce((sum, a) => sum + (a.total_usd || 0), 0);
-  const usdStr = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(totalUsd);
-
-  // Collect unique signal types from alerts
-  const signals = [...new Set(alerts.map((a) => a.signal_type).filter(Boolean))].slice(0, 3);
-
+function renderImage({ displayTitle, alertCount, usdStr, signals }) {
   const signalColors = {
     whale_trade: "#3b82f6",
     new_wallet_large_bet: "#f59e0b",
@@ -83,9 +65,6 @@ export default async function OGImage({ params }) {
     price_impact: "Price Impact",
     correlated_cross_market: "Cross-Market",
   };
-
-  // Truncate title for display
-  const displayTitle = title.length > 80 ? title.slice(0, 77) + "..." : title;
 
   return new ImageResponse(
     (
@@ -163,30 +142,32 @@ export default async function OGImage({ params }) {
           </div>
 
           {/* Stats row */}
-          <div
-            style={{
-              display: "flex",
-              gap: 40,
-              marginTop: 32,
-            }}
-          >
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              <div style={{ fontSize: 18, color: "#6b7280", fontWeight: 500 }}>
-                Notable Trades
+          {alertCount > 0 && (
+            <div
+              style={{
+                display: "flex",
+                gap: 40,
+                marginTop: 32,
+              }}
+            >
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                <div style={{ fontSize: 18, color: "#6b7280", fontWeight: 500 }}>
+                  Notable Trades
+                </div>
+                <div style={{ fontSize: 36, fontWeight: 700, color: "#f9fafb" }}>
+                  {alertCount}
+                </div>
               </div>
-              <div style={{ fontSize: 36, fontWeight: 700, color: "#f9fafb" }}>
-                {alertCount}
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                <div style={{ fontSize: 18, color: "#6b7280", fontWeight: 500 }}>
+                  Smart Money Flow
+                </div>
+                <div style={{ fontSize: 36, fontWeight: 700, color: "#10b981" }}>
+                  {usdStr}
+                </div>
               </div>
             </div>
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              <div style={{ fontSize: 18, color: "#6b7280", fontWeight: 500 }}>
-                Smart Money Flow
-              </div>
-              <div style={{ fontSize: 36, fontWeight: 700, color: "#10b981" }}>
-                {usdStr}
-              </div>
-            </div>
-          </div>
+          )}
         </div>
 
         {/* Signal pills */}
@@ -241,4 +222,31 @@ export default async function OGImage({ params }) {
     ),
     { ...size }
   );
+}
+
+export default async function OGImage({ params }) {
+  let title = "Market";
+  try {
+    const { id } = await params;
+    const partialId = partialIdFromSlug(id);
+    const conditionId = await resolveConditionId(partialId);
+    const { live, alerts } = await getMarketData(conditionId);
+
+    title = live?.title || alerts?.[0]?.market_title || "Market";
+    const alertCount = alerts.length;
+    const totalUsd = alerts.reduce((sum, a) => sum + (a.total_usd || 0), 0);
+    const usdStr = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(totalUsd);
+    const signals = [...new Set(alerts.map((a) => a.signal_type).filter(Boolean))].slice(0, 3);
+    const displayTitle = title.length > 80 ? title.slice(0, 77) + "..." : title;
+
+    return renderImage({ displayTitle, alertCount, usdStr, signals });
+  } catch {
+    const displayTitle = title.length > 80 ? title.slice(0, 77) + "..." : title;
+    return renderImage({ displayTitle, alertCount: 0, usdStr: "$0", signals: [] });
+  }
 }
