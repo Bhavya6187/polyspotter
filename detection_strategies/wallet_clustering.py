@@ -84,7 +84,8 @@ def _query_etherscan(address: str, action: str, offset: int = 10) -> list[dict] 
         # Distinguish them by checking the result string.
         if data.get("status") != "1":
             result_msg = str(data.get("result", ""))
-            if "No transactions found" in result_msg:
+            message = str(data.get("message", ""))
+            if "No transactions found" in result_msg or "No transactions found" in message:
                 return []  # genuine empty result
             print(
                 f"[WARN] Etherscan {action} error for {address}: "
