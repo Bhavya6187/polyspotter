@@ -205,7 +205,7 @@ def _fetch_trades_page(offset: int, threshold: int,
 # each threshold returns a different (overlapping) set of 4000 trades sorted by
 # recency, with higher thresholds reaching further back in time because there
 # are fewer large trades.
-AMOUNT_TIERS = [3000, 5000, 10000, 20000, 50000, 100000]
+AMOUNT_TIERS = [1000, 3000, 5000, 10000, 20000, 50000, 100000]
 MAX_OFFSET = 3000  # API returns 400 for offset > 3000
 
 

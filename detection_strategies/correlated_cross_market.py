@@ -28,7 +28,7 @@ from gamma_cache import get_market_by_condition, is_sport_market
 # ---------------------------------------------------------------------------
 MIN_MARKETS = 2  # wallet must bet on >= N markets in the same event
 MIN_MARKETS_SPORTS = 3  # sports events need more markets (same-game parlays are common)
-MIN_TOTAL_USD = 5000  # minimum combined USD across the correlated bets
+MIN_TOTAL_USD = 2000  # minimum combined USD across the correlated bets
 REPEAT_CROSS_EVENT_THRESHOLD = 25  # flag if wallet has cross-market bets on >= N events historically
 MIN_CLOSED_FOR_WIN_RATE = 10  # minimum resolved bets for win rate to count
 RESOLVED_PRICE_THRESHOLD = 0.98  # skip trades at near-certain prices (already resolved)

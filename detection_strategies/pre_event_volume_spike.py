@@ -27,7 +27,7 @@ from gamma_cache import get_market_by_condition
 # ---------------------------------------------------------------------------
 SPIKE_THRESHOLD_X = 10.0  # flag if window volume >= 10x the normalised average
 MIN_SNAPSHOTS_FOR_HISTORICAL = 3  # need at least N snapshots to use historical baseline
-MIN_WINDOW_VOLUME_USD = 25000  # ignore spikes below this absolute volume
+MIN_WINDOW_VOLUME_USD = 10000  # ignore spikes below this absolute volume
 MIN_TRADES_FOR_SPIKE = 3  # require multiple trades to distinguish from a single large bet
 
 

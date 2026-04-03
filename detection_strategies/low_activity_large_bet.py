@@ -26,7 +26,7 @@ CLOB_DELAY = 0.1
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-LOW_VOLUME_24H_USD = 5000  # market is "low activity" if 24h vol < this
+LOW_VOLUME_24H_USD = 10000  # market is "low activity" if 24h vol < this
 BET_TO_VOLUME_RATIO = 0.50  # flag if single bet >= 50% of 24h volume (raised from 20%)
 BET_TO_LIQUIDITY_RATIO = 0.05  # suppress if bet < 5% of market liquidity
 SHORT_LIVED_MARKET_HOURS = 6  # skip markets shorter than this
