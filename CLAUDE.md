@@ -44,15 +44,22 @@ Order matters — some strategies depend on data written by earlier ones.
   - `frontend/src/lib/api.js` — API client
   - `frontend/src/hooks/` — custom React hooks (useLiveMarket, useCountdown, useSpotlight)
 
+## Environment Setup
+
+- **Python virtual environment**: Always use the venv at `venv/`. Activate it before running any Python commands: `source venv/bin/activate`
+- **Environment variables**: Load from `.env` in the project root. This file contains API keys and other secrets — never commit it.
+
 ## Running
 
 Scanner:
 ```bash
+source venv/bin/activate
 python polybot.py
 ```
 
 Backend API:
 ```bash
+source venv/bin/activate
 cd backend && uvicorn app:app --reload
 ```
 
@@ -63,6 +70,7 @@ cd frontend && npm run dev
 
 Tests:
 ```bash
+source venv/bin/activate
 pytest                          # scanner tests
 cd backend && pytest            # backend tests
 cd frontend && npm run lint     # frontend lint
