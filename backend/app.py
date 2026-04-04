@@ -756,19 +756,29 @@ def list_tags():
 
 @app.get("/api/spotlight")
 def get_spotlight():
-    """Top 7 unresolved alerts by composite score, enriched with wallet count and candles."""
+    """Top 7 unresolved alerts by composite score, enriched with wallet count and candles.
+    Excludes markets whose latest price is near 0 or 1 (effectively settled)."""
     with db() as conn:
         cur = conn.cursor()
+        # Fetch more candidates than needed so we can filter out settled markets
         cur.execute("""
             SELECT a.id, a.market_title, a.condition_id, a.event_slug,
                    a.composite_score, a.total_usd, a.end_date,
                    a.llm_headline, a.llm_summary, a.llm_copy_action, a.market_image,
                    (SELECT COUNT(DISTINCT at2.wallet) FROM alert_trades at2 WHERE at2.alert_id = a.id) AS wallet_count,
-                   wp.win_rate AS best_win_rate, wp.total_pnl AS best_total_pnl
+                   wp.win_rate AS best_win_rate, wp.total_pnl AS best_total_pnl,
+                   latest_candle.p AS latest_price
             FROM alerts a
             LEFT JOIN wallet_profiles wp ON a.wallet = wp.wallet
+            LEFT JOIN LATERAL (
+                SELECT p FROM price_candles pc
+                WHERE pc.condition_id = a.condition_id
+                ORDER BY pc.t DESC
+                LIMIT 1
+            ) latest_candle ON TRUE
             WHERE a.end_date IS NOT NULL AND a.end_date > NOW()
               AND a.created_at > NOW() - INTERVAL '1 day'
+              AND (latest_candle.p IS NULL OR (latest_candle.p > 0.03 AND latest_candle.p < 0.97))
             ORDER BY a.composite_score DESC
             LIMIT 7
         """)
@@ -815,7 +825,8 @@ def get_spotlight():
 @app.get("/api/resolving-soon")
 def get_resolving_soon():
     """Alerts resolving within 6 hours, sorted by end_date ASC.
-    Falls back to top 5 soonest-resolving markets if none within 6 hours."""
+    Falls back to top 5 soonest-resolving markets if none within 6 hours.
+    Excludes markets whose latest price is near 0 or 1 (effectively settled)."""
     with db() as conn:
         cur = conn.cursor()
         cur.execute("""
@@ -823,9 +834,16 @@ def get_resolving_soon():
                 a.id, a.condition_id, a.market_title, a.end_date,
                 a.total_usd, a.composite_score, a.llm_copy_action, a.market_image
             FROM alerts a
+            LEFT JOIN LATERAL (
+                SELECT p FROM price_candles pc
+                WHERE pc.condition_id = a.condition_id
+                ORDER BY pc.t DESC
+                LIMIT 1
+            ) latest_candle ON TRUE
             WHERE a.end_date IS NOT NULL
               AND a.end_date > NOW()
               AND a.end_date <= NOW() + INTERVAL '6 hours'
+              AND (latest_candle.p IS NULL OR (latest_candle.p > 0.03 AND latest_candle.p < 0.97))
             ORDER BY COALESCE(a.event_slug, a.condition_id), a.composite_score DESC
         """)
         rows = cur.fetchall()
@@ -837,8 +855,15 @@ def get_resolving_soon():
                     a.id, a.condition_id, a.market_title, a.end_date,
                     a.total_usd, a.composite_score, a.llm_copy_action, a.market_image
                 FROM alerts a
+                LEFT JOIN LATERAL (
+                    SELECT p FROM price_candles pc
+                    WHERE pc.condition_id = a.condition_id
+                    ORDER BY pc.t DESC
+                    LIMIT 1
+                ) latest_candle ON TRUE
                 WHERE a.end_date IS NOT NULL
                   AND a.end_date > NOW()
+                  AND (latest_candle.p IS NULL OR (latest_candle.p > 0.03 AND latest_candle.p < 0.97))
                 ORDER BY COALESCE(a.event_slug, a.condition_id), a.composite_score DESC
             """)
             all_rows = cur.fetchall()
