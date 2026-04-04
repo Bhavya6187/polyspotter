@@ -53,22 +53,7 @@ Instead of a single blended win rate, break it down:
 
 **Step 2: Query by category.** New `get_wallet_category_win_rates(wallet)` function in `db.py` — a simple `GROUP BY category` on `tracked_bets WHERE resolved=1 AND category IS NOT NULL`. Returns `{category: {wins, losses, closed, win_rate}}` for top 5 categories by closed positions. Fast, no API calls, pure SQL.
 
-### 1c. Same-Scan Market Context
-
-**Source:** Other alerts in the current `filter_alerts()` batch
-
-New prompt section when multiple alerts share a `condition_id`:
-```
-Other alerts on this market (this scan):
-  - 85% win-rate wallet buying Flyers, $3,621 (score 8.0)
-  - 90% win-rate wallet buying Islanders, $5,000 (score 8.0)
-```
-
-**Why:** Two sharp bettors on opposite sides of the same market is fascinating context the LLM currently misses because it evaluates each alert in isolation. Similarly, multiple independent sharps converging strengthens the signal.
-
-**Implementation:** In `filter_alerts()`, pre-group alerts by `condition_id`. Pass the list of peer summaries (market title, wallet win rate, side, USD, score) into `_build_prompt()` as a new parameter. Exclude the current alert from its own peer list.
-
-### 1d. Volume Trend
+### 1c. Volume Trend
 
 **Source:** Gamma API (fields `volume1wk`, `volume1mo` already returned but not used)
 
@@ -197,21 +182,6 @@ Good:
 }
 ```
 
-**Example 4: Same-market conflict**
-
-Alert context: Two alerts on Flyers vs. Islanders — 85% winner buying Flyers, 90% winner buying Islanders
-
-Good (for the Islanders alert):
-```json
-{
-  "headline": "90% winner takes Islanders — sharps split",
-  "bullets": [
-    "Bought Islanders at 58¢, but an 85% winner is simultaneously buying the other side — two proven bettors disagree on this game.",
-    "This wallet's edge is strongest in hockey (92% on 30 NHL bets), which gives their side extra weight."
-  ]
-}
-```
-
 ### 2d. Cluster-Specific Filtering Rules
 
 Add to the "NOT interesting" section:
@@ -225,23 +195,6 @@ Add to the "NOT interesting" section:
   significant capital from wallets that don't usually trade this category.
 ```
 
-### 2e. Same-Market Conflict/Convergence Rules
-
-Add as a new section after "Position history context":
-
-```
-## Same-market context
-
-When "Other alerts on this market" appears, use it:
-- If sharp bettors are on opposite sides, mention it — "Another proven winner is 
-  taking the other side." This is valuable context for copy-traders, not a reason to 
-  discard.
-- If multiple independent sharps converge on the same side, that strengthens the 
-  signal — call it out.
-- Do NOT surface an alert solely because there's a conflict. The alert must be 
-  interesting on its own merits; the conflict is additional context.
-```
-
 ---
 
 ## Section 3: Implementation Details
@@ -252,7 +205,7 @@ When "Other alerts on this market" appears, use it:
 |------|--------|
 | `db.py` | Add `category` column to `tracked_bets`. Add `get_wallet_flag_summary(wallet)` and `get_wallet_category_win_rates(wallet)` helpers. Update `record_tracked_bet()` to accept category. |
 | `detection_strategies/win_rate_tracking.py` | Pass `get_market_category(condition_id)` to `record_tracked_bet()` |
-| `llm_filter.py` | Enrich `_build_prompt()` with flag history, category win rates, volume trend, same-market peers. Overhaul `SYSTEM_PROMPT`. Add `PROMPT_VERSION` to cache key. Update `filter_alerts()` to pre-group by condition_id and pass peer context. |
+| `llm_filter.py` | Enrich `_build_prompt()` with flag history, category win rates, volume trend. Overhaul `SYSTEM_PROMPT`. Add `PROMPT_VERSION` to cache key. |
 
 ### 3b. `get_wallet_flag_summary(wallet)` in db.py
 
@@ -280,22 +233,12 @@ def get_wallet_category_win_rates(wallet: str) -> dict[str, dict]:
 
 ### 3e. `_build_prompt()` Changes
 
-New parameter: `peer_alerts: list[dict] | None = None`
-
 New sections appended to the prompt:
 - Flag history line added to each wallet profile
 - Category win rates added to each wallet profile
 - `volume1wk` and `volume1mo` added to market context
-- "Other alerts on this market" section from `peer_alerts`
 
-### 3f. `filter_alerts()` Changes
-
-Before the evaluation loop:
-1. Group alerts by `condition_id` into a dict
-2. For each alert, build a peer summary list (excluding itself)
-3. Pass peer summaries into `_build_prompt()`
-
-### 3g. Cache Invalidation
+### 3f. Cache Invalidation
 
 Add `PROMPT_VERSION = "v2"` constant. Include it in the cache key computation so all existing cache entries naturally miss and get re-evaluated with the new prompt.
 
@@ -319,4 +262,5 @@ Old `v1` entries remain in the table but are never matched. Can be cleaned up wi
 - Architecture change (stays single-pass)
 - Thesis headline generation (seeder.py unchanged)
 - Backend/frontend changes
+- Same-market context / peer alerts (requires rethinking evaluation model — evaluate same-market alerts together rather than in isolation; tackle separately)
 - Two-pass filter/writer split (revisit if cost becomes an issue)
