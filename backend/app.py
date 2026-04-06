@@ -847,7 +847,8 @@ def get_resolving_soon():
             WHERE a.end_date IS NOT NULL
               AND a.end_date > NOW()
               AND a.end_date <= NOW() + INTERVAL '6 hours'
-              AND (latest_candle.p IS NULL OR (latest_candle.p > 0.03 AND latest_candle.p < 0.97))
+              AND latest_candle.p IS NOT NULL
+              AND latest_candle.p > 0.03 AND latest_candle.p < 0.97
             ORDER BY COALESCE(a.event_slug, a.condition_id), a.composite_score DESC
         """)
         rows = cur.fetchall()
@@ -867,7 +868,8 @@ def get_resolving_soon():
                 ) latest_candle ON TRUE
                 WHERE a.end_date IS NOT NULL
                   AND a.end_date > NOW()
-                  AND (latest_candle.p IS NULL OR (latest_candle.p > 0.03 AND latest_candle.p < 0.97))
+                  AND latest_candle.p IS NOT NULL
+                  AND latest_candle.p > 0.03 AND latest_candle.p < 0.97
                 ORDER BY COALESCE(a.event_slug, a.condition_id), a.composite_score DESC
             """)
             all_rows = cur.fetchall()

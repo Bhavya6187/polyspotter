@@ -17,15 +17,17 @@ export default function MarketStats({ volume24h, liquidity, spread, alerts }) {
   const flowPct = topFlow && totalFlow > 0 ? Math.round((topFlow[1] / totalFlow) * 100) : null;
 
   const tiles = [
-    { label: "24h Volume", value: fmtUsd(volume24h) },
-    { label: "Liquidity", value: fmtUsd(liquidity) },
-    { label: "Spread", value: spread != null ? `${spread.toFixed(1)}¢` : "—" },
-    {
+    volume24h != null && { label: "24h Volume", value: fmtUsd(volume24h) },
+    liquidity != null && { label: "Liquidity", value: fmtUsd(liquidity) },
+    spread != null && { label: "Spread", value: `${spread.toFixed(1)}¢` },
+    flowPct != null && {
       label: "Smart Flow",
-      value: flowPct != null ? `${flowPct}% ${topFlow[0]}` : "—",
+      value: `${flowPct}% ${topFlow[0]}`,
       accent: true,
     },
-  ];
+  ].filter(Boolean);
+
+  if (tiles.length === 0) return null;
 
   return (
     <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">

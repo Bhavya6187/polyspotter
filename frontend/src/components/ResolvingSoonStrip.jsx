@@ -66,7 +66,10 @@ export default function ResolvingSoonStrip() {
     return () => clearInterval(interval);
   }, []);
 
-  if (alerts.length === 0) return null;
+  // Drop markets whose end_date has already passed (event over, awaiting resolution)
+  const live = alerts.filter((a) => a.end_date && new Date(a.end_date) > new Date());
+
+  if (live.length === 0) return null;
 
   return (
     <div className="mb-4">
@@ -75,7 +78,7 @@ export default function ResolvingSoonStrip() {
         Resolving Soon
       </p>
       <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
-        {alerts.map((a) => (
+        {live.map((a) => (
           <ResolvingCard key={a.condition_id} alert={a} />
         ))}
       </div>
