@@ -516,6 +516,37 @@ def get_flagged_wallet_stats(wallet: str) -> dict | None:
     }
 
 
+def get_wallet_category_win_rates(wallet: str) -> dict[str, dict]:
+    """Return win rates broken down by market category.
+
+    Returns {category: {wins, losses, closed, win_rate}} for top 5
+    categories by number of closed positions.  Only includes resolved
+    bets with a non-NULL category.
+    """
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT category,
+                  SUM(CASE WHEN won = 1 THEN 1 ELSE 0 END) AS wins,
+                  SUM(CASE WHEN won = 0 THEN 1 ELSE 0 END) AS losses,
+                  COUNT(*) AS closed
+           FROM tracked_bets
+           WHERE wallet = ? AND resolved = 1 AND category IS NOT NULL
+           GROUP BY category
+           ORDER BY closed DESC
+           LIMIT 5""",
+        (wallet.lower(),),
+    ).fetchall()
+    result = {}
+    for cat, wins, losses, closed in rows:
+        result[cat] = {
+            "wins": wins,
+            "losses": losses,
+            "closed": closed,
+            "win_rate": wins / closed if closed > 0 else 0.0,
+        }
+    return result
+
+
 def get_wallet_flag_summary(wallet: str) -> dict | None:
     """Return flag history for a wallet, or None if never flagged."""
     conn = get_db()

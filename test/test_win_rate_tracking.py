@@ -6,6 +6,7 @@ from db import (
     record_tracked_bet,
     get_wallet_stats,
     get_wallet_flag_summary,
+    get_wallet_category_win_rates,
 )
 from detection_strategies.win_rate_tracking import (
     WinRateTrackingStrategy,
@@ -801,6 +802,93 @@ class TestGetWalletFlagSummary(unittest.TestCase):
         self.assertEqual(result["times_flagged"], 42)
         self.assertAlmostEqual(result["total_usd_flagged"], 890000.0)
         self.assertEqual(result["first_flagged_at"], "2026-01-15T00:00:00Z")
+
+
+class TestGetWalletCategoryWinRates(unittest.TestCase):
+    def setUp(self):
+        self.conn = sqlite3.connect(":memory:")
+        self.conn.execute("""
+            CREATE TABLE tracked_bets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                wallet TEXT NOT NULL,
+                condition_id TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                side TEXT NOT NULL,
+                usd_value REAL NOT NULL,
+                trade_timestamp REAL NOT NULL,
+                recorded_at TEXT NOT NULL,
+                resolved INTEGER DEFAULT 0,
+                won INTEGER DEFAULT NULL,
+                category TEXT DEFAULT NULL
+            )
+        """)
+        self.conn.commit()
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _insert_bet(self, wallet, category, resolved=1, won=1):
+        self.conn.execute(
+            """INSERT INTO tracked_bets
+               (wallet, condition_id, outcome, side, usd_value, trade_timestamp, recorded_at, resolved, won, category)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (wallet, "cid_1", "Yes", "BUY", 1000, 1700000000, "2026-01-01", resolved, won, category),
+        )
+        self.conn.commit()
+
+    @patch("db.get_db")
+    def test_empty_for_unknown_wallet(self, mock_get_db):
+        mock_get_db.return_value = self.conn
+        result = get_wallet_category_win_rates("0xunknown")
+        self.assertEqual(result, {})
+
+    @patch("db.get_db")
+    def test_groups_by_category(self, mock_get_db):
+        mock_get_db.return_value = self.conn
+        for _ in range(8):
+            self._insert_bet("0xwallet", "Sports", resolved=1, won=1)
+        for _ in range(2):
+            self._insert_bet("0xwallet", "Sports", resolved=1, won=0)
+        for _ in range(3):
+            self._insert_bet("0xwallet", "Crypto", resolved=1, won=1)
+        for _ in range(1):
+            self._insert_bet("0xwallet", "Crypto", resolved=1, won=0)
+        result = get_wallet_category_win_rates("0xwallet")
+        self.assertIn("Sports", result)
+        self.assertEqual(result["Sports"]["wins"], 8)
+        self.assertEqual(result["Sports"]["losses"], 2)
+        self.assertEqual(result["Sports"]["closed"], 10)
+        self.assertAlmostEqual(result["Sports"]["win_rate"], 0.8)
+        self.assertIn("Crypto", result)
+        self.assertEqual(result["Crypto"]["wins"], 3)
+        self.assertEqual(result["Crypto"]["closed"], 4)
+
+    @patch("db.get_db")
+    def test_skips_null_category(self, mock_get_db):
+        mock_get_db.return_value = self.conn
+        self._insert_bet("0xwallet", None, resolved=1, won=1)
+        self._insert_bet("0xwallet", "Sports", resolved=1, won=1)
+        result = get_wallet_category_win_rates("0xwallet")
+        self.assertNotIn(None, result)
+        self.assertIn("Sports", result)
+
+    @patch("db.get_db")
+    def test_skips_unresolved(self, mock_get_db):
+        mock_get_db.return_value = self.conn
+        self._insert_bet("0xwallet", "Sports", resolved=0, won=None)
+        result = get_wallet_category_win_rates("0xwallet")
+        self.assertEqual(result, {})
+
+    @patch("db.get_db")
+    def test_limits_to_top_5(self, mock_get_db):
+        mock_get_db.return_value = self.conn
+        categories = ["Sports", "Crypto", "Politics", "Science", "Business", "Pop Culture"]
+        for i, cat in enumerate(categories):
+            for _ in range(10 - i):
+                self._insert_bet("0xwallet", cat, resolved=1, won=1)
+        result = get_wallet_category_win_rates("0xwallet")
+        self.assertEqual(len(result), 5)
+        self.assertNotIn("Pop Culture", result)
 
 
 if __name__ == "__main__":
