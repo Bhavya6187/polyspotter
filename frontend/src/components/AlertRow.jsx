@@ -52,6 +52,18 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
   const [detail, setDetail] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [showTrades, setShowTrades] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 640px)");
+    setIsDesktop(mq.matches);
+    const handler = (e) => setIsDesktop(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  const showDetail = isDesktop || expanded;
 
   const tags = alert.tags || [];
   const copyAction = alert.llm_copy_action;
@@ -160,9 +172,12 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
         </div>
       </div>
 
-      {/* Row 2: Bet summary + live price */}
-      <div className="mt-1.5 flex items-center gap-2">
-        <p className="text-sm font-semibold" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)', fontSize: compact ? '0.8rem' : '0.875rem' }}>
+      {/* Row 2: Bet summary + live price + expand toggle */}
+      <div
+        className={`mt-1.5 flex items-center gap-2 ${autoExpand && !isDesktop ? 'cursor-pointer' : ''}`}
+        onClick={autoExpand && !isDesktop ? () => setExpanded((v) => !v) : undefined}
+      >
+        <p className="text-sm font-semibold flex-1" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)', fontSize: compact ? '0.8rem' : '0.875rem' }}>
           {betSummary}
         </p>
         {alertPrice > 0 && currentPrice > 0 && (
@@ -173,10 +188,20 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
             compact
           />
         )}
+        {autoExpand && !isDesktop && (
+          <span
+            className="flex items-center justify-center rounded-full shrink-0"
+            style={{ width: 24, height: 24, background: 'var(--surface-2)', color: 'var(--text-secondary)' }}
+          >
+            <svg className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </span>
+        )}
       </div>
 
       {/* Detail section (auto-expanded) */}
-      {autoExpand && (
+      {autoExpand && showDetail && (
         <div className="mt-3">
           {loadingDetail ? (
             <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
