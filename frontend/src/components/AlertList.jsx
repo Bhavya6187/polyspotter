@@ -295,7 +295,21 @@ function MarketGroupCard({ market, liveData, index }) {
       {/* Alert content */}
       <div className="px-5 pb-4">
         {showExpanded ? (
-          <AlertEntry alert={alert} liveData={liveData} />
+          <div>
+            <AlertEntry alert={alert} liveData={liveData} />
+            {!isDesktop && (
+              <button
+                onClick={() => setExpanded(false)}
+                className="mt-3 flex items-center gap-1 text-xs font-medium transition-colors"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+                </svg>
+                Show less
+              </button>
+            )}
+          </div>
         ) : (
           <div
             className="flex items-center gap-2 cursor-pointer"
@@ -338,17 +352,6 @@ function MarketGroupCard({ market, liveData, index }) {
           </div>
         )}
       </div>
-
-      {/* Collapse button on mobile when expanded */}
-      {showExpanded && !isDesktop && expanded && (
-        <button
-          onClick={() => setExpanded(false)}
-          className="w-full border-t text-xs py-2 transition-colors"
-          style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-muted)' }}
-        >
-          Show less
-        </button>
-      )}
 
       {/* Footer: tags + view market */}
       <div className="flex flex-wrap items-center gap-3 border-t px-5 py-3" style={{ borderColor: 'var(--border-subtle)' }}>
