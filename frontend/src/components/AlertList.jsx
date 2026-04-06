@@ -189,7 +189,7 @@ function MarketGroupCard({ market, liveData, index }) {
   const isStrong = rating >= 4;
   const isHero = index === 0 && rating >= 3;
 
-  const [expanded, setExpanded] = useState(isHero);
+  const [expanded, setExpanded] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
 
   useEffect(() => {
