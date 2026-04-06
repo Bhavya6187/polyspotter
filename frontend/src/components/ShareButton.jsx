@@ -2,16 +2,35 @@
 
 import { useState } from "react";
 
-export default function ShareButton({ url, compact = false }) {
+export default function ShareButton({ url, title, text, compact = false, iconOnly = false }) {
   const [copied, setCopied] = useState(false);
 
-  async function handleShare() {
+  async function handleShare(e) {
+    e.stopPropagation();
+
+    // Try native share API first (mobile browsers)
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await navigator.share({
+          title: title || "PolySpotter",
+          text: text || "",
+          url,
+        });
+        return;
+      } catch (err) {
+        // AbortError = user dismissed, fall through to clipboard
+        if (err.name !== "AbortError") {
+          // Fall through to clipboard
+        }
+      }
+    }
+
+    // Clipboard fallback
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback for non-HTTPS contexts
       const input = document.createElement("input");
       input.value = url;
       document.body.appendChild(input);
@@ -23,18 +42,32 @@ export default function ShareButton({ url, compact = false }) {
     }
   }
 
+  const shareIcon = (
+    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" />
+    </svg>
+  );
+
   return (
     <button
       onClick={handleShare}
       className="inline-flex items-center gap-1.5 rounded-lg text-xs transition-colors"
       style={{
-        padding: compact ? "4px 8px" : "6px 14px",
-        background: "var(--surface-1)",
+        padding: iconOnly ? "4px" : compact ? "4px 8px" : "6px 14px",
+        background: iconOnly ? "transparent" : "var(--surface-1)",
         color: copied ? "var(--accent)" : "var(--text-muted)",
-        border: "1px solid var(--border-subtle)",
+        border: iconOnly ? "none" : "1px solid var(--border-subtle)",
       }}
+      aria-label="Share"
     >
-      {copied ? "\u2713 Copied" : "\ud83d\udce4 Share"}
+      {iconOnly ? (
+        shareIcon
+      ) : (
+        <>
+          {copied ? "\u2713 Copied" : shareIcon}
+          {!copied && <span className="hidden sm:inline">Share</span>}
+        </>
+      )}
     </button>
   );
 }

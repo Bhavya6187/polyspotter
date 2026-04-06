@@ -70,6 +70,26 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
 
   const [hasInteracted, setHasInteracted] = useState(false);
 
+  // Load saved filters from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("polyspotter_filters");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setFilters((prev) => ({ ...prev, ...parsed }));
+        setHasInteracted(true);
+      }
+    } catch {}
+  }, []);
+
+  // Persist filters to localStorage on change
+  useEffect(() => {
+    if (!hasInteracted) return;
+    try {
+      localStorage.setItem("polyspotter_filters", JSON.stringify(filters));
+    } catch {}
+  }, [filters, hasInteracted]);
+
   useEffect(() => {
     if (!hasInteracted) return;
     refresh();
@@ -156,8 +176,8 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
         <HeroSpotlight />
       </section>
 
-      {/* Live ticker */}
-      <section aria-label="Live ticker" className="mb-5 -mx-4 sm:mx-0 sm:rounded-xl sm:overflow-hidden">
+      {/* Live ticker — hidden on mobile, duplicates feed */}
+      <section aria-label="Live ticker" className="hidden sm:block mb-5 sm:mx-0 sm:rounded-xl sm:overflow-hidden">
         <Ticker />
       </section>
 

@@ -18,14 +18,14 @@ function SpotlightSlide({ alert }) {
   const href = `/market/${marketSlug(alert.market_title, alert.condition_id)}`;
 
   return (
-    <Link href={href} className="block flex flex-col gap-3 px-5 py-5 rounded-xl transition-shadow hover:shadow-md"
+    <Link href={href} className="block flex flex-col gap-2 sm:gap-3 px-4 py-3 sm:px-5 sm:py-5 rounded-xl transition-shadow hover:shadow-md"
       style={{ background: "var(--surface-1)", border: "1px solid var(--border)", textDecoration: "none", color: "inherit" }}>
       <div className="flex justify-between items-start gap-4">
         <div className="flex-1 min-w-0">
-          <p className="text-xs uppercase tracking-wider" style={{ color: "var(--text-muted)", fontFamily: "var(--font-display)" }}>
+          <p className="hidden sm:block text-xs uppercase tracking-wider" style={{ color: "var(--text-muted)", fontFamily: "var(--font-display)" }}>
             Biggest move right now
           </p>
-          <div className="flex items-center gap-2.5 mt-1">
+          <div className="flex items-center gap-2.5 mt-0 sm:mt-1">
             {alert.market_image && (
               <Image
                 src={alert.market_image}
@@ -35,7 +35,7 @@ function SpotlightSlide({ alert }) {
                 className="h-8 w-8 rounded-lg object-cover shrink-0"
               />
             )}
-            <h2 className="text-lg font-bold truncate" style={{ color: "var(--text-primary)" }}>
+            <h2 className="text-base sm:text-lg font-bold truncate" style={{ color: "var(--text-primary)" }}>
               {alert.market_title}
             </h2>
           </div>
@@ -45,7 +45,7 @@ function SpotlightSlide({ alert }) {
           </p>
         </div>
         {alert.candles?.length > 0 && (
-          <div className="shrink-0">
+          <div className="hidden sm:block shrink-0">
             <Sparkline candles={alert.candles} entryPrice={entryPrice} width={140} height={48} />
           </div>
         )}

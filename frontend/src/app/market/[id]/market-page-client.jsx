@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import AlertRow from "../../../components/AlertRow";
@@ -12,6 +12,7 @@ import MarketPulse from "../../../components/MarketPulse";
 import MarketTheses from "../../../components/MarketTheses";
 import useLiveMarket from "../../../hooks/useLiveMarket";
 import ThemeToggle from "../../../components/ThemeToggle";
+import ShareButton from "../../../components/ShareButton";
 
 const usdFmt = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -43,6 +44,7 @@ export default function MarketPageClient({
   const live = liveMarket || initialLive;
   const alerts = initialAlerts || [];
   const [descExpanded, setDescExpanded] = useState(false);
+  const [allExpanded, setAllExpanded] = useState(false);
 
   const title = live?.title || alerts?.[0]?.market_title || "Market";
   const endDate = live?.end_date || alerts?.[0]?.end_date;
@@ -55,8 +57,50 @@ export default function MarketPageClient({
   const outcomes = live?.outcomes || [];
   const description = alerts?.[0]?.market_description || live?.description;
 
+  // Sticky bar: show when header scrolls out of view
+  const headerRef = useRef(null);
+  const [showStickyBar, setShowStickyBar] = useState(false);
+
+  useEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setShowStickyBar(!entry.isIntersecting),
+      { threshold: 0 }
+    );
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
+
+  // Share text for this market
+  const shareText = outcomes.length > 0
+    ? outcomes.map((o) => `${o.name} ${Math.round((o.price || 0) * 100)}\u00a2`).join(" / ") + ` \u2014 ${alerts.length} signal${alerts.length !== 1 ? "s" : ""}`
+    : `${alerts.length} signal${alerts.length !== 1 ? "s" : ""}`;
+
   return (
     <main className="mx-auto max-w-5xl px-4 py-4">
+      {/* Sticky outcome bar — mobile only */}
+      {showStickyBar && (
+        <div
+          className="sm:hidden fixed top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-2 border-b"
+          style={{ background: 'var(--surface-0)', borderColor: 'var(--border)' }}
+        >
+          <span className="text-sm font-semibold truncate flex-1" style={{ color: 'var(--text-primary)' }}>
+            {title}
+          </span>
+          <div className="flex items-center gap-2 shrink-0 ml-2">
+            {outcomes.map((o) => {
+              const pct = Math.round((o.price || 0) * 100);
+              return (
+                <span key={o.name} className="text-xs font-medium" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-secondary)' }}>
+                  {o.name} {pct}&cent;
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Nav */}
       <nav className="mb-4 flex items-center justify-between" aria-label="Breadcrumb">
         <Link
@@ -69,21 +113,25 @@ export default function MarketPageClient({
           </svg>
           All markets
         </Link>
-        <ThemeToggle />
+        <div className="flex items-center gap-2">
+          <ShareButton
+            url={typeof window !== 'undefined' ? window.location.href : ''}
+            title={`PolySpotter: ${title}`}
+            text={shareText}
+            iconOnly
+          />
+          <ThemeToggle />
+        </div>
       </nav>
 
-      {/* Compact header: image thumbnail + title + outcomes in one band */}
-      <header className="mb-4">
-        <div className="flex gap-4 items-start">
-          {/* Thumbnail */}
+      {/* Compact header */}
+      <header className="mb-4" ref={headerRef}>
+        <div className="flex gap-3 sm:gap-4 items-start">
+          {/* Thumbnail — smaller on mobile */}
           {alerts?.[0]?.market_image && (
             <div
-              className="relative shrink-0 rounded-lg overflow-hidden"
-              style={{
-                width: "72px",
-                height: "72px",
-                border: "1px solid var(--border)",
-              }}
+              className="relative shrink-0 rounded-lg overflow-hidden w-[48px] h-[48px] sm:w-[72px] sm:h-[72px]"
+              style={{ border: "1px solid var(--border)" }}
             >
               <Image
                 src={alerts[0].market_image}
@@ -145,7 +193,7 @@ export default function MarketPageClient({
             </div>
           </div>
 
-          {/* Inline outcome pills — right side */}
+          {/* Inline outcome pills — desktop only */}
           {outcomes.length > 0 && (
             <div className="hidden sm:flex items-center gap-2 shrink-0">
               {outcomes.map((o) => {
@@ -182,7 +230,7 @@ export default function MarketPageClient({
           )}
         </div>
 
-        {/* Mobile-only outcome row */}
+        {/* Mobile-only outcome row — compact */}
         {outcomes.length > 0 && (
           <div className="sm:hidden mt-3 flex gap-2">
             {outcomes.map((o) => {
@@ -192,7 +240,7 @@ export default function MarketPageClient({
               return (
                 <div
                   key={o.name}
-                  className="flex-1 rounded-lg border px-3 py-1.5 text-center"
+                  className="flex-1 rounded-lg border px-3 py-1 text-center"
                   style={{
                     borderColor: isLeading ? 'rgba(0, 194, 106, 0.3)' : 'var(--border)',
                     background: 'var(--surface-card)',
@@ -203,7 +251,7 @@ export default function MarketPageClient({
                     {o.name}
                   </div>
                   <div
-                    className="text-lg font-bold tabular-nums leading-tight"
+                    className="text-base font-bold tabular-nums leading-tight"
                     style={{
                       fontFamily: 'var(--font-display)',
                       color: isLeading ? 'var(--accent)' : 'var(--text-primary)',
@@ -245,22 +293,43 @@ export default function MarketPageClient({
         )}
       </header>
 
+      {/* Mobile: Price chart before alerts */}
+      {priceHistory && priceHistory.history?.length > 1 && (
+        <div className="lg:hidden mb-4">
+          <PriceChart
+            history={priceHistory.history}
+            outcome={priceHistory.outcome}
+            alerts={alerts}
+            conditionId={conditionId}
+          />
+        </div>
+      )}
+
       {/* Two-column: Trades (primary) + Sidebar (chart, stats, holders) */}
       <div className="grid gap-5 lg:grid-cols-[1.3fr_1fr]">
         {/* Left: Notable Trades */}
         <section>
           {alerts.length > 0 ? (
             <div className="flex flex-col gap-3">
-              <h2
-                className="text-xs font-semibold uppercase tracking-widest"
-                style={{
-                  fontFamily: 'var(--font-display)',
-                  color: 'var(--text-muted)',
-                  fontSize: '0.6rem',
-                }}
-              >
-                Notable Trades
-              </h2>
+              <div className="flex items-center justify-between">
+                <h2
+                  className="text-xs font-semibold uppercase tracking-widest"
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    color: 'var(--text-muted)',
+                    fontSize: '0.6rem',
+                  }}
+                >
+                  Notable Trades
+                </h2>
+                <button
+                  onClick={() => setAllExpanded((v) => !v)}
+                  className="sm:hidden text-xs font-medium transition-colors"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  {allExpanded ? "Collapse all" : "Expand all"}
+                </button>
+              </div>
               {alerts.map((alert) => (
                 <AlertRow
                   key={alert.id}
@@ -269,6 +338,7 @@ export default function MarketPageClient({
                   activeTag=""
                   onTagClick={() => {}}
                   liveMarket={live}
+                  forceExpand={allExpanded}
                 />
               ))}
             </div>
@@ -286,16 +356,18 @@ export default function MarketPageClient({
           )}
         </section>
 
-        {/* Right sidebar: Chart + Stats + Holders + Pulse */}
+        {/* Right sidebar: Chart (desktop only) + Stats + Holders + Pulse */}
         <aside className="flex flex-col gap-4">
-          {/* Price Chart */}
+          {/* Price Chart — desktop only (mobile shown above) */}
           {priceHistory && priceHistory.history?.length > 1 && (
-            <PriceChart
-              history={priceHistory.history}
-              outcome={priceHistory.outcome}
-              alerts={alerts}
-              conditionId={conditionId}
-            />
+            <div className="hidden lg:block">
+              <PriceChart
+                history={priceHistory.history}
+                outcome={priceHistory.outcome}
+                alerts={alerts}
+                conditionId={conditionId}
+              />
+            </div>
           )}
 
           {/* Market Stats */}
