@@ -70,6 +70,26 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
 
   const [hasInteracted, setHasInteracted] = useState(false);
 
+  // Load saved filters from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("polyspotter_filters");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setFilters((prev) => ({ ...prev, ...parsed }));
+        setHasInteracted(true);
+      }
+    } catch {}
+  }, []);
+
+  // Persist filters to localStorage on change
+  useEffect(() => {
+    if (!hasInteracted) return;
+    try {
+      localStorage.setItem("polyspotter_filters", JSON.stringify(filters));
+    } catch {}
+  }, [filters, hasInteracted]);
+
   useEffect(() => {
     if (!hasInteracted) return;
     refresh();
