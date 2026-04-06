@@ -516,6 +516,22 @@ def get_flagged_wallet_stats(wallet: str) -> dict | None:
     }
 
 
+def get_wallet_flag_summary(wallet: str) -> dict | None:
+    """Return flag history for a wallet, or None if never flagged."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT times_flagged, total_usd_flagged, first_flagged_at FROM flagged_wallets WHERE wallet = ?",
+        (wallet.lower(),),
+    ).fetchone()
+    if not row:
+        return None
+    return {
+        "times_flagged": row[0],
+        "total_usd_flagged": row[1],
+        "first_flagged_at": row[2],
+    }
+
+
 # ===========================================================================
 # flagged_trade_events operations (dedup for flagged_wallets counting)
 # ===========================================================================

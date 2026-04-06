@@ -5,6 +5,7 @@ import sqlite3
 from db import (
     record_tracked_bet,
     get_wallet_stats,
+    get_wallet_flag_summary,
 )
 from detection_strategies.win_rate_tracking import (
     WinRateTrackingStrategy,
@@ -763,6 +764,43 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
         result = strategy.check_trade(self._make_trade())
         self.assertIsNotNone(result)
         self.assertNotIn("avg", result.headline.lower())
+
+
+class TestGetWalletFlagSummary(unittest.TestCase):
+    def setUp(self):
+        self.conn = sqlite3.connect(":memory:")
+        self.conn.execute("""
+            CREATE TABLE flagged_wallets (
+                wallet TEXT PRIMARY KEY,
+                times_flagged INTEGER NOT NULL DEFAULT 1,
+                total_usd_flagged REAL NOT NULL DEFAULT 0,
+                first_flagged_at TEXT NOT NULL,
+                last_flagged_at TEXT NOT NULL
+            )
+        """)
+        self.conn.commit()
+
+    def tearDown(self):
+        self.conn.close()
+
+    @patch("db.get_db")
+    def test_returns_none_for_unknown_wallet(self, mock_get_db):
+        mock_get_db.return_value = self.conn
+        result = get_wallet_flag_summary("0xunknown")
+        self.assertIsNone(result)
+
+    @patch("db.get_db")
+    def test_returns_flag_data(self, mock_get_db):
+        mock_get_db.return_value = self.conn
+        self.conn.execute(
+            "INSERT INTO flagged_wallets VALUES (?, ?, ?, ?, ?)",
+            ("0xabc123", 42, 890000.0, "2026-01-15T00:00:00Z", "2026-03-20T00:00:00Z"),
+        )
+        self.conn.commit()
+        result = get_wallet_flag_summary("0xabc123")
+        self.assertEqual(result["times_flagged"], 42)
+        self.assertAlmostEqual(result["total_usd_flagged"], 890000.0)
+        self.assertEqual(result["first_flagged_at"], "2026-01-15T00:00:00Z")
 
 
 if __name__ == "__main__":
