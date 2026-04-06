@@ -50,7 +50,8 @@ def _init_tables(conn: sqlite3.Connection) -> None:
             trade_timestamp REAL NOT NULL,
             recorded_at TEXT NOT NULL,
             resolved INTEGER DEFAULT 0,
-            won INTEGER DEFAULT NULL
+            won INTEGER DEFAULT NULL,
+            category TEXT DEFAULT NULL
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tracked_wallet ON tracked_bets(wallet)")
@@ -266,6 +267,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
     for col, typ in [("price", "REAL"), ("market_title", "TEXT")]:
         if col not in existing:
             conn.execute(f"ALTER TABLE wallet_event_history ADD COLUMN {col} {typ}")
+
+    # Migrations
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(tracked_bets)").fetchall()}
+    if "category" not in cols:
+        conn.execute("ALTER TABLE tracked_bets ADD COLUMN category TEXT DEFAULT NULL")
+
     conn.commit()
 
 
@@ -274,7 +281,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
 # ===========================================================================
 
 
-def record_tracked_bet(trade: dict) -> None:
+def record_tracked_bet(trade: dict, category: str | None = None) -> None:
     """Insert a trade into tracked_bets for win/loss tracking."""
     wallet = trade.get("proxyWallet", "").lower()
     if not wallet:
@@ -282,8 +289,8 @@ def record_tracked_bet(trade: dict) -> None:
     conn = get_db()
     conn.execute(
         """INSERT OR IGNORE INTO tracked_bets
-           (wallet, condition_id, outcome, side, usd_value, trade_timestamp, recorded_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+           (wallet, condition_id, outcome, side, usd_value, trade_timestamp, recorded_at, category)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             wallet,
             trade.get("conditionId", ""),
@@ -292,6 +299,7 @@ def record_tracked_bet(trade: dict) -> None:
             float(trade.get("_usd_value", 0)),
             trade.get("timestamp", 0),
             datetime.now(timezone.utc).isoformat(),
+            category,
         ),
     )
     conn.commit()

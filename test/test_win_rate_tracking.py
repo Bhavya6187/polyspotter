@@ -30,7 +30,8 @@ class TestWinRateTrackingHelpers(unittest.TestCase):
                 trade_timestamp REAL NOT NULL,
                 recorded_at TEXT NOT NULL,
                 resolved INTEGER DEFAULT 0,
-                won INTEGER DEFAULT NULL
+                won INTEGER DEFAULT NULL,
+                category TEXT DEFAULT NULL
             )
         """)
         self.conn.execute("CREATE INDEX idx_tracked_wallet ON tracked_bets(wallet)")
@@ -100,6 +101,14 @@ class TestWinRateTrackingHelpers(unittest.TestCase):
         self.assertEqual(stats["wins"], 1)
         self.assertEqual(stats["total_usd"], 10000.0)
 
+    @patch("db.get_db")
+    def test_record_trade_stores_category(self, mock_get_db):
+        mock_get_db.return_value = self.conn
+        trade = self._make_trade()
+        record_tracked_bet(trade, category="Sports")
+        row = self.conn.execute("SELECT category FROM tracked_bets").fetchone()
+        self.assertEqual(row[0], "Sports")
+
 
 class TestWinRateTrackingStrategy(unittest.TestCase):
     @patch("detection_strategies.win_rate_tracking._update_resolutions", return_value=0)
@@ -118,7 +127,8 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
                 trade_timestamp REAL NOT NULL,
                 recorded_at TEXT NOT NULL,
                 resolved INTEGER DEFAULT 0,
-                won INTEGER DEFAULT NULL
+                won INTEGER DEFAULT NULL,
+                category TEXT DEFAULT NULL
             )
         """)
         conn.execute("CREATE INDEX idx_tracked_wallet ON tracked_bets(wallet)")
@@ -177,7 +187,8 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
                 trade_timestamp REAL NOT NULL,
                 recorded_at TEXT NOT NULL,
                 resolved INTEGER DEFAULT 0,
-                won INTEGER DEFAULT NULL
+                won INTEGER DEFAULT NULL,
+                category TEXT DEFAULT NULL
             )
         """)
         conn.execute("CREATE INDEX idx_tracked_wallet ON tracked_bets(wallet)")
@@ -240,7 +251,8 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
                 trade_timestamp REAL NOT NULL,
                 recorded_at TEXT NOT NULL,
                 resolved INTEGER DEFAULT 0,
-                won INTEGER DEFAULT NULL
+                won INTEGER DEFAULT NULL,
+                category TEXT DEFAULT NULL
             )
         """)
         conn.execute("CREATE INDEX idx_tracked_wallet ON tracked_bets(wallet)")
@@ -310,7 +322,8 @@ class TestWinRateTrackingStrategy(unittest.TestCase):
                 trade_timestamp REAL NOT NULL,
                 recorded_at TEXT NOT NULL,
                 resolved INTEGER DEFAULT 0,
-                won INTEGER DEFAULT NULL
+                won INTEGER DEFAULT NULL,
+                category TEXT DEFAULT NULL
             )
         """)
         conn.execute("CREATE INDEX idx_tracked_wallet ON tracked_bets(wallet)")
