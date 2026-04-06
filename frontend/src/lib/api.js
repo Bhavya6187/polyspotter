@@ -24,7 +24,7 @@ export function fetchAlerts({ page, perPage, minScore, wallet, tag } = {}) {
   });
 }
 
-export function fetchMarketAlerts({ page, perPage, minScore, wallet, tag, resolvesWithin } = {}) {
+export function fetchMarketAlerts({ page, perPage, minScore, wallet, tag, resolvesWithin, q } = {}) {
   return request("/api/alerts/by-market", {
     page,
     per_page: perPage,
@@ -32,6 +32,7 @@ export function fetchMarketAlerts({ page, perPage, minScore, wallet, tag, resolv
     wallet: wallet || undefined,
     tag: tag || undefined,
     resolves_within: resolvesWithin || undefined,
+    q: q || undefined,
   });
 }
 

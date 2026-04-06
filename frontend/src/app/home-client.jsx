@@ -32,6 +32,7 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
     minScore: "",
   });
   const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [lastUpdated, setLastUpdated] = useState(() => new Date());
   const [, setTick] = useState(0);
 
@@ -43,8 +44,17 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
 
   const pageRef = useRef(page);
   const filtersRef = useRef(filters);
+  const searchRef = useRef(searchQuery);
   pageRef.current = page;
   filtersRef.current = filters;
+  searchRef.current = searchQuery;
+
+  // Debounce search input
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(id);
+  }, [searchQuery]);
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -54,6 +64,7 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
       tag: filtersRef.current.tag,
       resolvesWithin: filtersRef.current.resolvesIn,
       minScore: filtersRef.current.minScore || undefined,
+      q: searchRef.current || undefined,
     })
       .then((data) => {
         setMarkets(data.markets || []);
@@ -72,13 +83,19 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
   useEffect(() => {
     if (!hasInteracted) return;
     refresh();
-  }, [page, filters, hasInteracted, refresh]);
+  }, [page, filters, debouncedSearch, hasInteracted, refresh]);
 
   // Auto-refresh every 5 minutes
   useEffect(() => {
     const id = setInterval(refresh, 300_000);
     return () => clearInterval(id);
   }, [refresh]);
+
+  const handleSearchChange = useCallback((e) => {
+    setHasInteracted(true);
+    setSearchQuery(e.target.value);
+    setPage(1);
+  }, []);
 
   const handleFilterChange = useCallback((newFilters) => {
     setHasInteracted(true);
@@ -117,6 +134,24 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <div className="relative">
+              <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5" style={{ color: 'var(--text-muted)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+              </svg>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={handleSearchChange}
+                placeholder="Search markets..."
+                className="w-44 sm:w-56 rounded-lg border py-1.5 pl-8 pr-3 text-xs transition-colors focus:outline-none focus:ring-1"
+                style={{
+                  background: 'var(--bg-secondary)',
+                  borderColor: 'var(--border)',
+                  color: 'var(--text-primary)',
+                  '--tw-ring-color': 'var(--accent)',
+                }}
+              />
+            </div>
             <ThemeToggle />
             <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
               <span className="flex items-center gap-1.5">

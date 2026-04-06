@@ -443,6 +443,7 @@ def list_alerts_by_market(
     tag: str | None = Query(None),
     resolves_within: str | None = Query(None, description="Filter by resolution window: 6h, 24h, 7d"),
     include_resolved: bool = Query(False, description="Include resolved/expired markets"),
+    q: str | None = Query(None, description="Search market titles (fuzzy match)"),
 ):
     """List alerts grouped by market (condition_id)."""
     conditions = [
@@ -473,6 +474,9 @@ def list_alerts_by_market(
             "EXISTS (SELECT 1 FROM alert_signals s WHERE s.alert_id = a.id AND s.strategy = %s)"
         )
         params.append(strategy)
+    if q:
+        conditions.append("a.market_title ILIKE %s")
+        params.append(f"%{q}%")
 
     where = " AND ".join(conditions)
     offset = (page - 1) * per_page

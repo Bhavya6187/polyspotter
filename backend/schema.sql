@@ -51,6 +51,10 @@ CREATE INDEX IF NOT EXISTS idx_alerts_scanned ON alerts(scanned_at DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_wallet ON alerts(wallet);
 CREATE INDEX IF NOT EXISTS idx_alerts_event ON alerts(event_slug);
 
+-- Trigram index for fast fuzzy market title search (ILIKE, similarity)
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX IF NOT EXISTS idx_alerts_market_title_trgm ON alerts USING GIN (market_title gin_trgm_ops);
+
 -- alert_trades: individual trades that belong to an alert
 CREATE TABLE IF NOT EXISTS alert_trades (
     id              SERIAL PRIMARY KEY,
