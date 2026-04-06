@@ -91,12 +91,8 @@ export default function BasketballPageClient({
           {/* Thumbnail */}
           {alerts?.[0]?.market_image && (
             <div
-              className="shrink-0 rounded-lg overflow-hidden"
-              style={{
-                width: "72px",
-                height: "72px",
-                border: "1px solid var(--border)",
-              }}
+              className="relative shrink-0 rounded-lg overflow-hidden w-[48px] h-[48px] sm:w-[72px] sm:h-[72px]"
+              style={{ border: "1px solid var(--border)" }}
             >
               <Image
                 src={alerts[0].market_image}
