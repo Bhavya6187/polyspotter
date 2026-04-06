@@ -53,6 +53,7 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [showTrades, setShowTrades] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [manualCollapse, setManualCollapse] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
 
   useEffect(() => {
@@ -63,7 +64,12 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
     return () => mq.removeEventListener("change", handler);
   }, []);
 
-  const showDetail = isDesktop || expanded || forceExpand;
+  // Reset manual collapse when forceExpand changes
+  useEffect(() => {
+    setManualCollapse(false);
+  }, [forceExpand]);
+
+  const showDetail = isDesktop || expanded || (forceExpand && !manualCollapse);
 
   const tags = alert.tags || [];
   const copyAction = alert.llm_copy_action;
@@ -175,7 +181,15 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
       {/* Row 2: Bet summary + live price + expand toggle */}
       <div
         className={`mt-1.5 flex items-center gap-2 ${autoExpand && !isDesktop ? 'cursor-pointer' : ''}`}
-        onClick={autoExpand && !isDesktop ? () => setExpanded((v) => !v) : undefined}
+        onClick={autoExpand && !isDesktop ? () => {
+          if (showDetail) {
+            setExpanded(false);
+            setManualCollapse(true);
+          } else {
+            setExpanded(true);
+            setManualCollapse(false);
+          }
+        } : undefined}
       >
         <p className="text-sm font-semibold flex-1" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)', fontSize: compact ? '0.8rem' : '0.875rem' }}>
           {betSummary}
@@ -193,7 +207,7 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
             className="flex items-center justify-center rounded-full shrink-0"
             style={{ width: 24, height: 24, background: 'var(--surface-2)', color: 'var(--text-secondary)' }}
           >
-            <svg className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <svg className={`h-3.5 w-3.5 transition-transform ${showDetail ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
             </svg>
           </span>
