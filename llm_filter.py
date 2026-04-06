@@ -19,7 +19,7 @@ from pathlib import Path
 from openai import OpenAI
 from dotenv import load_dotenv
 
-from db import get_llm_evaluation, get_wallet_market_positions, get_wallet_pnl_summary, save_llm_evaluation
+from db import get_llm_evaluation, get_wallet_market_positions, get_wallet_pnl_summary, save_llm_evaluation, get_wallet_flag_summary, get_wallet_category_win_rates
 from gamma_cache import get_market_by_condition, invalidate_market
 
 load_dotenv()
@@ -352,12 +352,18 @@ def _build_prompt(alert: dict) -> str:
             # Volume & liquidity
             vol_total = mkt.get("volumeNum")
             vol_24h = mkt.get("volume24hr")
+            vol_1wk = mkt.get("volume1wk")
+            vol_1mo = mkt.get("volume1mo")
             liquidity = mkt.get("liquidityNum")
             vol_parts = []
             if vol_total is not None:
                 vol_parts.append(f"total ${vol_total:,.0f}")
             if vol_24h is not None:
                 vol_parts.append(f"24h ${vol_24h:,.0f}")
+            if vol_1wk is not None:
+                vol_parts.append(f"1wk ${vol_1wk:,.0f}")
+            if vol_1mo is not None:
+                vol_parts.append(f"1mo ${vol_1mo:,.0f}")
             if vol_parts:
                 parts.append(f"  Volume: {', '.join(vol_parts)}")
             if liquidity is not None:
@@ -431,6 +437,15 @@ def _build_prompt(alert: dict) -> str:
             )
             if avg_win_price is not None:
                 line += f", avg win price {avg_win_price:.2f}"
+            # Flag history
+            flags = get_wallet_flag_summary(w)
+            if flags:
+                line += f", flagged {flags['times_flagged']}x (${flags['total_usd_flagged']:,.0f} total)"
+            # Category win rates
+            cat_rates = get_wallet_category_win_rates(w)
+            if cat_rates:
+                cat_strs = [f"{cat} {d['win_rate']:.0%} ({d['closed']})" for cat, d in cat_rates.items()]
+                line += f" — {', '.join(cat_strs)}"
             profile_lines.append(line)
 
         if profile_lines:
