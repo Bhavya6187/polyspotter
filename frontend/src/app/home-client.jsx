@@ -156,8 +156,8 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
         <HeroSpotlight />
       </section>
 
-      {/* Live ticker */}
-      <section aria-label="Live ticker" className="mb-5 -mx-4 sm:mx-0 sm:rounded-xl sm:overflow-hidden">
+      {/* Live ticker — hidden on mobile, duplicates feed */}
+      <section aria-label="Live ticker" className="hidden sm:block mb-5 sm:mx-0 sm:rounded-xl sm:overflow-hidden">
         <Ticker />
       </section>
 
