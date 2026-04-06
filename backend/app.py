@@ -475,8 +475,8 @@ def list_alerts_by_market(
         )
         params.append(strategy)
     if q:
-        conditions.append("a.market_title ILIKE %s")
-        params.append(f"%{q}%")
+        conditions.append("word_similarity(%s, a.market_title) > 0.2")
+        params.append(q.strip())
 
     where = " AND ".join(conditions)
     offset = (page - 1) * per_page
@@ -510,9 +510,9 @@ def list_alerts_by_market(
                 FROM alerts a
                 WHERE {where} AND a.condition_id IS NOT NULL
                 GROUP BY a.condition_id
-                ORDER BY {"CASE WHEN MAX(a.end_date) IS NULL OR MAX(a.end_date) > NOW() THEN 0 ELSE 1 END, " if include_resolved else ""}scanned_at DESC, max_score DESC
+                ORDER BY {f"MAX(word_similarity(%s, a.market_title)) DESC, " if q else ("CASE WHEN MAX(a.end_date) IS NULL OR MAX(a.end_date) > NOW() THEN 0 ELSE 1 END, " if include_resolved else "")}scanned_at DESC, max_score DESC
                 LIMIT %s OFFSET %s""",
-            params + [per_page, offset],
+            (params + [per_page, offset]) if not q else (params + [q.strip(), per_page, offset]),
         )
         market_rows = cur.fetchall()
 
