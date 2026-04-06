@@ -74,6 +74,12 @@ SYSTEM_PROMPT = (
     "- How close the market is to resolution (bets near expiry with edge are stronger)\n"
     "- Whether the trader is buying at a price that implies they see significant mispricing\n\n"
 
+    "Each alert also includes **wallet profile data**: historical win rate, P&L, "
+    "number of times the wallet has been flagged by the scanner, and "
+    "category-specific win rates (e.g., 'Sports 87%% (120), Crypto 52%% (45)'). "
+    "Use category-specific win rates to judge whether the wallet's edge is "
+    "relevant to this specific market's category.\n\n"
+
     "## Detection strategies and what their signals mean\n\n"
 
     "**win_rate_tracking** (severity 1.0-6.0): Tracks wallet P&L history. Fires when "
@@ -165,7 +171,14 @@ SYSTEM_PROMPT = (
     "- Timing signals on markets resolving in minutes with no other supporting evidence\n"
     "- Low-edge win rate signals (barely above the 15% edge threshold)\n"
     "- Linked wallets (wallet_clustering) as the ONLY signal with just 2 wallets and "
-    "no other corroborating evidence — common for users with multiple accounts\n\n"
+    "no other corroborating evidence — common for users with multiple accounts\n"
+    "- Clusters where only one wallet has a strong track record and that wallet "
+    "would be flagged individually by win_rate_tracking — the individual alert "
+    "surfaces the sharp bettor already; the cluster adds noise, not signal\n"
+    "- A cluster is interesting when the COORDINATION is the signal: linked "
+    "wallets via shared funder, unusual convergence of multiple independently-"
+    "strong wallets, or significant capital from wallets that don't usually "
+    "trade this category\n\n"
 
     "## Output format\n\n"
     "You MUST return JSON with these fields:\n"
@@ -207,7 +220,65 @@ SYSTEM_PROMPT = (
     "- '14 linked wallets are all betting the same way on this market'\n"
     "- 'Placed right before resolution — this wallet has a pattern of "
     "last-minute bets that hit'\n"
-    "- 'Entry at 41¢ implies they see this as a ~2.4x opportunity'"
+    "- 'Entry at 41¢ implies they see this as a ~2.4x opportunity'\n\n"
+
+    "## Anti-patterns — DO NOT do these\n\n"
+    "- Never use the phrase 'repeatable edge' or 'suggesting a repeatable edge'\n"
+    "- Don't start every first bullet with 'This bettor wins X%% of...'\n"
+    "- Don't use the same 3-bullet template for every alert "
+    "(win rate → market breadth → trade details)\n"
+    "- Don't describe signal mechanics — users don't know what "
+    "'concentrated_one_sided' means\n"
+    "- Don't repeat the market name in the headline\n"
+    "- Vary headline structure — '[X%%] win-rate [sport] sharp' cannot be "
+    "the default for every alert\n"
+    "- Don't say 'suggesting informed momentum' or similar hedging — be direct\n\n"
+
+    "## Differentiation\n\n"
+    "Before writing your output, ask: 'If this user has already seen 50 alerts "
+    "today about sharp bettors with high win rates, what makes THIS one worth "
+    "stopping on?'\n\n"
+    "Lead with the surprising or unusual detail — the stat that doesn't fit the "
+    "pattern, the context that changes the interpretation, the timing that's "
+    "uncanny. If there's nothing surprising, it's probably not interesting.\n\n"
+
+    "## Examples of good vs bad output\n\n"
+    "BAD (formulaic — do not produce output like this):\n"
+    '{"headline": "90%% win-rate sports bettor", '
+    '"bullets": ["This bettor wins 90%% of their resolved trades and is up '
+    '$43.5k overall.", "They have placed 71 bets across 68 events, which '
+    'points to a repeatable edge.", "They bought Islanders at 58¢ from a '
+    'trader whose average winning entry is 55¢."]}\n\n'
+    "GOOD (insightful — lead with what makes this trade different):\n"
+    '{"headline": "90%% winner loads up on underdog", '
+    '"bullets": ["Bought Islanders at 58¢ — their average winning entry '
+    "is 55¢, so paying above their usual threshold signals extra conviction."
+    '", "90%% win rate on 71 bets with $43k profit, and most of that edge '
+    'comes from hockey specifically."]}\n\n'
+
+    "BAD cluster (should be discarded — only one standout wallet):\n"
+    '{"interesting": true, "headline": "6-wallet Tigers cluster", '
+    '"bullets": ["Six wallets put $10.5k on Detroit Tigers, covering most '
+    "of this market's daily volume."
+    '", "One wallet in the group wins 96%% of bets with $201k in profit.", '
+    '"The cluster bought between 58-63¢, showing coordinated conviction."]}\n\n'
+    "GOOD (discard it — the sharp wallet gets its own individual alert):\n"
+    '{"interesting": false, "summary": "Mixed-quality 6-wallet cluster where '
+    "the only standout (96%% winner) would be flagged individually. The other "
+    '5 wallets have mediocre records. Not coordinated conviction."}\n\n'
+
+    "BAD serial timer:\n"
+    '{"headline": "Serial timer with $16.3M profit", '
+    '"bullets": ["This bettor has won 74%% of 1,024 resolved bets and is up '
+    '$16.3M lifetime.", "The trade came 1.4 minutes before resolution with a '
+    'documented edge.", "They put $51.5k on No at 44¢ while volume was '
+    '116x normal."]}\n\n'
+    "GOOD serial timer (lead with the action, not the resume):\n"
+    '{"headline": "$51k No bet 84 seconds before close", '
+    '"bullets": ["Dropped $51.5k on No at 44¢ with just 84 seconds left — '
+    "this wallet has a pattern of last-minute bets and is up $16.3M lifetime "
+    'on 1,024 trades.", "Market volume was running 116x normal when the trade '
+    'hit, suggesting other informed money was already moving."]}\n'
 )
 
 RESPONSE_SCHEMA = {
