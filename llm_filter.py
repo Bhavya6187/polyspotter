@@ -27,6 +27,7 @@ load_dotenv()
 AZURE_OPENAI_API_KEY = os.environ.get("AZURE_OPENAI_API_KEY", "")
 AZURE_OPENAI_ENDPOINT = "https://gpt-5-mati-labs.cognitiveservices.azure.com/openai/v1/"
 MODEL = "gpt-5.4"
+PROMPT_VERSION = "v2"
 PROMPT_LOG_FILE = Path(__file__).parent / "llm_prompts.jsonl"
 
 
@@ -634,6 +635,8 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
         # include trade_count + score so the LLM re-evaluates when the
         # cluster grows).  Falls back to dedup_key for non-cluster alerts.
         cache_key = alert.get("llm_cache_key") or alert.get("dedup_key", "")
+        if cache_key:
+            cache_key = f"{PROMPT_VERSION}:{cache_key}"
 
         # Check local cache first
         if cache_key:
