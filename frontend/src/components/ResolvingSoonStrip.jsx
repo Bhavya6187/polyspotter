@@ -16,13 +16,13 @@ function ResolvingCard({ alert }) {
   return (
     <Link href={`/market/${slug}`} className="shrink-0">
       <div
-        className={`rounded-lg px-4 py-3 transition-all ${urgent ? "animate-urgency" : ""}`}
+        className={`rounded-lg px-3 py-2 sm:px-4 sm:py-3 transition-all ${urgent ? "animate-urgency" : ""}`}
         style={{
           background: "var(--surface-1)",
           border: "1px solid var(--border)",
           borderLeftWidth: 3,
           borderLeftColor: urgent ? "var(--bearish)" : "var(--warning)",
-          minWidth: 200,
+          minWidth: 160,
           maxWidth: 260,
         }}
       >
@@ -41,7 +41,7 @@ function ResolvingCard({ alert }) {
           </p>
         </div>
         <p
-          className="text-lg font-bold mt-0.5"
+          className="text-sm sm:text-lg font-bold mt-0.5"
           style={{ color: urgent ? "var(--bearish)" : "var(--warning)", fontFamily: "var(--font-display)" }}
         >
           {countdown.label}
