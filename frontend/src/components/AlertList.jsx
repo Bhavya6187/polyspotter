@@ -187,6 +187,19 @@ function MarketGroupCard({ market, liveData, index }) {
   const isStrong = rating >= 4;
   const isHero = index === 0 && rating >= 3;
 
+  const [expanded, setExpanded] = useState(isHero);
+  const [isDesktop, setIsDesktop] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 640px)");
+    setIsDesktop(mq.matches);
+    const handler = (e) => setIsDesktop(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  const showExpanded = isDesktop || expanded;
+
   const resolution = timeToResolution(market.end_date);
   const resolutionMs = market.end_date ? new Date(market.end_date).getTime() - Date.now() : null;
   const isResolved = resolutionMs != null && resolutionMs <= 0;
@@ -194,6 +207,19 @@ function MarketGroupCard({ market, liveData, index }) {
   const isSoon = resolutionMs != null && resolutionMs > 0 && resolutionMs < 86400000;
 
   const marketUrl = market.market_url || alert.market_url;
+
+  // Compact row data
+  const copyAction = alert.llm_copy_action;
+  let compactBet = usdFmt.format(alert.total_usd);
+  if (copyAction?.outcome) {
+    const priceStr = priceToCents(copyAction.entry_price);
+    compactBet = `${usdFmt.format(alert.total_usd)} on ${copyAction.outcome}${priceStr ? ` at ${priceStr}` : ""}`;
+  }
+  const alertOutcome = copyAction?.outcome;
+  const alertPrice = copyAction?.entry_price;
+  const liveMarket = liveData[alert.condition_id];
+  const liveOutcome = liveMarket?.outcomes?.find((o) => o.name === alertOutcome);
+  const currentPrice = liveOutcome?.price ?? null;
 
   // Card border/glow style based on signal strength
   const cardStyle = {
@@ -219,7 +245,7 @@ function MarketGroupCard({ market, liveData, index }) {
               alt=""
               width={32}
               height={32}
-              className="h-8 w-8 rounded-lg object-cover shrink-0"
+              className="h-6 w-6 sm:h-8 sm:w-8 rounded-lg object-cover shrink-0"
             />
           )}
           <StrengthMeter maxScore={alert.composite_score} />
@@ -266,13 +292,66 @@ function MarketGroupCard({ market, liveData, index }) {
 
       {/* Alert content */}
       <div className="px-5 pb-4">
-        <AlertEntry alert={alert} liveData={liveData} />
+        {showExpanded ? (
+          <AlertEntry alert={alert} liveData={liveData} />
+        ) : (
+          <div
+            className="flex items-center gap-2 cursor-pointer"
+            onClick={() => setExpanded(true)}
+          >
+            {alert.wallet && alert.win_rate != null && (
+              <WalletBadge
+                wallet={alert.wallet}
+                winRate={alert.win_rate}
+                totalPnl={alert.total_pnl}
+                totalInvested={alert.total_invested}
+                compact
+              />
+            )}
+            <span
+              className="flex-1 text-sm font-semibold truncate"
+              style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}
+            >
+              {compactBet}
+            </span>
+            {alertPrice > 0 && currentPrice > 0 && (
+              <PriceMovement alertPrice={alertPrice} currentPrice={currentPrice} outcome={alertOutcome} compact />
+            )}
+            <ShareButton
+              url={`${typeof window !== 'undefined' ? window.location.origin : ''}/alert/${alert.id}`}
+              title={`PolySpotter: ${market.market_title}`}
+              text={`Sharp money alert: ${compactBet}`}
+              iconOnly
+            />
+            <svg
+              className="h-3.5 w-3.5 shrink-0"
+              style={{ color: 'var(--text-muted)' }}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
+        )}
       </div>
+
+      {/* Collapse button on mobile when expanded */}
+      {showExpanded && !isDesktop && expanded && (
+        <button
+          onClick={() => setExpanded(false)}
+          className="w-full border-t text-xs py-2 transition-colors"
+          style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-muted)' }}
+        >
+          Show less
+        </button>
+      )}
 
       {/* Footer: tags + view market */}
       <div className="flex flex-wrap items-center gap-3 border-t px-5 py-3" style={{ borderColor: 'var(--border-subtle)' }}>
         {tags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="hidden sm:flex flex-wrap gap-1.5">
             {tags.map((t) => (
               <Link
                 key={t}
