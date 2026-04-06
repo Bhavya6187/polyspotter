@@ -17,6 +17,7 @@ import time
 
 import requests
 from detection_strategies import DetectionStrategy, Signal
+from gamma_cache import get_market_category
 from db import (
     clear_wallet_pnl_by_type,
     get_unresolved_condition_ids,
@@ -245,7 +246,7 @@ class WinRateTrackingStrategy(DetectionStrategy):
         if not wallet:
             return None
 
-        record_tracked_bet(trade)
+        record_tracked_bet(trade, category=get_market_category(trade.get("conditionId", "")))
         _fetch_wallet_pnl(wallet)
 
         # Lazily resolve tracked bets for this wallet (once per wallet per run)
