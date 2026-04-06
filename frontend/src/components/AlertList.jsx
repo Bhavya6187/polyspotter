@@ -296,19 +296,30 @@ function MarketGroupCard({ market, liveData, index }) {
       <div className="px-5 pb-4">
         {showExpanded ? (
           <div>
-            <AlertEntry alert={alert} liveData={liveData} />
             {!isDesktop && (
-              <button
+              <div
+                className="flex items-center gap-2 cursor-pointer mb-3"
                 onClick={() => setExpanded(false)}
-                className="mt-3 flex items-center gap-1 text-xs font-medium transition-colors"
-                style={{ color: 'var(--text-muted)' }}
               >
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <span
+                  className="flex-1 text-sm font-semibold truncate"
+                  style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}
+                >
+                  {compactBet}
+                </span>
+                <span className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
+                  Show less
+                </span>
+                <svg
+                  className="h-3.5 w-3.5 shrink-0"
+                  style={{ color: 'var(--text-muted)' }}
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
                 </svg>
-                Show less
-              </button>
+              </div>
             )}
+            <AlertEntry alert={alert} liveData={liveData} />
           </div>
         ) : (
           <div
