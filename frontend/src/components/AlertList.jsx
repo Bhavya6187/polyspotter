@@ -150,6 +150,8 @@ function AlertEntry({ alert, liveData }) {
         ) : null}
         <ShareButton
           url={`${typeof window !== 'undefined' ? window.location.origin : ''}/alert/${alert.id}`}
+          title={`PolySpotter: ${alert.market_title || "Notable trade"}`}
+          text={`Sharp money alert: ${betSummary}`}
           compact
         />
         {effectivePrice > 0 && effectivePrice < 0.99 && returnPct > 0 && (
