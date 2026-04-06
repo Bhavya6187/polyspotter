@@ -48,7 +48,7 @@ function shortenWallet(w) {
   return `${w.slice(0, 6)}\u2026${w.slice(-4)}`;
 }
 
-export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, compact, liveMarket }) {
+export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, compact, liveMarket, forceExpand }) {
   const [detail, setDetail] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [showTrades, setShowTrades] = useState(false);
@@ -63,7 +63,7 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
     return () => mq.removeEventListener("change", handler);
   }, []);
 
-  const showDetail = isDesktop || expanded;
+  const showDetail = isDesktop || expanded || forceExpand;
 
   const tags = alert.tags || [];
   const copyAction = alert.llm_copy_action;

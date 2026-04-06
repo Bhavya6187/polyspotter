@@ -44,6 +44,7 @@ export default function MarketPageClient({
   const live = liveMarket || initialLive;
   const alerts = initialAlerts || [];
   const [descExpanded, setDescExpanded] = useState(false);
+  const [allExpanded, setAllExpanded] = useState(false);
 
   const title = live?.title || alerts?.[0]?.market_title || "Market";
   const endDate = live?.end_date || alerts?.[0]?.end_date;
@@ -310,16 +311,25 @@ export default function MarketPageClient({
         <section>
           {alerts.length > 0 ? (
             <div className="flex flex-col gap-3">
-              <h2
-                className="text-xs font-semibold uppercase tracking-widest"
-                style={{
-                  fontFamily: 'var(--font-display)',
-                  color: 'var(--text-muted)',
-                  fontSize: '0.6rem',
-                }}
-              >
-                Notable Trades
-              </h2>
+              <div className="flex items-center justify-between">
+                <h2
+                  className="text-xs font-semibold uppercase tracking-widest"
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    color: 'var(--text-muted)',
+                    fontSize: '0.6rem',
+                  }}
+                >
+                  Notable Trades
+                </h2>
+                <button
+                  onClick={() => setAllExpanded((v) => !v)}
+                  className="sm:hidden text-xs font-medium transition-colors"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  {allExpanded ? "Collapse all" : "Expand all"}
+                </button>
+              </div>
               {alerts.map((alert) => (
                 <AlertRow
                   key={alert.id}
@@ -328,6 +338,7 @@ export default function MarketPageClient({
                   activeTag=""
                   onTagClick={() => {}}
                   liveMarket={live}
+                  forceExpand={allExpanded}
                 />
               ))}
             </div>
