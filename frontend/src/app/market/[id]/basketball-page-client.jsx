@@ -91,7 +91,7 @@ export default function BasketballPageClient({
           {/* Thumbnail */}
           {alerts?.[0]?.market_image && (
             <div
-              className="shrink-0 rounded-lg overflow-hidden"
+              className="relative shrink-0 rounded-lg overflow-hidden"
               style={{
                 width: "72px",
                 height: "72px",
