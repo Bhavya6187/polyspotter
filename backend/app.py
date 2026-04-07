@@ -14,12 +14,18 @@ Endpoints:
 from __future__ import annotations
 
 import json
+import os
 import time as _time
 from datetime import datetime, timezone
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, contextmanager
+from pathlib import Path
 
+from dotenv import load_dotenv
 import requests as _requests
+
+# Load .env from project root (one level up from backend/)
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 

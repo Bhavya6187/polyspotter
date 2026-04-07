@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchAlertDetail } from "../lib/api";
 import PriceMovement from "./PriceMovement";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 
 function relativeTime(dateStr) {
   if (!dateStr) return "\u2014";
@@ -54,15 +55,7 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
   const [showTrades, setShowTrades] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [manualCollapse, setManualCollapse] = useState(false);
-  const [isDesktop, setIsDesktop] = useState(false);
-
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 640px)");
-    setIsDesktop(mq.matches);
-    const handler = (e) => setIsDesktop(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []);
+  const isDesktop = useMediaQuery("(min-width: 640px)");
 
   // Reset manual collapse when forceExpand changes
   useEffect(() => {
