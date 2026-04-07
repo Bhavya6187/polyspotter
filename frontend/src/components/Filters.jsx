@@ -135,12 +135,11 @@ export default function Filters({ tags, filters, onFilterChange }) {
         />
         {sorted.map((t) => {
           const name = typeof t === "string" ? t : t.tag;
-          const count = typeof t === "object" && t.alert_count ? t.alert_count : null;
           const slug = encodeURIComponent(name.toLowerCase().replace(/\s+/g, "-"));
           return (
             <TagPill
               key={name}
-              label={count ? `${name} (${count})` : name}
+              label={name}
               active={filters.tag === name}
               href={`/tag/${slug}`}
             />

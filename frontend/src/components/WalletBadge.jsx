@@ -31,7 +31,7 @@ export default function WalletBadge({ wallet, winRate, totalPnl, totalInvested, 
           color: tier.color,
         }}
       >
-        {tier.name === "Diamond" ? "\ud83d\udc8e" : tier.name === "Gold" ? "\ud83c\udfc6" : tier.name === "Silver" ? "\ud83e\udd48" : "\ud83e\udd49"}
+        {winPct ? winPct : "—"}
       </div>
 
       <div className="flex flex-col min-w-0">
@@ -40,18 +40,12 @@ export default function WalletBadge({ wallet, winRate, totalPnl, totalInvested, 
           {name}
         </span>
 
-        {/* Badges row */}
-        <div className="flex items-center gap-1.5 mt-0.5">
-          <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold ${tierBgClass(tier.name)}`}>
-            {tier.name.toUpperCase()}
+        {/* Win rate */}
+        {winPct && (
+          <span className="text-[11px] font-bold mt-0.5" style={{ color: "var(--bullish)" }}>
+            {winPct} win rate
           </span>
-          {winPct && (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px]"
-              style={{ background: "rgba(0,194,106,0.12)", color: "var(--bullish)" }}>
-              {winPct} WR
-            </span>
-          )}
-        </div>
+        )}
       </div>
     </Link>
   );
