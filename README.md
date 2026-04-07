@@ -69,7 +69,16 @@ detection_strategies/          # All 9 detection strategy implementations
   correlated_cross_market.py
 test/                          # pytest test suite
 backend/                       # Web API (FastAPI + PostgreSQL)
+  app.py                       # API endpoints
+  database.py                  # PostgreSQL connection
+  schema.sql                   # Database schema
+  models.py                    # Pydantic request/response models
+  basketball.py                # Basketball game data integration
 frontend/                      # Web dashboard (Next.js 15 + Tailwind CSS 4)
+  src/app/                     # Pages: home, alert, market, wallet, tag, thesis
+  src/components/              # UI: AlertTable, MarketCard, PriceChart, HeroSpotlight, etc.
+  src/hooks/                   # useLiveMarket, useCountdown, useSpotlight
+  src/lib/api.js               # API client
 seeder.py                      # Pushes alerts from scanner to backend API
 reset_alerts.py                # Clears alerts from both Postgres and local SQLite cache
 backfill.py                    # Backfills historical trade data (default 30 days)
@@ -165,6 +174,9 @@ pytest
 | `backfill.py` | Backfill historical trade data into local SQLite | `python backfill.py [--days 30] [--threshold 3000] [--skip-etherscan] [--skip-profiles]` |
 | `seeder.py` | Push alerts from scanner to backend API | Called automatically by `polybot.py` |
 | `reset_alerts.py` | Clear all alerts from Postgres + local LLM cache | `python reset_alerts.py` |
+| `compare_models.py` | Compare LLM model outputs for alert evaluation | `python compare_models.py` |
+| `debug_llm.py` | Debug LLM filter responses | `python debug_llm.py` |
+| `backtest_iran.py` | Backtesting script for Iran-related markets | `python backtest_iran.py` |
 
 ## Backend API
 
@@ -174,9 +186,19 @@ pytest
 | `GET` | `/api/alerts` | List alerts (paginated, filterable) |
 | `GET` | `/api/alerts/{id}` | Single alert with trades + signals |
 | `GET` | `/api/alerts/by-market` | Alerts grouped by market |
-| `GET` | `/api/wallets/{addr}` | Wallet profile |
+| `GET` | `/api/wallets/{addr}` | Wallet profile with recent alerts and bets |
 | `GET` | `/api/strategies` | List all strategies seen |
 | `GET` | `/api/tags` | List all market tags |
+| `GET` | `/api/spotlight` | Featured/hero alert for dashboard |
+| `GET` | `/api/resolving-soon` | Markets resolving soon |
+| `GET` | `/api/theses` | List cross-market theses (paginated) |
+| `GET` | `/api/theses/{id}` | Single thesis detail |
+| `GET` | `/api/market/{id}/live` | Live market data (prices, holders) |
+| `GET` | `/api/market/{id}/basketball` | Basketball-specific game data |
+| `GET` | `/api/market/{id}/price-history` | Price candle history |
+| `GET` | `/api/market/{id}/holders` | Market holders/positions leaderboard |
+| `GET` | `/api/market/{id}/theses` | Theses for a specific market |
+| `GET` | `/api/market/resolve/{partial}` | Resolve partial condition ID to full ID |
 | `GET` | `/api/health` | Health check |
 
 ## APIs Used
@@ -217,7 +239,8 @@ pytest
 | `alert_trades` | Trades associated with alerts |
 | `alert_signals` | Detection signals per alert |
 | `wallet_profiles` | Cached wallet P&L and statistics |
-| `scan_runs` | Scan metadata |
+| `price_candles` | Price candle data for sparklines |
+| `wallet_theses` | Cross-market thesis groupings |
 
 ## Tech Stack
 
