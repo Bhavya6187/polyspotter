@@ -242,6 +242,10 @@ class MarketGroup(BaseModel):
     max_score: float = 0
     tags: list[str] = []
     scanned_at: datetime | None = None
+    seo_title: str | None = None
+    seo_description: str | None = None
+    seo_summary: str | None = None
+    seo_faqs: list[dict] | None = None
     alerts: list[AlertOut] = []
 
 

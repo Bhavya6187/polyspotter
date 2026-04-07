@@ -110,6 +110,23 @@ export async function generateMetadata({ params }) {
       ? `${alertCount} smart money signal${alertCount !== 1 ? "s" : ""} on "${title}" totaling ${usdStr}. Track sharp bettors and whale trades on PolySpotter.`
       : `"${title}" — track smart money, whale trades, and sharp bettor signals on PolySpotter.`;
 
+  // Fetch SEO fields from market group endpoint
+  let seoTitle = null, seoDescription = null;
+  try {
+    const marketGroupRes = await fetch(
+      `${API_URL}/api/alerts/by-market?q=${encodeURIComponent(title)}&per_page=1`,
+      { next: { revalidate: 60 } }
+    );
+    if (marketGroupRes.ok) {
+      const mgData = await marketGroupRes.json();
+      const match = mgData.markets?.find((m) => m.condition_id === conditionId);
+      if (match) {
+        seoTitle = match.seo_title;
+        seoDescription = match.seo_description;
+      }
+    }
+  } catch {}
+
   const canonicalSlug = marketSlug(title, conditionId);
 
   const bestAlert = [...alerts].sort(
@@ -120,20 +137,20 @@ export async function generateMetadata({ params }) {
     process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
 
   return {
-    title,
-    description,
+    title: seoTitle || title,
+    description: seoDescription || description,
     alternates: {
       canonical: `/market/${canonicalSlug}`,
     },
     openGraph: {
-      title: `${title} | PolySpotter`,
-      description,
+      title: `${seoTitle || title} | PolySpotter`,
+      description: seoDescription || description,
       images: alertId ? [`${siteUrl}/api/og/${alertId}`] : [],
     },
     twitter: {
       card: "summary_large_image",
-      title: `${title} | PolySpotter`,
-      description,
+      title: `${seoTitle || title} | PolySpotter`,
+      description: seoDescription || description,
     },
   };
 }
@@ -146,6 +163,23 @@ export default async function MarketPage({ params }) {
     await getMarketData(conditionId);
 
   const title = live?.title || alerts?.[0]?.market_title || "Market";
+
+  // Fetch SEO content from market group
+  let seoSummary = null, seoFaqs = [];
+  try {
+    const mgRes = await fetch(
+      `${API_URL}/api/alerts/by-market?q=${encodeURIComponent(title)}&per_page=1`,
+      { next: { revalidate: 60 } }
+    );
+    if (mgRes.ok) {
+      const mgData = await mgRes.json();
+      const match = mgData.markets?.find((m) => m.condition_id === conditionId);
+      if (match) {
+        seoSummary = match.seo_summary;
+        seoFaqs = match.seo_faqs || [];
+      }
+    }
+  } catch {}
   const alertCount = alerts.length;
   const totalUsd = alerts.reduce((sum, a) => sum + (a.total_usd || 0), 0);
 
@@ -178,21 +212,31 @@ export default async function MarketPage({ params }) {
     ],
   };
 
-  // FAQ JSON-LD from alert headlines + summaries
-  const faqItems = alerts
-    .filter((a) => a.llm_headline && a.llm_summary)
-    .slice(0, 5)
-    .map((a) => ({
-      "@type": "Question",
-      name: a.llm_headline,
-      acceptedAnswer: {
-        "@type": "Answer",
-        text:
-          a.llm_bullets?.length > 0
-            ? a.llm_bullets.join(" ")
-            : a.llm_summary,
-      },
-    }));
+  // FAQ JSON-LD: prefer LLM-generated FAQs over alert-based ones
+  const faqItems =
+    seoFaqs.length > 0
+      ? seoFaqs.map((faq) => ({
+          "@type": "Question",
+          name: faq.question,
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: faq.answer,
+          },
+        }))
+      : alerts
+          .filter((a) => a.llm_headline && a.llm_summary)
+          .slice(0, 5)
+          .map((a) => ({
+            "@type": "Question",
+            name: a.llm_headline,
+            acceptedAnswer: {
+              "@type": "Answer",
+              text:
+                a.llm_bullets?.length > 0
+                  ? a.llm_bullets.join(" ")
+                  : a.llm_summary,
+            },
+          }));
 
   const faqLd =
     faqItems.length > 0
@@ -224,6 +268,7 @@ export default async function MarketPage({ params }) {
           </nav>
 
           <h1>{title}</h1>
+          {seoSummary && <p>{seoSummary}</p>}
           {live?.description && <p>{live.description}</p>}
           <p>
             {alertCount} smart money signal{alertCount !== 1 ? "s" : ""}{" "}
@@ -241,6 +286,25 @@ export default async function MarketPage({ params }) {
               </>
             )}
           </p>
+
+          {(() => {
+            const allTags = [...new Set(alerts.flatMap((a) => a.tags || []))].filter(
+              (t) => t && t !== "Hide From New"
+            );
+            return allTags.length > 0 ? (
+              <p>
+                Categories:{" "}
+                {allTags.map((t, i) => (
+                  <span key={t}>
+                    {i > 0 && ", "}
+                    <a href={`/tag/${encodeURIComponent(t.toLowerCase().replace(/\s+/g, "-"))}`}>
+                      {t}
+                    </a>
+                  </span>
+                ))}
+              </p>
+            ) : null;
+          })()}
 
           {alerts.length > 0 && (
             <section>

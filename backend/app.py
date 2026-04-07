@@ -24,6 +24,7 @@ from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import get_conn, init_db
+from seo_generator import generate_seo_content
 from basketball import get_basketball_data
 from models import (
     IngestPayload,
@@ -350,6 +351,73 @@ def ingest(payload: IngestPayload):
         # Cleanup old price candles (keep only 7 days)
         cur.execute("DELETE FROM price_candles WHERE created_at < NOW() - INTERVAL '7 days'")
 
+        # Generate SEO content for markets that don't have it yet
+        cur.execute("""
+            SELECT DISTINCT condition_id, MAX(market_title) as market_title,
+                   MAX(market_description) as market_description,
+                   MAX(tags) as tags, MAX(end_date::text) as end_date,
+                   SUM(total_usd) as total_usd, COUNT(*) as alert_count
+            FROM alerts
+            WHERE condition_id IS NOT NULL
+              AND seo_generated_at IS NULL
+              AND market_title IS NOT NULL
+            GROUP BY condition_id
+            ORDER BY MAX(scanned_at) DESC
+            LIMIT 20
+        """)
+        seo_candidates = cur.fetchall()
+
+        seo_generated = 0
+        for row in seo_candidates:
+            cid = row["condition_id"]
+
+            # Gather alert headlines for context
+            cur.execute("""
+                SELECT llm_headline FROM alerts
+                WHERE condition_id = %s AND llm_headline IS NOT NULL
+                ORDER BY composite_score DESC LIMIT 5
+            """, (cid,))
+            headlines = [r["llm_headline"] for r in cur.fetchall()]
+
+            tags_list = []
+            try:
+                tags_list = json.loads(row["tags"] or "[]")
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+            result = generate_seo_content(
+                market_title=row["market_title"],
+                description=row.get("market_description"),
+                tags=tags_list,
+                end_date=row.get("end_date"),
+                total_usd=row["total_usd"] or 0,
+                alert_count=row["alert_count"] or 0,
+                alert_headlines=headlines,
+            )
+
+            if result:
+                faqs_json = json.dumps(result["seo_faqs"])
+                cur.execute("""
+                    UPDATE alerts SET
+                        seo_title = %s,
+                        seo_description = %s,
+                        seo_summary = %s,
+                        seo_faqs = %s,
+                        seo_generated_at = NOW()
+                    WHERE condition_id = %s
+                """, (
+                    result["seo_title"],
+                    result["seo_description"],
+                    result["seo_summary"],
+                    faqs_json,
+                    cid,
+                ))
+                seo_generated += 1
+                print(f"[seo] Generated SEO content for: {row['market_title']}")
+
+        if seo_generated:
+            print(f"[seo] Generated SEO content for {seo_generated} markets.")
+
     return {
         "status": "ok",
         "inserted_alerts": inserted_alerts,
@@ -506,7 +574,11 @@ def list_alerts_by_market(
                        SUM(a.total_usd) as total_usd,
                        COUNT(*) as alert_count,
                        MAX(a.composite_score) as max_score,
-                       MAX(a.scanned_at) as scanned_at
+                       MAX(a.scanned_at) as scanned_at,
+                       MAX(a.seo_title) as seo_title,
+                       MAX(a.seo_description) as seo_description,
+                       MAX(a.seo_summary) as seo_summary,
+                       MAX(a.seo_faqs) as seo_faqs
                 FROM alerts a
                 WHERE {where} AND a.condition_id IS NOT NULL
                 GROUP BY a.condition_id
@@ -549,6 +621,12 @@ def list_alerts_by_market(
                     if t not in all_tags:
                         all_tags.append(t)
 
+            raw_seo_faqs = mrow.get("seo_faqs") or "[]"
+            try:
+                seo_faqs = json.loads(raw_seo_faqs) if isinstance(raw_seo_faqs, str) else raw_seo_faqs
+            except (json.JSONDecodeError, TypeError):
+                seo_faqs = []
+
             markets.append(
                 MarketGroup(
                     condition_id=cid,
@@ -562,6 +640,10 @@ def list_alerts_by_market(
                     max_score=mrow["max_score"],
                     tags=all_tags,
                     scanned_at=mrow["scanned_at"],
+                    seo_title=mrow.get("seo_title"),
+                    seo_description=mrow.get("seo_description"),
+                    seo_summary=mrow.get("seo_summary"),
+                    seo_faqs=seo_faqs,
                     alerts=parsed_alerts,
                 )
             )
@@ -612,6 +694,24 @@ def get_alert(alert_id: int):
     raw_copy = data.pop("llm_copy_action", "{}") or "{}"
     data["llm_copy_action"] = json.loads(raw_copy) if isinstance(raw_copy, str) else raw_copy
     return AlertDetail(**data, trades=trades, signals=signals)
+
+
+@app.get("/api/wallets/top")
+def top_wallets(limit: int = Query(50, ge=1, le=200)):
+    """Return top wallet addresses by alert count (for sitemap)."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT wallet, COUNT(*) as alert_count
+            FROM alerts
+            WHERE wallet IS NOT NULL
+            GROUP BY wallet
+            HAVING COUNT(*) >= 3
+            ORDER BY COUNT(*) DESC
+            LIMIT %s
+        """, (limit,))
+        rows = cur.fetchall()
+    return {"wallets": [{"wallet": r["wallet"], "alert_count": r["alert_count"]} for r in rows]}
 
 
 @app.get("/api/wallets/{wallet_address}", response_model=WalletProfileDetailOut)

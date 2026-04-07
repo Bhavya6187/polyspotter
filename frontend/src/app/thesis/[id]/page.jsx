@@ -27,12 +27,14 @@ export async function generateMetadata({ params }) {
     return { title: "Thesis Not Found" };
   }
 
-  const title = thesis.thesis_headline || "Cross-Market Thesis";
+  const title = thesis.thesis_headline
+    ? `${thesis.thesis_headline} — Cross-Market Analysis`
+    : "Cross-Market Thesis";
   const marketCount = thesis.markets?.length || 0;
   const totalUsd = Math.round(thesis.total_usd || 0);
   const walletShort = thesis.wallet?.slice(0, 8) || "Unknown";
 
-  const description = `"${title}" — ${walletShort}... is betting $${totalUsd.toLocaleString()} across ${marketCount} Polymarket markets on this cross-market thesis. View positions, entry prices, and wallet performance on PolySpotter.`;
+  const description = `Cross-market thesis: "${thesis.thesis_headline || "Unknown"}" — ${walletShort}... is betting $${totalUsd.toLocaleString()} across ${marketCount} correlated Polymarket markets. View positions and entry prices on PolySpotter.`;
 
   const siteUrl =
     process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";

@@ -96,7 +96,29 @@ export default async function sitemap() {
         }));
     } catch {}
 
-    return [...staticPages, ...marketPages, ...tagPages, ...thesisPages];
+    // Fetch top wallets for wallet pages
+    let walletPages = [];
+    try {
+      const walletsRes = await fetch(
+        `${API_URL}/api/wallets/top?limit=50`,
+        { cache: "no-store" }
+      );
+      if (walletsRes.ok) {
+        const walletsData = await walletsRes.json();
+        const wallets = walletsData?.wallets || walletsData || [];
+        walletPages = wallets.map((w) => {
+          const address = typeof w === "string" ? w : w.wallet;
+          return {
+            url: `${SITE_URL}/wallet/${address.toLowerCase()}`,
+            lastModified: new Date(),
+            changeFrequency: "daily",
+            priority: 0.6,
+          };
+        });
+      }
+    } catch {}
+
+    return [...staticPages, ...marketPages, ...tagPages, ...thesisPages, ...walletPages];
   } catch {
     return staticPages;
   }

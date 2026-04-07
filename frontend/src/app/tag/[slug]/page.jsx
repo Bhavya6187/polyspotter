@@ -63,8 +63,8 @@ export async function generateMetadata({ params, searchParams }) {
   const title =
     page > 1
       ? `${display} Prediction Market Smart Money Alerts (Page ${page})`
-      : `${display} — Polymarket Smart Money Trades & Whale Alerts`;
-  const description = tagDesc || `Notable trades and smart money alerts for ${display} markets on Polymarket.`;
+      : `${display} Prediction Markets — Smart Money Signals`;
+  const description = tagDesc || `Track smart money signals and whale trades on ${display} prediction markets. See notable bets from sharp bettors on Polymarket.`;
   const canonical =
     page > 1
       ? `/tag/${tagSlug(tag)}?page=${page}`
@@ -156,7 +156,17 @@ export default async function TagPage({ params, searchParams }) {
   };
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-6">
+    <>
+      {page > 1 && (
+        <link
+          rel="prev"
+          href={`/tag/${tagSlug(tag)}${page > 2 ? `?page=${page - 1}` : ""}`}
+        />
+      )}
+      {page < totalPages && (
+        <link rel="next" href={`/tag/${tagSlug(tag)}?page=${page + 1}`} />
+      )}
+      <main className="mx-auto max-w-6xl px-4 py-6">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionLd) }}
@@ -268,5 +278,6 @@ export default async function TagPage({ params, searchParams }) {
         </div>
       )}
     </main>
+    </>
   );
 }

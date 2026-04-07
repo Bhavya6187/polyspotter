@@ -47,7 +47,7 @@ export const metadata = {
     template: "%s | PolySpotter",
   },
   description:
-    "Track whale trades and smart money on Polymarket in real time. PolySpotter surfaces large bets, sharp bettors, and coordinated flow across prediction markets — updated every minute.",
+    "Track whale trades and smart money on Polymarket in real time. PolySpotter surfaces large bets ($3,000+), sharp bettors with proven win rates, and coordinated flow across prediction markets for politics, sports, crypto, and more.",
   keywords: [
     "Polymarket",
     "smart money",
@@ -93,6 +93,7 @@ export const metadata = {
       { url: "/favicon.ico", sizes: "32x32", type: "image/x-icon" },
       { url: "/favicon.svg", type: "image/svg+xml" },
     ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
   },
 };
 
@@ -105,6 +106,8 @@ export default function RootLayout({ children }) {
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
+        <link rel="preconnect" href="https://api.polyspotter.com" />
+        <link rel="dns-prefetch" href="https://api.polyspotter.com" />
       </head>
       <body className="min-h-screen" style={{ background: 'var(--surface-0)', color: 'var(--text-primary)' }}>
         {children}

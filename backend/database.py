@@ -31,6 +31,7 @@ def init_db():
             _migrate_category_to_tags(cur)
             _migrate_add_llm_fields(cur)
             _migrate_add_market_media(cur)
+            _migrate_add_seo_fields(cur)
         conn.commit()
     finally:
         conn.close()
@@ -84,3 +85,20 @@ def _migrate_add_market_media(cur):
         """, (col,))
         if not cur.fetchone():
             cur.execute(f"ALTER TABLE alerts ADD COLUMN {col} TEXT")
+
+
+def _migrate_add_seo_fields(cur):
+    """Add SEO content columns if they don't exist."""
+    for col, default in [
+        ("seo_title", "NULL"),
+        ("seo_description", "NULL"),
+        ("seo_summary", "NULL"),
+        ("seo_faqs", "'[]'"),
+        ("seo_generated_at", "NULL"),
+    ]:
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'alerts' AND column_name = %s
+        """, (col,))
+        if not cur.fetchone():
+            cur.execute(f"ALTER TABLE alerts ADD COLUMN {col} TEXT DEFAULT {default}")

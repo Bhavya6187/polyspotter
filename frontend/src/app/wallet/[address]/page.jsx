@@ -76,9 +76,17 @@ export async function generateMetadata({ params }) {
   );
   const description = descParts.join(" ");
 
+  const pnlStr = data?.total_pnl != null
+    ? new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: 0,
+      }).format(data.total_pnl)
+    : null;
+
   const title = tier
-    ? `${pseudonym} — ${tier.name} Polymarket Trader`
-    : `${pseudonym} — Polymarket Trader`;
+    ? `${pseudonym} — ${tier.name} Polymarket Trader${pnlStr ? ` | ${pnlStr} P&L` : ""}`
+    : `${pseudonym} — Polymarket Whale Trader`;
 
   return {
     title,
@@ -100,6 +108,21 @@ export default async function WalletPage({ params }) {
   const data = await getWalletData(address);
 
   if (!data) notFound();
+
+  // Fetch wallet's market tags for structured data
+  let walletTags = [];
+  try {
+    const alertsRes = await fetch(
+      `${API_URL}/api/alerts?wallet=${address}&per_page=50`,
+      { next: { revalidate: 300 } }
+    );
+    if (alertsRes.ok) {
+      const alertsData = await alertsRes.json();
+      walletTags = [...new Set(
+        (alertsData.alerts || []).flatMap((a) => a.tags || []).filter((t) => t && t !== "Hide From New")
+      )];
+    }
+  } catch {}
 
   const tier = computeTier(data.win_rate, data.total_invested);
   const pseudonym = walletPseudonym(address, tier);
@@ -127,6 +150,10 @@ export default async function WalletPage({ params }) {
         ? `${tier.name}-tier Polymarket trader`
         : "Polymarket trader",
       sameAs: [`https://polygonscan.com/address/${address}`],
+      knowsAbout: walletTags.map((t) => ({
+        "@type": "Thing",
+        name: t,
+      })),
     },
   };
 
@@ -206,6 +233,22 @@ export default async function WalletPage({ params }) {
               )}
             </dl>
           </section>
+
+          {data.recent_alerts?.length > 0 && (
+            <section>
+              <h2>Recent Markets</h2>
+              <ul>
+                {data.recent_alerts.map((a) => (
+                  <li key={a.id}>
+                    <a href={`/market/${a.condition_id}`}>
+                      {a.market_title || "Unknown Market"}
+                    </a>
+                    {a.llm_headline && ` — ${a.llm_headline}`}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
         </article>
       </div>
 

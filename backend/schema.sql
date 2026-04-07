@@ -38,6 +38,13 @@ CREATE TABLE IF NOT EXISTS alerts (
     -- LLM structured output: copy action (JSON object with outcome, side, entry_price, max_price)
     llm_copy_action TEXT DEFAULT '{}',
 
+    -- LLM-generated SEO content for market pages
+    seo_title       TEXT,
+    seo_description TEXT,
+    seo_summary     TEXT,
+    seo_faqs        TEXT DEFAULT '[]',   -- JSON array of {question, answer}
+    seo_generated_at TIMESTAMPTZ,
+
     -- timestamps
     scanned_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),  -- when polybot produced this
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),

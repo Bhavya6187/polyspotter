@@ -8,7 +8,7 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
 
 async function getHomeData() {
   try {
-    const [marketsRes, tagsRes, thesesRes] = await Promise.all([
+    const [marketsRes, tagsRes, thesesRes, walletsRes] = await Promise.all([
       fetch(`${API_URL}/api/alerts/by-market?page=1&per_page=20`, {
         next: { revalidate: 60 },
       }),
@@ -16,25 +16,28 @@ async function getHomeData() {
       fetch(`${API_URL}/api/theses?page=1&per_page=5`, {
         next: { revalidate: 60 },
       }),
+      fetch(`${API_URL}/api/wallets/top?limit=10`, { next: { revalidate: 60 } }),
     ]);
 
     const marketsData = marketsRes.ok ? await marketsRes.json() : null;
     const tagsData = tagsRes.ok ? await tagsRes.json() : null;
     const thesesData = thesesRes.ok ? await thesesRes.json() : null;
+    const walletsData = walletsRes.ok ? await walletsRes.json() : null;
 
     return {
       markets: marketsData?.markets || [],
       total: marketsData?.total || 0,
       tags: tagsData?.tags || tagsData || [],
       theses: thesesData?.theses || thesesData || [],
+      topWallets: walletsData?.wallets || [],
     };
   } catch {
-    return { markets: [], total: 0, tags: [], theses: [] };
+    return { markets: [], total: 0, tags: [], theses: [], topWallets: [] };
   }
 }
 
 export default async function HomePage() {
-  const { markets, total, tags, theses } = await getHomeData();
+  const { markets, total, tags, theses, topWallets } = await getHomeData();
 
   const visibleTags = (Array.isArray(tags) ? tags : []).filter((t) => {
     const name = typeof t === "string" ? t : t.tag;
@@ -103,6 +106,33 @@ export default async function HomePage() {
     ],
   };
 
+  const navLd = {
+    "@context": "https://schema.org",
+    "@type": "SiteNavigationElement",
+    name: "Main Navigation",
+    hasPart: [
+      { "@type": "WebPage", name: "Markets", url: `${SITE_URL}` },
+      ...visibleTags.slice(0, 8).map((t) => {
+        const name = typeof t === "string" ? t : t.tag;
+        const slug = name.toLowerCase().replace(/\s+/g, "-");
+        return { "@type": "WebPage", name, url: `${SITE_URL}/tag/${encodeURIComponent(slug)}` };
+      }),
+    ],
+  };
+
+  const breadcrumbLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      {
+        "@type": "ListItem",
+        position: 1,
+        name: "Home",
+        item: SITE_URL,
+      },
+    ],
+  };
+
   const usdFmt = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
@@ -118,6 +148,14 @@ export default async function HomePage() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(navLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
       />
 
       {/* Server-rendered SEO content — visible to crawlers, hidden for JS users */}
@@ -166,6 +204,22 @@ export default async function HomePage() {
               ))}
             </ol>
           </section>
+
+          {topWallets.length > 0 && (
+            <section>
+              <h2>Top Smart Money Wallets</h2>
+              <ol>
+                {topWallets.map((w) => (
+                  <li key={w.wallet}>
+                    <a href={`/wallet/${w.wallet}`}>
+                      {w.wallet.slice(0, 6)}...{w.wallet.slice(-4)}
+                    </a>{" "}
+                    — {w.alert_count} signal{w.alert_count !== 1 ? "s" : ""}
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
 
           <section>
             <h2>Frequently Asked Questions</h2>
