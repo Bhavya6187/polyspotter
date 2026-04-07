@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { computeTier, tierBgClass } from "../lib/tiers";
+import { computeTier } from "../lib/tiers";
 import { walletPseudonym } from "../lib/pseudonym";
 
-export default function WalletBadge({ wallet, winRate, totalPnl, totalInvested, compact = false }) {
+export default function WalletBadge({ wallet, winRate, totalInvested, compact = false }) {
   const tier = computeTier(winRate, totalInvested);
   const name = walletPseudonym(wallet, tier);
 
