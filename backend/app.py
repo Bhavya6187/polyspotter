@@ -826,77 +826,89 @@ def get_spotlight():
         return results
 
 
+_resolving_soon_cache: tuple[float, list] | None = None
+_RESOLVING_SOON_TTL = 60  # seconds
+
+
 @app.get("/api/resolving-soon")
 def get_resolving_soon():
-    """Alerts resolving within 6 hours, sorted by end_date ASC.
-    Falls back to top 5 soonest-resolving markets if none within 6 hours.
-    Excludes markets whose latest price is near 0 or 1 (effectively settled)."""
+    """Next 7 resolving markets, excluding settled ones. Cached for 60s."""
+    global _resolving_soon_cache
+    now = _time.time()
+    if _resolving_soon_cache and _resolving_soon_cache[0] > now:
+        return _resolving_soon_cache[1]
+
+    results = _fetch_resolving_soon()
+    _resolving_soon_cache = (now + _RESOLVING_SOON_TTL, results)
+    return results
+
+
+def _fetch_resolving_soon() -> list[dict]:
+    # Fetch more than 7 from DB so we still have enough after filtering settled
     with db() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT DISTINCT ON (COALESCE(a.event_slug, a.condition_id))
-                a.id, a.condition_id, a.market_title, a.end_date,
-                a.total_usd, a.composite_score, a.llm_copy_action, a.market_image
-            FROM alerts a
-            LEFT JOIN LATERAL (
-                SELECT p FROM price_candles pc
-                WHERE pc.condition_id = a.condition_id
-                ORDER BY pc.t DESC
-                LIMIT 1
-            ) latest_candle ON TRUE
-            WHERE a.end_date IS NOT NULL
-              AND a.end_date > NOW()
-              AND a.end_date <= NOW() + INTERVAL '6 hours'
-              AND latest_candle.p IS NOT NULL
-              AND latest_candle.p > 0.03 AND latest_candle.p < 0.97
-            ORDER BY COALESCE(a.event_slug, a.condition_id), a.composite_score DESC
-        """)
-        rows = cur.fetchall()
-
-        # Fallback: top 5 soonest-resolving markets
-        if not rows:
-            cur.execute("""
+            SELECT * FROM (
                 SELECT DISTINCT ON (COALESCE(a.event_slug, a.condition_id))
                     a.id, a.condition_id, a.market_title, a.end_date,
                     a.total_usd, a.composite_score, a.llm_copy_action, a.market_image
                 FROM alerts a
-                LEFT JOIN LATERAL (
-                    SELECT p FROM price_candles pc
-                    WHERE pc.condition_id = a.condition_id
-                    ORDER BY pc.t DESC
-                    LIMIT 1
-                ) latest_candle ON TRUE
-                WHERE a.end_date IS NOT NULL
-                  AND a.end_date > NOW()
-                  AND latest_candle.p IS NOT NULL
-                  AND latest_candle.p > 0.03 AND latest_candle.p < 0.97
+                WHERE a.end_date IS NOT NULL AND a.end_date > NOW()
                 ORDER BY COALESCE(a.event_slug, a.condition_id), a.composite_score DESC
-            """)
-            all_rows = cur.fetchall()
-            all_rows.sort(key=lambda r: r["end_date"])
-            rows = all_rows[:5]
+            ) sub
+            ORDER BY end_date ASC
+            LIMIT 20
+        """)
+        rows = cur.fetchall()
+    if not rows:
+        return []
 
-        results = []
-        for row in rows:
-            copy_action = row["llm_copy_action"]
-            if isinstance(copy_action, str):
-                try:
-                    copy_action = json.loads(copy_action)
-                except (json.JSONDecodeError, TypeError):
-                    copy_action = {}
-            results.append({
-                "id": row["id"],
-                "condition_id": row["condition_id"],
-                "market_title": row["market_title"],
-                "end_date": row["end_date"].isoformat() if row["end_date"] else None,
-                "total_usd": row["total_usd"],
-                "composite_score": row["composite_score"],
-                "dominant_side": copy_action.get("outcome") if copy_action else None,
-                "market_image": row["market_image"],
-            })
+    # Build results
+    results = []
+    for row in rows:
+        copy_action = row["llm_copy_action"]
+        if isinstance(copy_action, str):
+            try:
+                copy_action = json.loads(copy_action)
+            except (json.JSONDecodeError, TypeError):
+                copy_action = {}
+        results.append({
+            "id": row["id"],
+            "condition_id": row["condition_id"],
+            "market_title": row["market_title"],
+            "end_date": row["end_date"].isoformat() if row["end_date"] else None,
+            "total_usd": row["total_usd"],
+            "composite_score": row["composite_score"],
+            "dominant_side": copy_action.get("outcome") if copy_action else None,
+            "market_image": row["market_image"],
+        })
 
-        results.sort(key=lambda x: x["end_date"] or "")
-        return results
+    # Filter out settled markets via live Gamma prices, store candles
+    condition_ids = [r["condition_id"] for r in results if r["condition_id"]]
+    if condition_ids:
+        try:
+            gamma_resp = _requests.get(
+                f"{GAMMA_API}/markets",
+                params=[("condition_ids", cid) for cid in condition_ids],
+                timeout=10,
+            )
+            gamma_resp.raise_for_status()
+            settled = set()
+            for m in gamma_resp.json():
+                cid = m.get("conditionId") or m.get("condition_id")
+                prices = _parse_json_field(m, "outcomePrices")
+                if prices and max(float(p) for p in prices) > 0.95:
+                    settled.add(cid)
+            results = [r for r in results if r["condition_id"] not in settled]
+        except Exception:
+            pass
+
+    return results[:7]
+
+
+def _parse_json_field(obj: dict, key: str) -> list:
+    val = obj.get(key, "[]")
+    return json.loads(val) if isinstance(val, str) else val
 
 
 def _thesis_from_row(row: dict) -> dict:
