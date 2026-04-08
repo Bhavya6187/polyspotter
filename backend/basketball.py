@@ -89,14 +89,27 @@ TEAM_ALIASES: dict[str, str] = {
 }
 
 _VS_PATTERN = re.compile(r"^(.+?)\s+(?:vs\.?|v)\s+(.+)$", re.IGNORECASE)
+# Strip O/U, spread, moneyline, and other betting suffixes from team names
+_SUFFIX_PATTERN = re.compile(
+    r"[:\-–—]?\s*(?:O/U|Over/Under|Spread|ML|Moneyline|\+\d|\-\d)\b.*$",
+    re.IGNORECASE,
+)
 
 
 def parse_team_names(title: str) -> tuple[str, str] | None:
-    """Extract two team names from a market title like 'Clippers vs. Bucks'."""
+    """Extract two team names from a market title like 'Clippers vs. Bucks'.
+
+    Handles titles with betting suffixes like 'Nuggets: O/U 244.5' or
+    'Bucks -3.5' by stripping the suffix before returning.
+    """
     m = _VS_PATTERN.match(title.strip())
     if not m:
         return None
-    return m.group(1).strip(), m.group(2).strip()
+    name_a = _SUFFIX_PATTERN.sub("", m.group(1)).strip()
+    name_b = _SUFFIX_PATTERN.sub("", m.group(2)).strip()
+    if not name_a or not name_b:
+        return None
+    return name_a, name_b
 
 
 def resolve_tricode(name: str) -> str | None:
