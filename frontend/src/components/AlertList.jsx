@@ -408,6 +408,34 @@ function MarketGroupCard({ market, liveData, index }) {
         )}
       </div>
 
+      {/* Inline market stats */}
+      {liveMarket && (
+        <div className="flex gap-3 px-5 pb-2">
+          <div className="rounded-md px-3 py-1.5 text-center" style={{ background: "var(--surface-2)" }}>
+            <div className="text-xs" style={{ color: "var(--text-muted)" }}>Spread</div>
+            <div className="text-sm font-bold" style={{
+              color: (liveMarket.spread || 0) <= 0.02 ? "var(--bullish)" : "var(--text-primary)",
+            }}>
+              {((liveMarket.spread || 0) * 100).toFixed(1)}&cent;
+            </div>
+          </div>
+          <div className="rounded-md px-3 py-1.5 text-center" style={{ background: "var(--surface-2)" }}>
+            <div className="text-xs" style={{ color: "var(--text-muted)" }}>24h Vol</div>
+            <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+              {liveMarket.volume_24h ? `$${(liveMarket.volume_24h / 1000).toFixed(1)}K` : "\u2014"}
+            </div>
+          </div>
+          {liveMarket.liquidity > 0 && (
+            <div className="rounded-md px-3 py-1.5 text-center" style={{ background: "var(--surface-2)" }}>
+              <div className="text-xs" style={{ color: "var(--text-muted)" }}>Liquidity</div>
+              <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+                ${(liveMarket.liquidity / 1000).toFixed(1)}K
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Footer: tags + view market */}
       <div className="flex flex-wrap items-center gap-3 border-t px-5 py-3" style={{ borderColor: 'var(--border-subtle)' }}>
         {tags.length > 0 && (
