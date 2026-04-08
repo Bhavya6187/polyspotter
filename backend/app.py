@@ -1190,6 +1190,82 @@ def get_top_movers(limit: int = Query(default=6, ge=1, le=20)):
         ]
 
 
+@app.get("/api/briefing")
+def get_briefing(since: str = Query(default=None)):
+    """Briefing data since a given timestamp: new signal count, biggest move, hottest wallet."""
+    from datetime import timedelta
+
+    with db() as conn:
+        cur = conn.cursor()
+        if since:
+            try:
+                since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                since_dt = datetime.now(timezone.utc) - timedelta(hours=6)
+        else:
+            since_dt = datetime.now(timezone.utc) - timedelta(hours=6)
+        since_str = since_dt.isoformat()
+
+        cur.execute("SELECT COUNT(*) AS cnt FROM alerts WHERE created_at > %s", (since_str,))
+        new_signals = cur.fetchone()["cnt"]
+
+        cur.execute("""
+            SELECT a.market_title, a.condition_id, a.total_usd, a.market_image,
+                   (SELECT COUNT(DISTINCT at2.wallet) FROM alert_trades at2 WHERE at2.alert_id = a.id) AS wallet_count
+            FROM alerts a
+            WHERE a.created_at > %s
+            ORDER BY a.total_usd DESC
+            LIMIT 1
+        """, (since_str,))
+        biggest_row = cur.fetchone()
+        biggest_move = None
+        if biggest_row:
+            biggest_move = {
+                "market_title": biggest_row["market_title"],
+                "condition_id": biggest_row["condition_id"],
+                "total_usd": float(biggest_row["total_usd"]),
+                "market_image": biggest_row["market_image"],
+                "wallet_count": biggest_row["wallet_count"] or 0,
+            }
+
+        cur.execute("""
+            SELECT at2.wallet, COUNT(*) AS trade_count,
+                   wp.win_rate, wp.total_pnl, wp.total_invested
+            FROM alert_trades at2
+            JOIN alerts a ON at2.alert_id = a.id
+            LEFT JOIN wallet_profiles wp ON at2.wallet = wp.wallet
+            WHERE a.created_at > %s
+              AND wp.win_rate >= 0.6
+            GROUP BY at2.wallet, wp.win_rate, wp.total_pnl, wp.total_invested
+            ORDER BY trade_count DESC
+            LIMIT 1
+        """, (since_str,))
+        hot_row = cur.fetchone()
+        hot_wallet = None
+        if hot_row:
+            wr = float(hot_row["win_rate"]) if hot_row["win_rate"] else 0
+            invested = float(hot_row["total_invested"]) if hot_row["total_invested"] else 0
+            if wr >= 0.75 and invested >= 50000:
+                tier = "diamond"
+            elif wr >= 0.65 and invested >= 20000:
+                tier = "gold"
+            elif wr >= 0.55 and invested >= 5000:
+                tier = "silver"
+            else:
+                tier = "bronze"
+            hot_wallet = {
+                "wallet": hot_row["wallet"], "trade_count": hot_row["trade_count"],
+                "win_rate": wr, "tier": tier,
+            }
+
+        return {
+            "since": since_str,
+            "new_signals": new_signals,
+            "biggest_move": biggest_move,
+            "hot_wallet": hot_wallet,
+        }
+
+
 _resolving_soon_cache: tuple[float, list] | None = None
 _RESOLVING_SOON_TTL = 60  # seconds
 
