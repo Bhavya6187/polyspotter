@@ -1050,6 +1050,52 @@ def get_resolved_signals(limit: int = Query(default=5, ge=1, le=20)):
         return results
 
 
+@app.get("/api/flow/volume-spikes")
+def get_volume_spikes(limit: int = Query(default=5, ge=1, le=20)):
+    """Markets with above-average trade velocity right now (last 1h vs 7d avg)."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            WITH recent AS (
+                SELECT condition_id, market_title, market_image,
+                       COUNT(*) AS recent_count
+                FROM alerts a
+                JOIN alert_trades at2 ON at2.alert_id = a.id
+                WHERE at2.trade_timestamp > NOW() - INTERVAL '1 hour'
+                GROUP BY condition_id, market_title, market_image
+            ),
+            baseline AS (
+                SELECT a.condition_id,
+                       COUNT(*) / GREATEST(EXTRACT(EPOCH FROM (NOW() - MIN(at2.trade_timestamp))) / 3600, 1) AS avg_hourly
+                FROM alerts a
+                JOIN alert_trades at2 ON at2.alert_id = a.id
+                WHERE at2.trade_timestamp > NOW() - INTERVAL '7 days'
+                GROUP BY a.condition_id
+            )
+            SELECT r.condition_id, r.market_title, r.market_image,
+                   r.recent_count,
+                   COALESCE(b.avg_hourly, 1) AS avg_hourly,
+                   r.recent_count / GREATEST(COALESCE(b.avg_hourly, 1), 1) AS spike_ratio
+            FROM recent r
+            LEFT JOIN baseline b ON r.condition_id = b.condition_id
+            WHERE r.recent_count / GREATEST(COALESCE(b.avg_hourly, 1), 1) > 1.5
+            ORDER BY spike_ratio DESC
+            LIMIT %s
+        """, (limit,))
+        rows = cur.fetchall()
+        return [
+            {
+                "condition_id": row["condition_id"],
+                "market_title": row["market_title"],
+                "market_image": row["market_image"],
+                "recent_count": row["recent_count"],
+                "avg_hourly": round(float(row["avg_hourly"]), 1),
+                "spike_ratio": round(float(row["spike_ratio"]), 1),
+            }
+            for row in rows
+        ]
+
+
 _resolving_soon_cache: tuple[float, list] | None = None
 _RESOLVING_SOON_TTL = 60  # seconds
 
