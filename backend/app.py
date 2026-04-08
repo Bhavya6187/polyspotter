@@ -1096,6 +1096,48 @@ def get_volume_spikes(limit: int = Query(default=5, ge=1, le=20)):
         ]
 
 
+@app.get("/api/flow/active-wallets")
+def get_active_wallets(limit: int = Query(default=5, ge=1, le=20)):
+    """Sharp wallets (win_rate >= 0.6) with multiple trades in the last 6 hours."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT at2.wallet,
+                   COUNT(DISTINCT a.id) AS trade_count,
+                   wp.win_rate, wp.total_pnl, wp.total_invested
+            FROM alert_trades at2
+            JOIN alerts a ON at2.alert_id = a.id
+            JOIN wallet_profiles wp ON at2.wallet = wp.wallet
+            WHERE at2.trade_timestamp > NOW() - INTERVAL '6 hours'
+              AND wp.win_rate >= 0.6
+              AND wp.total_invested > 1000
+            GROUP BY at2.wallet, wp.win_rate, wp.total_pnl, wp.total_invested
+            HAVING COUNT(DISTINCT a.id) >= 2
+            ORDER BY wp.win_rate DESC, trade_count DESC
+            LIMIT %s
+        """, (limit,))
+        rows = cur.fetchall()
+        results = []
+        for row in rows:
+            wr = float(row["win_rate"]) if row["win_rate"] else 0
+            invested = float(row["total_invested"]) if row["total_invested"] else 0
+            if wr >= 0.75 and invested >= 50000:
+                tier = "diamond"
+            elif wr >= 0.65 and invested >= 20000:
+                tier = "gold"
+            elif wr >= 0.55 and invested >= 5000:
+                tier = "silver"
+            else:
+                tier = "bronze"
+            results.append({
+                "wallet": row["wallet"], "trade_count": row["trade_count"],
+                "win_rate": wr,
+                "total_pnl": float(row["total_pnl"]) if row["total_pnl"] else 0,
+                "tier": tier,
+            })
+        return results
+
+
 _resolving_soon_cache: tuple[float, list] | None = None
 _RESOLVING_SOON_TTL = 60  # seconds
 
