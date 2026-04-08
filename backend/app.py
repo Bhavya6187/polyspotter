@@ -1138,6 +1138,58 @@ def get_active_wallets(limit: int = Query(default=5, ge=1, le=20)):
         return results
 
 
+@app.get("/api/markets/top-movers")
+def get_top_movers(limit: int = Query(default=6, ge=1, le=20)):
+    """Markets with biggest 24h price changes among tracked markets."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            WITH current_prices AS (
+                SELECT DISTINCT ON (condition_id) condition_id, p AS current_price, t
+                FROM price_candles
+                ORDER BY condition_id, t DESC
+            ),
+            old_prices AS (
+                SELECT DISTINCT ON (condition_id) condition_id, p AS old_price
+                FROM price_candles
+                WHERE t <= EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours')
+                ORDER BY condition_id, t DESC
+            ),
+            changes AS (
+                SELECT cp.condition_id, cp.current_price, op.old_price,
+                       cp.current_price - op.old_price AS price_change,
+                       CASE WHEN op.old_price > 0
+                            THEN ROUND(((cp.current_price - op.old_price) / op.old_price * 100)::numeric, 1)
+                            ELSE 0 END AS change_pct
+                FROM current_prices cp
+                JOIN old_prices op ON cp.condition_id = op.condition_id
+                WHERE cp.current_price > 0.03 AND cp.current_price < 0.97
+            )
+            SELECT c.condition_id, a.market_title, a.market_image,
+                   c.current_price, c.change_pct
+            FROM changes c
+            JOIN LATERAL (
+                SELECT market_title, market_image FROM alerts
+                WHERE condition_id = c.condition_id
+                ORDER BY created_at DESC LIMIT 1
+            ) a ON TRUE
+            WHERE ABS(c.change_pct) >= 2
+            ORDER BY ABS(c.change_pct) DESC
+            LIMIT %s
+        """, (limit,))
+        rows = cur.fetchall()
+        return [
+            {
+                "condition_id": row["condition_id"],
+                "market_title": row["market_title"],
+                "market_image": row["market_image"],
+                "current_price": float(row["current_price"]),
+                "change_pct": float(row["change_pct"]),
+            }
+            for row in rows
+        ]
+
+
 _resolving_soon_cache: tuple[float, list] | None = None
 _RESOLVING_SOON_TTL = 60  # seconds
 
