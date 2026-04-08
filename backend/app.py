@@ -51,6 +51,8 @@ from models import (
     PricePoint,
     HolderEntry,
     MarketHoldersData,
+    TrackRecordOut,
+    ResolvedSignalOut,
 )
 
 
@@ -930,6 +932,65 @@ def get_spotlight():
                 "market_image": row["market_image"],
             })
         return results
+
+
+@app.get("/api/signals/track-record", response_model=TrackRecordOut)
+def get_signal_track_record(days: int = Query(default=7, ge=1, le=90)):
+    """Track record of signals: win/loss/P&L for resolved markets in the last N days."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT a.id, a.llm_copy_action, a.total_usd,
+                   latest_candle.p AS latest_price
+            FROM alerts a
+            LEFT JOIN LATERAL (
+                SELECT p FROM price_candles pc
+                WHERE pc.condition_id = a.condition_id
+                ORDER BY pc.t DESC
+                LIMIT 1
+            ) latest_candle ON TRUE
+            WHERE a.end_date IS NOT NULL
+              AND a.end_date <= NOW()
+              AND a.end_date > NOW() - make_interval(days => %s)
+              AND a.llm_copy_action IS NOT NULL
+              AND latest_candle.p IS NOT NULL
+              AND (latest_candle.p >= 0.95 OR latest_candle.p <= 0.05)
+        """, (days,))
+        rows = cur.fetchall()
+        wins = 0
+        losses = 0
+        total_pnl = 0.0
+        for row in rows:
+            copy_action = row["llm_copy_action"]
+            if isinstance(copy_action, str):
+                try:
+                    copy_action = json.loads(copy_action)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+            if not copy_action or "side" not in copy_action or "entry_price" not in copy_action:
+                continue
+            side = copy_action.get("side", "").upper()
+            entry_price = float(copy_action.get("entry_price", 0))
+            latest_price = float(row["latest_price"])
+            if side == "BUY":
+                won = latest_price >= 0.95
+                pnl_per_share = (1.0 - entry_price) if won else (-entry_price)
+            else:
+                won = latest_price <= 0.05
+                pnl_per_share = (1.0 - entry_price) if won else (-entry_price)
+            if won:
+                wins += 1
+            else:
+                losses += 1
+            if entry_price > 0:
+                shares = float(row["total_usd"]) / entry_price
+                total_pnl += pnl_per_share * shares
+        total = wins + losses
+        return TrackRecordOut(
+            wins=wins, losses=losses, total=total,
+            win_rate=round(wins / total, 2) if total > 0 else 0.0,
+            hypothetical_pnl=round(total_pnl, 2), days=days,
+        )
 
 
 _resolving_soon_cache: tuple[float, list] | None = None

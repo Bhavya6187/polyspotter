@@ -276,6 +276,29 @@ class SpotlightAlert(BaseModel):
     llm_copy_action: dict | None = None
 
 
+class TrackRecordOut(BaseModel):
+    wins: int
+    losses: int
+    total: int
+    win_rate: float
+    hypothetical_pnl: float
+    days: int
+
+
+class ResolvedSignalOut(BaseModel):
+    id: str
+    market_title: str
+    condition_id: str
+    outcome: str
+    signal_side: str
+    signal_was_correct: bool
+    entry_price: float
+    pnl_per_share: float
+    total_usd: float
+    resolved_at: str | None = None
+    market_image: str | None = None
+
+
 # -- Live market data (proxied from Polymarket CLOB/Gamma APIs) ----------------
 
 class OutcomePrice(BaseModel):
