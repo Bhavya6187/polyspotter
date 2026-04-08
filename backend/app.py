@@ -970,14 +970,12 @@ def get_signal_track_record(days: int = Query(default=7, ge=1, le=90)):
             if not copy_action or "side" not in copy_action or "entry_price" not in copy_action:
                 continue
             side = copy_action.get("side", "").upper()
+            if side != "BUY":
+                continue
             entry_price = float(copy_action.get("entry_price", 0))
             latest_price = float(row["latest_price"])
-            if side == "BUY":
-                won = latest_price >= 0.95
-                pnl_per_share = (1.0 - entry_price) if won else (-entry_price)
-            else:
-                won = latest_price <= 0.05
-                pnl_per_share = (1.0 - entry_price) if won else (-entry_price)
+            won = latest_price >= 0.95
+            pnl_per_share = (1.0 - entry_price) if won else (-entry_price)
             if won:
                 wins += 1
             else:
@@ -1029,15 +1027,13 @@ def get_resolved_signals(limit: int = Query(default=5, ge=1, le=20)):
             if not copy_action or "side" not in copy_action:
                 continue
             side = copy_action.get("side", "").upper()
+            if side != "BUY":
+                continue
             entry_price = float(copy_action.get("entry_price", 0))
             outcome = copy_action.get("outcome", "")
             latest_price = float(row["latest_price"])
-            if side == "BUY":
-                won = latest_price >= 0.95
-                pnl = (1.0 - entry_price) if won else (-entry_price)
-            else:
-                won = latest_price <= 0.05
-                pnl = (1.0 - entry_price) if won else (-entry_price)
+            won = latest_price >= 0.95
+            pnl = (1.0 - entry_price) if won else (-entry_price)
             results.append(ResolvedSignalOut(
                 id=row["id"], market_title=row["market_title"],
                 condition_id=row["condition_id"], outcome=outcome,
