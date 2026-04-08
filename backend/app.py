@@ -359,16 +359,17 @@ def ingest(payload: IngestPayload):
 
         # Generate SEO content for markets that don't have it yet
         cur.execute("""
-            SELECT DISTINCT condition_id, MAX(market_title) as market_title,
+            SELECT condition_id, MAX(market_title) as market_title,
                    MAX(market_description) as market_description,
                    MAX(tags) as tags, MAX(end_date::text) as end_date,
-                   SUM(total_usd) as total_usd, COUNT(*) as alert_count
+                   SUM(total_usd) as total_usd, COUNT(*) as alert_count,
+                   MAX(scanned_at) as latest_scanned_at
             FROM alerts
             WHERE condition_id IS NOT NULL
               AND seo_generated_at IS NULL
               AND market_title IS NOT NULL
             GROUP BY condition_id
-            ORDER BY MAX(scanned_at) DESC
+            ORDER BY latest_scanned_at DESC
             LIMIT 20
         """)
         seo_candidates = cur.fetchall()
