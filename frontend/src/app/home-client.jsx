@@ -8,8 +8,9 @@ import Pagination from "../components/Pagination";
 import Ticker from "../components/Ticker";
 import ThemeToggle from "../components/ThemeToggle";
 import HeroSpotlight from "../components/HeroSpotlight";
-import ResolvingSoonStrip from "../components/ResolvingSoonStrip";
 import SearchBar from "../components/SearchBar";
+import BriefingBanner from "../components/BriefingBanner";
+import DashboardSidebar from "../components/DashboardSidebar";
 
 function formatRelativeTime(date) {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -117,7 +118,7 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
 
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-6">
+    <main className="mx-auto max-w-7xl px-4 py-6">
       {/* Header */}
       <header className="mb-8">
         <div className="flex items-center justify-between">
@@ -177,46 +178,61 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
         <HeroSpotlight />
       </section>
 
-      {/* Live ticker — hidden on mobile, duplicates feed */}
+      {/* Live ticker — hidden on mobile */}
       <section aria-label="Live ticker" className="hidden sm:block mb-5 sm:mx-0 sm:rounded-xl sm:overflow-hidden">
         <Ticker />
       </section>
 
-      {/* Resolving Soon */}
-      <section aria-label="Resolving soon" className="mb-5">
-        <ResolvingSoonStrip />
+      {/* Briefing Banner */}
+      <section aria-label="Briefing">
+        <BriefingBanner />
       </section>
 
-      {/* Filters */}
-      <section aria-label="Filters" className="mb-5">
-        <Filters
-          tags={tags}
-          filters={filters}
-          onFilterChange={handleFilterChange}
-        />
+      {/* Mobile: Sidebar strips above feed */}
+      <section aria-label="Market overview" className="block lg:hidden mb-5">
+        <DashboardSidebar />
       </section>
 
-      {/* Alert List */}
-      <section aria-label="Notable trades">
-        <h2 className="sr-only" aria-hidden="true">Notable Trades</h2>
-        <AlertList
-          markets={markets}
-          filters={filters}
-          loading={loading}
-          theses={theses}
-          sortMode={filters.sort || "smart"}
-        />
-      </section>
+      {/* Two-column layout */}
+      <div className="flex gap-6">
+        {/* Main feed column (~65%) */}
+        <div className="flex-1 min-w-0">
+          {/* Filters */}
+          <section aria-label="Filters" className="mb-5">
+            <Filters
+              tags={tags}
+              filters={filters}
+              onFilterChange={handleFilterChange}
+            />
+          </section>
 
+          {/* Alert List */}
+          <section aria-label="Notable trades">
+            <h2 className="sr-only" aria-hidden="true">Notable Trades</h2>
+            <AlertList
+              markets={markets}
+              filters={filters}
+              loading={loading}
+              theses={theses}
+              sortMode={filters.sort || "smart"}
+            />
+          </section>
 
-      {/* Pagination */}
-      <nav aria-label="Pagination">
-        <Pagination
-          page={page}
-          totalPages={totalPages}
-          onPageChange={handlePageChange}
-        />
-      </nav>
+          {/* Pagination */}
+          <nav aria-label="Pagination">
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              onPageChange={handlePageChange}
+            />
+          </nav>
+        </div>
+
+        {/* Sidebar column (~35%) — desktop only */}
+        <div className="hidden lg:block" style={{ width: "340px", flexShrink: 0 }}>
+          <DashboardSidebar />
+        </div>
+      </div>
     </main>
   );
 }
