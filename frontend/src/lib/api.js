@@ -87,3 +87,27 @@ export function fetchMarketTheses(conditionId) {
 export function fetchBasketballData(conditionId, { title = "", event_slug = "" } = {}) {
   return request(`/api/market/${conditionId}/basketball`, { title, event_slug });
 }
+
+export function fetchTrackRecord(days = 7) {
+  return request("/api/signals/track-record", { days });
+}
+
+export function fetchResolvedSignals(limit = 5) {
+  return request("/api/signals/resolved", { limit });
+}
+
+export function fetchVolumeSpikes(limit = 5) {
+  return request("/api/flow/volume-spikes", { limit });
+}
+
+export function fetchActiveWallets(limit = 5) {
+  return request("/api/flow/active-wallets", { limit });
+}
+
+export function fetchTopMovers(limit = 6) {
+  return request("/api/markets/top-movers", { limit });
+}
+
+export function fetchBriefing(since = null) {
+  return request("/api/briefing", { since: since || undefined });
+}
