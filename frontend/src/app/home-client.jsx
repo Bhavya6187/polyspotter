@@ -31,6 +31,7 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
     tag: "",
     resolvesIn: "",
     minScore: "",
+    sort: "smart",
   });
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(() => new Date());
@@ -203,6 +204,7 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
           filters={filters}
           loading={loading}
           theses={theses}
+          sortMode={filters.sort || "smart"}
         />
       </section>
 

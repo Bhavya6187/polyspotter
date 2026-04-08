@@ -162,9 +162,45 @@ function AlertEntry({ alert, liveData }) {
             </span>
           </span>
         )}
+        <Link
+          href={`/market/${marketSlug(alert.market_title, alert.condition_id)}`}
+          className="text-xs ml-auto hover:opacity-70 transition-opacity"
+          style={{ color: "var(--text-muted)" }}
+        >
+          View market →
+        </Link>
       </div>
     </div>
   );
+}
+
+function computeSmartScore(market) {
+  const now = Date.now();
+  const bestAlert = market.alerts?.[0] || market;
+  const compositeScore = market.max_score || bestAlert.composite_score || 1;
+
+  // Urgency multiplier based on time to resolution
+  let urgencyMultiplier = 1;
+  if (market.end_date) {
+    const hoursLeft = (new Date(market.end_date) - now) / 3600000;
+    if (hoursLeft <= 0) urgencyMultiplier = 0.1;
+    else if (hoursLeft < 1) urgencyMultiplier = 5;
+    else if (hoursLeft < 6) urgencyMultiplier = 3;
+    else if (hoursLeft < 24) urgencyMultiplier = 2;
+    else if (hoursLeft < 168) urgencyMultiplier = 1.5;
+  }
+
+  // Recency factor based on signal age
+  let recencyFactor = 0.5;
+  const scannedAt = bestAlert.scanned_at || bestAlert.created_at || market.scanned_at;
+  if (scannedAt) {
+    const hoursOld = (now - new Date(scannedAt)) / 3600000;
+    if (hoursOld < 1) recencyFactor = 1.0;
+    else if (hoursOld < 6) recencyFactor = 0.9;
+    else if (hoursOld < 24) recencyFactor = 0.7;
+  }
+
+  return compositeScore * urgencyMultiplier * recencyFactor;
 }
 
 /** Pick the best alert: most recent first, highest score as tiebreaker. */
@@ -223,11 +259,21 @@ function MarketGroupCard({ market, liveData, index }) {
   const liveOutcome = liveMarket?.outcomes?.find((o) => o.name === alertOutcome);
   const currentPrice = liveOutcome?.price ?? null;
 
+  // Urgency & type borders
+  const hoursToEnd = market.end_date ? (new Date(market.end_date) - Date.now()) / 3600000 : Infinity;
+  const isCluster = market.alerts?.some(a => a.alert_type === "cluster");
+  const borderLeftColor = hoursToEnd <= 6 && hoursToEnd > 0
+    ? "var(--bearish)"
+    : isCluster
+    ? "#bc8cff"
+    : "transparent";
+
   // Card border/glow style based on signal strength
   const cardStyle = {
     borderColor: isStrong ? 'rgba(0, 194, 106, 0.3)' : 'var(--border)',
     background: isHero ? 'var(--surface-card)' : 'var(--surface-card)',
     boxShadow: isStrong ? 'var(--glow-medium)' : 'none',
+    borderLeft: `3px solid ${borderLeftColor}`,
   };
 
   return (
@@ -395,7 +441,7 @@ function MarketGroupCard({ market, liveData, index }) {
   );
 }
 
-export default function AlertList({ markets, filters, loading, theses = [] }) {
+export default function AlertList({ markets, filters, loading, theses = [], sortMode = "smart" }) {
   const [liveData, setLiveData] = useState({});
 
   useEffect(() => {
@@ -454,12 +500,27 @@ export default function AlertList({ markets, filters, loading, theses = [] }) {
     : markets;
 
   const filtered = [...afterResolve].sort((a, b) => {
-    const aAlert = pickBestAlert(a.alerts);
-    const bAlert = pickBestAlert(b.alerts);
-    const aTime = aAlert?.created_at ? new Date(aAlert.created_at).getTime() : 0;
-    const bTime = bAlert?.created_at ? new Date(bAlert.created_at).getTime() : 0;
-    if (bTime !== aTime) return bTime - aTime;
-    return (bAlert?.composite_score || 0) - (aAlert?.composite_score || 0);
+    switch (sortMode) {
+      case "smart":
+        return computeSmartScore(b) - computeSmartScore(a);
+      case "newest": {
+        const aAlert = pickBestAlert(a.alerts);
+        const bAlert = pickBestAlert(b.alerts);
+        const aTime = aAlert?.created_at ? new Date(aAlert.created_at).getTime() : 0;
+        const bTime = bAlert?.created_at ? new Date(bAlert.created_at).getTime() : 0;
+        if (bTime !== aTime) return bTime - aTime;
+        return (bAlert?.composite_score || 0) - (aAlert?.composite_score || 0);
+      }
+      case "biggest":
+        return (b.total_usd || 0) - (a.total_usd || 0);
+      case "closing": {
+        const aEnd = a.end_date ? new Date(a.end_date) : new Date("2099-01-01");
+        const bEnd = b.end_date ? new Date(b.end_date) : new Date("2099-01-01");
+        return aEnd - bEnd;
+      }
+      default:
+        return computeSmartScore(b) - computeSmartScore(a);
+    }
   });
 
   if (filtered.length === 0) {

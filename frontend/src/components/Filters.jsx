@@ -3,6 +3,13 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 
+const SORT_OPTIONS = [
+  { label: "Smart", value: "smart" },
+  { label: "Newest", value: "newest" },
+  { label: "Biggest $", value: "biggest" },
+  { label: "Closing Soon", value: "closing" },
+];
+
 const RESOLVE_OPTIONS = [
   { label: "Any", value: "" },
   { label: "< 6h", value: "6h" },
@@ -93,6 +100,21 @@ export default function Filters({ tags, filters, onFilterChange }) {
 
   const filterRows = (
     <div className="flex flex-col gap-3">
+      {/* Row 0: Sort */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold uppercase tracking-widest mr-1" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-muted)', fontSize: '0.6rem' }}>
+          Sort
+        </span>
+        {SORT_OPTIONS.map((opt) => (
+          <Pill
+            key={opt.value}
+            label={opt.label}
+            active={(filters.sort || "smart") === opt.value}
+            onClick={() => onFilterChange({ ...filters, sort: opt.value })}
+          />
+        ))}
+      </div>
+
       {/* Row 1: Resolution window */}
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-semibold uppercase tracking-widest mr-1" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-muted)', fontSize: '0.6rem' }}>
