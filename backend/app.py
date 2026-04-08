@@ -993,6 +993,63 @@ def get_signal_track_record(days: int = Query(default=7, ge=1, le=90)):
         )
 
 
+@app.get("/api/signals/resolved", response_model=list[ResolvedSignalOut])
+def get_resolved_signals(limit: int = Query(default=5, ge=1, le=20)):
+    """Recently resolved markets that had signals, with outcomes."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT a.id, a.market_title, a.condition_id, a.llm_copy_action,
+                   a.total_usd, a.end_date, a.market_image,
+                   latest_candle.p AS latest_price
+            FROM alerts a
+            LEFT JOIN LATERAL (
+                SELECT p FROM price_candles pc
+                WHERE pc.condition_id = a.condition_id
+                ORDER BY pc.t DESC
+                LIMIT 1
+            ) latest_candle ON TRUE
+            WHERE a.end_date IS NOT NULL
+              AND a.end_date <= NOW()
+              AND a.llm_copy_action IS NOT NULL
+              AND latest_candle.p IS NOT NULL
+              AND (latest_candle.p >= 0.95 OR latest_candle.p <= 0.05)
+            ORDER BY a.end_date DESC
+            LIMIT %s
+        """, (limit,))
+        rows = cur.fetchall()
+        results = []
+        for row in rows:
+            copy_action = row["llm_copy_action"]
+            if isinstance(copy_action, str):
+                try:
+                    copy_action = json.loads(copy_action)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+            if not copy_action or "side" not in copy_action:
+                continue
+            side = copy_action.get("side", "").upper()
+            entry_price = float(copy_action.get("entry_price", 0))
+            outcome = copy_action.get("outcome", "")
+            latest_price = float(row["latest_price"])
+            if side == "BUY":
+                won = latest_price >= 0.95
+                pnl = (1.0 - entry_price) if won else (-entry_price)
+            else:
+                won = latest_price <= 0.05
+                pnl = (1.0 - entry_price) if won else (-entry_price)
+            results.append(ResolvedSignalOut(
+                id=row["id"], market_title=row["market_title"],
+                condition_id=row["condition_id"], outcome=outcome,
+                signal_side=side, signal_was_correct=won,
+                entry_price=entry_price, pnl_per_share=round(pnl, 4),
+                total_usd=float(row["total_usd"]),
+                resolved_at=row["end_date"].isoformat() if row["end_date"] else None,
+                market_image=row["market_image"],
+            ))
+        return results
+
+
 _resolving_soon_cache: tuple[float, list] | None = None
 _RESOLVING_SOON_TTL = 60  # seconds
 
