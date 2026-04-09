@@ -75,7 +75,7 @@ function BowlingTable({ bowling }) {
   );
 }
 
-export default function CricketScorecard({ innings = [], home, away }) {
+export default function CricketScorecard({ innings = [] }) {
   const [activeTab, setActiveTab] = useState(0);
 
   if (!innings || innings.length === 0) return null;
