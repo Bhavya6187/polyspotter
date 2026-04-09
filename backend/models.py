@@ -459,3 +459,105 @@ class GameData(BaseModel):
     away_pregame: PreGameTeamData | None = None
     venue: str | None = None
     broadcast: str | None = None
+
+
+# -- Cricket game data (proxied from ESPN Cricket API) -------------------------
+
+class CricketTeam(BaseModel):
+    name: str
+    short_name: str = ""          # e.g. "GT", "DC"
+    score: str = ""               # e.g. "156/9"
+    overs: str = ""               # e.g. "20.0"
+    logo_url: str | None = None
+
+class BatsmanEntry(BaseModel):
+    name: str
+    runs: int = 0
+    balls: int = 0
+    fours: int = 0
+    sixes: int = 0
+    strike_rate: float = 0.0
+    how_out: str = ""             # e.g. "c Kohli b Bumrah" or "not out"
+
+class BowlerEntry(BaseModel):
+    name: str
+    overs: str = "0"
+    maidens: int = 0
+    runs: int = 0
+    wickets: int = 0
+    economy: float = 0.0
+
+class FoWEntry(BaseModel):
+    wicket_num: int
+    score: int
+    over: str = ""
+    batsman: str = ""
+
+class CricketInnings(BaseModel):
+    team: str
+    score: int = 0
+    overs: str = ""
+    wickets: int = 0
+    batting: list[BatsmanEntry] = []
+    bowling: list[BowlerEntry] = []
+    fall_of_wickets: list[FoWEntry] = []
+
+class BallEvent(BaseModel):
+    over: int = 0
+    ball_in_over: int = 0
+    batsman: str = ""
+    bowler: str = ""
+    runs: int = 0
+    extras: int = 0
+    is_boundary: bool = False
+    is_wicket: bool = False
+    commentary_short: str = ""
+    commentary_detail: str = ""
+    score_after: str = ""
+
+class CricketOdds(BaseModel):
+    provider: str = "Bet 365"
+    home_odds: str = ""           # fractional e.g. "24/25" or decimal
+    away_odds: str = ""
+
+class CricketPartnership(BaseModel):
+    runs: int = 0
+    balls: int = 0
+    batsman1: str = ""
+    batsman2: str = ""
+
+class CricketSquadPlayer(BaseModel):
+    name: str
+    role: str = ""                # "batsman", "bowler", "allrounder", "wicketkeeper batter"
+
+class CricketHeadToHead(BaseModel):
+    home_wins: int = 0
+    away_wins: int = 0
+    total: int = 0
+
+class CricketVenue(BaseModel):
+    name: str = ""
+    city: str = ""
+
+class CricketToss(BaseModel):
+    winner: str = ""
+    decision: str = ""            # "bat" or "field"
+
+class CricketGameData(BaseModel):
+    match_id: str = ""
+    espn_match_id: str | None = None
+    status: str = "pre"           # "pre", "live", "complete"
+    match_time: str | None = None # ISO datetime
+    status_text: str = ""         # e.g. "Gujarat Titans won by 5 wickets"
+    home: CricketTeam
+    away: CricketTeam
+    toss: CricketToss | None = None
+    venue: CricketVenue | None = None
+    odds: CricketOdds | None = None
+    innings: list[CricketInnings] = []
+    partnership: CricketPartnership | None = None
+    run_rate: float | None = None
+    required_rate: float | None = None
+    balls: list[BallEvent] = []
+    squads: dict[str, list[CricketSquadPlayer]] = {}  # {"home": [...], "away": [...]}
+    head_to_head: CricketHeadToHead | None = None
