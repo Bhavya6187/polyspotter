@@ -223,24 +223,34 @@ def _parse_teams_from_header(header: dict) -> tuple[dict | None, dict | None]:
     return home_info, away_info
 
 
-def _parse_odds(pickcenter: list | None) -> CricketOdds | None:
-    """Parse Bet 365 odds from ESPN pickcenter array."""
-    if not pickcenter:
+def _parse_odds(odds_data: list | None) -> CricketOdds | None:
+    """Parse Bet 365 odds from ESPN summary 'odds' array.
+
+    ESPN cricket returns odds at the top level of the summary response (not
+    under 'pickcenter' like basketball). Each item has the shape:
+        {
+          "type": "ToWIN",
+          "provider": {"name": "Bet 365", ...},
+          "awayTeamOdds": {"odds": {"summary": "19/25"}, "team": {...}},
+          "homeTeamOdds": {"odds": {"summary": "24/25"}, "team": {...}}
+        }
+    """
+    if not odds_data:
         return None
     pick = None
-    for p in pickcenter:
+    for p in odds_data:
         provider_name = p.get("provider", {}).get("name", "")
         if "365" in provider_name or "bet" in provider_name.lower():
             pick = p
             break
-    if pick is None and pickcenter:
-        pick = pickcenter[0]
+    if pick is None and odds_data:
+        pick = odds_data[0]
     if not pick:
         return None
 
     provider = pick.get("provider", {}).get("name", "Unknown")
-    home_odds = pick.get("homeTeamOdds", {}).get("summary", "")
-    away_odds = pick.get("awayTeamOdds", {}).get("summary", "")
+    home_odds = pick.get("homeTeamOdds", {}).get("odds", {}).get("summary", "")
+    away_odds = pick.get("awayTeamOdds", {}).get("odds", {}).get("summary", "")
 
     if not home_odds and not away_odds:
         return None
@@ -304,25 +314,37 @@ def _parse_toss(game_info: dict | None) -> CricketToss | None:
     return CricketToss(winner=winner, decision=decision)
 
 
-def _parse_squads(rosters: list | None) -> dict[str, list[CricketSquadPlayer]]:
-    """Parse squad lists from ESPN rosters/squads array."""
-    if not rosters:
+def _parse_squads(squads_data: list | None) -> dict[str, list[CricketSquadPlayer]]:
+    """Parse squad lists from ESPN summary 'squads' array.
+
+    ESPN cricket returns squads at the top level of the summary response with
+    the shape:
+        [
+          {
+            "team": {"abbreviation": "KKR", ...},
+            "athletes": [
+              {"displayName": "...", "position": {"name": "Top-order batter"}, ...},
+              ...
+            ]
+          },
+          ...
+        ]
+    """
+    if not squads_data:
         return {}
     result: dict[str, list[CricketSquadPlayer]] = {}
-    for team_block in rosters:
+    for team_block in squads_data:
         team = team_block.get("team", {})
         abbr = _normalize_espn_abbr(team.get("abbreviation", ""))
         players = []
-        for roster_group in team_block.get("roster", []):
-            for player in roster_group.get("roster", roster_group.get("athletes", [])):
-                # Handle different ESPN response shapes
-                if isinstance(player, dict):
-                    athlete = player.get("athlete", player)
-                    name = athlete.get("displayName", athlete.get("fullName", ""))
-                    pos = athlete.get("position", {})
-                    role = pos.get("name", "") if isinstance(pos, dict) else str(pos)
-                    if name:
-                        players.append(CricketSquadPlayer(name=name, role=role))
+        for athlete in team_block.get("athletes", []):
+            if not isinstance(athlete, dict):
+                continue
+            name = athlete.get("displayName", athlete.get("fullName", ""))
+            pos = athlete.get("position", {})
+            role = pos.get("name", "") if isinstance(pos, dict) else str(pos)
+            if name:
+                players.append(CricketSquadPlayer(name=name, role=role))
         if players:
             result[abbr] = players
     return result
@@ -571,7 +593,7 @@ def get_cricket_data(
 
     odds = _cache_get(match_id, "odds")
     if odds is None:
-        odds = _parse_odds(summary.get("pickcenter"))
+        odds = _parse_odds(summary.get("odds"))
         if odds:
             _cache_set(match_id, "odds", odds)
 
@@ -594,10 +616,10 @@ def get_cricket_data(
         if head_to_head:
             _cache_set(match_id, "head_to_head", head_to_head)
 
-    # Squads
+    # Squads (ESPN cricket returns squads at top level, not rosters)
     squads_raw = _cache_get(match_id, "squads")
     if squads_raw is None:
-        squads_raw = _parse_squads(summary.get("rosters"))
+        squads_raw = _parse_squads(summary.get("squads"))
         if squads_raw:
             _cache_set(match_id, "squads", squads_raw)
 
