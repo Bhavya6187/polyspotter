@@ -87,3 +87,7 @@ export function fetchMarketTheses(conditionId) {
 export function fetchBasketballData(conditionId, { title = "", event_slug = "" } = {}) {
   return request(`/api/market/${conditionId}/basketball`, { title, event_slug });
 }
+
+export function fetchCricketData(conditionId, { title = "", event_slug = "" } = {}) {
+  return request(`/api/market/${conditionId}/cricket`, { title, event_slug });
+}
