@@ -198,6 +198,27 @@ def _parse_match_status(status_data: dict) -> str:
     return "pre"
 
 
+_SCORE_PATTERN = re.compile(r"^\s*(\d+/\d+|\d+)\s*(?:\(([^)]*)\))?")
+
+
+def _split_score_and_overs(score_str: str) -> tuple[str, str]:
+    """Split ESPN cricket score like '209/8 (20 ov, target 211)' into
+    ('209/8', '20 ov') or similar. Returns (score, overs_descriptor)."""
+    if not score_str:
+        return "", ""
+    m = _SCORE_PATTERN.match(score_str)
+    if not m:
+        return score_str.strip(), ""
+    score = m.group(1) or ""
+    parens = m.group(2) or ""
+    # Extract the overs portion from inside the parens (e.g. "20 ov, target 211" -> "20 ov")
+    overs = ""
+    if parens:
+        # First comma-separated chunk is typically the overs
+        overs = parens.split(",")[0].strip()
+    return score, overs
+
+
 def _parse_teams_from_header(header: dict) -> tuple[dict | None, dict | None]:
     """Extract home and away team info from ESPN header."""
     comps = header.get("competitions", [{}])
@@ -207,13 +228,15 @@ def _parse_teams_from_header(header: dict) -> tuple[dict | None, dict | None]:
     away_info = None
     for comp in comps[0].get("competitors", []):
         team = comp.get("team", {})
-        score_str = comp.get("score", "")
+        score_raw = comp.get("score", "")
+        score, overs = _split_score_and_overs(score_raw)
         abbr = _normalize_espn_abbr(team.get("abbreviation", ""))
         logo = team.get("logos", [{}])[0].get("href") if team.get("logos") else None
         entry = {
             "name": SHORT_TO_FULL.get(abbr, team.get("displayName", "")),
             "short_name": abbr,
-            "score": score_str,
+            "score": score,
+            "overs": overs,
             "logo_url": logo,
         }
         if comp.get("homeAway") == "home":
@@ -295,15 +318,21 @@ def _parse_venue(game_info: dict | None) -> CricketVenue | None:
     return CricketVenue(name=name, city=city)
 
 
-def _parse_toss(game_info: dict | None) -> CricketToss | None:
-    """Parse toss info from ESPN gameInfo or situation."""
-    if not game_info:
+def _parse_toss(notes: list | None) -> CricketToss | None:
+    """Parse toss info from ESPN summary 'notes' array.
+
+    ESPN cricket returns notes as a list of {text, type} entries. The toss
+    entry has type="toss" and text like "Delhi Capitals , elected to field first".
+    """
+    if not notes:
         return None
-    # ESPN puts toss info in various places; check situation.note or header.gameNote
-    toss_text = game_info.get("tpiNote", "") or game_info.get("note", "")
+    toss_text = ""
+    for note in notes:
+        if isinstance(note, dict) and note.get("type") == "toss":
+            toss_text = note.get("text", "")
+            break
     if not toss_text:
         return None
-    # Typical format: "Gujarat Titans, elected to field first"
     lower = toss_text.lower()
     winner = toss_text.split(",")[0].strip() if "," in toss_text else toss_text
     decision = ""
@@ -350,80 +379,92 @@ def _parse_squads(squads_data: list | None) -> dict[str, list[CricketSquadPlayer
     return result
 
 
-def _parse_innings_from_summary(summary: dict) -> list[CricketInnings]:
-    """Parse scorecard/innings from ESPN summary rosters or boxscore."""
+def _extract_player_stats(player: dict) -> dict:
+    """Flatten ESPN cricket per-player stats from nested linescores structure.
+
+    The structure is:
+        player.linescores[].linescores[].statistics.categories[].stats[]
+    Each stat has {name, value, displayValue}. We flatten into a single
+    {stat_name: displayValue} dict.
+    """
+    flat: dict[str, str] = {}
+    for period_block in player.get("linescores", []):
+        for entry in period_block.get("linescores", []):
+            stats_block = entry.get("statistics", {})
+            for cat in stats_block.get("categories", []):
+                for s in cat.get("stats", []):
+                    name = s.get("name")
+                    if name and name not in flat:
+                        flat[name] = s.get("displayValue", "")
+    return flat
+
+
+def _to_int(s: str) -> int:
+    try:
+        return int(float(s)) if s else 0
+    except (ValueError, TypeError):
+        return 0
+
+
+def _to_float(s: str) -> float:
+    try:
+        return float(s) if s else 0.0
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _parse_innings_from_rosters(rosters: list | None) -> list[CricketInnings]:
+    """Parse per-team scorecard from ESPN rosters array (used for cricket).
+
+    Each roster entry contains one team's player list with nested stats.
+    We produce one CricketInnings per team containing batting + bowling entries.
+    """
+    if not rosters:
+        return []
     innings_list = []
-    # ESPN cricket puts scorecard data in the rosters or boxscore section
-    # The structure varies; we'll parse what's available
-    boxscore = summary.get("boxscore", {})
-    teams = boxscore.get("teams", [])
-    for team_block in teams:
+    for team_block in rosters:
         team = team_block.get("team", {})
         abbr = _normalize_espn_abbr(team.get("abbreviation", ""))
-        stats = team_block.get("statistics", [])
+        batting: list[BatsmanEntry] = []
+        bowling: list[BowlerEntry] = []
 
-        batting = []
-        bowling = []
+        for player in team_block.get("roster", []):
+            athlete = player.get("athlete", {})
+            name = athlete.get("displayName", athlete.get("fullName", ""))
+            if not name:
+                continue
+            stats = _extract_player_stats(player)
+            if not stats:
+                continue
 
-        for stat_group in stats:
-            stat_type = stat_group.get("type", "")
-            athletes = stat_group.get("athletes", [])
-            labels = stat_group.get("labels", [])
+            balls_faced = _to_int(stats.get("ballsFaced", "0"))
+            runs_scored = _to_int(stats.get("runs", "0"))
 
-            if stat_type == "batting" or "batting" in stat_group.get("name", "").lower():
-                for athlete in athletes:
-                    a = athlete.get("athlete", {})
-                    stat_vals = athlete.get("stats", [])
-                    name = a.get("displayName", "")
-                    if not name or not stat_vals:
-                        continue
-                    # Map by label positions
-                    label_map = {l: i for i, l in enumerate(labels)}
-                    def _get(label, default=0):
-                        idx = label_map.get(label)
-                        if idx is not None and idx < len(stat_vals):
-                            try:
-                                return int(stat_vals[idx]) if isinstance(default, int) else float(stat_vals[idx])
-                            except (ValueError, TypeError):
-                                return default
-                        return default
-                    batting.append(BatsmanEntry(
-                        name=name,
-                        runs=_get("R"),
-                        balls=_get("B"),
-                        fours=_get("4s"),
-                        sixes=_get("6s"),
-                        strike_rate=_get("SR", 0.0),
-                        how_out=athlete.get("description", ""),
-                    ))
+            # Batting: include anyone who faced a ball
+            if balls_faced > 0:
+                batting.append(BatsmanEntry(
+                    name=name,
+                    runs=runs_scored,
+                    balls=balls_faced,
+                    fours=_to_int(stats.get("fours", "0")),
+                    sixes=_to_int(stats.get("sixes", "0")),
+                    strike_rate=_to_float(stats.get("strikeRate", "0")),
+                    how_out="",  # ESPN doesn't expose dismissal text here
+                ))
 
-            elif stat_type == "bowling" or "bowling" in stat_group.get("name", "").lower():
-                for athlete in athletes:
-                    a = athlete.get("athlete", {})
-                    stat_vals = athlete.get("stats", [])
-                    name = a.get("displayName", "")
-                    if not name or not stat_vals:
-                        continue
-                    label_map = {l: i for i, l in enumerate(labels)}
-                    def _get(label, default=0):
-                        idx = label_map.get(label)
-                        if idx is not None and idx < len(stat_vals):
-                            try:
-                                return int(stat_vals[idx]) if isinstance(default, int) else float(stat_vals[idx])
-                            except (ValueError, TypeError):
-                                return default
-                        return default
-                    bowling.append(BowlerEntry(
-                        name=name,
-                        overs=str(stat_vals[label_map["O"]]) if "O" in label_map and label_map["O"] < len(stat_vals) else "0",
-                        maidens=_get("M"),
-                        runs=_get("R"),
-                        wickets=_get("W"),
-                        economy=_get("ECON", 0.0),
-                    ))
+            # Bowling: include anyone who bowled an over
+            overs_bowled = stats.get("overs", "0")
+            if overs_bowled and overs_bowled != "0":
+                bowling.append(BowlerEntry(
+                    name=name,
+                    overs=str(overs_bowled),
+                    maidens=_to_int(stats.get("maidens", "0")),
+                    runs=_to_int(stats.get("conceded", "0")),
+                    wickets=_to_int(stats.get("wickets", "0")),
+                    economy=_to_float(stats.get("economyRate", stats.get("economy", "0"))),
+                ))
 
         if batting or bowling:
-            # Try to get score from header
             innings_list.append(CricketInnings(
                 team=abbr,
                 batting=batting,
@@ -433,56 +474,108 @@ def _parse_innings_from_summary(summary: dict) -> list[CricketInnings]:
     return innings_list
 
 
+# ESPN cricket playType IDs (observed from real API responses)
+# 1=run, 2=no run, 3=four, 4=six, 9=out/wicket
+_BOUNDARY_PLAYTYPE_IDS = {"3", "4"}
+_WICKET_PLAYTYPE_IDS = {"9"}
+
+
+def _parse_single_ball(item: dict) -> BallEvent:
+    """Parse a single ball/commentary item from ESPN playbyplay.
+
+    ESPN cricket returns 'over' as a dict: {number, ball, overs, ...} where
+    `number` is the 1-indexed over being bowled and `ball` is the delivery
+    within it. Conventional cricket display uses the completed-overs form
+    like "19.5" = 19 completed overs + 5 balls into the 20th. We store
+    `over = number - 1` and `ball_in_over = ball` to match that convention.
+    """
+    play_type = item.get("playType", {}) or {}
+    type_id = str(play_type.get("id", ""))
+    type_desc = (play_type.get("description") or "").lower()
+
+    short_text = item.get("shortText", "") or ""
+    detail_text = item.get("text", short_text) or short_text
+    score_value = item.get("scoreValue", 0)
+
+    batsman_data = item.get("batsman") or {}
+    bowler_data = item.get("bowler") or {}
+    batsman_name = ""
+    bowler_name = ""
+    if isinstance(batsman_data, dict):
+        athlete = batsman_data.get("athlete") or {}
+        batsman_name = athlete.get("displayName", "") if isinstance(athlete, dict) else ""
+    if isinstance(bowler_data, dict):
+        athlete = bowler_data.get("athlete") or {}
+        bowler_name = athlete.get("displayName", "") if isinstance(athlete, dict) else ""
+
+    home_score = item.get("homeScore", "")
+    away_score = item.get("awayScore", "")
+    score_after = ""
+    if home_score or away_score:
+        score_after = f"{home_score or 0}-{away_score or 0}"
+
+    over_field = item.get("over")
+    over_int = 0
+    ball_in_over = 0
+    if isinstance(over_field, dict):
+        over_number = over_field.get("number", 0) or 0
+        ball = over_field.get("ball", 0) or 0
+        try:
+            over_int = max(0, int(over_number) - 1)
+            ball_in_over = int(ball)
+        except (ValueError, TypeError):
+            pass
+    elif over_field is not None:
+        # Fallback for an unexpected numeric shape
+        try:
+            over_float = float(over_field)
+            over_int = int(over_float)
+            ball_in_over = round((over_float - over_int) * 10)
+        except (ValueError, TypeError):
+            pass
+
+    dismissal = item.get("dismissal") or {}
+    is_wicket = bool(dismissal.get("dismissal")) or type_id in _WICKET_PLAYTYPE_IDS or type_desc == "out"
+    is_boundary = type_id in _BOUNDARY_PLAYTYPE_IDS or type_desc in ("four", "six")
+
+    return BallEvent(
+        over=over_int,
+        ball_in_over=ball_in_over,
+        batsman=batsman_name,
+        bowler=bowler_name,
+        runs=int(score_value) if score_value else 0,
+        extras=0,
+        is_boundary=is_boundary,
+        is_wicket=is_wicket,
+        commentary_short=short_text,
+        commentary_detail=detail_text,
+        score_after=score_after,
+    )
+
+
+def _get_pbp_page_info(pbp_data: dict) -> tuple[int, int]:
+    """Return (current_page, total_pages) from the ESPN playbyplay response."""
+    commentary = pbp_data.get("commentary") or {}
+    page_index = int(commentary.get("pageIndex") or 1)
+    page_count = int(commentary.get("pageCount") or 1)
+    return page_index, page_count
+
+
 def _parse_balls_from_playbyplay(pbp_data: dict | None) -> list[BallEvent]:
-    """Parse ball-by-ball events from ESPN playbyplay response. Returns newest-first."""
+    """Parse ball-by-ball events from a single ESPN playbyplay page.
+
+    ESPN cricket returns items at pbp['commentary']['items'] in chronological
+    order (oldest first within a page). We reverse so callers get newest-first.
+    """
     if not pbp_data:
         return []
-    items = pbp_data.get("items", [])
-    balls = []
-    for item in items:
-        play_type = item.get("playType", {})
-        type_id = play_type.get("id", "") if isinstance(play_type, dict) else ""
-        short_text = item.get("shortText", "")
-        detail_text = item.get("text", short_text)
-        over_num = item.get("over", 0)
-        ball_num = item.get("ball", item.get("ballInOver", 0))
-        score_value = item.get("scoreValue", 0)
-
-        # Determine batsman and bowler
-        batsman_data = item.get("batsman", {})
-        bowler_data = item.get("bowler", {})
-        batsman_name = ""
-        bowler_name = ""
-        if isinstance(batsman_data, dict):
-            athlete = batsman_data.get("athlete", {})
-            batsman_name = athlete.get("displayName", "") if isinstance(athlete, dict) else ""
-        if isinstance(bowler_data, dict):
-            athlete = bowler_data.get("athlete", {})
-            bowler_name = athlete.get("displayName", "") if isinstance(athlete, dict) else ""
-
-        home_score = item.get("homeScore", "")
-        away_score = item.get("awayScore", "")
-        score_after = f"{away_score}/{home_score}" if home_score or away_score else ""
-
-        is_wicket = "wicket" in short_text.lower() or str(type_id) in ("4",)  # ESPN wicket type
-        is_boundary = any(w in short_text.upper() for w in ("FOUR", "SIX", "4 runs", "6 runs"))
-
-        balls.append(BallEvent(
-            over=int(over_num) if over_num else 0,
-            ball_in_over=int(ball_num) if ball_num else 0,
-            batsman=batsman_name,
-            bowler=bowler_name,
-            runs=int(score_value) if score_value else 0,
-            extras=0,
-            is_boundary=is_boundary,
-            is_wicket=is_wicket,
-            commentary_short=short_text,
-            commentary_detail=detail_text,
-            score_after=score_after,
-        ))
-
-    balls.reverse()
-    return balls
+    commentary = pbp_data.get("commentary") or {}
+    items = commentary.get("items", [])
+    if not items:
+        items = pbp_data.get("items", [])
+    parsed = [_parse_single_ball(item) for item in items]
+    parsed.reverse()
+    return parsed
 
 
 # ---------------------------------------------------------------------------
@@ -599,7 +692,7 @@ def get_cricket_data(
 
     toss = _cache_get(match_id, "toss")
     if toss is None:
-        toss = _parse_toss(game_info)
+        toss = _parse_toss(summary.get("notes"))
         if toss:
             _cache_set(match_id, "toss", toss)
 
@@ -631,19 +724,36 @@ def get_cricket_data(
         if away.short_name in squads_raw:
             squads["away"] = squads_raw[away.short_name]
 
-    # Innings/scorecard
+    # Innings/scorecard (ESPN cricket stores per-player stats in rosters)
     innings = _cache_get(match_id, "innings")
     if innings is None:
-        innings = _parse_innings_from_summary(summary)
+        innings = _parse_innings_from_rosters(summary.get("rosters"))
         if innings:
             _cache_set(match_id, "innings", innings)
     innings = innings or []
 
-    # Ball-by-ball (latest page only for live data)
+    # Ball-by-ball: fetch the LAST TWO pages to get ~50 newest deliveries.
+    # ESPN paginates 25 balls per page in chronological order. The final page
+    # may only have a few items (overflow), so the previous page is needed
+    # to ensure we have a full feed for the UI.
     balls = _cache_get(match_id, "balls")
     if balls is None and status in ("live", "complete"):
-        pbp = _fetch_espn_playbyplay(espn_match_id)
-        balls = _parse_balls_from_playbyplay(pbp)
+        first_page = _fetch_espn_playbyplay(espn_match_id, page=1)
+        balls = []
+        if first_page:
+            _, page_count = _get_pbp_page_info(first_page)
+            if page_count <= 1:
+                balls = _parse_balls_from_playbyplay(first_page)
+            else:
+                last_page = _fetch_espn_playbyplay(espn_match_id, page=page_count)
+                last_balls = _parse_balls_from_playbyplay(last_page)
+                # Each ball list is newest-first within its page.
+                if page_count >= 2:
+                    prev_page = _fetch_espn_playbyplay(espn_match_id, page=page_count - 1)
+                    prev_balls = _parse_balls_from_playbyplay(prev_page)
+                    balls = last_balls + prev_balls
+                else:
+                    balls = last_balls
         if balls:
             _cache_set(match_id, "balls", balls)
     balls = balls or []
