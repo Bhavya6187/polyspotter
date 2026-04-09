@@ -461,3 +461,219 @@ def _parse_balls_from_playbyplay(pbp_data: dict | None) -> list[BallEvent]:
 
     balls.reverse()
     return balls
+
+
+# ---------------------------------------------------------------------------
+# Cache — per-field TTLs, keyed by match_id
+# ---------------------------------------------------------------------------
+
+_CACHE_TTL = {
+    "score":        15,
+    "balls":        15,
+    "partnership":  15,
+    "innings":      30,
+    "odds":         60,
+    "squads":       300,
+    "toss":         300,
+    "venue":        300,
+    "head_to_head": 300,
+    "scoreboard":   60,
+    "summary":      60,
+}
+
+_match_cache: dict[str, dict[str, tuple[float, object]]] = {}
+
+
+def _cache_get(match_id: str, field: str):
+    entry = _match_cache.get(match_id, {}).get(field)
+    if entry and entry[0] > _time.time():
+        return entry[1]
+    return None
+
+
+def _cache_set(match_id: str, field: str, data: object):
+    if match_id not in _match_cache:
+        _match_cache[match_id] = {}
+    ttl = _CACHE_TTL.get(field, 30)
+    _match_cache[match_id][field] = (_time.time() + ttl, data)
+
+
+# ---------------------------------------------------------------------------
+# Main orchestrator
+# ---------------------------------------------------------------------------
+
+def get_cricket_data(
+    title: str, *, event_slug: str = "",
+) -> CricketGameData | None:
+    """Main entry point: resolve a market title to live cricket game data."""
+    parsed = parse_team_names(title)
+    if not parsed:
+        return None
+    name_a, name_b = parsed
+
+    code_a = resolve_short_name(name_a)
+    code_b = resolve_short_name(name_b)
+    if not code_a or not code_b:
+        return None
+
+    # Try today's scoreboard first, then the slug date
+    dates_to_try = [None]
+    date_str = _extract_date_from_slug(event_slug) if event_slug else None
+    if date_str:
+        dates_to_try.append(date_str)
+
+    espn_match_id = None
+    for d in dates_to_try:
+        cache_key = f"__cricket_sb_{d or 'today'}__"
+        sb = _cache_get(cache_key, "scoreboard")
+        if sb is None:
+            sb = _fetch_espn_scoreboard(d)
+            if sb:
+                _cache_set(cache_key, "scoreboard", sb)
+        if sb:
+            espn_match_id = _match_espn_game(sb, code_a, code_b)
+            if espn_match_id:
+                break
+
+    if not espn_match_id:
+        return None
+
+    match_id = f"cricket_{espn_match_id}"
+
+    # Fetch summary (cached)
+    summary = _cache_get(match_id, "summary")
+    if summary is None:
+        summary = _fetch_espn_summary(espn_match_id)
+        if summary:
+            _cache_set(match_id, "summary", summary)
+
+    if not summary:
+        return None
+
+    # Parse header for teams and status
+    header = summary.get("header", {})
+    comps = header.get("competitions", [{}])
+    status_data = comps[0].get("status", {}) if comps else {}
+    status = _parse_match_status(status_data)
+    status_text = status_data.get("type", {}).get("shortDetail", "")
+    match_time = comps[0].get("date") if comps else None
+
+    home_info, away_info = _parse_teams_from_header(header)
+    if not home_info or not away_info:
+        return None
+
+    home = CricketTeam(**home_info)
+    away = CricketTeam(**away_info)
+
+    # Parse match data from summary
+    game_info = summary.get("gameInfo", {})
+    situation = summary.get("situation", {})
+
+    odds = _cache_get(match_id, "odds")
+    if odds is None:
+        odds = _parse_odds(summary.get("pickcenter"))
+        if odds:
+            _cache_set(match_id, "odds", odds)
+
+    toss = _cache_get(match_id, "toss")
+    if toss is None:
+        toss = _parse_toss(game_info)
+        if toss:
+            _cache_set(match_id, "toss", toss)
+
+    venue = _cache_get(match_id, "venue")
+    if venue is None:
+        venue = _parse_venue(game_info)
+        if venue:
+            _cache_set(match_id, "venue", venue)
+
+    head_to_head = _cache_get(match_id, "head_to_head")
+    if head_to_head is None:
+        h2h_data = summary.get("headToHeadGames") or summary.get("seasonseries")
+        head_to_head = _parse_head_to_head(h2h_data)
+        if head_to_head:
+            _cache_set(match_id, "head_to_head", head_to_head)
+
+    # Squads
+    squads_raw = _cache_get(match_id, "squads")
+    if squads_raw is None:
+        squads_raw = _parse_squads(summary.get("rosters"))
+        if squads_raw:
+            _cache_set(match_id, "squads", squads_raw)
+
+    # Map squad keys to home/away
+    squads = {}
+    if squads_raw:
+        if home.short_name in squads_raw:
+            squads["home"] = squads_raw[home.short_name]
+        if away.short_name in squads_raw:
+            squads["away"] = squads_raw[away.short_name]
+
+    # Innings/scorecard
+    innings = _cache_get(match_id, "innings")
+    if innings is None:
+        innings = _parse_innings_from_summary(summary)
+        if innings:
+            _cache_set(match_id, "innings", innings)
+    innings = innings or []
+
+    # Ball-by-ball (latest page only for live data)
+    balls = _cache_get(match_id, "balls")
+    if balls is None and status in ("live", "complete"):
+        pbp = _fetch_espn_playbyplay(espn_match_id)
+        balls = _parse_balls_from_playbyplay(pbp)
+        if balls:
+            _cache_set(match_id, "balls", balls)
+    balls = balls or []
+
+    # Partnership and run rate from situation
+    partnership = None
+    run_rate = None
+    required_rate = None
+    if situation:
+        # ESPN situation contains current batting info
+        current_batsmen = situation.get("batsmen", [])
+        if len(current_batsmen) >= 2:
+            b1 = current_batsmen[0].get("athlete", {}).get("displayName", "")
+            b2 = current_batsmen[1].get("athlete", {}).get("displayName", "")
+            p_runs = situation.get("partnershipRuns", 0)
+            p_balls = situation.get("partnershipBalls", 0)
+            partnership = CricketPartnership(
+                runs=int(p_runs) if p_runs else 0,
+                balls=int(p_balls) if p_balls else 0,
+                batsman1=b1,
+                batsman2=b2,
+            )
+        # Run rates
+        rr = situation.get("currentRunRate")
+        if rr:
+            try:
+                run_rate = round(float(rr), 2)
+            except (ValueError, TypeError):
+                pass
+        rrr = situation.get("requiredRunRate")
+        if rrr:
+            try:
+                required_rate = round(float(rrr), 2)
+            except (ValueError, TypeError):
+                pass
+
+    return CricketGameData(
+        match_id=match_id,
+        espn_match_id=espn_match_id,
+        status=status,
+        match_time=match_time,
+        status_text=status_text,
+        home=home,
+        away=away,
+        toss=toss,
+        venue=venue,
+        odds=odds,
+        innings=innings,
+        partnership=partnership,
+        run_rate=run_rate,
+        required_rate=required_rate,
+        balls=balls[:50],
+        squads=squads,
+        head_to_head=head_to_head,
+    )
