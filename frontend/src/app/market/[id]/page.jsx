@@ -1,5 +1,6 @@
 import MarketPageClient from "./market-page-client";
 import BasketballPageClient from "./basketball-page-client";
+import CricketPageClient from "./cricket-page-client";
 import { partialIdFromSlug, marketSlug } from "../../../lib/slugify";
 
 export const revalidate = 60;
@@ -69,6 +70,25 @@ async function getMarketData(conditionId) {
       } catch {}
     }
 
+    // Only fetch cricket data if tags suggest it's a cricket market
+    const cricketTags = ["cricket", "ipl", "indian premier league"];
+    const maybeCricket = !maybeBasketball && tags.some((t) =>
+      cricketTags.includes(t.toLowerCase())
+    );
+    let cricketData = null;
+    if (maybeCricket) {
+      const marketTitle = live?.title || (alertsData?.alerts || [])[0]?.market_title || "";
+      const eventSlug = (alertsData?.alerts || [])[0]?.event_slug || "";
+      try {
+        const cricketParams = new URLSearchParams({ title: marketTitle, event_slug: eventSlug });
+        const cricketRes = await fetch(
+          `${API_URL}/api/market/${conditionId}/cricket?${cricketParams}`,
+          { next: { revalidate: 15 } }
+        );
+        cricketData = cricketRes?.ok ? await cricketRes.json() : null;
+      } catch {}
+    }
+
     return {
       live,
       alerts: alertsData?.alerts || [],
@@ -76,6 +96,7 @@ async function getMarketData(conditionId) {
       holders: holdersData?.holders || [],
       theses: thesesData?.theses || [],
       basketballData,
+      cricketData,
     };
   } catch {
     return {
@@ -85,6 +106,7 @@ async function getMarketData(conditionId) {
       holders: [],
       theses: [],
       basketballData: null,
+      cricketData: null,
     };
   }
 }
@@ -159,7 +181,7 @@ export default async function MarketPage({ params }) {
   const { id } = await params;
   const partialId = partialIdFromSlug(id);
   const conditionId = await resolveConditionId(partialId);
-  const { live, alerts, priceHistory, holders, theses, basketballData } =
+  const { live, alerts, priceHistory, holders, theses, basketballData, cricketData } =
     await getMarketData(conditionId);
 
   const title = live?.title || alerts?.[0]?.market_title || "Market";
@@ -372,7 +394,12 @@ export default async function MarketPage({ params }) {
 
       {(() => {
         const isBasketball = !!basketballData;
-        const PageClient = isBasketball ? BasketballPageClient : MarketPageClient;
+        const isCricket = !isBasketball && !!cricketData;
+        const PageClient = isBasketball
+          ? BasketballPageClient
+          : isCricket
+            ? CricketPageClient
+            : MarketPageClient;
         const clientProps = {
           conditionId,
           initialLive: live,
@@ -381,6 +408,7 @@ export default async function MarketPage({ params }) {
           holders,
           theses,
           ...(isBasketball ? { initialGameData: basketballData, eventSlug: alerts?.[0]?.event_slug || "" } : {}),
+          ...(isCricket ? { initialCricketData: cricketData, eventSlug: alerts?.[0]?.event_slug || "" } : {}),
         };
         return <PageClient {...clientProps} />;
       })()}
