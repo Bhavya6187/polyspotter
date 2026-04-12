@@ -32,6 +32,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import get_conn, init_db
 from seo_generator import generate_seo_content
 from basketball import get_basketball_data
+from cricket import get_cricket_data
 from models import (
     IngestPayload,
     AlertOut,
@@ -1249,6 +1250,22 @@ def get_market_basketball(
 
     game_data = get_basketball_data(title, [], league=league, event_slug=event_slug)
     return game_data
+
+
+@app.get("/api/market/{condition_id}/cricket")
+def get_market_cricket(
+    condition_id: str,
+    title: str = Query(default="", description="Market title, e.g. 'Delhi Capitals vs Gujarat Titans'"),
+    event_slug: str = Query(default="", description="Event slug, e.g. 'ipl-dc-gt-2026-04-08'"),
+):
+    """Get live cricket game data for an IPL market.
+
+    Matches the market title to an IPL match and returns live scores,
+    ball-by-ball commentary, scorecard, Bet 365 odds, venue, toss, squads,
+    and head-to-head. Returns null if no matching game is found."""
+    if not title:
+        return None
+    return get_cricket_data(title, event_slug=event_slug)
 
 
 _RANGE_PARAMS = {
