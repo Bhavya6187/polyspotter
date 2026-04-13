@@ -51,7 +51,7 @@ async function getMarketData(conditionId) {
     const thesesData = thesesRes.ok ? await thesesRes.json() : null;
 
     // Only fetch basketball data if tags suggest it's a basketball market
-    const basketballTags = ["sports", "nba", "basketball", "ncaa", "march madness", "cbb", "games"];
+    const basketballTags = ["nba", "basketball", "ncaa", "march madness", "cbb"];
     const tags = (alertsData?.alerts || []).flatMap((a) => a.tags || []);
     const maybeBasketball = tags.some((t) =>
       basketballTags.includes(t.toLowerCase())
