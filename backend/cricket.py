@@ -66,11 +66,17 @@ _SUFFIX_PATTERN = re.compile(
     r"[:\-–—]?\s*(?:O/U|Over/Under|Spread|ML|Moneyline|\+\d|\-\d)\b.*$",
     re.IGNORECASE,
 )
+# Strip league name prefixes like "Indian Premier League: " before parsing
+_LEAGUE_PREFIX = re.compile(
+    r"^(?:Indian Premier League|IPL)\s*[:\-–—]\s*",
+    re.IGNORECASE,
+)
 
 
 def parse_team_names(title: str) -> tuple[str, str] | None:
     """Extract two team names from a market title like 'Delhi Capitals vs Gujarat Titans'."""
-    m = _VS_PATTERN.match(title.strip())
+    cleaned = _LEAGUE_PREFIX.sub("", title.strip())
+    m = _VS_PATTERN.match(cleaned)
     if not m:
         return None
     name_a = _SUFFIX_PATTERN.sub("", m.group(1)).strip()
