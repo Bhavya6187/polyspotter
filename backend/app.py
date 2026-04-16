@@ -550,9 +550,15 @@ def list_alerts_by_market(
             "EXISTS (SELECT 1 FROM alert_signals s WHERE s.alert_id = a.id AND s.strategy = %s)"
         )
         params.append(strategy)
-    if q:
-        conditions.append("word_similarity(%s, a.market_title) > 0.2")
-        params.append(q.strip())
+    q_clean = q.strip() if q else None
+    q_like = f"%{q_clean}%" if q_clean else None
+    if q_clean:
+        conditions.append(
+            "(word_similarity(%s, a.market_title) > 0.2 "
+            "OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(a.tags::jsonb) AS t WHERE t ILIKE %s))"
+        )
+        params.append(q_clean)
+        params.append(q_like)
 
     where = " AND ".join(conditions)
     offset = (page - 1) * per_page
@@ -570,6 +576,22 @@ def list_alerts_by_market(
         counts = cur.fetchone()
         total = counts["cnt"]
         total_alerts = counts["alert_cnt"]
+
+        # Relevance score: title similarity + 0.3 boost if any tag matches.
+        # Keeps strong title matches above tag-only matches (a 0.8 title sim
+        # beats a 0.3 tag bonus), but a tag hit still outranks a weak title match.
+        if q_clean:
+            order_clause = (
+                "MAX(word_similarity(%s, a.market_title) "
+                "+ CASE WHEN EXISTS (SELECT 1 FROM jsonb_array_elements_text(a.tags::jsonb) AS t WHERE t ILIKE %s) THEN 0.3 ELSE 0 END) DESC, "
+            )
+            order_params = [q_clean, q_like]
+        elif include_resolved:
+            order_clause = "CASE WHEN MAX(a.end_date) IS NULL OR MAX(a.end_date) > NOW() THEN 0 ELSE 1 END, "
+            order_params = []
+        else:
+            order_clause = ""
+            order_params = []
 
         # Get paginated market groups
         cur.execute(
@@ -590,9 +612,9 @@ def list_alerts_by_market(
                 FROM alerts a
                 WHERE {where} AND a.condition_id IS NOT NULL
                 GROUP BY a.condition_id
-                ORDER BY {f"MAX(word_similarity(%s, a.market_title)) DESC, " if q else ("CASE WHEN MAX(a.end_date) IS NULL OR MAX(a.end_date) > NOW() THEN 0 ELSE 1 END, " if include_resolved else "")}scanned_at DESC, max_score DESC
+                ORDER BY {order_clause}scanned_at DESC, max_score DESC
                 LIMIT %s OFFSET %s""",
-            (params + [per_page, offset]) if not q else (params + [q.strip(), per_page, offset]),
+            params + order_params + [per_page, offset],
         )
         market_rows = cur.fetchall()
 

@@ -54,6 +54,7 @@ function rankByRelevance(markets, query) {
   return [...markets]
     .map((m) => {
       const title = (m.market_title || "").toLowerCase();
+      const tags = (m.tags || []).map((t) => (t || "").toLowerCase());
       let score = 0;
 
       // Exact full query appears in title
@@ -68,6 +69,11 @@ function rankByRelevance(markets, query) {
 
       // All query words present (bonus for full match)
       if (wordHits === words.length) score += 25;
+
+      // Tag match: query exactly equals a tag (strong) or appears in one (weaker).
+      // Sits below a strong title match but above fuzzy/partial ones.
+      if (tags.some((t) => t === q)) score += 35;
+      else if (tags.some((t) => t.includes(q) || q.includes(t))) score += 20;
 
       // Words appear close together (adjacency bonus)
       if (words.length > 1) {
