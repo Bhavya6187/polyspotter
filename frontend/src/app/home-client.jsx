@@ -9,7 +9,8 @@ import Ticker from "../components/Ticker";
 import ThemeToggle from "../components/ThemeToggle";
 import HeroSpotlight from "../components/HeroSpotlight";
 import ResolvingSoonStrip from "../components/ResolvingSoonStrip";
-import SearchBar from "../components/SearchBar";
+import CommandPalette from "../components/CommandPalette";
+import TopicNav from "../components/TopicNav";
 
 function formatRelativeTime(date) {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -21,7 +22,7 @@ function formatRelativeTime(date) {
   return `${hours}h ago`;
 }
 
-export default function HomeClient({ initialMarkets, initialTotal, tags, initialTheses }) {
+export default function HomeClient({ initialMarkets, initialTotal, tags, initialTheses, topWallets }) {
   const [markets, setMarkets] = useState(initialMarkets);
   const [total, setTotal] = useState(initialTotal);
   const [theses] = useState(initialTheses || []);
@@ -138,7 +139,7 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <SearchBar />
+            <CommandPalette tags={tags} topWallets={topWallets || []} />
             <ThemeToggle />
             <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
               <span className="flex items-center gap-1.5">
@@ -170,6 +171,9 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
           </div>
         </div>
       </header>
+
+      {/* Topic navigation */}
+      <TopicNav tags={tags} />
 
       {/* Hero Spotlight */}
       <section aria-label="Spotlight" className="mb-5">

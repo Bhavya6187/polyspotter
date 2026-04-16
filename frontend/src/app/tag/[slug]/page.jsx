@@ -1,5 +1,6 @@
 import Link from "next/link";
 import TagPageClient from "./tag-page-client";
+import TagPageHeader from "./tag-page-header";
 import { marketSlug } from "../../../lib/slugify";
 
 export const revalidate = 60;
@@ -20,19 +21,48 @@ function tagSlug(tag) {
 
 const PER_PAGE = 20;
 
-async function getTagDescription(tag) {
+/** Extract tags that co-occur with the current tag from market data */
+function extractRelatedTags(markets, currentTag) {
+  const counts = {};
+  for (const m of markets) {
+    const seen = new Set();
+    // Collect tags from market-level tags
+    for (const t of m.tags || []) {
+      seen.add(t);
+    }
+    // Collect tags from individual alerts
+    for (const a of m.alerts || []) {
+      for (const t of a.tags || []) {
+        seen.add(t);
+      }
+    }
+    for (const t of seen) {
+      if (t.toLowerCase() !== currentTag.toLowerCase() && t !== "Hide From New") {
+        counts[t] = (counts[t] || 0) + 1;
+      }
+    }
+  }
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([tag]) => tag);
+}
+
+async function getAllTags() {
   try {
     const res = await fetch(`${API_URL}/api/tags`, { next: { revalidate: 300 } });
-    if (!res.ok) return null;
+    if (!res.ok) return [];
     const data = await res.json();
-    const tags = data?.tags || data || [];
-    const match = tags.find(
-      (t) => (typeof t === "string" ? t : t.tag).toLowerCase() === tag.toLowerCase()
-    );
-    return match?.description || null;
+    return data?.tags || data || [];
   } catch {
-    return null;
+    return [];
   }
+}
+
+async function getTagDescription(allTags, tag) {
+  const match = allTags.find(
+    (t) => (typeof t === "string" ? t : t.tag).toLowerCase() === tag.toLowerCase()
+  );
+  return match?.description || null;
 }
 
 async function getTagData(tag, page = 1) {
@@ -59,7 +89,8 @@ export async function generateMetadata({ params, searchParams }) {
   const tag = tagFromSlug(slug);
   const display = tagDisplayName(tag);
 
-  const tagDesc = await getTagDescription(tag);
+  const allTags = await getAllTags();
+  const tagDesc = await getTagDescription(allTags, tag);
   const title =
     page > 1
       ? `${display} Prediction Market Smart Money Alerts (Page ${page})`
@@ -93,14 +124,24 @@ export default async function TagPage({ params, searchParams }) {
   const page = Math.max(1, parseInt((await searchParams)?.page) || 1);
   const tag = tagFromSlug(slug);
   const display = tagDisplayName(tag);
-  const { markets, total, total_alerts } = await getTagData(tag, page);
+
+  const [tagData, allTags, walletsRes] = await Promise.all([
+    getTagData(tag, page),
+    getAllTags(),
+    fetch(`${API_URL}/api/wallets/top?limit=10`, { next: { revalidate: 60 } })
+      .then((r) => (r.ok ? r.json() : { wallets: [] }))
+      .catch(() => ({ wallets: [] })),
+  ]);
+
+  const { markets, total, total_alerts } = tagData;
+  const topWallets = walletsRes?.wallets || [];
   const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
 
   const siteUrl =
     process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
   const tagUrl = `${siteUrl}/tag/${tagSlug(tag)}`;
 
-  const tagDesc = await getTagDescription(tag);
+  const tagDesc = await getTagDescription(allTags, tag);
 
   const usdFmt = new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -180,55 +221,19 @@ export default async function TagPage({ params, searchParams }) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
       />
 
-      {/* Nav */}
-      <nav className="mb-6" aria-label="Breadcrumb">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-1.5 text-sm font-medium transition-colors"
-          style={{ color: "var(--text-muted)" }}
-        >
-          <svg
-            className="h-4 w-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M15 19l-7-7 7-7"
-            />
-          </svg>
-          All markets
-        </Link>
-      </nav>
-
-      {/* Header */}
-      <header className="mb-6">
-        <h1
-          className="text-2xl font-bold"
-          style={{ color: "var(--text-primary)" }}
-        >
-          {display}
-        </h1>
-        <p
-          className="mt-1 text-sm"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          {total_alerts} signal{total_alerts !== 1 ? "s" : ""} across{" "}
-          {total} market{total !== 1 ? "s" : ""}
-          {page > 1 && ` — Page ${page} of ${totalPages}`}
-        </p>
-        {tagDesc && (
-          <p
-            className="mt-2 text-sm leading-relaxed"
-            style={{ color: "var(--text-muted)" }}
-          >
-            {tagDesc}
-          </p>
-        )}
-      </header>
+      {/* Header with search + topic nav */}
+      <TagPageHeader
+        allTags={allTags}
+        relatedTags={extractRelatedTags(markets, tag)}
+        topWallets={topWallets}
+        currentTag={tag}
+        display={display}
+        totalAlerts={total_alerts}
+        totalMarkets={total}
+        page={page}
+        totalPages={totalPages}
+        tagDesc={tagDesc}
+      />
 
       {/* Server-rendered market list for crawlers */}
       {markets.length > 0 && (

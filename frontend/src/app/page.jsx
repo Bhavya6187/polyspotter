@@ -273,6 +273,7 @@ export default async function HomePage() {
         initialTotal={total}
         tags={tags}
         initialTheses={theses}
+        topWallets={topWallets}
       />
     </>
   );
