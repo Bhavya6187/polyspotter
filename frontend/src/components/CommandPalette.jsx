@@ -151,17 +151,21 @@ export default function CommandPalette({ tags = [], topWallets = [] }) {
     setActiveIndex(0);
   }, [query, results.length]);
 
-  // Cmd+K to open
+  // Cmd+K to open, Escape to close
   useEffect(() => {
     function handleKey(e) {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setOpen(true);
       }
+      if (e.key === "Escape" && open) {
+        e.preventDefault();
+        setOpen(false);
+      }
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, []);
+  }, [open]);
 
   // Focus input when opened
   useEffect(() => {
@@ -277,6 +281,7 @@ export default function CommandPalette({ tags = [], topWallets = [] }) {
           {/* Backdrop */}
           <div
             className="absolute inset-0"
+            onClick={() => setOpen(false)}
             style={{
               background: "rgba(0, 0, 0, 0.6)",
               backdropFilter: "blur(8px)",
