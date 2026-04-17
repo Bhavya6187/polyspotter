@@ -569,9 +569,6 @@ function buildItems(query, results, tags, topWallets, loading) {
             : <svg className="h-4 w-4" style={{ color: "var(--text-muted)" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M2 12l5-5 4 4 4-6 7 7" /></svg>,
           iconBg: m.market_image ? "transparent" : "var(--surface-2)",
           href: `/market/${m.condition_id}`,
-          badge: m.max_score >= 7 ? m.max_score.toFixed(1) : null,
-          badgeBg: "var(--accent-subtle)",
-          badgeColor: "var(--accent)",
           highlight: true,
         });
       });
