@@ -218,15 +218,15 @@ class TestLowActivityLargeBetStrategy(unittest.TestCase):
 
 
     @patch("detection_strategies.low_activity_large_bet.get_market_by_condition")
-    def test_volume_exactly_5000_not_low(self, mock_market):
-        # vol_24h == 5000 is NOT < 5000, so is_low_volume=False
-        # usd=3000, vol=5000 → ratio=0.60 >= 0.50 → is_large_relative=True
-        # liquidity=10000, usd=3000 → 3000/10000=0.30 >= 0.05, not suppressed
+    def test_volume_exactly_threshold_not_low(self, mock_market):
+        # vol_24h == LOW_VOLUME_24H_USD (10000) is NOT < 10000, so is_low_volume=False
+        # usd=6000, vol=10000 → ratio=0.60 >= 0.50 → is_large_relative=True
+        # liquidity=20000, usd=6000 → 6000/20000=0.30 >= 0.05, not suppressed
         mock_market.return_value = {
-            "volume24hr": "5000",
-            "liquidity": "10000",
+            "volume24hr": "10000",
+            "liquidity": "20000",
         }
-        trade = self._make_trade(usd=3000)
+        trade = self._make_trade(usd=6000)
         with patch.object(self.strategy, "_fetch_orderbook", return_value=None):
             result = self.strategy.check_trade(trade)
         self.assertIsNotNone(result)

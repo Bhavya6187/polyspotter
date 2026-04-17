@@ -44,8 +44,8 @@ class TestCorrelatedCrossMarketStrategy(unittest.TestCase):
     def test_two_markets_below_min_usd_no_signal(self, *mocks):
         """2 markets but combined USD below MIN_TOTAL_USD = no signal."""
         trades = [
-            self._make_trade("w1", "event1", "cond1", usd=1500, side="BUY"),
-            self._make_trade("w1", "event1", "cond2", usd=1500, side="BUY"),
+            self._make_trade("w1", "event1", "cond1", usd=900, side="BUY"),
+            self._make_trade("w1", "event1", "cond2", usd=900, side="BUY"),
         ]
         signals = self.strategy.analyze_all(trades)
         self.assertEqual(len(signals), 0)

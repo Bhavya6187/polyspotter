@@ -165,11 +165,11 @@ class TestPreEventVolumeSpikeStrategy(unittest.TestCase):
         """Total window volume below MIN_WINDOW_VOLUME_USD should not produce a signal."""
         mock_market.return_value = {"volume24hr": "1"}  # massive ratio but low absolute volume
         trades = [
-            self._make_trade(usd=8000, ts=1000),
-            self._make_trade(usd=8000, ts=1060),
-            self._make_trade(usd=8000, ts=1120),
+            self._make_trade(usd=3000, ts=1000),
+            self._make_trade(usd=3000, ts=1060),
+            self._make_trade(usd=3000, ts=1120),
         ]
-        # Total = $24,000 which is below $25,000 threshold
+        # Total = $9,000 which is below $10,000 threshold
         signals = self.strategy.analyze_all(trades)
         self.assertEqual(len(signals), 0)
 
