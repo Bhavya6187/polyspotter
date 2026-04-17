@@ -502,19 +502,44 @@ function buildItems(query, results, tags, topWallets, loading) {
   const items = [];
 
   if (query.trim()) {
-    // Search mode — filter tags that match too
-    const matchingTags = tags
-      .filter((t) => {
-        const name = typeof t === "string" ? t : t.tag;
-        return name && name !== "Hide From New" && name.toLowerCase().includes(query.toLowerCase());
+    // Merge top-level tags (from /api/tags) with tags on the returned markets
+    // so tag pages for less-common tags (e.g. "NFL") still appear in search.
+    const q = query.toLowerCase();
+    const tagCounts = new Map(); // name -> { name, count, isPromoted }
+    for (const t of tags) {
+      const name = typeof t === "string" ? t : t.tag;
+      if (!name || name === "Hide From New") continue;
+      tagCounts.set(name, {
+        name,
+        count: typeof t === "object" ? t.alert_count || 0 : 0,
+        isPromoted: true,
+      });
+    }
+    for (const m of results) {
+      for (const name of m.tags || []) {
+        if (!name || name === "Hide From New") continue;
+        if (!tagCounts.has(name)) {
+          tagCounts.set(name, { name, count: 0, isPromoted: false });
+        }
+      }
+    }
+
+    const matchingTags = [...tagCounts.values()]
+      .filter((t) => t.name.toLowerCase().includes(q))
+      .sort((a, b) => {
+        // Exact match first, then prefix, then by signal count
+        const an = a.name.toLowerCase();
+        const bn = b.name.toLowerCase();
+        const aExact = an === q ? 0 : an.startsWith(q) ? 1 : 2;
+        const bExact = bn === q ? 0 : bn.startsWith(q) ? 1 : 2;
+        if (aExact !== bExact) return aExact - bExact;
+        return (b.count || 0) - (a.count || 0);
       })
       .slice(0, 3);
 
     if (matchingTags.length > 0) {
       items.push({ type: "heading", label: "Topics", key: "h-topics" });
-      matchingTags.forEach((t) => {
-        const name = typeof t === "string" ? t : t.tag;
-        const count = typeof t === "object" ? t.alert_count : 0;
+      matchingTags.forEach(({ name, count }) => {
         items.push({
           type: "tag",
           key: `tag-${name}`,
