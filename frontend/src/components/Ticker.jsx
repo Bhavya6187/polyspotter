@@ -1,3 +1,5 @@
+"use client";
+
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
@@ -60,21 +62,19 @@ function TickerItem({ alert }) {
   );
 }
 
-export default function Ticker() {
+export default function Ticker({ tag } = {}) {
   const [alerts, setAlerts] = useState([]);
 
   useEffect(() => {
-    fetchMarketAlerts({ page: 1, perPage: 20 })
-      .then((data) => setAlerts(data.markets || []))
-      .catch(() => {});
-
-    const interval = setInterval(() => {
-      fetchMarketAlerts({ page: 1, perPage: 20 })
+    const load = () =>
+      fetchMarketAlerts({ page: 1, perPage: 20, tag: tag || undefined })
         .then((data) => setAlerts(data.markets || []))
         .catch(() => {});
-    }, 60000);
+
+    load();
+    const interval = setInterval(load, 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [tag]);
 
   if (alerts.length === 0) return null;
 

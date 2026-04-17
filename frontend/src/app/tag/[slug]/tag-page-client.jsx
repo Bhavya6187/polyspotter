@@ -3,19 +3,28 @@
 import Link from "next/link";
 import AlertList from "../../../components/AlertList";
 
-export default function TagPageClient({ markets, page, totalPages, slug }) {
+export default function TagPageClient({ markets, page, totalPages, slug, resolves = "", severity = "" }) {
+  const buildHref = (p) => {
+    const qs = new URLSearchParams();
+    if (p > 1) qs.set("page", String(p));
+    if (resolves) qs.set("resolves", resolves);
+    if (severity) qs.set("severity", severity);
+    const q = qs.toString();
+    return q ? `/tag/${slug}?${q}` : `/tag/${slug}`;
+  };
+
   return (
     <>
       <AlertList
         markets={markets}
-        filters={{ tag: "", resolvesIn: "" }}
+        filters={{ tag: "", resolvesIn: resolves }}
         loading={false}
       />
       {totalPages > 1 && (
         <nav aria-label="Pagination" className="flex items-center justify-center gap-4 py-6">
           {page > 1 ? (
             <Link
-              href={page === 2 ? `/tag/${slug}` : `/tag/${slug}?page=${page - 1}`}
+              href={buildHref(page - 1)}
               className="rounded-lg px-4 py-2 text-sm font-medium transition-all"
               style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)', background: 'var(--surface-card)' }}
             >
@@ -34,7 +43,7 @@ export default function TagPageClient({ markets, page, totalPages, slug }) {
           </span>
           {page < totalPages ? (
             <Link
-              href={`/tag/${slug}?page=${page + 1}`}
+              href={buildHref(page + 1)}
               className="rounded-lg px-4 py-2 text-sm font-medium transition-all"
               style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)', background: 'var(--surface-card)' }}
             >

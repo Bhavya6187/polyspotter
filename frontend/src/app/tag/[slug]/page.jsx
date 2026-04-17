@@ -1,7 +1,12 @@
 import Link from "next/link";
 import TagPageClient from "./tag-page-client";
 import TagPageHeader from "./tag-page-header";
+import Ticker from "../../../components/Ticker";
+import TagFilters from "../../../components/TagFilters";
 import { marketSlug } from "../../../lib/slugify";
+
+const VALID_RESOLVES = new Set(["6h", "24h", "7d"]);
+const VALID_SEVERITIES = new Set(["6", "10", "15"]);
 
 export const revalidate = 60;
 
@@ -65,12 +70,23 @@ async function getTagDescription(allTags, tag) {
   return match?.description || null;
 }
 
-async function getTagData(tag, page = 1) {
+async function getTagData(tag, page = 1, resolves = "", severity = "") {
   try {
-    const res = await fetch(
-      `${API_URL}/api/alerts/by-market?page=${page}&per_page=${PER_PAGE}&tag=${encodeURIComponent(tag)}&include_resolved=true`,
-      { next: { revalidate: 60 } }
-    );
+    const qs = new URLSearchParams({
+      page: String(page),
+      per_page: String(PER_PAGE),
+      tag,
+    });
+    // When filtering by resolution window the user wants upcoming markets, so
+    // drop include_resolved (which otherwise leaks past-resolved markets into
+    // the window filter because the SQL only caps end_date upper-bound).
+    if (resolves) qs.set("resolves_within", resolves);
+    else qs.set("include_resolved", "true");
+    if (severity) qs.set("min_score", severity);
+
+    const res = await fetch(`${API_URL}/api/alerts/by-market?${qs.toString()}`, {
+      next: { revalidate: 60 },
+    });
     if (!res.ok) return { markets: [], total: 0, total_alerts: 0 };
     const data = await res.json();
     return {
@@ -121,12 +137,15 @@ export async function generateMetadata({ params, searchParams }) {
 
 export default async function TagPage({ params, searchParams }) {
   const { slug } = await params;
-  const page = Math.max(1, parseInt((await searchParams)?.page) || 1);
+  const sp = (await searchParams) || {};
+  const page = Math.max(1, parseInt(sp.page) || 1);
+  const resolves = VALID_RESOLVES.has(sp.resolves) ? sp.resolves : "";
+  const severity = VALID_SEVERITIES.has(sp.severity) ? sp.severity : "";
   const tag = tagFromSlug(slug);
   const display = tagDisplayName(tag);
 
   const [tagData, allTags, walletsRes] = await Promise.all([
-    getTagData(tag, page),
+    getTagData(tag, page, resolves, severity),
     getAllTags(),
     fetch(`${API_URL}/api/wallets/top?limit=10`, { next: { revalidate: 60 } })
       .then((r) => (r.ok ? r.json() : { wallets: [] }))
@@ -196,17 +215,19 @@ export default async function TagPage({ params, searchParams }) {
     ],
   };
 
+  const buildPageHref = (p) => {
+    const qs = new URLSearchParams();
+    if (p > 1) qs.set("page", String(p));
+    if (resolves) qs.set("resolves", resolves);
+    if (severity) qs.set("severity", severity);
+    const q = qs.toString();
+    return q ? `/tag/${tagSlug(tag)}?${q}` : `/tag/${tagSlug(tag)}`;
+  };
+
   return (
     <>
-      {page > 1 && (
-        <link
-          rel="prev"
-          href={`/tag/${tagSlug(tag)}${page > 2 ? `?page=${page - 1}` : ""}`}
-        />
-      )}
-      {page < totalPages && (
-        <link rel="next" href={`/tag/${tagSlug(tag)}?page=${page + 1}`} />
-      )}
+      {page > 1 && <link rel="prev" href={buildPageHref(page - 1)} />}
+      {page < totalPages && <link rel="next" href={buildPageHref(page + 1)} />}
       <main className="mx-auto max-w-6xl px-4 py-6">
       <script
         type="application/ld+json"
@@ -234,6 +255,16 @@ export default async function TagPage({ params, searchParams }) {
         totalPages={totalPages}
         tagDesc={tagDesc}
       />
+
+      {/* Live ticker — hidden on mobile, duplicates feed */}
+      <section aria-label="Live ticker" className="hidden sm:block mb-5 sm:mx-0 sm:rounded-xl sm:overflow-hidden">
+        <Ticker tag={tag} />
+      </section>
+
+      {/* Filters */}
+      <section aria-label="Filters" className="mb-5">
+        <TagFilters slug={tagSlug(tag)} resolves={resolves} severity={severity} />
+      </section>
 
       {/* Server-rendered market list for crawlers */}
       {markets.length > 0 && (
@@ -268,6 +299,8 @@ export default async function TagPage({ params, searchParams }) {
             page={page}
             totalPages={totalPages}
             slug={tagSlug(tag)}
+            resolves={resolves}
+            severity={severity}
           />
         </section>
       ) : (
