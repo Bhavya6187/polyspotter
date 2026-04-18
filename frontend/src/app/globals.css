@@ -25,13 +25,29 @@
   --accent: #00c26a;
   --accent-hover: #00a85c;
   --accent-subtle: #e6f9f0;
-  --accent-glow: rgba(0, 194, 106, 0.15);
+  --accent-glow: rgba(0, 194, 106, 0.25);
 
   /* Semantic */
   --bullish: #00c26a;
   --bearish: #ef4444;
   --warning: #f59e0b;
   --info: #3b82f6;
+  --violet: #8b5cf6;
+
+  /* Borders */
+  --border-strong: #c8ccd6;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  /* Shadow */
+  --shadow-card: 0 4px 14px rgba(0, 0, 0, 0.25);
+
+  /* Font aliases */
+  --font-mono: var(--font-display);
 
   /* Glow */
   --glow-strong: 0 0 20px rgba(0, 194, 106, 0.2), 0 0 40px rgba(0, 194, 106, 0.05);
@@ -39,31 +55,45 @@
 }
 
 .dark {
-  --surface-0: #060a12;
-  --surface-1: #0c1120;
-  --surface-2: #131a2e;
-  --surface-card: #0d1221;
-  --surface-card-hover: #111729;
-  --border: #1c2540;
-  --border-subtle: #151d33;
+  --surface-0:      #05080f;
+  --surface-1:      #0a0f1c;
+  --surface-2:      #111827;
+  --surface-card:   #0f1624;
+  --surface-card-hover: #141c2e;
 
-  --text-primary: #e8ecf4;
-  --text-secondary: #8892aa;
-  --text-muted: #535e76;
+  --border:         rgba(255,255,255,0.08);
+  --border-subtle:  rgba(255,255,255,0.05);
+  --border-strong:  rgba(255,255,255,0.14);
 
-  --accent-subtle: rgba(0, 194, 106, 0.08);
+  --text-primary:   #f5f7fa;
+  --text-secondary: rgba(235,235,245,0.6);
+  --text-muted:     rgba(235,235,245,0.38);
 
-  --glow-strong: 0 0 24px rgba(0, 194, 106, 0.25), 0 0 60px rgba(0, 194, 106, 0.08);
-  --glow-medium: 0 0 16px rgba(0, 194, 106, 0.15);
+  --accent:         #00c26a;
+  --accent-hover:   #00a85c;
+  --accent-subtle:  rgba(0,194,106,0.14);
+  --accent-glow:    rgba(0,194,106,0.25);
+  --bullish:        #00c26a;
+  --bearish:        #ef4444;
+  --warning:        #f59e0b;
+  --info:           #3b82f6;
+  --violet:         #8b5cf6;
+
+  --glow-strong: 0 0 20px rgba(0,194,106,0.2), 0 0 40px rgba(0,194,106,0.05);
+  --glow-medium: 0 0 16px rgba(0,194,106,0.18);
 }
 
 /* ── Base ── */
 body {
   font-family: var(--font-body);
-  background: var(--surface-0);
+  background:
+    radial-gradient(ellipse at 20% 0%, rgba(0,194,106,0.08), transparent 55%),
+    radial-gradient(ellipse at 80% 60%, rgba(59,130,246,0.06), transparent 55%),
+    var(--surface-0);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
 }
 
 /* ── Hide scrollbar utility ── */
@@ -104,15 +134,7 @@ body {
   animation: urgency-pulse 2s ease-in-out infinite;
 }
 
-/* ── Staggered entrance ── */
-@keyframes fade-up {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-.animate-fade-up {
-  animation: fade-up 0.3s ease-out both;
-  content-visibility: auto;
-}
+/* ── Staggered entrance (note: overridden at end of file) ── */
 
 /* ── Glow border for strong signals ── */
 @keyframes glow-border {
@@ -175,3 +197,26 @@ body {
   white-space: nowrap;
   border-width: 0;
 }
+
+/* ── Mover pulse animation ── */
+@keyframes mover-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+.animate-mover-pulse { animation: mover-pulse 7s ease-in-out infinite; }
+
+/* ── Fade up animation (updated spec) ── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up { animation: fade-up 260ms ease-out both; }
+
+/* ── Strength glow animation ── */
+@keyframes strength-glow {
+  0%, 100% { filter: drop-shadow(0 0 2px currentColor); }
+  50% { filter: drop-shadow(0 0 6px currentColor); }
+}
+
+/* ── Safe-area padding helper for mobile tab bar ── */
+.pb-safe { padding-bottom: calc(env(safe-area-inset-bottom) + 0px); }
