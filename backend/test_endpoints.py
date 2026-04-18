@@ -503,3 +503,16 @@ def test_api_digest_returns_counts_since_timestamp(self_seed_signal_fixture):
         assert k in body
     assert body["new_signals"] >= 1  # our fixture row
     assert isinstance(body["top_signals"], list)
+
+
+@skip_no_db
+def test_api_ticker_recent_returns_trades(self_seed_signal_fixture):
+    r = client.get("/api/ticker/recent?limit=20")
+    assert r.status_code == 200
+    body = r.json()
+    assert "trades" in body
+    assert isinstance(body["trades"], list)
+    if body["trades"]:
+        t = body["trades"][0]
+        for k in ("id","side","amount","market","price","wallet_alias","wallet_tier","wallet_color","timestamp"):
+            assert k in t

@@ -59,7 +59,8 @@ from models import (
     TickerTradeView,
     DigestView,
 )
-from signals import signal_from_row
+from signals import signal_from_row, tier_for_wallet, color_for_wallet
+from pseudonym import alias_for_wallet
 from topics import topic_for_tags
 from live_prices import batch_live_for_condition_ids
 
@@ -1743,6 +1744,45 @@ def get_digest(since: datetime = Query(..., description="ISO8601 last-visit time
         top_signals=top.signals,
         biggest_mover=biggest,
     )
+
+
+@app.get("/api/ticker/recent")
+def ticker_recent(limit: int = Query(20, ge=1, le=100)):
+    """Latest N trades across all alerts, newest first."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT t.transaction_hash AS id, t.side, t.usd_value AS amount, t.price,
+                   t.wallet, t.trade_timestamp AS ts,
+                   a.market_title, a.condition_id,
+                   wp.win_rate, wp.total_pnl
+            FROM alert_trades t
+            JOIN alerts a ON a.id = t.alert_id
+            LEFT JOIN wallet_profiles wp ON wp.wallet = t.wallet
+            WHERE t.trade_timestamp IS NOT NULL
+            ORDER BY t.trade_timestamp DESC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        rows = cur.fetchall()
+
+    trades = []
+    for r in rows:
+        trades.append(TickerTradeView(
+            id=r["id"],
+            side=(r["side"] or "BUY").upper(),
+            amount=float(r["amount"] or 0),
+            market=r["market_title"] or "",
+            condition_id=r["condition_id"],
+            price=r["price"],
+            wallet_alias=alias_for_wallet(r["wallet"] or ""),
+            wallet_tier=tier_for_wallet(r["win_rate"], r["total_pnl"]),
+            wallet_color=color_for_wallet(r["wallet"] or ""),
+            timestamp=r["ts"],
+        ))
+    return {"trades": trades}
 
 
 @app.get("/api/health")
