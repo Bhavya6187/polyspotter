@@ -1599,6 +1599,68 @@ def list_top_signals():
     return {"signals": result.signals}
 
 
+def _parse_tags(raw):
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return raw
+    try:
+        return json.loads(raw)
+    except Exception:
+        return []
+
+
+@app.get("/api/markets/movers")
+def list_movers(limit: int = Query(6, ge=1, le=20)):
+    """Top movers: markets with alerts in the last 24h, sorted by abs(price_change_24h)."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT DISTINCT ON (a.condition_id)
+                a.condition_id, a.market_title, a.tags, a.end_date, a.composite_score
+            FROM alerts a
+            WHERE a.condition_id IS NOT NULL
+              AND (a.end_date IS NULL OR a.end_date > NOW())
+              AND a.created_at > NOW() - INTERVAL '24 hours'
+            ORDER BY a.condition_id, a.composite_score DESC
+            LIMIT 100
+            """
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+
+    # Fetch live price data from price_candles for all condition_ids.
+    live_map = batch_live_for_condition_ids([r["condition_id"] for r in rows])
+    for r in rows:
+        live = live_map.get(r["condition_id"], {}) or {}
+        r["yes_price"] = live.get("yes_price")
+        r["price_change_24h"] = live.get("price_change_24h") or 0.0
+        r["volume_24h"] = live.get("volume_24h") or 0.0
+        r["candles"] = live.get("candles") or []
+
+    # Sort in Python by abs(price_change_24h). Fall back to volume_24h for ties.
+    def key(r):
+        pc = abs(float(r.get("price_change_24h") or 0))
+        return (-pc, -(float(r.get("volume_24h") or 0)))
+    rows.sort(key=key)
+    rows = rows[:limit]
+
+    out = []
+    for r in rows:
+        tags = _parse_tags(r.get("tags"))
+        topic, icon = topic_for_tags(tags)
+        out.append(MoverView(
+            condition_id=r["condition_id"],
+            title=r.get("market_title") or "",
+            topic=topic, icon=icon,
+            yes_price=r.get("yes_price"),
+            price_change_24h=float(r.get("price_change_24h") or 0),
+            volume_24h=float(r.get("volume_24h") or 0),
+            candles=r.get("candles") or [],
+        ))
+    return {"movers": out}
+
+
 @app.get("/api/health")
 def health():
     """Health check."""

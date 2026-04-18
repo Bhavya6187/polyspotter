@@ -457,3 +457,17 @@ def test_api_signals_top_returns_up_to_three(self_seed_signal_fixture):
     assert "signals" in body
     assert isinstance(body["signals"], list)
     assert len(body["signals"]) <= 3
+
+
+@skip_no_db
+def test_api_markets_movers_returns_list(self_seed_signal_fixture):
+    r = client.get("/api/markets/movers?limit=6")
+    assert r.status_code == 200
+    body = r.json()
+    assert "movers" in body
+    assert isinstance(body["movers"], list)
+    assert len(body["movers"]) <= 6
+    for m in body["movers"]:
+        for k in ("condition_id","title","topic","icon","yes_price",
+                  "price_change_24h","volume_24h","candles"):
+            assert k in m
