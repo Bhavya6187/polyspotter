@@ -1717,6 +1717,34 @@ def list_topics():
     return {"topics": out}
 
 
+@app.get("/api/digest", response_model=DigestView)
+def get_digest(since: datetime = Query(..., description="ISO8601 last-visit timestamp")):
+    """Summary of activity since a given timestamp."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT COUNT(*) AS c FROM alerts WHERE created_at > %s",
+            (since,),
+        )
+        new_signals = cur.fetchone()["c"] or 0
+        cur.execute(
+            "SELECT COUNT(*) AS c FROM alerts WHERE created_at > %s AND composite_score >= 18",
+            (since,),
+        )
+        strong = cur.fetchone()["c"] or 0
+
+    top = list_signals(topic=None, limit=3, offset=0, min_rating=1, resolves_within=None)
+    movers = list_movers(limit=1)["movers"]
+    biggest = movers[0] if movers else None
+    return DigestView(
+        since=since,
+        new_signals=new_signals,
+        strong_signals=strong,
+        top_signals=top.signals,
+        biggest_mover=biggest,
+    )
+
+
 @app.get("/api/health")
 def health():
     """Health check."""

@@ -491,3 +491,15 @@ def test_api_topics_returns_canonical_list():
         # matched rows).
         assert len(t["spark"]) == 8
         assert all(isinstance(x, (int, float)) and x >= 0 for x in t["spark"])
+
+
+@skip_no_db
+def test_api_digest_returns_counts_since_timestamp(self_seed_signal_fixture):
+    past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    r = client.get("/api/digest", params={"since": past})
+    assert r.status_code == 200
+    body = r.json()
+    for k in ("since","new_signals","strong_signals","top_signals","biggest_mover"):
+        assert k in body
+    assert body["new_signals"] >= 1  # our fixture row
+    assert isinstance(body["top_signals"], list)
