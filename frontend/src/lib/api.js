@@ -91,3 +91,33 @@ export function fetchBasketballData(conditionId, { title = "", event_slug = "" }
 export function fetchCricketData(conditionId, { title = "", event_slug = "" } = {}) {
   return request(`/api/market/${conditionId}/cricket`, { title, event_slug });
 }
+
+export function fetchSignals({ topic, limit = 20, offset = 0, minRating, resolvesWithin } = {}) {
+  return request("/api/signals", {
+    topic: topic || undefined,
+    limit,
+    offset,
+    min_rating: minRating || undefined,
+    resolves_within: resolvesWithin || undefined,
+  });
+}
+
+export function fetchTopSignals() {
+  return request("/api/signals/top");
+}
+
+export function fetchMovers(limit = 6) {
+  return request("/api/markets/movers", { limit });
+}
+
+export function fetchTopics() {
+  return request("/api/topics");
+}
+
+export function fetchDigest(since) {
+  return request("/api/digest", { since });
+}
+
+export function fetchTickerRecent(limit = 20) {
+  return request("/api/ticker/recent", { limit });
+}
