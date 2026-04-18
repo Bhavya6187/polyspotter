@@ -447,3 +447,13 @@ def test_api_signals_filters_by_topic(self_seed_signal_fixture):
     assert any(s["id"] for s in r_on.json()["signals"])
     # Our test row shouldn't match NBA
     # (may still find other rows if DB has NBA data; only assert on the seeded one)
+
+
+@skip_no_db
+def test_api_signals_top_returns_up_to_three(self_seed_signal_fixture):
+    r = client.get("/api/signals/top")
+    assert r.status_code == 200
+    body = r.json()
+    assert "signals" in body
+    assert isinstance(body["signals"], list)
+    assert len(body["signals"]) <= 3

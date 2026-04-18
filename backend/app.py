@@ -1592,6 +1592,13 @@ def _map_strategies_to_signal_keys(strategies: list[str]) -> list[str]:
     return out
 
 
+@app.get("/api/signals/top")
+def list_top_signals():
+    """Curated Top 3 signals by composite_score with recency tiebreak."""
+    result = list_signals(topic=None, limit=3, offset=0, min_rating=1, resolves_within=None)
+    return {"signals": result.signals}
+
+
 @app.get("/api/health")
 def health():
     """Health check."""
