@@ -1785,6 +1785,41 @@ def ticker_recent(limit: int = Query(20, ge=1, le=100)):
     return {"trades": trades}
 
 
+@app.get("/api/markets/{condition_id}/card", response_model=MoverView)
+def market_card(condition_id: str):
+    """Compact MoverView-shaped card for a single condition_id.
+
+    Used by the watchlist rail: returns the most recent known title for the
+    market plus live price/change/candles sourced from the price_candles
+    time series. Falls back to a truncated condition_id when no alert row
+    has ever surfaced the title.
+    """
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT market_title, tags FROM alerts "
+            "WHERE condition_id = %s ORDER BY created_at DESC LIMIT 1",
+            (condition_id,),
+        )
+        row = cur.fetchone()
+
+    title = (row and row["market_title"]) or condition_id[:10]
+    tags = _parse_tags(row["tags"]) if row else []
+    topic, icon = topic_for_tags(tags)
+
+    live = batch_live_for_condition_ids([condition_id]).get(condition_id, {})
+    return MoverView(
+        condition_id=condition_id,
+        title=title,
+        topic=topic,
+        icon=icon,
+        yes_price=live.get("yes_price"),
+        price_change_24h=float(live.get("price_change_24h") or 0),
+        volume_24h=float(live.get("volume_24h") or 0),
+        candles=list(live.get("candles") or []),
+    )
+
+
 @app.get("/api/health")
 def health():
     """Health check."""

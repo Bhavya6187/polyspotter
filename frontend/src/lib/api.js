@@ -121,3 +121,7 @@ export function fetchDigest(since) {
 export function fetchTickerRecent(limit = 20) {
   return request("/api/ticker/recent", { limit });
 }
+
+export function fetchMarketCard(conditionId) {
+  return request(`/api/markets/${conditionId}/card`);
+}
