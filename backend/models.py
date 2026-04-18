@@ -561,3 +561,84 @@ class CricketGameData(BaseModel):
     balls: list[BallEvent] = []
     squads: dict[str, list[CricketSquadPlayer]] = {}  # {"home": [...], "away": [...]}
     head_to_head: CricketHeadToHead | None = None
+
+
+# ─── PolySpotter redesign models ─────────────────────────────────
+
+class SignalMarket(BaseModel):
+    condition_id: str | None = None
+    title: str | None = None
+    topic: str = "General"
+    icon: str = "📈"
+    end_date: datetime | None = None
+    yes_price: float | None = None
+    price_change_24h: float = 0.0
+    volume_24h: float = 0.0
+    candles: list[float] = []
+
+class SignalWallet(BaseModel):
+    addr: str
+    alias: str
+    tier: str  # "legend" | "sharp" | "prov"
+    win_rate: float = 0.0
+    pnl: float = 0.0
+    bets: int = 0
+    color: str
+
+class SignalView(BaseModel):
+    id: str
+    created_at: datetime | None = None
+    market: SignalMarket
+    wallet: SignalWallet
+    side: str | None = None  # "YES" | "NO"
+    entry_price: float | None = None
+    stake_usd: float = 0.0
+    score: float = 0.0
+    rating: int = 1   # 1..5
+    why: str = ""
+    signals: list[str] = []
+    bullets: list[str] = []
+    price_at_alert: float | None = None
+    price_now: float | None = None
+    return_pct: int = 0
+
+class PaginatedSignals(BaseModel):
+    signals: list[SignalView]
+    total: int
+
+class MoverView(BaseModel):
+    condition_id: str
+    title: str
+    topic: str
+    icon: str
+    yes_price: float | None = None
+    price_change_24h: float = 0.0
+    volume_24h: float = 0.0
+    candles: list[float] = []
+
+class TopicView(BaseModel):
+    name: str
+    icon: str
+    signals: int
+    volume_24h: float
+    trend: int  # +/- integer percent
+    spark: list[float] = []
+
+class TickerTradeView(BaseModel):
+    id: str
+    side: str    # "BUY" | "SELL"
+    amount: float
+    market: str
+    condition_id: str | None = None
+    price: float | None = None
+    wallet_alias: str
+    wallet_tier: str
+    wallet_color: str
+    timestamp: datetime | None = None
+
+class DigestView(BaseModel):
+    since: datetime | None = None
+    new_signals: int
+    strong_signals: int
+    top_signals: list[SignalView] = []
+    biggest_mover: MoverView | None = None
