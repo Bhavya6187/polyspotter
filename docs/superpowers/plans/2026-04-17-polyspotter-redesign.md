@@ -1350,7 +1350,7 @@ def list_topics():
                     COUNT(*)::int                                 AS signal_count,
                     COALESCE(SUM(total_usd),0)::float             AS vol_24h,
                     ARRAY(
-                        SELECT COUNT(*)::int
+                        SELECT COUNT(a2.id)::int
                         FROM generate_series(0,7) AS bucket
                         LEFT JOIN alerts a2 ON
                             a2.created_at >= NOW() - ((8 - bucket) * INTERVAL '3 hours')

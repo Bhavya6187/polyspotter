@@ -1661,6 +1661,62 @@ def list_movers(limit: int = Query(6, ge=1, le=20)):
     return {"movers": out}
 
 
+@app.get("/api/topics")
+def list_topics():
+    """Activity summary per canonical topic over the last 24h."""
+    from topics import CANONICAL_TOPICS, TAG_TO_TOPIC
+    out = []
+    with db() as conn:
+        cur = conn.cursor()
+        for (topic_name, icon) in CANONICAL_TOPICS:
+            matching = [t for t, (nm, _) in TAG_TO_TOPIC.items() if nm == topic_name]
+            if not matching:
+                out.append(TopicView(name=topic_name, icon=icon, signals=0,
+                                     volume_24h=0, trend=0, spark=[]))
+                continue
+            cur.execute(
+                """
+                SELECT
+                    COUNT(*)::int                                 AS signal_count,
+                    COALESCE(SUM(total_usd),0)::float             AS vol_24h,
+                    ARRAY(
+                        SELECT COUNT(a2.id)::int
+                        FROM generate_series(0,7) AS bucket
+                        LEFT JOIN alerts a2 ON
+                            a2.created_at >= NOW() - ((8 - bucket) * INTERVAL '3 hours')
+                            AND a2.created_at <  NOW() - ((7 - bucket) * INTERVAL '3 hours')
+                            AND EXISTS (
+                                SELECT 1 FROM jsonb_array_elements_text(a2.tags::jsonb) t
+                                WHERE t = ANY(%s)
+                            )
+                        GROUP BY bucket ORDER BY bucket
+                    ) AS spark_ints
+                FROM alerts a
+                WHERE a.created_at > NOW() - INTERVAL '24 hours'
+                  AND EXISTS (
+                    SELECT 1 FROM jsonb_array_elements_text(a.tags::jsonb) t
+                    WHERE t = ANY(%s)
+                  )
+                """,
+                (matching, matching),
+            )
+            row = cur.fetchone()
+            signal_count = row["signal_count"] or 0
+            vol_24h = float(row["vol_24h"] or 0)
+            spark = list(row.get("spark_ints") or [])
+            # trend: percent change from first-half to second-half of 24h (rough)
+            half = len(spark) // 2 or 1
+            first = sum(spark[:half]) or 1
+            second = sum(spark[half:])
+            trend = round((second - first) / first * 100)
+            out.append(TopicView(
+                name=topic_name, icon=icon,
+                signals=signal_count, volume_24h=vol_24h,
+                trend=trend, spark=[float(x) for x in spark],
+            ))
+    return {"topics": out}
+
+
 @app.get("/api/health")
 def health():
     """Health check."""

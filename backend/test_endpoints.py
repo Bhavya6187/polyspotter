@@ -471,3 +471,23 @@ def test_api_markets_movers_returns_list(self_seed_signal_fixture):
         for k in ("condition_id","title","topic","icon","yes_price",
                   "price_change_24h","volume_24h","candles"):
             assert k in m
+
+
+@skip_no_db
+def test_api_topics_returns_canonical_list():
+    r = client.get("/api/topics")
+    assert r.status_code == 200
+    body = r.json()
+    assert "topics" in body
+    names = {t["name"] for t in body["topics"]}
+    assert {"Politics","Economics","Crypto","NBA","Geopolitics","Science"} <= names
+    for t in body["topics"]:
+        for k in ("name","icon","signals","volume_24h","trend","spark"):
+            assert k in t
+        assert isinstance(t["spark"], list)
+        # spark must be an 8-bucket histogram of zero-or-positive integers —
+        # guards against COUNT(*) over LEFT JOIN generate_series, which returns
+        # 1 for empty buckets instead of 0 (use COUNT(a2.id) to count only
+        # matched rows).
+        assert len(t["spark"]) == 8
+        assert all(isinstance(x, (int, float)) and x >= 0 for x in t["spark"])
