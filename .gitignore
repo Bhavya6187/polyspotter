@@ -17,4 +17,5 @@ venv/
 .env
 bot_result.txt
 *.jsonl
-polybot.log.worktrees/
+polybot.log
+.worktrees/
