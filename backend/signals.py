@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import hashlib
-from datetime import datetime
 from typing import Any
 
 from models import SignalView, SignalMarket, SignalWallet
@@ -32,6 +31,7 @@ def bucket_rating(score: float | None) -> int:
 
 
 def tier_for_wallet(win_rate: float | None, pnl: float | None) -> str:
+    """Classify wallet reputation: legend / sharp / prov (provisional)."""
     w = float(win_rate or 0)
     p = float(pnl or 0)
     if w >= 0.88 and p >= 300_000:
@@ -42,10 +42,12 @@ def tier_for_wallet(win_rate: float | None, pnl: float | None) -> str:
 
 
 def color_for_wallet(addr: str) -> str:
-    """Deterministic color from a wallet address."""
+    """Deterministic color from a wallet address. Lowercased for consistency
+    with alias_for_wallet, so checksummed and non-checksummed addresses map
+    to the same color."""
     if not addr:
         return _WALLET_PALETTE[0]
-    h = hashlib.md5(addr.encode("utf-8")).hexdigest()
+    h = hashlib.md5(addr.lower().encode("utf-8")).hexdigest()
     idx = int(h[:8], 16) % len(_WALLET_PALETTE)
     return _WALLET_PALETTE[idx]
 

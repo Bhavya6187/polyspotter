@@ -37,6 +37,10 @@ def test_color_is_stable_per_address():
     assert c1 in {"#f59e0b", "#00c26a", "#8b5cf6", "#3b82f6", "#ec4899", "#06b6d4"}
     assert c3 in {"#f59e0b", "#00c26a", "#8b5cf6", "#3b82f6", "#ec4899", "#06b6d4"}
 
+def test_color_is_case_insensitive():
+    # Checksummed and lowercased forms of the same address must match.
+    assert color_for_wallet("0xABCDef1234") == color_for_wallet("0xabcdef1234")
+
 def test_return_pct_yes():
     # YES at 20¢: pays $1 if resolves YES; return = (1 - 0.20)/0.20 = 4.0 → 400%
     assert return_pct("YES", 0.20) == 400
