@@ -1,13 +1,13 @@
 # Polybot
 
-Polymarket Notable Trade Scanner — monitors Polymarket trades and surfaces large bets ($3,000+) that show signals of informed edge: sharp bettors, coordinated flow, and high-conviction positioning.
+Polymarket Notable Trade Scanner — monitors Polymarket trades and surfaces large bets ($1,000+) that show signals of informed edge: sharp bettors, coordinated flow, and high-conviction positioning.
 
 ## How It Works
 
-Polybot fetches recent trades from the Polymarket Data API, runs them through 9 detection strategies, and produces composite alerts ranking the most interesting trades. An LLM filter (GPT-5.4) evaluates each alert for interestingness before pushing it to the web dashboard. A local SQLite database (`polybot.db`) tracks wallet history, P&L, price data, and other state across runs, building richer baselines over time.
+Polybot fetches recent trades from the Polymarket Data API, runs them through 9 detection strategies, and produces composite alerts ranking the most interesting trades. An LLM filter (GPT-5.4 via Azure OpenAI) evaluates each alert for interestingness, generates a headline, summary, bullets, and a "copy action", and an SEO generator enriches market pages with titles, descriptions, and FAQs. A local SQLite database (`polybot.db`) tracks wallet history, P&L, price data, and other state across runs, building richer baselines over time.
 
 ```
-Fetch trades ($3k+) → Filter (duration, odds, resolved) → Per-trade strategies → Batch strategies → LLM filter → Push to backend
+Fetch trades ($1k+) → Filter (duration, odds, resolved) → Per-trade strategies → Batch strategies → LLM filter → Push to backend
 ```
 
 ### Trade Filters
@@ -26,20 +26,20 @@ Strategies live in `detection_strategies/` and run in two phases. Order matters 
 
 | # | Strategy | What It Detects | Key Thresholds | Severity |
 |---|----------|----------------|----------------|----------|
-| 1 | **Win Rate Tracking** | Wallets with notably high historical win rates | >= 75% win rate on >= 10 resolved bets | 1.0-6.0 |
+| 1 | **Win Rate Tracking** | Wallets with sustained positive edge on resolved bets | >= 10 resolved bets, edge >= 15%; perfect records flagged at >= 20 positions | 1.0-6.0 |
 | 2 | **New Wallet Large Bet** | New/young wallets (< 30 days) making large bets | Wallet age < 30 days, escalates for repeat offenders | 1.0-7.0 |
-| 3 | **Timing Relative Resolution** | Bets placed close to market resolution | Within 60 min of endDate; flags serial timers (>= 3 historical) | 1.0-8.0 |
-| 4 | **Low Activity Large Bet** | Large bets on thinly-traded markets | 24h volume < $5k or bet >= 50% of 24h volume | 0.5-4.0 |
+| 3 | **Timing Relative Resolution** | Bets placed close to market resolution | Within ~60 min of endDate, bet >= $1k; edge-gated for wallets with >= 5 closed positions | 1.0-8.0 |
+| 4 | **Low Activity Large Bet** | Large bets on thinly-traded markets | 24h volume < $10k | 0.5-4.0 |
 
 ### Batch Strategies
 
 | # | Strategy | What It Detects | Key Thresholds | Severity |
 |---|----------|----------------|----------------|----------|
-| 5 | **Pre-Event Volume Spike** | Unusual volume surges in a market | Window volume >= 10x historical baseline, >= $25k | 1.0-4.0 |
+| 5 | **Pre-Event Volume Spike** | Unusual volume surges in a market | Window volume >= 10x historical baseline, >= $10k, >= 3 trades | 1.0-4.0 |
 | 6 | **Wallet Clustering** | Linked wallets funded by the same source | >= 2 wallets sharing a funder (via Etherscan) | 5.0-8.0 |
-| 7 | **Concentrated One-Sided** | Coordinated one-sided betting by multiple wallets | >= 3 wallets, >= $5k total | 3.5-8.0 |
+| 7 | **Concentrated One-Sided** | Coordinated one-sided betting by multiple wallets | >= 3 wallets, >= $2k total | 3.5-8.0 |
 | 8 | **Price Impact** | Trades causing abnormal price movement | >= 15pp shift in window or >= 25pp from historical range | 1.0-5.0 |
-| 9 | **Correlated Cross-Market** | Wallets betting across multiple markets in the same event | >= 2 markets, >= $5k combined; flags serial cross-market traders | 1.5-4.0 |
+| 9 | **Correlated Cross-Market** | Wallets betting across multiple markets in the same event | >= 2 markets (>= 3 for sports), >= $2k combined; flags serial cross-market traders | 1.5-4.0 |
 
 ### Strategy Dependencies
 
@@ -55,7 +55,7 @@ polybot.py                     # Main entry point — fetches trades, runs strat
 db.py                          # SQLite database module (WAL mode) with all table definitions
 gamma_cache.py                 # In-memory Gamma API market metadata cache
 config.py                      # Shared runtime configuration (--verbose flag)
-llm_filter.py                  # GPT-5.4 alert evaluation and filtering
+llm_filter.py                  # GPT-5.4 alert evaluation, headline/bullets/copy-action generation
 detection_strategies/          # All 9 detection strategy implementations
   __init__.py                  # Signal dataclass, DetectionStrategy base class, registry
   win_rate_tracking.py
@@ -67,21 +67,26 @@ detection_strategies/          # All 9 detection strategy implementations
   concentrated_one_sided.py
   price_impact.py
   correlated_cross_market.py
-test/                          # pytest test suite
+test/                          # pytest test suite (one per strategy + seeder theses)
 backend/                       # Web API (FastAPI + PostgreSQL)
   app.py                       # API endpoints
   database.py                  # PostgreSQL connection
-  schema.sql                   # Database schema
+  schema.sql                   # Database schema (alerts, trades, signals, profiles, candles, theses)
   models.py                    # Pydantic request/response models
   basketball.py                # Basketball game data integration
-frontend/                      # Web dashboard (Next.js 15 + Tailwind CSS 4)
+  cricket.py                   # Cricket match data integration
+  seo_generator.py             # LLM-generated SEO content for market pages
+  test_endpoints.py / test_basketball.py
+frontend/                      # Web dashboard (Next.js 15 + React 19 + Tailwind CSS 4)
   src/app/                     # Pages: home, alert, market, wallet, tag, thesis
-  src/components/              # UI: AlertTable, MarketCard, PriceChart, HeroSpotlight, etc.
-  src/hooks/                   # useLiveMarket, useCountdown, useSpotlight
-  src/lib/api.js               # API client
-seeder.py                      # Pushes alerts from scanner to backend API
+                               # + sitemap.js, robots.js, api/og (dynamic OG images)
+  src/components/              # Alerts, markets, wallets, search, basketball & cricket overlays
+  src/hooks/                   # useLiveMarket, useBasketballData, useCricketData, useSpotlight, etc.
+  src/lib/                     # api.js, pseudonym.js, slugify.js, tiers.js
+seeder.py                      # Pushes alerts + theses from scanner to backend API
 reset_alerts.py                # Clears alerts from both Postgres and local SQLite cache
 backfill.py                    # Backfills historical trade data (default 30 days)
+compare_models.py / debug_llm.py / backtest_iran.py    # LLM / backtest utilities
 ```
 
 ## Setup
@@ -99,7 +104,10 @@ DATABASE_URL=<postgres-connection-string>     # PostgreSQL (backend only)
 
 # Optional
 NEXT_PUBLIC_API_URL=<backend-url>             # Frontend API target (default: http://localhost:8000)
+NEXT_PUBLIC_CLARITY_PROJECT_ID=<id>           # Microsoft Clarity analytics (frontend)
 ```
+
+> The hosted backend at `https://api.polyspotter.com` can be used directly for frontend development — no local Postgres required.
 
 ### Install Dependencies
 
@@ -193,8 +201,10 @@ pytest
 | `GET` | `/api/resolving-soon` | Markets resolving soon |
 | `GET` | `/api/theses` | List cross-market theses (paginated) |
 | `GET` | `/api/theses/{id}` | Single thesis detail |
+| `GET` | `/api/wallets/top` | Top wallets leaderboard |
 | `GET` | `/api/market/{id}/live` | Live market data (prices, holders) |
 | `GET` | `/api/market/{id}/basketball` | Basketball-specific game data |
+| `GET` | `/api/market/{id}/cricket` | Cricket-specific match data |
 | `GET` | `/api/market/{id}/price-history` | Price candle history |
 | `GET` | `/api/market/{id}/holders` | Market holders/positions leaderboard |
 | `GET` | `/api/market/{id}/theses` | Theses for a specific market |
@@ -235,16 +245,18 @@ pytest
 
 | Table | Purpose |
 |-------|---------|
-| `alerts` | Main alert records |
+| `alerts` | Main alert records (includes LLM headline/bullets/copy-action + SEO fields) |
 | `alert_trades` | Trades associated with alerts |
 | `alert_signals` | Detection signals per alert |
 | `wallet_profiles` | Cached wallet P&L and statistics |
 | `price_candles` | Price candle data for sparklines |
 | `wallet_theses` | Cross-market thesis groupings |
 
+Market titles are indexed with a `pg_trgm` GIN index for fast fuzzy search.
+
 ## Tech Stack
 
-- **Scanner**: Python 3.13, SQLite (WAL mode), requests, python-dotenv, openai
-- **Backend**: FastAPI, Uvicorn, PostgreSQL, Pydantic
-- **Frontend**: Next.js 15, React 19, Tailwind CSS 4
+- **Scanner**: Python 3.13, SQLite (WAL mode), requests, python-dotenv, openai (Azure)
+- **Backend**: FastAPI, Uvicorn, PostgreSQL (psycopg2, pg_trgm), Pydantic
+- **Frontend**: Next.js 15 (App Router), React 19, Tailwind CSS 4, Microsoft Clarity
 - **Testing**: pytest

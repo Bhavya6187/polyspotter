@@ -1,10 +1,10 @@
 # Polybot
 
-Polymarket Notable Trade Scanner — monitors Polymarket trades and surfaces large bets ($3,000+) that show signals of informed edge: sharp bettors, coordinated flow, and high-conviction positioning.
+Polymarket Notable Trade Scanner — monitors Polymarket trades and surfaces large bets ($1,000+) that show signals of informed edge: sharp bettors, coordinated flow, and high-conviction positioning.
 
 ## What This Project Does
 
-Polybot fetches recent trades from the Polymarket Data API, runs them through 9 detection strategies, and produces composite alerts ranking the most interesting trades — copy-worthy bets from sharp bettors, informed wallets, and coordinated flow. It uses a local SQLite database (`polybot.db`) to track wallet history, P&L, price data, and other state across runs.
+Polybot fetches recent trades from the Polymarket Data API, runs them through 9 detection strategies, and produces composite alerts ranking the most interesting trades — copy-worthy bets from sharp bettors, informed wallets, and coordinated flow. An LLM filter (GPT-5.4 via Azure OpenAI) evaluates each alert and generates a headline, summary, bullets, and a structured "copy action"; an SEO generator adds titles/descriptions/FAQs for market pages. Uses a local SQLite database (`polybot.db`) to track wallet history, P&L, price data, and other state across runs.
 
 ### Detection Strategies
 
@@ -32,17 +32,22 @@ Order matters — some strategies depend on data written by earlier ones.
 - `detection_strategies/__init__.py` — `Signal` dataclass, `DetectionStrategy` base class, strategy registry
 - `db.py` — centralized SQLite database module with all table definitions and query helpers
 - `gamma_cache.py` — shared Gamma API market metadata cache
-- `test/` — pytest test suite for individual strategies
+- `llm_filter.py` — GPT-5.4 alert evaluation and structured output generation
+- `seeder.py` / `reset_alerts.py` / `backfill.py` — ingest, reset, and backfill utilities
+- `test/` — pytest test suite for individual strategies and the seeder
 - `backend/` — FastAPI REST API serving alerts, wallets, strategies, and market data
-  - `backend/app.py` — API endpoints (ingest, alerts, wallets, strategies, markets, health)
+  - `backend/app.py` — API endpoints (ingest, alerts, wallets, strategies, markets, live, sports, health)
   - `backend/database.py` — PostgreSQL connection via psycopg2 (reads `DATABASE_URL`)
+  - `backend/schema.sql` — Postgres schema (alerts, trades, signals, profiles, candles, theses)
   - `backend/models.py` — Pydantic models for request/response schemas
-  - `backend/test_endpoints.py` — endpoint tests
+  - `backend/basketball.py` / `backend/cricket.py` — sport-specific live-game data
+  - `backend/seo_generator.py` — LLM-generated SEO content for market pages
+  - `backend/test_endpoints.py` / `backend/test_basketball.py` — backend tests
 - `frontend/` — Next.js 15 web app (React 19, Tailwind CSS 4)
-  - `frontend/src/app/` — Next.js App Router pages (alerts, markets, wallets, tags, theses)
-  - `frontend/src/components/` — UI components (AlertTable, MarketCard, PriceChart, HeroSpotlight, etc.)
-  - `frontend/src/lib/api.js` — API client
-  - `frontend/src/hooks/` — custom React hooks (useLiveMarket, useCountdown, useSpotlight)
+  - `frontend/src/app/` — App Router pages (home, alert, market, wallet, tag, thesis) + `sitemap.js`, `robots.js`, `api/og` dynamic OG images
+  - `frontend/src/components/` — UI components (AlertTable, MarketCard, PriceChart, HeroSpotlight, SearchBar, CommandPalette, basketball & cricket overlays, etc.)
+  - `frontend/src/hooks/` — custom React hooks (useLiveMarket, useBasketballData, useCricketData, useSpotlight, useCountdown, useMediaQuery)
+  - `frontend/src/lib/` — `api.js` (API client), `pseudonym.js`, `slugify.js`, `tiers.js`
 
 ## Environment Setup
 
