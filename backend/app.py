@@ -52,7 +52,16 @@ from models import (
     PricePoint,
     HolderEntry,
     MarketHoldersData,
+    SignalView,
+    PaginatedSignals,
+    MoverView,
+    TopicView,
+    TickerTradeView,
+    DigestView,
 )
+from signals import signal_from_row
+from topics import topic_for_tags
+from live_prices import batch_live_for_condition_ids
 
 
 @asynccontextmanager
@@ -1467,6 +1476,120 @@ def resolve_condition_id(partial_id: str):
     if not row:
         raise HTTPException(status_code=404, detail="Market not found")
     return {"condition_id": row["condition_id"]}
+
+
+# ─── PolySpotter redesign endpoints ─────────────────────────────
+
+@app.get("/api/signals", response_model=PaginatedSignals)
+def list_signals(
+    topic: str | None = Query(None, description="Canonical topic name (Politics, Crypto, …)"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    min_rating: int = Query(1, ge=1, le=5),
+    resolves_within: str | None = Query(None, description="6h | 24h | 7d"),
+):
+    """Return alerts shaped as SignalView, pre-joined with live prices + trades."""
+    min_score = {1: 0, 2: 7, 3: 12, 4: 18, 5: 25}[min_rating]
+    conditions = ["a.composite_score >= %s", "(a.end_date IS NULL OR a.end_date > NOW())"]
+    params: list = [min_score]
+
+    resolve_hours = {"6h": 6, "24h": 24, "7d": 168}.get(resolves_within or "")
+    if resolve_hours:
+        conditions.append("a.end_date IS NOT NULL AND a.end_date <= NOW() + (%s || ' hours')::interval")
+        params.append(str(resolve_hours))
+
+    if topic:
+        # Map topic → any tags that resolve to this topic
+        from topics import TAG_TO_TOPIC
+        matching = [tag for tag, (t, _) in TAG_TO_TOPIC.items() if t == topic]
+        if matching:
+            conditions.append(
+                "EXISTS (SELECT 1 FROM jsonb_array_elements_text(a.tags::jsonb) AS t "
+                "WHERE t = ANY(%s))"
+            )
+            params.append(matching)
+        else:
+            # Unknown topic → return empty
+            return PaginatedSignals(signals=[], total=0)
+
+    where = " AND ".join(conditions)
+
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(f"SELECT COUNT(*) as c FROM alerts a WHERE {where}", params)
+        total = cur.fetchone()["c"]
+
+        cur.execute(
+            f"""
+            SELECT a.*, wp.win_rate, wp.total_pnl, wp.total_invested
+            FROM alerts a
+            LEFT JOIN wallet_profiles wp ON wp.wallet = a.wallet
+            WHERE {where}
+            ORDER BY a.composite_score DESC, a.created_at DESC
+            LIMIT %s OFFSET %s
+            """,
+            params + [limit, offset],
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+
+        if not rows:
+            return PaginatedSignals(signals=[], total=total)
+
+        alert_ids = [r["id"] for r in rows]
+        cur.execute(
+            "SELECT alert_id, outcome, side, price, usd_value, trade_timestamp "
+            "FROM alert_trades WHERE alert_id = ANY(%s) ORDER BY trade_timestamp ASC",
+            (alert_ids,),
+        )
+        trades_by_alert: dict[int, list[dict]] = {}
+        for t in cur.fetchall():
+            trades_by_alert.setdefault(t["alert_id"], []).append(dict(t))
+
+        cur.execute(
+            "SELECT alert_id, strategy FROM alert_signals WHERE alert_id = ANY(%s)",
+            (alert_ids,),
+        )
+        sigs_by_alert: dict[int, list[str]] = {}
+        for s in cur.fetchall():
+            sigs_by_alert.setdefault(s["alert_id"], []).append(s["strategy"])
+
+    # Live data in one batch
+    cids = [r["condition_id"] for r in rows if r.get("condition_id")]
+    live_map = batch_live_for_condition_ids(cids)
+
+    signals = []
+    for r in rows:
+        trades = trades_by_alert.get(r["id"], [])
+        live = live_map.get(r.get("condition_id") or "", {})
+        s = signal_from_row(r, trades=trades, live=live)
+        # Attach strategies as signal types
+        strategies = sigs_by_alert.get(r["id"], [])
+        # Map strategy names to the design's SIGNAL_LABELS keys
+        s.signals = _map_strategies_to_signal_keys(strategies)
+        signals.append(s)
+
+    return PaginatedSignals(signals=signals, total=total)
+
+
+def _map_strategies_to_signal_keys(strategies: list[str]) -> list[str]:
+    """Translate backend strategy names → design's SIGNAL_LABELS keys."""
+    mapping = {
+        "win_rate_tracking":        "win_rate",
+        "new_wallet_large_bet":     "new_wallet",
+        "timing_relative_resolution":"timing_close",
+        "low_activity_large_bet":   "low_activity",
+        "pre_event_volume_spike":   "volume_spike",
+        "wallet_clustering":        "wallet_cluster",
+        "concentrated_one_sided":   "concentrated_one_sided",
+        "price_impact":             "price_impact",
+        "correlated_cross_market":  "correlated_cross_market",
+    }
+    out = []
+    for s in strategies:
+        k = mapping.get(s)
+        if k and k not in out:
+            out.append(k)
+    return out
 
 
 @app.get("/api/health")
