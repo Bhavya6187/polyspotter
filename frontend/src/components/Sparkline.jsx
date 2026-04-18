@@ -2,12 +2,29 @@
 
 import { useId } from "react";
 
-export default function Sparkline({ candles, entryPrice, width = 200, height = 50 }) {
+export default function Sparkline({
+  candles,
+  data,
+  entryPrice,
+  width = 200,
+  height = 50,
+  color = "var(--accent)",
+}) {
   const gradientId = useId();
-  if (!candles || candles.length < 2) return null;
 
-  const prices = candles.map((c) => c.p);
-  const times = candles.map((c) => c.t);
+  const normalised = (() => {
+    if (Array.isArray(candles) && candles.length) {
+      return candles.map((c) => ({ t: c.t, p: c.p }));
+    }
+    if (Array.isArray(data) && data.length) {
+      return data.map((p, i) => ({ t: i, p }));
+    }
+    return [];
+  })();
+  if (normalised.length < 2) return null;
+
+  const prices = normalised.map((c) => c.p);
+  const times = normalised.map((c) => c.t);
   const minP = Math.min(...prices) * 0.98;
   const maxP = Math.max(...prices) * 1.02;
   const minT = Math.min(...times);
@@ -15,7 +32,7 @@ export default function Sparkline({ candles, entryPrice, width = 200, height = 5
   const rangeP = maxP - minP || 1;
   const rangeT = maxT - minT || 1;
 
-  const points = candles.map((c) => {
+  const points = normalised.map((c) => {
     const x = ((c.t - minT) / rangeT) * width;
     const y = height - ((c.p - minP) / rangeP) * height;
     return `${x},${y}`;
@@ -32,8 +49,8 @@ export default function Sparkline({ candles, entryPrice, width = 200, height = 5
       {/* Gradient fill */}
       <defs>
         <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.15" />
-          <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+          <stop offset="0%" stopColor={color} stopOpacity="0.15" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
         </linearGradient>
       </defs>
 
@@ -47,7 +64,7 @@ export default function Sparkline({ candles, entryPrice, width = 200, height = 5
       <polyline
         points={points}
         fill="none"
-        stroke="var(--accent)"
+        stroke={color}
         strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -59,8 +76,8 @@ export default function Sparkline({ candles, entryPrice, width = 200, height = 5
           cx={width * 0.85}
           cy={entryY}
           r="3"
-          fill="var(--accent)"
-          style={{ filter: "drop-shadow(0 0 4px var(--accent))" }}
+          fill={color}
+          style={{ filter: `drop-shadow(0 0 4px ${color})` }}
         />
       )}
     </svg>
