@@ -1,3 +1,6 @@
+// TODO(cleanup): unused after polyspotter redesign 2026-04-17.
+// Kept in-tree temporarily — verify via grep across /app + /components,
+// then delete in a follow-up PR. See spec §3.6.
 export default function Pagination({ page, totalPages, onPageChange }) {
   if (totalPages <= 1) return null;
 

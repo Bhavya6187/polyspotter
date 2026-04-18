@@ -1,3 +1,6 @@
+// TODO(cleanup): unused after polyspotter redesign 2026-04-17.
+// Kept in-tree temporarily — verify via grep across /app + /components,
+// then delete in a follow-up PR. See spec §3.6.
 import { Fragment, useState, useEffect } from "react";
 import Link from "next/link";
 import AlertRow from "./AlertRow";
