@@ -66,5 +66,43 @@ def log_event(event: str, **fields: Any) -> None:
     print(json.dumps(payload, default=str), flush=True)
 
 
+# --- Fetch alerts from PolySpotter API ---------------------------------------
+
+def fetch_recent_alerts(api_url: str, min_score: float, *, http=requests) -> list[dict]:
+    """Fetch alerts from the hosted API and filter to the last LOOKBACK_MINUTES.
+
+    The API returns alerts sorted by created_at DESC, so we fetch up to 100 and
+    client-side filter by `created_at`. Returns a list of AlertOut-shaped dicts.
+    """
+    resp = http.get(
+        f"{api_url}/api/alerts",
+        params={"per_page": 100, "min_score": min_score},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    body = resp.json()
+    alerts = body.get("alerts", [])
+
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=LOOKBACK_MINUTES)
+    recent = []
+    for a in alerts:
+        ts = a.get("created_at")
+        if not ts:
+            continue
+        # Accept datetime or ISO string; FastAPI returns ISO.
+        if isinstance(ts, str):
+            try:
+                parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+        else:
+            parsed = ts
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        if parsed >= cutoff:
+            recent.append(a)
+    return recent
+
+
 if __name__ == "__main__":
     sys.exit(0)  # placeholder; real main() added in Task 10
