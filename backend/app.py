@@ -1139,11 +1139,19 @@ def get_top3():
     their slot's category label."""
     CATEGORY_ORDER = ["HIGHEST_CONVICTION", "COORDINATED_FLOW", "TIMING_EDGE"]
 
+    # Conservative game-duration buffer. Most sports finish well within 3h
+    # (soccer ~2h, basketball ~2.5h, esports BO3 ~3h). MLB occasionally runs
+    # over but isn't typically a timing-edge candidate. This buffer keeps
+    # in-progress games visible after kickoff — without it, soccer markets
+    # whose `endDate == gameStartTime` vanish at the first whistle.
+    LIVE_BUFFER_HOURS = 3
+
     with db() as conn:
         cur = conn.cursor()
         cur.execute("""
             SELECT a.id, a.market_title, a.condition_id, a.event_slug,
-                   a.composite_score, a.total_usd, a.end_date, a.event_end_estimate, a.tags,
+                   a.composite_score, a.total_usd, a.end_date, a.event_end_estimate,
+                   a.game_start_time, a.tags,
                    a.llm_summary, a.llm_copy_action, a.market_image, a.wallet,
                    (SELECT COUNT(DISTINCT at2.wallet)
                       FROM alert_trades at2 WHERE at2.alert_id = a.id) AS wallet_count,
@@ -1159,8 +1167,14 @@ def get_top3():
                 ORDER BY pc.t DESC
                 LIMIT 1
             ) latest_candle ON TRUE
-            WHERE COALESCE(a.event_end_estimate, a.end_date) IS NOT NULL
-              AND COALESCE(a.event_end_estimate, a.end_date) > NOW()
+            WHERE (
+                  -- Game-level markets stay visible during play (kickoff + 3h)
+                  (a.game_start_time IS NOT NULL
+                   AND a.game_start_time + INTERVAL '3 hours' > NOW())
+                  -- Non-game markets fall back to the resolution deadline
+                  OR (a.game_start_time IS NULL
+                      AND COALESCE(a.event_end_estimate, a.end_date) > NOW())
+              )
               AND a.created_at > NOW() - INTERVAL '1 day'
               AND (latest_candle.p IS NULL OR (latest_candle.p > 0.03 AND latest_candle.p < 0.97))
             ORDER BY a.composite_score DESC
@@ -1172,14 +1186,32 @@ def get_top3():
 
     now = datetime.now(timezone.utc)
     six_hours = timedelta(hours=6)
+    live_buffer = timedelta(hours=LIVE_BUFFER_HOURS)
+
+    # Bulk-fetch Gamma resolution status for the top candidates and reject any
+    # that are already settled (closed, UMA proposed/disputed/resolved, or
+    # price >= 0.98). The price filter in the SQL above catches obvious cases,
+    # but it's reactive — UMA can move ahead of the order book on quiet
+    # markets. Cap at the top 15 by score so cold cache stays cheap (max ~15
+    # Gamma calls; subsequent requests within 60s hit the TTL cache).
+    candidate_cids = list({row["condition_id"] for row in rows[:15] if row["condition_id"]})
+    gamma_status = _fetch_gamma_status(candidate_cids)
+
+    def is_decided(row):
+        return _is_market_settled(gamma_status.get(row["condition_id"], {}))
+
+    def is_live(row):
+        gs = row["game_start_time"]
+        return gs is not None and gs <= now <= gs + live_buffer
 
     def qualifies_timing(row):
         strategies = row["strategies"] or []
+        if "timing_relative_resolution" in strategies:
+            return True
+        if is_live(row):
+            return True  # in-progress games are timing-edge by definition
         effective = row["event_end_estimate"] or row["end_date"]
-        return (
-            "timing_relative_resolution" in strategies
-            or (effective is not None and effective <= now + six_hours)
-        )
+        return effective is not None and now < effective <= now + six_hours
 
     def qualifies_coordinated(row):
         strategies = row["strategies"] or []
@@ -1195,7 +1227,9 @@ def get_top3():
         return wr is not None and wr >= 0.7 and pnl is not None and pnl >= 50000
 
     # Selection order: TIMING → COORDINATED → CONVICTION. Rows already sorted by score desc.
+    # Dedupe by condition_id so the three cards always cover three distinct markets.
     picked_ids: set = set()
+    picked_markets: set = set()
     picks: dict[str, dict] = {}
 
     for key, predicate in (
@@ -1204,23 +1238,29 @@ def get_top3():
         ("HIGHEST_CONVICTION", qualifies_conviction),
     ):
         for row in rows:
-            if row["id"] in picked_ids:
+            if row["id"] in picked_ids or row["condition_id"] in picked_markets:
+                continue
+            if is_decided(row):
                 continue
             if predicate(row):
                 picks[key] = row
                 picked_ids.add(row["id"])
+                picked_markets.add(row["condition_id"])
                 break
 
-    # Fill empty buckets from remaining rows in score order
-    fill_iter = (row for row in rows if row["id"] not in picked_ids)
+    # Fill empty buckets from remaining rows in score order, still respecting dedupe
     for key in CATEGORY_ORDER:
-        if key not in picks:
-            try:
-                row = next(fill_iter)
-                picks[key] = row
-                picked_ids.add(row["id"])
-            except StopIteration:
-                break
+        if key in picks:
+            continue
+        for row in rows:
+            if row["id"] in picked_ids or row["condition_id"] in picked_markets:
+                continue
+            if is_decided(row):
+                continue
+            picks[key] = row
+            picked_ids.add(row["id"])
+            picked_markets.add(row["condition_id"])
+            break
 
     results = []
     for rank_idx, key in enumerate(CATEGORY_ORDER, start=1):
@@ -1251,6 +1291,7 @@ def get_top3():
         # targets the actual event time, matching /api/spotlight behavior.
         effective_end = row["event_end_estimate"] or row["end_date"]
 
+        gs = row["game_start_time"]
         results.append({
             "category": key,
             "rank": rank_idx,
@@ -1262,10 +1303,13 @@ def get_top3():
             "market_image": row["market_image"],
             "primary_tag": primary_tag,
             "end_date": effective_end.isoformat() if effective_end else None,
+            "game_start_time": gs.isoformat() if gs else None,
+            "live": is_live(row),
             "llm_summary": row["llm_summary"],
             "llm_copy_action": copy_action,
             "total_usd": row["total_usd"],
             "latest_price": row["latest_price"],
+            "wallet_count": row["wallet_count"] or 0,
             "wallet": {
                 "address": row["wallet"],
                 "win_rate": row["win_rate"],
