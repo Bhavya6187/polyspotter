@@ -309,5 +309,36 @@ def validate_decision(decision: dict, top5_ids: set[int]) -> tuple[bool, str]:
     return True, ""
 
 
+# --- Twitter client ----------------------------------------------------------
+
+def _build_twitter_client() -> tweepy.Client:
+    """Build a real Tweepy v2 client from env credentials (OAuth 1.0a user auth)."""
+    return tweepy.Client(
+        consumer_key=X_CONSUMER_KEY,
+        consumer_secret=X_CONSUMER_KEY_SECRET,
+        access_token=X_ACCESS_TOKEN,
+        access_token_secret=X_ACCESS_TOKEN_SECRET,
+    )
+
+
+def post_tweet(text: str, *, twitter_client, dry_run: bool) -> str:
+    """Post a tweet (or log it in dry-run mode) and return the tweet id.
+
+    In dry-run mode, does not call the client and returns a synthetic id
+    starting with 'dryrun-'. The caller uses the dry_run flag to decide
+    whether to record the tweet in the DB (dry runs must not poison dedup).
+    """
+    if dry_run:
+        log_event("dry_run_tweet", tweet=text)
+        return f"dryrun-{uuid.uuid4().hex[:12]}"
+
+    response = twitter_client.create_tweet(text=text)
+    data = getattr(response, "data", None) or {}
+    tweet_id = str(data.get("id") or "")
+    if not tweet_id:
+        raise RuntimeError(f"create_tweet returned no id: {response!r}")
+    return tweet_id
+
+
 if __name__ == "__main__":
     sys.exit(0)  # placeholder; real main() added in Task 10

@@ -320,3 +320,39 @@ def test_validate_decision_rejects_unknown_decision_value():
     d = {"decision": "maybe", "alert_ids": [1], "tweet": "ok", "is_composite": False}
     ok, _ = tb.validate_decision(d, top5_ids={1})
     assert not ok
+
+
+# -------------------------------------------------------------- post_tweet --
+
+class FakeTwitterClient:
+    def __init__(self, tweet_id="1234567890", raise_exc=None):
+        self._tweet_id = tweet_id
+        self._raise = raise_exc
+        self.calls = []
+
+    def create_tweet(self, text):
+        self.calls.append(text)
+        if self._raise:
+            raise self._raise
+        return SimpleNamespace(data={"id": self._tweet_id, "text": text})
+
+
+def test_post_tweet_posts_and_returns_tweet_id():
+    client = FakeTwitterClient(tweet_id="42")
+    result = tb.post_tweet("hello world", twitter_client=client, dry_run=False)
+    assert result == "42"
+    assert client.calls == ["hello world"]
+
+
+def test_post_tweet_dry_run_does_not_call_client():
+    client = FakeTwitterClient()
+    result = tb.post_tweet("hello world", twitter_client=client, dry_run=True)
+    # Dry run returns a synthetic id starting with 'dryrun-'
+    assert result.startswith("dryrun-")
+    assert client.calls == []
+
+
+def test_post_tweet_propagates_client_exception():
+    client = FakeTwitterClient(raise_exc=RuntimeError("429 rate limit"))
+    with pytest.raises(RuntimeError, match="rate limit"):
+        tb.post_tweet("hello", twitter_client=client, dry_run=False)
