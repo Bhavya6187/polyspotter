@@ -384,5 +384,116 @@ def record_tweet(
     db_conn.commit()
 
 
+# --- Entrypoint --------------------------------------------------------------
+
+def main(
+    *,
+    http=None,
+    llm_client=None,
+    twitter_client=None,
+    db_conn=None,
+) -> int:
+    """Run one pass of the Twitter bot. Returns an exit code (0 = success, 1 = error).
+
+    All dependencies can be injected for testing. When any are None, the real
+    versions are constructed from environment config.
+    """
+    run_id = uuid.uuid4().hex[:8]
+    log_event("run_start", run_id=run_id,
+              api_url=POLYSPOTTER_API_URL,
+              min_score=TWITTER_BOT_MIN_SCORE,
+              dry_run=TWITTER_BOT_DRY_RUN)
+
+    # Lazy-construct real deps if not injected.
+    if http is None:
+        http = requests
+    owns_conn = False
+    if db_conn is None:
+        db_conn = psycopg2.connect(DATABASE_URL)
+        owns_conn = True
+    if llm_client is None:
+        llm_client = OpenAI(
+            base_url=AZURE_OPENAI_ENDPOINT,
+            api_key=AZURE_OPENAI_API_KEY,
+        )
+    if twitter_client is None:
+        twitter_client = _build_twitter_client()
+
+    try:
+        # 1. Fetch.
+        try:
+            candidates = fetch_recent_alerts(POLYSPOTTER_API_URL, TWITTER_BOT_MIN_SCORE, http=http)
+        except Exception as e:
+            log_event("fetch_error", run_id=run_id, error=str(e))
+            return 1
+
+        log_event("candidates_fetched", run_id=run_id, count=len(candidates))
+
+        # 2. Dedup.
+        after_dedup = filter_dedup(candidates, db_conn)
+        log_event("after_dedup", run_id=run_id, count=len(after_dedup))
+
+        # 3. Top 5 by composite_score.
+        top5 = sorted(after_dedup, key=lambda a: a.get("composite_score", 0), reverse=True)[:5]
+        if not top5:
+            log_event("no_candidates", run_id=run_id)
+            log_event("run_end", run_id=run_id, posted=False, reason="no_candidates")
+            return 0
+
+        # 4. LLM.
+        try:
+            decision = call_llm(top5, llm_client=llm_client)
+        except Exception as e:
+            log_event("llm_error", run_id=run_id, error=str(e))
+            return 1
+
+        if decision.get("decision") == "skip":
+            log_event("llm_skip", run_id=run_id, reason=decision.get("reason"))
+            log_event("run_end", run_id=run_id, posted=False, reason="llm_skip")
+            return 0
+
+        # 5. Validate.
+        top5_ids = {int(a["id"]) for a in top5}
+        ok, err = validate_decision(decision, top5_ids)
+        if not ok:
+            log_event("validation_error", run_id=run_id, error=err, decision=decision)
+            return 1
+
+        # 6. Post.
+        picked_ids = [int(i) for i in decision["alert_ids"]]
+        picked_alerts = [a for a in top5 if int(a["id"]) in picked_ids]
+        tweet_text = decision["tweet"]
+        try:
+            tweet_id = post_tweet(tweet_text, twitter_client=twitter_client, dry_run=TWITTER_BOT_DRY_RUN)
+        except Exception as e:
+            log_event("post_error", run_id=run_id, error=str(e))
+            return 1
+
+        log_event("posted", run_id=run_id, tweet_id=tweet_id, alert_ids=picked_ids,
+                  is_composite=bool(decision.get("is_composite")))
+
+        # 7. Record (skip in dry run).
+        if TWITTER_BOT_DRY_RUN:
+            log_event("run_end", run_id=run_id, posted=True, dry_run=True, tweet_id=tweet_id)
+            return 0
+
+        try:
+            record_tweet(alerts=picked_alerts, tweet_id=tweet_id, tweet_text=tweet_text, db_conn=db_conn)
+        except Exception as e:
+            log_event("record_error", run_id=run_id, error=str(e))
+            # Intentionally still success: the tweet is already live.
+            log_event("run_end", run_id=run_id, posted=True, tweet_id=tweet_id, recorded=False)
+            return 0
+
+        log_event("run_end", run_id=run_id, posted=True, tweet_id=tweet_id, recorded=True)
+        return 0
+    finally:
+        if owns_conn:
+            try:
+                db_conn.close()
+            except Exception:
+                pass
+
+
 if __name__ == "__main__":
-    sys.exit(0)  # placeholder; real main() added in Task 10
+    sys.exit(main())

@@ -429,3 +429,190 @@ def test_record_tweet_inserts_multiple_rows_for_composite():
     assert {r[4] for r in rows} == {"composite tweet"}
     assert {r[0] for r in rows} == {1, 2, 3}
     assert conn.commits == 1
+
+
+# ------------------------------------------------------------ end-to-end -----
+
+def test_main_runs_full_flow_successfully(monkeypatch):
+    """Integration-style test: exercise main() end-to-end with all fakes."""
+    # Two recent candidates, one has score just above the min, one below.
+    now = datetime.now(timezone.utc)
+    api_body = {
+        "alerts": [
+            _alert(id=1, composite_score=9.0,
+                   created_at=(now - timedelta(minutes=10)).isoformat()),
+            _alert(id=2, composite_score=6.0,
+                   created_at=(now - timedelta(minutes=15)).isoformat()),
+        ],
+        "total": 2, "page": 1, "per_page": 100,
+    }
+    http = FakeHTTP(api_body)
+
+    llm = FakeLLMClient([{
+        "decision": "post",
+        "reason": "hot",
+        "alert_ids": [1],
+        "tweet": "Whale dropped $25k. link in bio",
+        "is_composite": False,
+    }])
+
+    twitter = FakeTwitterClient(tweet_id="99")
+    conn = RecordingConn()
+
+    # Also need dedup queries to return empty (no prior tweets). RecordingConn
+    # returns no rows because RecordingCursor has no fetchall — so we swap to
+    # a combined cursor:
+
+    class CombinedCursor(RecordingCursor):
+        def fetchall(self):
+            return []
+
+    conn.cur = CombinedCursor()
+
+    exit_code = tb.main(
+        http=http,
+        llm_client=llm,
+        twitter_client=twitter,
+        db_conn=conn,
+    )
+
+    assert exit_code == 0
+    assert twitter.calls == ["Whale dropped $25k. link in bio"]
+    # Should have written to tweeted_alerts (one execute for the insert + some
+    # for dedup SELECTs). Look for the INSERT specifically.
+    insert_calls = [e for e in conn.cur.executions if "INSERT INTO tweeted_alerts" in e[1]]
+    assert len(insert_calls) == 1
+
+
+def test_main_skips_cleanly_when_llm_says_skip(monkeypatch):
+    now = datetime.now(timezone.utc)
+    api_body = {
+        "alerts": [_alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat())],
+        "total": 1, "page": 1, "per_page": 100,
+    }
+    http = FakeHTTP(api_body)
+    llm = FakeLLMClient([{
+        "decision": "skip",
+        "reason": "nothing compelling",
+        "alert_ids": None,
+        "tweet": None,
+        "is_composite": False,
+    }])
+    twitter = FakeTwitterClient()
+
+    class CombinedCursor(RecordingCursor):
+        def fetchall(self):
+            return []
+
+    conn = RecordingConn()
+    conn.cur = CombinedCursor()
+
+    exit_code = tb.main(http=http, llm_client=llm, twitter_client=twitter, db_conn=conn)
+
+    assert exit_code == 0
+    assert twitter.calls == []
+    insert_calls = [e for e in conn.cur.executions if "INSERT INTO tweeted_alerts" in e[1]]
+    assert insert_calls == []
+
+
+def test_main_exits_zero_with_no_candidates(monkeypatch):
+    http = FakeHTTP({"alerts": [], "total": 0, "page": 1, "per_page": 100})
+    llm = FakeLLMClient([])
+    twitter = FakeTwitterClient()
+
+    class CombinedCursor(RecordingCursor):
+        def fetchall(self):
+            return []
+
+    conn = RecordingConn()
+    conn.cur = CombinedCursor()
+
+    exit_code = tb.main(http=http, llm_client=llm, twitter_client=twitter, db_conn=conn)
+
+    assert exit_code == 0
+    assert twitter.calls == []
+    assert len(llm.calls) == 0  # LLM should not be called
+
+
+def test_main_exits_one_on_validation_error(monkeypatch):
+    now = datetime.now(timezone.utc)
+    api_body = {
+        "alerts": [_alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat())],
+        "total": 1, "page": 1, "per_page": 100,
+    }
+    http = FakeHTTP(api_body)
+    # LLM claims alert_id=999 which wasn't in our input. No retry triggers
+    # because this isn't a length problem.
+    llm = FakeLLMClient([{
+        "decision": "post", "reason": "x", "alert_ids": [999],
+        "tweet": "ok", "is_composite": False,
+    }])
+    twitter = FakeTwitterClient()
+
+    class CombinedCursor(RecordingCursor):
+        def fetchall(self):
+            return []
+
+    conn = RecordingConn()
+    conn.cur = CombinedCursor()
+
+    exit_code = tb.main(http=http, llm_client=llm, twitter_client=twitter, db_conn=conn)
+
+    assert exit_code == 1
+    assert twitter.calls == []
+
+
+def test_main_post_error_does_not_write_to_db(monkeypatch):
+    now = datetime.now(timezone.utc)
+    api_body = {
+        "alerts": [_alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat())],
+        "total": 1, "page": 1, "per_page": 100,
+    }
+    http = FakeHTTP(api_body)
+    llm = FakeLLMClient([{
+        "decision": "post", "reason": "x", "alert_ids": [1],
+        "tweet": "ok", "is_composite": False,
+    }])
+    twitter = FakeTwitterClient(raise_exc=RuntimeError("429 rate limit"))
+
+    class CombinedCursor(RecordingCursor):
+        def fetchall(self):
+            return []
+
+    conn = RecordingConn()
+    conn.cur = CombinedCursor()
+
+    exit_code = tb.main(http=http, llm_client=llm, twitter_client=twitter, db_conn=conn)
+
+    assert exit_code == 1
+    insert_calls = [e for e in conn.cur.executions if "INSERT INTO tweeted_alerts" in e[1]]
+    assert insert_calls == []
+
+
+def test_main_dry_run_does_not_post_or_record(monkeypatch):
+    monkeypatch.setattr(tb, "TWITTER_BOT_DRY_RUN", True)
+    now = datetime.now(timezone.utc)
+    api_body = {
+        "alerts": [_alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat())],
+        "total": 1, "page": 1, "per_page": 100,
+    }
+    http = FakeHTTP(api_body)
+    llm = FakeLLMClient([{
+        "decision": "post", "reason": "x", "alert_ids": [1],
+        "tweet": "hello link in bio", "is_composite": False,
+    }])
+    twitter = FakeTwitterClient()
+
+    class CombinedCursor(RecordingCursor):
+        def fetchall(self):
+            return []
+
+    conn = RecordingConn()
+    conn.cur = CombinedCursor()
+
+    exit_code = tb.main(http=http, llm_client=llm, twitter_client=twitter, db_conn=conn)
+
+    assert exit_code == 0
+    assert twitter.calls == []          # dry run: no real post
+    insert_calls = [e for e in conn.cur.executions if "INSERT INTO tweeted_alerts" in e[1]]
+    assert insert_calls == []           # dry run: no recording
