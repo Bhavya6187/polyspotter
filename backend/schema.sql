@@ -65,7 +65,10 @@ CREATE INDEX IF NOT EXISTS idx_alerts_score ON alerts(composite_score DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_scanned ON alerts(scanned_at DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_wallet ON alerts(wallet);
 CREATE INDEX IF NOT EXISTS idx_alerts_event ON alerts(event_slug);
-CREATE INDEX IF NOT EXISTS idx_alerts_event_end ON alerts(event_end_estimate) WHERE event_end_estimate IS NOT NULL;
+-- idx_alerts_event_end is created by _migrate_add_event_timing in database.py
+-- after the column is guaranteed to exist. Keeping it out of schema.sql avoids
+-- failing CREATE INDEX on pre-existing DBs where CREATE TABLE IF NOT EXISTS
+-- is a no-op and the column was added via migration.
 
 -- Trigram index for fast fuzzy market title search (ILIKE, similarity)
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
