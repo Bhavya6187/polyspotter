@@ -13,7 +13,6 @@ Design spec: docs/superpowers/specs/2026-04-19-twitter-bot-design.md
 from __future__ import annotations
 
 import json
-import logging
 import os
 import sys
 import uuid
