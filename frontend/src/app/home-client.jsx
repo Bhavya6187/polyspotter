@@ -176,7 +176,6 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
       {/* Filters */}
       <section aria-label="Filters" className="mb-5">
         <Filters
-          tags={tags}
           filters={filters}
           onFilterChange={handleFilterChange}
         />

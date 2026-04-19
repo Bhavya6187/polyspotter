@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
 
 const RESOLVE_OPTIONS = [
   { label: "Any", value: "" },
@@ -37,24 +36,7 @@ function Pill({ label, active, onClick }) {
   );
 }
 
-function TagPill({ label, active, href }) {
-  return (
-    <Link
-      href={href}
-      className="rounded-lg px-3 py-1.5 text-xs font-medium transition-all"
-      style={{
-        background: active ? 'var(--accent)' : 'var(--surface-card)',
-        color: active ? '#fff' : 'var(--text-secondary)',
-        border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
-        boxShadow: active ? 'var(--glow-medium)' : 'none',
-      }}
-    >
-      {label}
-    </Link>
-  );
-}
-
-export default function Filters({ tags, filters, onFilterChange }) {
+export default function Filters({ filters, onFilterChange }) {
   const [collapsed, setCollapsed] = useState(true);
   const [isDesktop, setIsDesktop] = useState(false);
 
@@ -65,14 +47,6 @@ export default function Filters({ tags, filters, onFilterChange }) {
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
   }, []);
-
-  const sorted = [...tags]
-    .sort((a, b) => {
-      const ca = typeof a === "object" ? a.alert_count || 0 : 0;
-      const cb = typeof b === "object" ? b.alert_count || 0 : 0;
-      return cb - ca;
-    })
-    .slice(0, 10);
 
   // Count active filters
   const activeCount = [filters.tag, filters.resolvesIn, filters.minScore].filter(Boolean).length;
@@ -123,29 +97,6 @@ export default function Filters({ tags, filters, onFilterChange }) {
         ))}
       </div>
 
-      {/* Row 3: Tags */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold uppercase tracking-widest mr-1" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-muted)', fontSize: '0.6rem' }}>
-          Topic
-        </span>
-        <Pill
-          label="All"
-          active={!filters.tag}
-          onClick={() => onFilterChange({ ...filters, tag: "" })}
-        />
-        {sorted.map((t) => {
-          const name = typeof t === "string" ? t : t.tag;
-          const slug = encodeURIComponent(name.toLowerCase().replace(/\s+/g, "-"));
-          return (
-            <TagPill
-              key={name}
-              label={name}
-              active={filters.tag === name}
-              href={`/tag/${slug}`}
-            />
-          );
-        })}
-      </div>
     </div>
   );
 
