@@ -79,6 +79,41 @@ class GetMarketByConditionTests(unittest.TestCase):
         # Cached on first call — second should not hit the network.
         self.assertEqual(mock_get.call_count, 1)
 
+    @patch("gamma_cache.time.sleep", lambda *_a, **_kw: None)
+    @patch("gamma_cache.requests.get")
+    def test_exception_on_active_call_falls_through_to_fallback(self, mock_get):
+        import requests as _requests
+        closed_market = {"conditionId": "0xmno", "closed": True}
+        closed_resp = MagicMock()
+        closed_resp.json.return_value = [closed_market]
+        closed_resp.raise_for_status.return_value = None
+        # First call: transient network error. Second call: success.
+        mock_get.side_effect = [_requests.ConnectionError("boom"), closed_resp]
+
+        result = gamma_cache.get_market_by_condition("0xmno")
+
+        self.assertEqual(result, closed_market)
+        self.assertEqual(mock_get.call_count, 2)
+        second_call_kwargs = mock_get.call_args_list[1].kwargs
+        self.assertEqual(
+            second_call_kwargs["params"],
+            {"condition_ids": "0xmno", "closed": "true"},
+        )
+
+    @patch("gamma_cache.time.sleep", lambda *_a, **_kw: None)
+    @patch("gamma_cache.requests.get")
+    def test_exception_on_both_calls_returns_none(self, mock_get):
+        import requests as _requests
+        mock_get.side_effect = [
+            _requests.ConnectionError("boom-1"),
+            _requests.Timeout("boom-2"),
+        ]
+
+        result = gamma_cache.get_market_by_condition("0xpqr")
+
+        self.assertIsNone(result)
+        self.assertEqual(mock_get.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()
