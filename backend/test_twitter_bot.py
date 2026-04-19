@@ -356,3 +356,76 @@ def test_post_tweet_propagates_client_exception():
     client = FakeTwitterClient(raise_exc=RuntimeError("429 rate limit"))
     with pytest.raises(RuntimeError, match="rate limit"):
         tb.post_tweet("hello", twitter_client=client, dry_run=False)
+
+
+# ------------------------------------------------------------ record_tweet --
+
+class RecordingCursor:
+    """Captures executemany/execute calls in order."""
+
+    def __init__(self):
+        self.executions = []
+
+    def execute(self, query, params=None):
+        self.executions.append(("execute", query, params))
+
+    def executemany(self, query, rows):
+        self.executions.append(("executemany", query, list(rows)))
+
+    def close(self):
+        pass
+
+
+class RecordingConn:
+    def __init__(self):
+        self.cur = RecordingCursor()
+        self.commits = 0
+
+    def cursor(self, cursor_factory=None):
+        return self.cur
+
+    def commit(self):
+        self.commits += 1
+
+    def close(self):
+        pass
+
+
+def test_record_tweet_inserts_one_row_for_single_alert():
+    conn = RecordingConn()
+    alerts = [_alert(id=7, wallet="0xw", condition_id="0xc")]
+    tb.record_tweet(
+        alerts=alerts,
+        tweet_id="100",
+        tweet_text="hello",
+        db_conn=conn,
+    )
+    # One execute call with the correct values.
+    kind, query, params = conn.cur.executions[0]
+    assert "INSERT INTO tweeted_alerts" in query
+    assert params == (7, "0xw", "0xc", "100", "hello") or params == [7, "0xw", "0xc", "100", "hello"]
+    assert conn.commits == 1
+
+
+def test_record_tweet_inserts_multiple_rows_for_composite():
+    conn = RecordingConn()
+    alerts = [
+        _alert(id=1, wallet="0xA", condition_id="0xm1"),
+        _alert(id=2, wallet="0xB", condition_id="0xm2"),
+        _alert(id=3, wallet="0xC", condition_id="0xm3"),
+    ]
+    tb.record_tweet(
+        alerts=alerts,
+        tweet_id="500",
+        tweet_text="composite tweet",
+        db_conn=conn,
+    )
+    # Should be executemany with 3 rows all sharing tweet_id and tweet_text.
+    kind, query, rows = conn.cur.executions[0]
+    assert kind == "executemany"
+    assert "INSERT INTO tweeted_alerts" in query
+    assert len(rows) == 3
+    assert {r[3] for r in rows} == {"500"}
+    assert {r[4] for r in rows} == {"composite tweet"}
+    assert {r[0] for r in rows} == {1, 2, 3}
+    assert conn.commits == 1

@@ -340,5 +340,49 @@ def post_tweet(text: str, *, twitter_client, dry_run: bool) -> str:
     return tweet_id
 
 
+# --- Record ------------------------------------------------------------------
+
+def record_tweet(
+    *,
+    alerts: list[dict],
+    tweet_id: str,
+    tweet_text: str,
+    db_conn,
+) -> None:
+    """Insert one tweeted_alerts row per alert, all sharing tweet_id/tweet_text.
+
+    Uses ON CONFLICT DO NOTHING so re-runs (after a DB failure mid-write, for
+    example) don't crash. That said, the caller swallows errors from this
+    function anyway per the 'record_error' policy.
+    """
+    rows = [
+        (int(a["id"]), a.get("wallet") or "", a.get("condition_id") or "", tweet_id, tweet_text)
+        for a in alerts
+    ]
+    cur = db_conn.cursor()
+    try:
+        if len(rows) == 1:
+            cur.execute(
+                """
+                INSERT INTO tweeted_alerts (alert_id, wallet, condition_id, tweet_id, tweet_text)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (alert_id) DO NOTHING
+                """,
+                rows[0],
+            )
+        else:
+            cur.executemany(
+                """
+                INSERT INTO tweeted_alerts (alert_id, wallet, condition_id, tweet_id, tweet_text)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (alert_id) DO NOTHING
+                """,
+                rows,
+            )
+    finally:
+        cur.close()
+    db_conn.commit()
+
+
 if __name__ == "__main__":
     sys.exit(0)  # placeholder; real main() added in Task 10
