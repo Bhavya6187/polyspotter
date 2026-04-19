@@ -155,3 +155,18 @@ CREATE TABLE IF NOT EXISTS wallet_theses (
 );
 CREATE INDEX IF NOT EXISTS idx_wallet_theses_score ON wallet_theses (composite_score DESC);
 
+-- tweeted_alerts: one row per alert surfaced in a posted tweet. Used by the
+-- Twitter bot (backend/twitter_bot.py) for dedup. Composite tweets produce
+-- multiple rows sharing the same tweet_id and tweet_text.
+CREATE TABLE IF NOT EXISTS tweeted_alerts (
+    alert_id       BIGINT PRIMARY KEY,
+    wallet         TEXT NOT NULL,
+    condition_id   TEXT NOT NULL,
+    tweet_id       TEXT NOT NULL,
+    tweet_text     TEXT NOT NULL,
+    tweeted_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tweeted_alerts_wallet_market
+    ON tweeted_alerts (wallet, condition_id, tweeted_at DESC);
+

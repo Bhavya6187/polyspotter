@@ -33,6 +33,7 @@ def init_db():
             _migrate_add_market_media(cur)
             _migrate_add_seo_fields(cur)
             _migrate_add_event_timing(cur)
+            _migrate_add_tweeted_alerts(cur)
         conn.commit()
     finally:
         conn.close()
@@ -112,6 +113,24 @@ def _migrate_add_event_timing(cur):
         CREATE INDEX IF NOT EXISTS idx_alerts_event_end
         ON alerts(event_end_estimate)
         WHERE event_end_estimate IS NOT NULL
+    """)
+
+
+def _migrate_add_tweeted_alerts(cur):
+    """Create the tweeted_alerts table if it doesn't exist (idempotent)."""
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS tweeted_alerts (
+            alert_id       BIGINT PRIMARY KEY,
+            wallet         TEXT NOT NULL,
+            condition_id   TEXT NOT NULL,
+            tweet_id       TEXT NOT NULL,
+            tweet_text     TEXT NOT NULL,
+            tweeted_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_tweeted_alerts_wallet_market
+            ON tweeted_alerts (wallet, condition_id, tweeted_at DESC)
     """)
 
 
