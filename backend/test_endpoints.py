@@ -767,3 +767,102 @@ class TestTopThree:
         returned = datetime.fromisoformat(by_cat["TIMING_EDGE"]["end_date"])
         diff = (returned - now).total_seconds()
         assert 0 < diff < 3600, f"Expected ~30min, got {diff}s"
+
+    def test_top3_keeps_in_progress_game_visible(self):
+        """A sports market whose game started 1h ago (still inside the 3h live
+        buffer) must remain visible and qualify as TIMING_EDGE — without the
+        live grace, soccer/tennis markets vanish at kickoff because their
+        Gamma endDate equals gameStartTime."""
+        now = datetime.now(timezone.utc)
+        in_progress_start = now - timedelta(hours=1)
+        with db() as conn:
+            cur = conn.cursor()
+            live_id = _seed_alert(
+                cur, dedup_key="test_top3_live",
+                market_title="TEST: LiveGame",
+                condition_id="test_top3_cond_live",
+                composite_score=70.0,
+                # Mirror Gamma's behavior for soccer: end_date == game_start_time
+                end_date=in_progress_start.isoformat(),
+                game_start_time=in_progress_start.isoformat(),
+                event_end_estimate=in_progress_start.isoformat(),
+            )
+
+        resp = client.get("/api/top3")
+        assert resp.status_code == 200
+        data = resp.json()
+        by_id = {row["id"]: row for row in data}
+        assert live_id in by_id, "in-progress game should still appear in top3"
+        row = by_id[live_id]
+        assert row["live"] is True
+        assert row["category"] == "TIMING_EDGE"
+        assert row["game_start_time"] is not None
+
+    def test_top3_drops_game_past_live_buffer(self):
+        """A sports market whose game started 4h ago (past the 3h buffer) is
+        stale — must be excluded so post-game alerts don't linger."""
+        now = datetime.now(timezone.utc)
+        stale_start = now - timedelta(hours=4)
+        with db() as conn:
+            cur = conn.cursor()
+            stale_id = _seed_alert(
+                cur, dedup_key="test_top3_stale",
+                market_title="TEST: StaleGame",
+                condition_id="test_top3_cond_stale",
+                composite_score=99.0,  # high score so we'd see it if it leaked
+                end_date=stale_start.isoformat(),
+                game_start_time=stale_start.isoformat(),
+                event_end_estimate=stale_start.isoformat(),
+            )
+
+        resp = client.get("/api/top3")
+        assert resp.status_code == 200
+        ids = {row["id"] for row in resp.json()}
+        assert stale_id not in ids, "game past 3h live buffer should be filtered out"
+
+    def test_top3_skips_uma_resolved_market(self, monkeypatch):
+        """A market whose UMA status is non-empty (proposed/disputed/resolved)
+        must be filtered out by the Gamma resolution check, even when its
+        Polymarket price hasn't yet pinned to 0/1."""
+        import app as app_mod
+        now = datetime.now(timezone.utc)
+
+        # Two alerts: a high-score one whose Gamma reports UMA-resolved, and a
+        # lower-score "clean" one. The clean one should win the bucket.
+        with db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """INSERT INTO wallet_profiles (wallet, win_rate, total_pnl, total_invested, updated_at)
+                   VALUES ('test_sharp_uma', 0.91, 120000.0, 200000.0, NOW())
+                   ON CONFLICT (wallet) DO UPDATE SET win_rate = 0.91, total_pnl = 120000.0""",
+            )
+            resolved_id = _seed_alert(
+                cur, dedup_key="test_top3_uma_resolved",
+                market_title="TEST: UmaResolved",
+                condition_id="test_top3_cond_uma_resolved",
+                wallet="test_sharp_uma",
+                composite_score=95.0,
+                end_date=(now + timedelta(hours=4)).isoformat(),
+            )
+            clean_id = _seed_alert(
+                cur, dedup_key="test_top3_uma_clean",
+                market_title="TEST: UmaClean",
+                condition_id="test_top3_cond_uma_clean",
+                wallet="test_sharp_uma",
+                composite_score=80.0,
+                end_date=(now + timedelta(hours=4)).isoformat(),
+            )
+
+        # Mock Gamma: the high-score market is UMA-proposed; the other is fine.
+        def fake_fetch(cids):
+            return {
+                "test_top3_cond_uma_resolved": {"closed": False, "uma_status": "proposed", "prices": [0.62, 0.38]},
+                "test_top3_cond_uma_clean":    {"closed": False, "uma_status": "", "prices": [0.55, 0.45]},
+            }
+        monkeypatch.setattr(app_mod, "_fetch_gamma_status", fake_fetch)
+
+        resp = client.get("/api/top3")
+        assert resp.status_code == 200
+        ids = {row["id"] for row in resp.json()}
+        assert resolved_id not in ids, "UMA-resolved market should be excluded"
+        assert clean_id in ids, "clean lower-score market should fill the bucket"
