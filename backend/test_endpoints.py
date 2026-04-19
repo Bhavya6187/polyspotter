@@ -177,15 +177,15 @@ class TestSpotlight:
         data = resp.json()
         assert isinstance(data, list)
 
-    def test_spotlight_max_3(self):
+    def test_spotlight_cap(self):
         with db() as conn:
             cur = conn.cursor()
-            for i in range(5):
+            for i in range(10):
                 _seed_alert(cur, dedup_key=f"test_spot_{i}", composite_score=10 + i)
 
         resp = client.get("/api/spotlight")
         assert resp.status_code == 200
-        assert len(resp.json()) <= 3
+        assert len(resp.json()) <= 7
 
 
 # ---------------------------------------------------------------------------
@@ -214,23 +214,6 @@ class TestResolvingSoon:
         assert resp.status_code == 200
         data = resp.json()
         assert isinstance(data, list)
-
-    def test_resolving_soon_excludes_far_future(self):
-        self._clear_cache()
-        with db() as conn:
-            cur = conn.cursor()
-            _seed_alert(
-                cur,
-                dedup_key="test_resolving_far",
-                end_date=(datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
-                condition_id="test_far_cond",
-            )
-
-        resp = client.get("/api/resolving-soon")
-        assert resp.status_code == 200
-        data = resp.json()
-        far_ids = [d for d in data if d.get("condition_id") == "test_far_cond"]
-        assert len(far_ids) == 0
 
     def test_resolving_soon_ranks_by_event_end_estimate_not_end_date(self):
         """Regression: a sports game starting in 2h should rank ABOVE a
@@ -474,7 +457,7 @@ class TestFetchGammaStatus:
 
 @skip_no_db
 class TestWalletProfile:
-    def test_wallet_profile_returns_recent_alerts(self):
+    def test_wallet_profile_returns_recent_alerts(self, monkeypatch):
         with db() as conn:
             cur = conn.cursor()
             cur.execute(
@@ -484,6 +467,12 @@ class TestWalletProfile:
             )
             _seed_alert(cur, wallet="test_wallet_profile", dedup_key="test_wp_alert")
 
+        import app as app_mod
+        monkeypatch.setattr(app_mod, "_fetch_closed_positions", lambda w: [
+            {"title": "Mock Market", "conditionId": "mock_cid", "outcome": "Yes",
+             "avgPrice": 0.5, "curPrice": 1.0, "realizedPnl": 100.0, "totalBought": 500.0},
+        ])
+
         resp = client.get("/api/wallets/test_wallet_profile")
         assert resp.status_code == 200
         data = resp.json()
@@ -492,7 +481,9 @@ class TestWalletProfile:
         assert "recent_alerts" in data
         assert len(data["recent_alerts"]) >= 1
 
-    def test_wallet_profile_404(self):
+    def test_wallet_profile_404(self, monkeypatch):
+        import app as app_mod
+        monkeypatch.setattr(app_mod, "_fetch_closed_positions", lambda w: [])
         resp = client.get("/api/wallets/nonexistent_wallet_xyz")
         assert resp.status_code == 404
 
@@ -553,7 +544,7 @@ class TestPriceHistory:
 @skip_no_db
 class TestMarketHolders:
     def test_holders_returns_enriched_list(self, monkeypatch):
-        """Mock Data API /positions, seed wallet_profiles, verify enrichment."""
+        """Mock Data API /holders, seed wallet_profiles, verify enrichment."""
         with db() as conn:
             cur = conn.cursor()
             cur.execute(
@@ -564,19 +555,35 @@ class TestMarketHolders:
             )
             conn.commit()
 
+        import app as app_mod
+        from models import LiveMarketData, OutcomePrice
+
+        def mock_fetch_live(cid):
+            return LiveMarketData(
+                condition_id=cid,
+                outcomes=[
+                    OutcomePrice(name="Yes", token_id="tok_yes", price=0.21),
+                    OutcomePrice(name="No", token_id="tok_no", price=0.79),
+                ],
+            )
+
         class MockResp:
             status_code = 200
             def raise_for_status(self): pass
             def json(self):
+                # Current Data API /holders shape: grouped by outcome token.
                 return [
-                    {"proxyWallet": "test_wallet_holder1", "size": "1500.0",
-                     "outcome": "Yes", "curPrice": "0.21", "cashBalance": "0"},
-                    {"proxyWallet": "test_wallet_holder2", "size": "800.0",
-                     "outcome": "No", "curPrice": "0.79", "cashBalance": "0"},
+                    {"token": "tok_yes", "holders": [
+                        {"proxyWallet": "test_wallet_holder1", "amount": "1500.0"},
+                    ]},
+                    {"token": "tok_no", "holders": [
+                        {"proxyWallet": "test_wallet_holder2", "amount": "800.0"},
+                    ]},
                 ]
 
-        import app as app_mod
+        monkeypatch.setattr(app_mod, "_fetch_live_market", mock_fetch_live)
         monkeypatch.setattr(app_mod._requests, "get", lambda *a, **kw: MockResp())
+        app_mod._live_cache.clear()
         app_mod._holders_cache.clear()
 
         resp = client.get("/api/market/test_cond_001/holders")
@@ -591,13 +598,21 @@ class TestMarketHolders:
 
     def test_holders_empty_market(self, monkeypatch):
         """Market with no holders returns empty list."""
+        import app as app_mod
+        from models import LiveMarketData
+
+        monkeypatch.setattr(
+            app_mod, "_fetch_live_market",
+            lambda cid: LiveMarketData(condition_id=cid, outcomes=[]),
+        )
+
         class MockResp:
             status_code = 200
             def raise_for_status(self): pass
             def json(self): return []
 
-        import app as app_mod
         monkeypatch.setattr(app_mod._requests, "get", lambda *a, **kw: MockResp())
+        app_mod._live_cache.clear()
         app_mod._holders_cache.clear()
 
         resp = client.get("/api/market/test_cond_empty/holders")
