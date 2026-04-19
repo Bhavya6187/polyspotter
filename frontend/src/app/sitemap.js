@@ -14,9 +14,13 @@ async function getMarketEntries() {
     const allMarkets = [];
     let page = 1;
     let totalPages = 1;
+    // include_resolved=true: resolved markets are prime evergreen SEO targets
+    // ("did X happen", "[past event] outcome") and Polymarket itself doesn't
+    // rank strongly for these. Our alerts contain unique historical narrative
+    // that isn't available on polymarket.com. Excludes ~85% of indexable URLs.
     while (page <= totalPages) {
       const res = await fetch(
-        `${API_URL}/api/alerts/by-market?per_page=100&page=${page}`,
+        `${API_URL}/api/alerts/by-market?per_page=100&page=${page}&include_resolved=true`,
         FETCH_OPTS
       );
       if (!res.ok) break;
@@ -26,14 +30,20 @@ async function getMarketEntries() {
       totalPages = Math.ceil(total / 100);
       page++;
     }
-    return allMarkets.map((market) => ({
-      url: `${SITE_URL}/market/${marketSlug(market.market_title, market.condition_id)}`,
-      lastModified: market.scanned_at
-        ? new Date(market.scanned_at)
-        : new Date(),
-      changeFrequency: "hourly",
-      priority: 0.8,
-    }));
+    return allMarkets.map((market) => {
+      // Resolved markets change infrequently (outcome is fixed), so give them
+      // a lower crawl-budget signal. Open markets still get hourly freshness.
+      const isResolved =
+        market.end_date && new Date(market.end_date) <= new Date();
+      return {
+        url: `${SITE_URL}/market/${marketSlug(market.market_title, market.condition_id)}`,
+        lastModified: market.scanned_at
+          ? new Date(market.scanned_at)
+          : new Date(),
+        changeFrequency: isResolved ? "monthly" : "hourly",
+        priority: isResolved ? 0.5 : 0.8,
+      };
+    });
   } catch {
     return [];
   }
