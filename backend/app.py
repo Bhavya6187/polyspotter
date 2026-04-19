@@ -1143,7 +1143,7 @@ def get_top3():
         cur = conn.cursor()
         cur.execute("""
             SELECT a.id, a.market_title, a.condition_id, a.event_slug,
-                   a.composite_score, a.total_usd, a.end_date, a.tags,
+                   a.composite_score, a.total_usd, a.end_date, a.event_end_estimate, a.tags,
                    a.llm_summary, a.llm_copy_action, a.market_image, a.wallet,
                    (SELECT COUNT(DISTINCT at2.wallet)
                       FROM alert_trades at2 WHERE at2.alert_id = a.id) AS wallet_count,
@@ -1159,7 +1159,8 @@ def get_top3():
                 ORDER BY pc.t DESC
                 LIMIT 1
             ) latest_candle ON TRUE
-            WHERE a.end_date IS NOT NULL AND a.end_date > NOW()
+            WHERE COALESCE(a.event_end_estimate, a.end_date) IS NOT NULL
+              AND COALESCE(a.event_end_estimate, a.end_date) > NOW()
               AND a.created_at > NOW() - INTERVAL '1 day'
               AND (latest_candle.p IS NULL OR (latest_candle.p > 0.03 AND latest_candle.p < 0.97))
             ORDER BY a.composite_score DESC
@@ -1174,10 +1175,10 @@ def get_top3():
 
     def qualifies_timing(row):
         strategies = row["strategies"] or []
-        end_date = row["end_date"]
+        effective = row["event_end_estimate"] or row["end_date"]
         return (
             "timing_relative_resolution" in strategies
-            or (end_date is not None and end_date <= now + six_hours)
+            or (effective is not None and effective <= now + six_hours)
         )
 
     def qualifies_coordinated(row):
@@ -1246,6 +1247,10 @@ def get_top3():
         score = row["composite_score"] or 0
         strength = min(4, int(score // 25) + 1)
 
+        # Surface event_end_estimate as `end_date` so the frontend countdown
+        # targets the actual event time, matching /api/spotlight behavior.
+        effective_end = row["event_end_estimate"] or row["end_date"]
+
         results.append({
             "category": key,
             "rank": rank_idx,
@@ -1256,7 +1261,7 @@ def get_top3():
             "event_slug": row["event_slug"],
             "market_image": row["market_image"],
             "primary_tag": primary_tag,
-            "end_date": row["end_date"].isoformat() if row["end_date"] else None,
+            "end_date": effective_end.isoformat() if effective_end else None,
             "llm_summary": row["llm_summary"],
             "llm_copy_action": copy_action,
             "total_usd": row["total_usd"],

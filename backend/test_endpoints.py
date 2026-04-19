@@ -734,3 +734,36 @@ class TestTopThree:
         assert data[low]["strength"] == 1        # floor(10/25)+1 = 1
         assert data[mid]["strength"] == 3        # floor(50/25)+1 = 3
         assert data[high]["strength"] == 4       # capped at 4
+
+    def test_top3_uses_event_end_estimate_over_end_date(self):
+        """A sports-style alert where end_date is 7 days out but event_end_estimate
+        is in 30 minutes should qualify as TIMING_EDGE."""
+        now = datetime.now(timezone.utc)
+        with db() as conn:
+            cur = conn.cursor()
+            # Sports alert: end_date 7 days out (UMA resolution), event_end_estimate 30 min out
+            sports_id = _seed_alert(
+                cur,
+                dedup_key="test_top3_sports_timing",
+                market_title="TEST: SportsTiming",
+                condition_id="test_top3_cond_sports",
+                composite_score=50.0,
+                end_date=(now + timedelta(days=7)).isoformat(),
+            )
+            # Set event_end_estimate directly (not a _seed_alert kwarg)
+            cur.execute(
+                "UPDATE alerts SET event_end_estimate = %s WHERE id = %s",
+                ((now + timedelta(minutes=30)).isoformat(), sports_id),
+            )
+
+        resp = client.get("/api/top3")
+        assert resp.status_code == 200
+        data = resp.json()
+        by_cat = {row["category"]: row for row in data}
+        # Should land in TIMING_EDGE because effective end time is 30m, not 7d
+        assert "TIMING_EDGE" in by_cat
+        assert by_cat["TIMING_EDGE"]["id"] == sports_id
+        # end_date field in response should surface the event_end_estimate (effective)
+        returned = datetime.fromisoformat(by_cat["TIMING_EDGE"]["end_date"])
+        diff = (returned - now).total_seconds()
+        assert 0 < diff < 3600, f"Expected ~30min, got {diff}s"
