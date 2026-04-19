@@ -266,3 +266,57 @@ def test_call_llm_returns_overlong_result_when_retry_also_fails():
     # Caller (validate_decision) decides. This test just asserts it tried twice.
     assert len(client.calls) == 2
     assert len(result["tweet"]) == 280
+
+
+# ---------------------------------------------------------- validate_decision --
+
+def test_validate_decision_accepts_valid_single_post():
+    d = {"decision": "post", "alert_ids": [1], "tweet": "ok", "is_composite": False}
+    ok, err = tb.validate_decision(d, top5_ids={1, 2, 3})
+    assert ok
+    assert err == ""
+
+
+def test_validate_decision_accepts_skip():
+    d = {"decision": "skip", "alert_ids": None, "tweet": None, "is_composite": False}
+    ok, _ = tb.validate_decision(d, top5_ids={1, 2, 3})
+    assert ok
+
+
+def test_validate_decision_rejects_alert_id_not_in_input():
+    d = {"decision": "post", "alert_ids": [99], "tweet": "ok", "is_composite": False}
+    ok, err = tb.validate_decision(d, top5_ids={1, 2, 3})
+    assert not ok
+    assert "99" in err
+
+
+def test_validate_decision_rejects_tweet_over_max_length():
+    d = {"decision": "post", "alert_ids": [1], "tweet": "x" * 300, "is_composite": False}
+    ok, err = tb.validate_decision(d, top5_ids={1})
+    assert not ok
+    assert "length" in err.lower()
+
+
+def test_validate_decision_rejects_empty_alert_ids_on_post():
+    d = {"decision": "post", "alert_ids": [], "tweet": "ok", "is_composite": False}
+    ok, err = tb.validate_decision(d, top5_ids={1})
+    assert not ok
+
+
+def test_validate_decision_rejects_non_composite_with_multiple_ids():
+    d = {"decision": "post", "alert_ids": [1, 2], "tweet": "ok", "is_composite": False}
+    ok, err = tb.validate_decision(d, top5_ids={1, 2})
+    assert not ok
+    assert "composite" in err.lower()
+
+
+def test_validate_decision_accepts_composite_with_multiple_ids():
+    d = {"decision": "post", "alert_ids": [1, 2], "tweet": "ok", "is_composite": True}
+    ok, err = tb.validate_decision(d, top5_ids={1, 2, 3})
+    assert ok
+
+
+def test_validate_decision_rejects_unknown_decision_value():
+    d = {"decision": "maybe", "alert_ids": [1], "tweet": "ok", "is_composite": False}
+    ok, _ = tb.validate_decision(d, top5_ids={1})
+    assert not ok

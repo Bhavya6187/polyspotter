@@ -264,5 +264,50 @@ def _llm_decide(messages: list[dict], *, llm_client) -> dict:
     return json.loads(content)
 
 
+# --- Validation --------------------------------------------------------------
+
+def validate_decision(decision: dict, top5_ids: set[int]) -> tuple[bool, str]:
+    """Validate the LLM's decision dict. Returns (ok, error_message).
+
+    Rules:
+      - decision must be 'post' or 'skip'.
+      - if 'skip', nothing else is checked.
+      - if 'post':
+          - alert_ids must be a non-empty list of ints all present in top5_ids.
+          - tweet must be a non-empty string with length <= TWEET_MAX_CHARS.
+          - if is_composite is False, alert_ids must have length 1.
+    """
+    d = decision.get("decision")
+    if d == "skip":
+        return True, ""
+    if d != "post":
+        return False, f"unknown decision value: {d!r}"
+
+    alert_ids = decision.get("alert_ids") or []
+    if not isinstance(alert_ids, list) or not alert_ids:
+        return False, "alert_ids must be a non-empty list when decision=post"
+
+    try:
+        int_ids = [int(i) for i in alert_ids]
+    except (TypeError, ValueError):
+        return False, f"alert_ids must be integers, got {alert_ids!r}"
+
+    unknown = [i for i in int_ids if i not in top5_ids]
+    if unknown:
+        return False, f"alert_ids contains ids not in input: {unknown}"
+
+    is_composite = bool(decision.get("is_composite"))
+    if not is_composite and len(int_ids) != 1:
+        return False, "non-composite tweet must reference exactly one alert_id"
+
+    tweet = decision.get("tweet") or ""
+    if not isinstance(tweet, str) or not tweet.strip():
+        return False, "tweet must be a non-empty string"
+    if len(tweet) > TWEET_MAX_CHARS:
+        return False, f"tweet length {len(tweet)} exceeds max {TWEET_MAX_CHARS}"
+
+    return True, ""
+
+
 if __name__ == "__main__":
     sys.exit(0)  # placeholder; real main() added in Task 10
