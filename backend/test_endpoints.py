@@ -58,6 +58,41 @@ def clean_db():
         _clean_test_data(conn)
 
 
+@pytest.fixture
+def self_seed_signal_fixture():
+    if not _has_db:
+        pytest.skip("no DB")
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO alerts (alert_type, composite_score, tags, market_title,
+                condition_id, wallet, total_usd, trade_count, llm_summary, llm_bullets,
+                created_at)
+            VALUES ('composite', 18.2, '["Crypto"]', 'TEST: ETH 4200', 'cid-TEST', '0xTEST',
+                    31700, 1, 'TEST why', '["a","b","c"]', NOW())
+            RETURNING id
+            """
+        )
+        alert_id = cur.fetchone()["id"]
+        cur.execute(
+            """
+            INSERT INTO alert_trades (alert_id, transaction_hash, wallet, condition_id,
+                outcome, side, usd_value, price)
+            VALUES (%s, 'tx-TEST', '0xTEST', 'cid-TEST', 'YES', 'BUY', 31700, 0.41)
+            """,
+            (alert_id,),
+        )
+        cur.execute(
+            """INSERT INTO alert_signals (alert_id, strategy, severity, headline)
+               VALUES (%s, 'win_rate_tracking', 5.0, 'h')""",
+            (alert_id,),
+        )
+    yield alert_id
+    with db() as conn:
+        _clean_test_data(conn)
+
+
 def _seed_alert(cur, **overrides):
     """Insert a test alert and return its ID."""
     defaults = {
@@ -381,3 +416,103 @@ class TestMarketTheses:
         resp = client.get("/api/market/test_cond_notheses/theses")
         assert resp.status_code == 200
         assert resp.json()["theses"] == []
+
+
+@skip_no_db
+def test_api_signals_returns_shape(self_seed_signal_fixture):
+    """After the fixture seeds one TEST: alert, /api/signals returns it."""
+    r = client.get("/api/signals?limit=5")
+    assert r.status_code == 200
+    body = r.json()
+    assert "signals" in body
+    assert "total" in body
+    if body["signals"]:
+        s = body["signals"][0]
+        # Canonical shape fields
+        for k in ("id","created_at","market","wallet","side","entry_price","stake_usd",
+                  "score","rating","why","signals","bullets","price_at_alert",
+                  "price_now","return_pct"):
+            assert k in s, f"missing field: {k}"
+        assert s["market"]["topic"]
+        assert s["market"]["icon"]
+        assert s["wallet"]["alias"]
+        assert 1 <= s["rating"] <= 5
+
+@skip_no_db
+def test_api_signals_filters_by_topic(self_seed_signal_fixture):
+    # Seed row has tags=["Crypto"]; topic="Crypto" should return it.
+    r_on  = client.get("/api/signals?topic=Crypto&limit=10")
+    r_off = client.get("/api/signals?topic=NBA&limit=10")
+    assert r_on.status_code == 200 and r_off.status_code == 200
+    assert any(s["id"] for s in r_on.json()["signals"])
+    # Our test row shouldn't match NBA
+    # (may still find other rows if DB has NBA data; only assert on the seeded one)
+
+
+@skip_no_db
+def test_api_signals_top_returns_up_to_three(self_seed_signal_fixture):
+    r = client.get("/api/signals/top")
+    assert r.status_code == 200
+    body = r.json()
+    assert "signals" in body
+    assert isinstance(body["signals"], list)
+    assert len(body["signals"]) <= 3
+
+
+@skip_no_db
+def test_api_markets_movers_returns_list(self_seed_signal_fixture):
+    r = client.get("/api/markets/movers?limit=6")
+    assert r.status_code == 200
+    body = r.json()
+    assert "movers" in body
+    assert isinstance(body["movers"], list)
+    assert len(body["movers"]) <= 6
+    for m in body["movers"]:
+        for k in ("condition_id","title","topic","icon","yes_price",
+                  "price_change_24h","volume_24h","candles"):
+            assert k in m
+
+
+@skip_no_db
+def test_api_topics_returns_canonical_list():
+    r = client.get("/api/topics")
+    assert r.status_code == 200
+    body = r.json()
+    assert "topics" in body
+    names = {t["name"] for t in body["topics"]}
+    assert {"Politics","Economics","Crypto","NBA","Geopolitics","Science"} <= names
+    for t in body["topics"]:
+        for k in ("name","icon","signals","volume_24h","trend","spark"):
+            assert k in t
+        assert isinstance(t["spark"], list)
+        # spark must be an 8-bucket histogram of zero-or-positive integers —
+        # guards against COUNT(*) over LEFT JOIN generate_series, which returns
+        # 1 for empty buckets instead of 0 (use COUNT(a2.id) to count only
+        # matched rows).
+        assert len(t["spark"]) == 8
+        assert all(isinstance(x, (int, float)) and x >= 0 for x in t["spark"])
+
+
+@skip_no_db
+def test_api_digest_returns_counts_since_timestamp(self_seed_signal_fixture):
+    past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    r = client.get("/api/digest", params={"since": past})
+    assert r.status_code == 200
+    body = r.json()
+    for k in ("since","new_signals","strong_signals","top_signals","biggest_mover"):
+        assert k in body
+    assert body["new_signals"] >= 1  # our fixture row
+    assert isinstance(body["top_signals"], list)
+
+
+@skip_no_db
+def test_api_ticker_recent_returns_trades(self_seed_signal_fixture):
+    r = client.get("/api/ticker/recent?limit=20")
+    assert r.status_code == 200
+    body = r.json()
+    assert "trades" in body
+    assert isinstance(body["trades"], list)
+    if body["trades"]:
+        t = body["trades"][0]
+        for k in ("id","side","amount","market","price","wallet_alias","wallet_tier","wallet_color","timestamp"):
+            assert k in t

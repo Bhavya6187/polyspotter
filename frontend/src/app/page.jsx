@@ -8,7 +8,15 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
 
 async function getHomeData() {
   try {
-    const [marketsRes, tagsRes, thesesRes, walletsRes] = await Promise.all([
+    const [
+      marketsRes,
+      tagsRes,
+      thesesRes,
+      walletsRes,
+      topRes,
+      moversRes,
+      topicsRes,
+    ] = await Promise.all([
       fetch(`${API_URL}/api/alerts/by-market?page=1&per_page=20`, {
         next: { revalidate: 60 },
       }),
@@ -17,12 +25,20 @@ async function getHomeData() {
         next: { revalidate: 60 },
       }),
       fetch(`${API_URL}/api/wallets/top?limit=10`, { next: { revalidate: 60 } }),
+      fetch(`${API_URL}/api/signals/top`, { next: { revalidate: 60 } }),
+      fetch(`${API_URL}/api/markets/movers?limit=6`, {
+        next: { revalidate: 60 },
+      }),
+      fetch(`${API_URL}/api/topics`, { next: { revalidate: 60 } }),
     ]);
 
     const marketsData = marketsRes.ok ? await marketsRes.json() : null;
     const tagsData = tagsRes.ok ? await tagsRes.json() : null;
     const thesesData = thesesRes.ok ? await thesesRes.json() : null;
     const walletsData = walletsRes.ok ? await walletsRes.json() : null;
+    const topData = topRes.ok ? await topRes.json() : null;
+    const moversData = moversRes.ok ? await moversRes.json() : null;
+    const topicsData = topicsRes.ok ? await topicsRes.json() : null;
 
     return {
       markets: marketsData?.markets || [],
@@ -30,14 +46,34 @@ async function getHomeData() {
       tags: tagsData?.tags || tagsData || [],
       theses: thesesData?.theses || thesesData || [],
       topWallets: walletsData?.wallets || [],
+      topSignals: topData?.signals || [],
+      movers: moversData?.movers || [],
+      topics: topicsData?.topics || [],
     };
   } catch {
-    return { markets: [], total: 0, tags: [], theses: [], topWallets: [] };
+    return {
+      markets: [],
+      total: 0,
+      tags: [],
+      theses: [],
+      topWallets: [],
+      topSignals: [],
+      movers: [],
+      topics: [],
+    };
   }
 }
 
 export default async function HomePage() {
-  const { markets, total, tags, theses, topWallets } = await getHomeData();
+  const {
+    markets,
+    total,
+    tags,
+    topWallets,
+    topSignals,
+    movers,
+    topics,
+  } = await getHomeData();
 
   const visibleTags = (Array.isArray(tags) ? tags : []).filter((t) => {
     const name = typeof t === "string" ? t : t.tag;
@@ -269,11 +305,11 @@ export default async function HomePage() {
       </div>
 
       <HomeClient
-        initialMarkets={markets}
-        initialTotal={total}
-        tags={tags}
-        initialTheses={theses}
+        topSignals={topSignals}
+        movers={movers}
+        topics={topics}
         topWallets={topWallets}
+        tags={tags}
       />
     </>
   );

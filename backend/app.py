@@ -52,7 +52,17 @@ from models import (
     PricePoint,
     HolderEntry,
     MarketHoldersData,
+    SignalView,
+    PaginatedSignals,
+    MoverView,
+    TopicView,
+    TickerTradeView,
+    DigestView,
 )
+from signals import signal_from_row, tier_for_wallet, color_for_wallet
+from pseudonym import alias_for_wallet
+from topics import topic_for_tags
+from live_prices import batch_live_for_condition_ids
 
 
 @asynccontextmanager
@@ -1467,6 +1477,347 @@ def resolve_condition_id(partial_id: str):
     if not row:
         raise HTTPException(status_code=404, detail="Market not found")
     return {"condition_id": row["condition_id"]}
+
+
+# ─── PolySpotter redesign endpoints ─────────────────────────────
+
+@app.get("/api/signals", response_model=PaginatedSignals)
+def list_signals(
+    topic: str | None = Query(None, description="Canonical topic name (Politics, Crypto, …)"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    min_rating: int = Query(1, ge=1, le=5),
+    resolves_within: str | None = Query(None, description="6h | 24h | 7d"),
+):
+    """Return alerts shaped as SignalView, pre-joined with live prices + trades."""
+    min_score = {1: 0, 2: 7, 3: 12, 4: 18, 5: 25}[min_rating]
+    conditions = ["a.composite_score >= %s", "(a.end_date IS NULL OR a.end_date > NOW())"]
+    params: list = [min_score]
+
+    resolve_hours = {"6h": 6, "24h": 24, "7d": 168}.get(resolves_within or "")
+    if resolve_hours:
+        conditions.append("a.end_date IS NOT NULL AND a.end_date <= NOW() + (%s || ' hours')::interval")
+        params.append(str(resolve_hours))
+
+    if topic:
+        # Map topic → any tags that resolve to this topic
+        from topics import TAG_TO_TOPIC
+        matching = [tag for tag, (t, _) in TAG_TO_TOPIC.items() if t == topic]
+        if matching:
+            conditions.append(
+                "EXISTS (SELECT 1 FROM jsonb_array_elements_text(a.tags::jsonb) AS t "
+                "WHERE t = ANY(%s))"
+            )
+            params.append(matching)
+        else:
+            # Unknown topic → return empty
+            return PaginatedSignals(signals=[], total=0)
+
+    where = " AND ".join(conditions)
+
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(f"SELECT COUNT(*) as c FROM alerts a WHERE {where}", params)
+        total = cur.fetchone()["c"]
+
+        cur.execute(
+            f"""
+            SELECT a.*, wp.win_rate, wp.total_pnl, wp.total_invested
+            FROM alerts a
+            LEFT JOIN wallet_profiles wp ON wp.wallet = a.wallet
+            WHERE {where}
+            ORDER BY a.composite_score DESC, a.created_at DESC
+            LIMIT %s OFFSET %s
+            """,
+            params + [limit, offset],
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+
+        if not rows:
+            return PaginatedSignals(signals=[], total=total)
+
+        alert_ids = [r["id"] for r in rows]
+        cur.execute(
+            "SELECT alert_id, outcome, side, price, usd_value, trade_timestamp "
+            "FROM alert_trades WHERE alert_id = ANY(%s) ORDER BY trade_timestamp ASC",
+            (alert_ids,),
+        )
+        trades_by_alert: dict[int, list[dict]] = {}
+        for t in cur.fetchall():
+            trades_by_alert.setdefault(t["alert_id"], []).append(dict(t))
+
+        cur.execute(
+            "SELECT alert_id, strategy FROM alert_signals WHERE alert_id = ANY(%s)",
+            (alert_ids,),
+        )
+        sigs_by_alert: dict[int, list[str]] = {}
+        for s in cur.fetchall():
+            sigs_by_alert.setdefault(s["alert_id"], []).append(s["strategy"])
+
+    # Live data in one batch
+    cids = [r["condition_id"] for r in rows if r.get("condition_id")]
+    live_map = batch_live_for_condition_ids(cids)
+
+    signals = []
+    for r in rows:
+        trades = trades_by_alert.get(r["id"], [])
+        live = live_map.get(r.get("condition_id") or "", {})
+        s = signal_from_row(r, trades=trades, live=live)
+        # Attach strategies as signal types
+        strategies = sigs_by_alert.get(r["id"], [])
+        # Map strategy names to the design's SIGNAL_LABELS keys
+        s.signals = _map_strategies_to_signal_keys(strategies)
+        signals.append(s)
+
+    return PaginatedSignals(signals=signals, total=total)
+
+
+def _map_strategies_to_signal_keys(strategies: list[str]) -> list[str]:
+    """Translate backend strategy names → design's SIGNAL_LABELS keys."""
+    mapping = {
+        "win_rate_tracking":        "win_rate",
+        "new_wallet_large_bet":     "new_wallet",
+        "timing_relative_resolution":"timing_close",
+        "low_activity_large_bet":   "low_activity",
+        "pre_event_volume_spike":   "volume_spike",
+        "wallet_clustering":        "wallet_cluster",
+        "concentrated_one_sided":   "concentrated_one_sided",
+        "price_impact":             "price_impact",
+        "correlated_cross_market":  "correlated_cross_market",
+    }
+    out = []
+    for s in strategies:
+        k = mapping.get(s)
+        if k and k not in out:
+            out.append(k)
+    return out
+
+
+@app.get("/api/signals/top")
+def list_top_signals():
+    """Curated Top 3 signals by composite_score with recency tiebreak."""
+    result = list_signals(topic=None, limit=3, offset=0, min_rating=1, resolves_within=None)
+    return {"signals": result.signals}
+
+
+def _parse_tags(raw):
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return raw
+    try:
+        return json.loads(raw)
+    except Exception:
+        return []
+
+
+@app.get("/api/markets/movers")
+def list_movers(limit: int = Query(6, ge=1, le=20)):
+    """Top movers: markets with alerts in the last 24h, sorted by abs(price_change_24h)."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT DISTINCT ON (a.condition_id)
+                a.condition_id, a.market_title, a.tags, a.end_date, a.composite_score
+            FROM alerts a
+            WHERE a.condition_id IS NOT NULL
+              AND (a.end_date IS NULL OR a.end_date > NOW())
+              AND a.created_at > NOW() - INTERVAL '24 hours'
+            ORDER BY a.condition_id, a.composite_score DESC
+            LIMIT 100
+            """
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+
+    # Fetch live price data from price_candles for all condition_ids.
+    live_map = batch_live_for_condition_ids([r["condition_id"] for r in rows])
+    for r in rows:
+        live = live_map.get(r["condition_id"], {}) or {}
+        r["yes_price"] = live.get("yes_price")
+        r["price_change_24h"] = live.get("price_change_24h") or 0.0
+        r["volume_24h"] = live.get("volume_24h") or 0.0
+        r["candles"] = live.get("candles") or []
+
+    # Sort in Python by abs(price_change_24h). Fall back to volume_24h for ties.
+    def key(r):
+        pc = abs(float(r.get("price_change_24h") or 0))
+        return (-pc, -(float(r.get("volume_24h") or 0)))
+    rows.sort(key=key)
+    rows = rows[:limit]
+
+    out = []
+    for r in rows:
+        tags = _parse_tags(r.get("tags"))
+        topic, icon = topic_for_tags(tags)
+        out.append(MoverView(
+            condition_id=r["condition_id"],
+            title=r.get("market_title") or "",
+            topic=topic, icon=icon,
+            yes_price=r.get("yes_price"),
+            price_change_24h=float(r.get("price_change_24h") or 0),
+            volume_24h=float(r.get("volume_24h") or 0),
+            candles=r.get("candles") or [],
+        ))
+    return {"movers": out}
+
+
+@app.get("/api/topics")
+def list_topics():
+    """Activity summary per canonical topic over the last 24h."""
+    from topics import CANONICAL_TOPICS, TAG_TO_TOPIC
+    out = []
+    with db() as conn:
+        cur = conn.cursor()
+        for (topic_name, icon) in CANONICAL_TOPICS:
+            matching = [t for t, (nm, _) in TAG_TO_TOPIC.items() if nm == topic_name]
+            if not matching:
+                out.append(TopicView(name=topic_name, icon=icon, signals=0,
+                                     volume_24h=0, trend=0, spark=[]))
+                continue
+            cur.execute(
+                """
+                SELECT
+                    COUNT(*)::int                                 AS signal_count,
+                    COALESCE(SUM(total_usd),0)::float             AS vol_24h,
+                    ARRAY(
+                        SELECT COUNT(a2.id)::int
+                        FROM generate_series(0,7) AS bucket
+                        LEFT JOIN alerts a2 ON
+                            a2.created_at >= NOW() - ((8 - bucket) * INTERVAL '3 hours')
+                            AND a2.created_at <  NOW() - ((7 - bucket) * INTERVAL '3 hours')
+                            AND EXISTS (
+                                SELECT 1 FROM jsonb_array_elements_text(a2.tags::jsonb) t
+                                WHERE t = ANY(%s)
+                            )
+                        GROUP BY bucket ORDER BY bucket
+                    ) AS spark_ints
+                FROM alerts a
+                WHERE a.created_at > NOW() - INTERVAL '24 hours'
+                  AND EXISTS (
+                    SELECT 1 FROM jsonb_array_elements_text(a.tags::jsonb) t
+                    WHERE t = ANY(%s)
+                  )
+                """,
+                (matching, matching),
+            )
+            row = cur.fetchone()
+            signal_count = row["signal_count"] or 0
+            vol_24h = float(row["vol_24h"] or 0)
+            spark = list(row.get("spark_ints") or [])
+            # trend: percent change from first-half to second-half of 24h (rough)
+            half = len(spark) // 2 or 1
+            first = sum(spark[:half]) or 1
+            second = sum(spark[half:])
+            trend = round((second - first) / first * 100)
+            out.append(TopicView(
+                name=topic_name, icon=icon,
+                signals=signal_count, volume_24h=vol_24h,
+                trend=trend, spark=[float(x) for x in spark],
+            ))
+    return {"topics": out}
+
+
+@app.get("/api/digest", response_model=DigestView)
+def get_digest(since: datetime = Query(..., description="ISO8601 last-visit timestamp")):
+    """Summary of activity since a given timestamp."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT COUNT(*) AS c FROM alerts WHERE created_at > %s",
+            (since,),
+        )
+        new_signals = cur.fetchone()["c"] or 0
+        cur.execute(
+            "SELECT COUNT(*) AS c FROM alerts WHERE created_at > %s AND composite_score >= 18",
+            (since,),
+        )
+        strong = cur.fetchone()["c"] or 0
+
+    top = list_signals(topic=None, limit=3, offset=0, min_rating=1, resolves_within=None)
+    movers = list_movers(limit=1)["movers"]
+    biggest = movers[0] if movers else None
+    return DigestView(
+        since=since,
+        new_signals=new_signals,
+        strong_signals=strong,
+        top_signals=top.signals,
+        biggest_mover=biggest,
+    )
+
+
+@app.get("/api/ticker/recent")
+def ticker_recent(limit: int = Query(20, ge=1, le=100)):
+    """Latest N trades across all alerts, newest first."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT t.transaction_hash AS id, t.side, t.usd_value AS amount, t.price,
+                   t.wallet, t.trade_timestamp AS ts,
+                   a.market_title, a.condition_id,
+                   wp.win_rate, wp.total_pnl
+            FROM alert_trades t
+            JOIN alerts a ON a.id = t.alert_id
+            LEFT JOIN wallet_profiles wp ON wp.wallet = t.wallet
+            WHERE t.trade_timestamp IS NOT NULL
+            ORDER BY t.trade_timestamp DESC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        rows = cur.fetchall()
+
+    trades = []
+    for r in rows:
+        trades.append(TickerTradeView(
+            id=r["id"],
+            side=(r["side"] or "BUY").upper(),
+            amount=float(r["amount"] or 0),
+            market=r["market_title"] or "",
+            condition_id=r["condition_id"],
+            price=r["price"],
+            wallet_alias=alias_for_wallet(r["wallet"] or ""),
+            wallet_tier=tier_for_wallet(r["win_rate"], r["total_pnl"]),
+            wallet_color=color_for_wallet(r["wallet"] or ""),
+            timestamp=r["ts"],
+        ))
+    return {"trades": trades}
+
+
+@app.get("/api/markets/{condition_id}/card", response_model=MoverView)
+def market_card(condition_id: str):
+    """Compact MoverView-shaped card for a single condition_id.
+
+    Used by the watchlist rail: returns the most recent known title for the
+    market plus live price/change/candles sourced from the price_candles
+    time series. Falls back to a truncated condition_id when no alert row
+    has ever surfaced the title.
+    """
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT market_title, tags FROM alerts "
+            "WHERE condition_id = %s ORDER BY created_at DESC LIMIT 1",
+            (condition_id,),
+        )
+        row = cur.fetchone()
+
+    title = (row and row["market_title"]) or condition_id[:10]
+    tags = _parse_tags(row["tags"]) if row else []
+    topic, icon = topic_for_tags(tags)
+
+    live = batch_live_for_condition_ids([condition_id]).get(condition_id, {})
+    return MoverView(
+        condition_id=condition_id,
+        title=title,
+        topic=topic,
+        icon=icon,
+        yes_price=live.get("yes_price"),
+        price_change_24h=float(live.get("price_change_24h") or 0),
+        volume_24h=float(live.get("volume_24h") or 0),
+        candles=list(live.get("candles") or []),
+    )
 
 
 @app.get("/api/health")
