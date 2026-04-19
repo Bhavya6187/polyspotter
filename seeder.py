@@ -678,13 +678,14 @@ def push_to_backend(signals: list[Signal], trades: list[dict]) -> int:
 
     n_alerts = len(payload["alerts"])
     n_profiles = len(payload["wallet_profiles"])
-    print(f"[seeder] Pushing {n_alerts} alert(s) and {n_profiles} wallet profile(s) to {BACKEND_URL}...")
+    ingest_url = f"{BACKEND_URL}/api/ingest"
+    print(f"[seeder] Pushing {n_alerts} alert(s) and {n_profiles} wallet profile(s) to {ingest_url}...")
 
     try:
         resp = requests.post(
-            f"{BACKEND_URL}/api/ingest",
+            ingest_url,
             json=payload,
-            timeout=30,
+            timeout=120,
         )
         resp.raise_for_status()
         result = resp.json()
