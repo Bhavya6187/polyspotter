@@ -26,8 +26,16 @@ CREATE TABLE IF NOT EXISTS alerts (
     -- cluster-specific
     cluster_headline TEXT,
 
-    -- market resolution date (from Gamma API)
+    -- market resolution deadline (from Gamma API endDate — often WAY after the
+    -- actual event, e.g. sports markets buffer 7 days for UMA disputes)
     end_date        TIMESTAMPTZ,
+    -- actual event start (from Gamma API gameStartTime); present for sports
+    -- and other time-boxed events, NULL otherwise
+    game_start_time TIMESTAMPTZ,
+    -- best estimate of when the event actually becomes uninteresting:
+    -- = game_start_time when present, else end_date. Used by /api/resolving-soon
+    -- so sports games rank by kickoff time instead of 7-day resolution deadline.
+    event_end_estimate TIMESTAMPTZ,
 
     -- LLM evaluation: short headline for compact UI display
     llm_headline    TEXT,
@@ -57,6 +65,7 @@ CREATE INDEX IF NOT EXISTS idx_alerts_score ON alerts(composite_score DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_scanned ON alerts(scanned_at DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_wallet ON alerts(wallet);
 CREATE INDEX IF NOT EXISTS idx_alerts_event ON alerts(event_slug);
+CREATE INDEX IF NOT EXISTS idx_alerts_event_end ON alerts(event_end_estimate) WHERE event_end_estimate IS NOT NULL;
 
 -- Trigram index for fast fuzzy market title search (ILIKE, similarity)
 CREATE EXTENSION IF NOT EXISTS pg_trgm;

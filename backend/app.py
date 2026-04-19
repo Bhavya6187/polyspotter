@@ -196,9 +196,10 @@ def ingest(payload: IngestPayload):
                        (alert_type, composite_score, tags, market_title, condition_id,
                         event_slug, market_url, market_image, market_description,
                         wallet, total_usd, trade_count,
-                        cluster_headline, end_date, llm_headline, llm_summary,
+                        cluster_headline, end_date, game_start_time, event_end_estimate,
+                        llm_headline, llm_summary,
                         llm_bullets, llm_copy_action, scanned_at, dedup_key)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        ON CONFLICT (dedup_key) DO UPDATE SET
                         composite_score = EXCLUDED.composite_score,
                         tags = EXCLUDED.tags,
@@ -206,6 +207,8 @@ def ingest(payload: IngestPayload):
                         trade_count = EXCLUDED.trade_count,
                         cluster_headline = EXCLUDED.cluster_headline,
                         end_date = EXCLUDED.end_date,
+                        game_start_time = EXCLUDED.game_start_time,
+                        event_end_estimate = EXCLUDED.event_end_estimate,
                         llm_headline = EXCLUDED.llm_headline,
                         llm_summary = EXCLUDED.llm_summary,
                         llm_bullets = EXCLUDED.llm_bullets,
@@ -229,6 +232,8 @@ def ingest(payload: IngestPayload):
                         alert.trade_count,
                         alert.cluster_headline,
                         alert.end_date,
+                        alert.game_start_time,
+                        alert.event_end_estimate,
                         alert.llm_headline,
                         alert.llm_summary,
                         bullets_json,
@@ -895,9 +900,14 @@ def get_spotlight():
     with db() as conn:
         cur = conn.cursor()
         # Fetch more candidates than needed so we can filter out settled markets
+        # Event still pending = event_end_estimate (or end_date fallback) > NOW().
+        # For sports, event_end_estimate = gameStartTime, so a game that's
+        # already underway correctly drops out even though Polymarket's
+        # end_date is 7 days out awaiting UMA resolution.
         cur.execute("""
             SELECT a.id, a.market_title, a.condition_id, a.event_slug,
                    a.composite_score, a.total_usd, a.end_date,
+                   a.game_start_time, a.event_end_estimate,
                    a.llm_headline, a.llm_summary, a.llm_copy_action, a.market_image,
                    (SELECT COUNT(DISTINCT at2.wallet) FROM alert_trades at2 WHERE at2.alert_id = a.id) AS wallet_count,
                    wp.win_rate AS best_win_rate, wp.total_pnl AS best_total_pnl,
@@ -910,7 +920,8 @@ def get_spotlight():
                 ORDER BY pc.t DESC
                 LIMIT 1
             ) latest_candle ON TRUE
-            WHERE a.end_date IS NOT NULL AND a.end_date > NOW()
+            WHERE COALESCE(a.event_end_estimate, a.end_date) IS NOT NULL
+              AND COALESCE(a.event_end_estimate, a.end_date) > NOW()
               AND a.created_at > NOW() - INTERVAL '1 day'
               AND (latest_candle.p IS NULL OR (latest_candle.p > 0.03 AND latest_candle.p < 0.97))
             ORDER BY a.composite_score DESC
@@ -936,6 +947,10 @@ def get_spotlight():
                 except (json.JSONDecodeError, TypeError):
                     copy_action = {}
 
+            # Surface event_end_estimate as `end_date` so the frontend
+            # countdown targets the actual event time; expose the true
+            # resolution deadline separately for UIs that want it.
+            effective = row["event_end_estimate"] or row["end_date"]
             results.append({
                 "id": row["id"],
                 "market_title": row["market_title"],
@@ -943,7 +958,9 @@ def get_spotlight():
                 "event_slug": row["event_slug"],
                 "composite_score": row["composite_score"],
                 "total_usd": row["total_usd"],
-                "end_date": row["end_date"].isoformat() if row["end_date"] else None,
+                "end_date": effective.isoformat() if effective else None,
+                "resolution_deadline": row["end_date"].isoformat() if row["end_date"] else None,
+                "game_start_time": row["game_start_time"].isoformat() if row["game_start_time"] else None,
                 "llm_headline": row["llm_headline"],
                 "llm_summary": row["llm_summary"],
                 "llm_copy_action": copy_action,
@@ -958,6 +975,82 @@ def get_spotlight():
 
 _resolving_soon_cache: tuple[float, list] | None = None
 _RESOLVING_SOON_TTL = 60  # seconds
+
+# Per-condition_id Gamma status cache (gameStartTime/umaResolutionStatus/closed/
+# outcomePrices). The /api/resolving-soon response is already 60s-cached, but
+# this inner cache is shared with any other endpoint that wants a fresh
+# "is this market actually still live?" check and outlives single-request work.
+_gamma_status_cache: dict[str, tuple[float, dict]] = {}
+_GAMMA_STATUS_TTL = 60  # seconds
+
+
+def _fetch_gamma_status(condition_ids: list[str]) -> dict[str, dict]:
+    """Batch-fetch Gamma market status for the given condition_ids.
+
+    Returns {condition_id: {closed, uma_status, prices, game_start_time}}.
+    Uses an in-memory TTL cache so repeat lookups within 60s avoid Gamma calls."""
+    if not condition_ids:
+        return {}
+    now = _time.time()
+    out: dict[str, dict] = {}
+    to_fetch: list[str] = []
+    for cid in condition_ids:
+        cached = _gamma_status_cache.get(cid)
+        if cached and cached[0] > now:
+            out[cid] = cached[1]
+        else:
+            to_fetch.append(cid)
+
+    if to_fetch:
+        try:
+            resp = _requests.get(
+                f"{GAMMA_API}/markets",
+                params=[("condition_ids", cid) for cid in to_fetch],
+                timeout=10,
+            )
+            resp.raise_for_status()
+            for m in resp.json():
+                cid = m.get("conditionId") or m.get("condition_id")
+                if not cid:
+                    continue
+                try:
+                    prices = _parse_json_field(m, "outcomePrices")
+                    prices = [float(p) for p in prices] if prices else []
+                except (ValueError, TypeError):
+                    prices = []
+                info = {
+                    "closed": bool(m.get("closed")),
+                    "uma_status": (m.get("umaResolutionStatus") or "").strip(),
+                    "prices": prices,
+                    "game_start_time": m.get("gameStartTime"),
+                }
+                out[cid] = info
+                _gamma_status_cache[cid] = (now + _GAMMA_STATUS_TTL, info)
+        except Exception:
+            # On Gamma failure we return whatever we already had cached and let
+            # callers decide how to degrade — better than breaking the endpoint.
+            pass
+
+    return out
+
+
+def _is_market_settled(status: dict) -> bool:
+    """True if a market is already decided per Gamma status.
+
+    A market is "settled" when any of:
+      - closed=true (trading halted),
+      - umaResolutionStatus is non-empty (proposed/disputed/resolved),
+      - one outcome price >= 0.98 (effectively resolved by the market)."""
+    if not status:
+        return False
+    if status.get("closed"):
+        return True
+    if status.get("uma_status"):
+        return True
+    prices = status.get("prices") or []
+    if prices and max(prices) >= 0.98:
+        return True
+    return False
 
 
 @app.get("/api/resolving-soon")
@@ -974,20 +1067,27 @@ def get_resolving_soon():
 
 
 def _fetch_resolving_soon() -> list[dict]:
-    # Fetch more than 7 from DB so we still have enough after filtering settled
+    # Sort by event_end_estimate (actual event time — game start for sports,
+    # endDate for everything else) so a sports game starting in 3h ranks above
+    # a political market whose UMA resolution deadline is tomorrow. Fall back
+    # to end_date for pre-migration rows that don't yet have event_end_estimate.
+    # Pull 40 so we still have 7+ after dropping already-settled markets.
     with db() as conn:
         cur = conn.cursor()
         cur.execute("""
             SELECT * FROM (
                 SELECT DISTINCT ON (COALESCE(a.event_slug, a.condition_id))
                     a.id, a.condition_id, a.market_title, a.end_date,
-                    a.total_usd, a.composite_score, a.llm_copy_action, a.market_image
+                    a.game_start_time, a.event_end_estimate,
+                    a.total_usd, a.composite_score, a.llm_copy_action, a.market_image,
+                    COALESCE(a.event_end_estimate, a.end_date) AS sort_key
                 FROM alerts a
-                WHERE a.end_date IS NOT NULL AND a.end_date > NOW()
+                WHERE COALESCE(a.event_end_estimate, a.end_date) IS NOT NULL
+                  AND COALESCE(a.event_end_estimate, a.end_date) > NOW()
                 ORDER BY COALESCE(a.event_slug, a.condition_id), a.composite_score DESC
             ) sub
-            ORDER BY end_date ASC
-            LIMIT 20
+            ORDER BY sort_key ASC
+            LIMIT 40
         """)
         rows = cur.fetchall()
     if not rows:
@@ -1002,36 +1102,32 @@ def _fetch_resolving_soon() -> list[dict]:
                 copy_action = json.loads(copy_action)
             except (json.JSONDecodeError, TypeError):
                 copy_action = {}
+        # Countdown target: prefer event_end_estimate (event time), fall back
+        # to end_date. The frontend reads `end_date` as the countdown source,
+        # so surface the effective value there for backwards compatibility.
+        effective = row["event_end_estimate"] or row["end_date"]
         results.append({
             "id": row["id"],
             "condition_id": row["condition_id"],
             "market_title": row["market_title"],
-            "end_date": row["end_date"].isoformat() if row["end_date"] else None,
+            "end_date": effective.isoformat() if effective else None,
+            "resolution_deadline": row["end_date"].isoformat() if row["end_date"] else None,
+            "game_start_time": row["game_start_time"].isoformat() if row["game_start_time"] else None,
             "total_usd": row["total_usd"],
             "composite_score": row["composite_score"],
             "dominant_side": copy_action.get("outcome") if copy_action else None,
             "market_image": row["market_image"],
         })
 
-    # Filter out settled markets via live Gamma prices, store candles
+    # Drop markets Gamma reports as already-settled (closed / UMA proposed /
+    # one outcome >= 98%). Uses the shared _gamma_status_cache.
     condition_ids = [r["condition_id"] for r in results if r["condition_id"]]
-    if condition_ids:
-        try:
-            gamma_resp = _requests.get(
-                f"{GAMMA_API}/markets",
-                params=[("condition_ids", cid) for cid in condition_ids],
-                timeout=10,
-            )
-            gamma_resp.raise_for_status()
-            settled = set()
-            for m in gamma_resp.json():
-                cid = m.get("conditionId") or m.get("condition_id")
-                prices = _parse_json_field(m, "outcomePrices")
-                if prices and max(float(p) for p in prices) > 0.95:
-                    settled.add(cid)
-            results = [r for r in results if r["condition_id"] not in settled]
-        except Exception:
-            pass
+    status_by_cid = _fetch_gamma_status(condition_ids)
+    if status_by_cid:
+        results = [
+            r for r in results
+            if not _is_market_settled(status_by_cid.get(r["condition_id"], {}))
+        ]
 
     return results[:7]
 

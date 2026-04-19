@@ -32,6 +32,7 @@ def init_db():
             _migrate_add_llm_fields(cur)
             _migrate_add_market_media(cur)
             _migrate_add_seo_fields(cur)
+            _migrate_add_event_timing(cur)
         conn.commit()
     finally:
         conn.close()
@@ -85,6 +86,33 @@ def _migrate_add_market_media(cur):
         """, (col,))
         if not cur.fetchone():
             cur.execute(f"ALTER TABLE alerts ADD COLUMN {col} TEXT")
+
+
+def _migrate_add_event_timing(cur):
+    """Add game_start_time + event_end_estimate columns and backfill from end_date."""
+    for col in ("game_start_time", "event_end_estimate"):
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'alerts' AND column_name = %s
+        """, (col,))
+        if not cur.fetchone():
+            cur.execute(f"ALTER TABLE alerts ADD COLUMN {col} TIMESTAMPTZ")
+
+    # Seed event_end_estimate from end_date for pre-existing rows so they still
+    # appear in /api/resolving-soon until the scanner next re-seeds them with
+    # game_start_time. COALESCE in the endpoint handles this too, but keeping
+    # the column populated avoids NULLs skewing the sort.
+    cur.execute("""
+        UPDATE alerts
+        SET event_end_estimate = end_date
+        WHERE event_end_estimate IS NULL AND end_date IS NOT NULL
+    """)
+
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_alerts_event_end
+        ON alerts(event_end_estimate)
+        WHERE event_end_estimate IS NOT NULL
+    """)
 
 
 def _migrate_add_seo_fields(cur):

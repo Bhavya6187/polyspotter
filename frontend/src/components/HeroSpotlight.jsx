@@ -55,7 +55,7 @@ function SpotlightSlide({ alert }) {
         {alert.best_win_rate != null && (
           <span>{"\ud83c\udfaf"} {Math.round(alert.best_win_rate * 100)}% win rate wallet</span>
         )}
-        <span>{"\u23f1\ufe0f"} Resolves in {countdown.label}</span>
+        <span>{"\u23f1\ufe0f"} {alert.game_start_time ? "Starts" : "Resolves"} in {countdown.label}</span>
       </div>
     </Link>
   );

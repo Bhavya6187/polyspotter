@@ -71,6 +71,8 @@ def _seed_alert(cur, **overrides):
         "total_usd": 5000.0,
         "trade_count": 1,
         "end_date": (datetime.now(timezone.utc) + timedelta(hours=3)).isoformat(),
+        "game_start_time": None,
+        "event_end_estimate": None,
         "scanned_at": datetime.now(timezone.utc).isoformat(),
         "dedup_key": f"test_dedup_{id(overrides)}",
     }
@@ -78,14 +80,16 @@ def _seed_alert(cur, **overrides):
     cur.execute(
         """INSERT INTO alerts
            (alert_type, composite_score, tags, market_title, condition_id,
-            event_slug, wallet, total_usd, trade_count, end_date, scanned_at, dedup_key)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            event_slug, wallet, total_usd, trade_count, end_date,
+            game_start_time, event_end_estimate, scanned_at, dedup_key)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
            RETURNING id""",
         (
             defaults["alert_type"], defaults["composite_score"], defaults["tags"],
             defaults["market_title"], defaults["condition_id"], defaults["event_slug"],
             defaults["wallet"], defaults["total_usd"], defaults["trade_count"],
-            defaults["end_date"], defaults["scanned_at"], defaults["dedup_key"],
+            defaults["end_date"], defaults["game_start_time"],
+            defaults["event_end_estimate"], defaults["scanned_at"], defaults["dedup_key"],
         ),
     )
     return cur.fetchone()["id"]
@@ -186,7 +190,14 @@ class TestSpotlight:
 
 @skip_no_db
 class TestResolvingSoon:
+    def _clear_cache(self):
+        """The endpoint caches its response for 60s; reset between tests."""
+        import app as app_module
+        app_module._resolving_soon_cache = None
+        app_module._gamma_status_cache.clear()
+
     def test_resolving_soon_includes_upcoming(self):
+        self._clear_cache()
         with db() as conn:
             cur = conn.cursor()
             _seed_alert(
@@ -201,6 +212,7 @@ class TestResolvingSoon:
         assert isinstance(data, list)
 
     def test_resolving_soon_excludes_far_future(self):
+        self._clear_cache()
         with db() as conn:
             cur = conn.cursor()
             _seed_alert(
@@ -215,6 +227,144 @@ class TestResolvingSoon:
         data = resp.json()
         far_ids = [d for d in data if d.get("condition_id") == "test_far_cond"]
         assert len(far_ids) == 0
+
+    def test_resolving_soon_ranks_by_event_end_estimate_not_end_date(self):
+        """Regression: a sports game starting in 2h should rank ABOVE a
+        political market whose end_date is 12h away. Previously the endpoint
+        sorted by end_date, so sports markets (whose end_date buffers 7 days
+        for UMA resolution) got pushed to the bottom and never appeared."""
+        self._clear_cache()
+        near_game_start = datetime.now(timezone.utc) + timedelta(hours=2)
+        sports_resolution_deadline = datetime.now(timezone.utc) + timedelta(days=7)
+        political_end = datetime.now(timezone.utc) + timedelta(hours=12)
+
+        with db() as conn:
+            cur = conn.cursor()
+            _seed_alert(
+                cur,
+                dedup_key="test_sports_game",
+                condition_id="test_sports_cond",
+                event_slug="test-sports-event",
+                market_title="TEST: Team A vs. Team B",
+                end_date=sports_resolution_deadline.isoformat(),
+                game_start_time=near_game_start.isoformat(),
+                event_end_estimate=near_game_start.isoformat(),
+            )
+            _seed_alert(
+                cur,
+                dedup_key="test_political",
+                condition_id="test_political_cond",
+                event_slug="test-political-event",
+                market_title="TEST: Will policy pass?",
+                end_date=political_end.isoformat(),
+                game_start_time=None,
+                event_end_estimate=political_end.isoformat(),
+            )
+
+        resp = client.get("/api/resolving-soon")
+        assert resp.status_code == 200
+        data = resp.json()
+        test_entries = [d for d in data if d["condition_id"] in ("test_sports_cond", "test_political_cond")]
+        assert len(test_entries) == 2, f"Expected both test alerts, got {test_entries}"
+        # Sports game (event_end_estimate = 2h) must come before political (12h)
+        assert test_entries[0]["condition_id"] == "test_sports_cond"
+        assert test_entries[1]["condition_id"] == "test_political_cond"
+
+    def test_resolving_soon_drops_sports_game_already_started(self):
+        """A sports game whose game_start_time has passed should drop out of
+        the strip even though its end_date (UMA resolution deadline) is still
+        days in the future."""
+        self._clear_cache()
+        past_game_start = datetime.now(timezone.utc) - timedelta(hours=1)
+        future_resolution = datetime.now(timezone.utc) + timedelta(days=6)
+
+        with db() as conn:
+            cur = conn.cursor()
+            _seed_alert(
+                cur,
+                dedup_key="test_game_over",
+                condition_id="test_game_over_cond",
+                end_date=future_resolution.isoformat(),
+                game_start_time=past_game_start.isoformat(),
+                event_end_estimate=past_game_start.isoformat(),
+            )
+
+        resp = client.get("/api/resolving-soon")
+        assert resp.status_code == 200
+        matches = [d for d in resp.json() if d["condition_id"] == "test_game_over_cond"]
+        assert len(matches) == 0
+
+    def test_resolving_soon_backcompat_for_pre_migration_rows(self):
+        """Existing rows with NULL event_end_estimate should still appear,
+        sorted by end_date (COALESCE fallback) — the migration seeds
+        event_end_estimate = end_date on startup, but this guards against
+        ingest races where a new alert lands without it."""
+        self._clear_cache()
+        end = datetime.now(timezone.utc) + timedelta(hours=4)
+
+        with db() as conn:
+            cur = conn.cursor()
+            _seed_alert(
+                cur,
+                dedup_key="test_legacy_row",
+                condition_id="test_legacy_cond",
+                end_date=end.isoformat(),
+                game_start_time=None,
+                event_end_estimate=None,
+            )
+
+        resp = client.get("/api/resolving-soon")
+        assert resp.status_code == 200
+        matches = [d for d in resp.json() if d["condition_id"] == "test_legacy_cond"]
+        assert len(matches) == 1
+        assert matches[0]["end_date"] is not None
+
+    def test_resolving_soon_surfaces_game_start_time(self):
+        """Response should include game_start_time so the frontend can label
+        the countdown as 'Starts in' instead of 'Resolves in' for sports."""
+        self._clear_cache()
+        gs = datetime.now(timezone.utc) + timedelta(hours=3)
+        with db() as conn:
+            cur = conn.cursor()
+            _seed_alert(
+                cur,
+                dedup_key="test_gs_surface",
+                condition_id="test_gs_cond",
+                end_date=(datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+                game_start_time=gs.isoformat(),
+                event_end_estimate=gs.isoformat(),
+            )
+
+        resp = client.get("/api/resolving-soon")
+        matches = [d for d in resp.json() if d["condition_id"] == "test_gs_cond"]
+        assert len(matches) == 1
+        assert matches[0]["game_start_time"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Gamma status helpers (cache + settled classification)
+# ---------------------------------------------------------------------------
+
+class TestGammaStatusHelpers:
+    def test_is_market_settled_closed(self):
+        from app import _is_market_settled
+        assert _is_market_settled({"closed": True, "uma_status": "", "prices": [0.5, 0.5]})
+
+    def test_is_market_settled_uma_proposed(self):
+        from app import _is_market_settled
+        assert _is_market_settled({"closed": False, "uma_status": "proposed", "prices": [0.5, 0.5]})
+
+    def test_is_market_settled_price_near_one(self):
+        from app import _is_market_settled
+        assert _is_market_settled({"closed": False, "uma_status": "", "prices": [0.999, 0.001]})
+
+    def test_is_market_settled_live(self):
+        from app import _is_market_settled
+        assert not _is_market_settled({"closed": False, "uma_status": "", "prices": [0.6, 0.4]})
+
+    def test_is_market_settled_empty_status(self):
+        from app import _is_market_settled
+        assert not _is_market_settled({})
 
 
 # ---------------------------------------------------------------------------

@@ -50,6 +50,8 @@ class AlertIn(BaseModel):
     trade_count: int = 1
     cluster_headline: str | None = None
     end_date: datetime | None = None
+    game_start_time: datetime | None = None
+    event_end_estimate: datetime | None = None
     llm_headline: str | None = None
     llm_summary: str | None = None
     llm_bullets: list[str] = []

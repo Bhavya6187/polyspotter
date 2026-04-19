@@ -143,6 +143,36 @@ def _resolve_end_date(condition_id: str | None) -> str | None:
     return _parse_end_date_from_title(title)
 
 
+def _normalize_gamma_game_start(raw: str | None) -> str | None:
+    """Gamma returns gameStartTime as 'YYYY-MM-DD HH:MM:SS+00' — convert to ISO-8601."""
+    if not raw:
+        return None
+    s = raw.strip().replace(" ", "T")
+    # Normalize '+00' → '+00:00' so datetime.fromisoformat on the backend accepts it
+    if re.search(r"[+-]\d{2}$", s):
+        s += ":00"
+    return s
+
+
+def _resolve_event_timing(condition_id: str | None) -> tuple[str | None, str | None]:
+    """Return (game_start_time, event_end_estimate) for a market.
+
+    - game_start_time: Gamma's gameStartTime when present (sports games etc.), else None.
+    - event_end_estimate: game_start_time when known, else the resolution deadline
+      from _resolve_end_date(). This is what /api/resolving-soon sorts on, so a
+      sports game starting in 3h ranks before a political market whose deadline
+      is 12h away (but whose event may have already happened)."""
+    end_date = _resolve_end_date(condition_id)
+    if not condition_id:
+        return None, end_date
+    market = get_market_by_condition(condition_id)
+    if not market:
+        return None, end_date
+    game_start = _normalize_gamma_game_start(market.get("gameStartTime"))
+    event_end = game_start or end_date
+    return game_start, event_end
+
+
 def _resolve_market_media(condition_id: str | None) -> tuple[str | None, str | None]:
     """Return (image_url, description) from Gamma cache for a market."""
     if not condition_id:
@@ -230,6 +260,7 @@ def build_alerts_payload(
         event_slug = sample.get("eventSlug", "")
         cluster_dir = f"{sample.get('outcome', '')}:{sample.get('side', '')}"
         m_image, m_desc = _resolve_market_media(cid)
+        game_start, event_end = _resolve_event_timing(cid)
         alerts.append({
             "alert_type": "cluster",
             "composite_score": max_score,
@@ -245,6 +276,8 @@ def build_alerts_payload(
             "trade_count": len(cluster_trades),
             "cluster_headline": cluster_sig.headline,
             "end_date": _resolve_end_date(cid),
+            "game_start_time": game_start,
+            "event_end_estimate": event_end,
             "scanned_at": now,
             "dedup_key": _build_dedup_key(
                 None, cid, cluster_direction=cluster_dir,
@@ -316,6 +349,7 @@ def build_alerts_payload(
         primary_trade = entries[0][1]
         cid = primary_trade.get("conditionId", "")
         m_image, m_desc = _resolve_market_media(cid)
+        game_start, event_end = _resolve_event_timing(cid)
 
         alerts.append({
             "alert_type": "composite",
@@ -331,6 +365,8 @@ def build_alerts_payload(
             "total_usd": total_usd,
             "trade_count": len(all_entry_trades),
             "end_date": _resolve_end_date(cid),
+            "game_start_time": game_start,
+            "event_end_estimate": event_end,
             "scanned_at": now,
             "dedup_key": _build_dedup_key(wallet, cid, [e[0] for e in entries]),
             "trades": [_trade_to_dict(t) for t in all_entry_trades],
@@ -351,6 +387,7 @@ def build_alerts_payload(
         event_slug = trade.get("eventSlug", "")
 
         m_image, m_desc = _resolve_market_media(cid)
+        game_start, event_end = _resolve_event_timing(cid)
         alerts.append({
             "alert_type": "composite",
             "composite_score": total_severity,
@@ -365,6 +402,8 @@ def build_alerts_payload(
             "total_usd": float(trade.get("_usd_value", 0)),
             "trade_count": 1,
             "end_date": _resolve_end_date(cid),
+            "game_start_time": game_start,
+            "event_end_estimate": event_end,
             "scanned_at": now,
             "dedup_key": _build_dedup_key(wallet, cid, [trade.get("transactionHash", "")]),
             "trades": [_trade_to_dict(trade)],
