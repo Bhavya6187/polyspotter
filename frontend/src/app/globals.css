@@ -95,6 +95,23 @@ body {
   animation-play-state: paused;
 }
 
+/* ── Auto-scrolling marquee (only applied when content overflows container) ── */
+@keyframes auto-marquee-scroll {
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(-50%, 0, 0); }
+}
+.auto-marquee {
+  animation: auto-marquee-scroll var(--marquee-duration, 40s) linear infinite;
+  will-change: transform;
+}
+.auto-marquee:hover,
+.auto-marquee:focus-within {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  .auto-marquee { animation: none; }
+}
+
 /* ── Pulse animation for live indicator ── */
 @keyframes pulse-live {
   0%, 100% { opacity: 1; transform: scale(1); }

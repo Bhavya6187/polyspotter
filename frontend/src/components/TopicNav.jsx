@@ -250,27 +250,49 @@ function HoverPreview({ alert, rect, familyColor }) {
 
 export default function TopicNav() {
   const scrollRef = useRef(null);
+  const trackRef = useRef(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+  const [marquee, setMarquee] = useState({ enabled: false, duration: 40 });
   const [topicData, setTopicData] = useState({});
   const [hovered, setHovered] = useState(null);
 
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
+    const outer = scrollRef.current;
+    const track = trackRef.current;
+    if (!outer || !track) return;
     function check() {
-      setCanScrollLeft(el.scrollLeft > 2);
-      setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 2);
+      setMarquee((prev) => {
+        // Track renders 2× items when enabled, so divide to get natural width.
+        const naturalWidth = track.scrollWidth / (prev.enabled ? 2 : 1);
+        const containerWidth = outer.clientWidth;
+        // Hysteresis: enable above threshold, disable only well below.
+        const shouldEnable = prev.enabled
+          ? naturalWidth > containerWidth - 12
+          : naturalWidth > containerWidth + 4;
+        const pxPerSec = 16;
+        const duration = Math.max(40, Math.round(naturalWidth / pxPerSec));
+        if (shouldEnable === prev.enabled && duration === prev.duration) return prev;
+        return { enabled: shouldEnable, duration };
+      });
+      if (!marquee.enabled) {
+        setCanScrollLeft(outer.scrollLeft > 2);
+        setCanScrollRight(outer.scrollLeft < outer.scrollWidth - outer.clientWidth - 2);
+      } else {
+        setCanScrollLeft(false);
+        setCanScrollRight(false);
+      }
     }
     check();
-    el.addEventListener("scroll", check, { passive: true });
+    outer.addEventListener("scroll", check, { passive: true });
     const ro = new ResizeObserver(check);
-    ro.observe(el);
+    ro.observe(outer);
+    ro.observe(track);
     return () => {
-      el.removeEventListener("scroll", check);
+      outer.removeEventListener("scroll", check);
       ro.disconnect();
     };
-  }, []);
+  }, [marquee.enabled]);
 
   // Fetch latest alert per topic in parallel for pulse + hover preview.
   useEffect(() => {
@@ -316,13 +338,13 @@ export default function TopicNav() {
 
   return (
     <nav className="relative mb-5" aria-label="Topics">
-      {canScrollLeft && (
+      {(canScrollLeft || marquee.enabled) && (
         <div
           className="absolute left-0 top-0 bottom-0 w-10 z-10 pointer-events-none"
           style={{ background: "linear-gradient(to right, var(--surface-0), transparent)" }}
         />
       )}
-      {canScrollRight && (
+      {(canScrollRight || marquee.enabled) && (
         <div
           className="absolute right-0 top-0 bottom-0 w-10 z-10 pointer-events-none"
           style={{ background: "linear-gradient(to left, var(--surface-0), transparent)" }}
@@ -364,62 +386,71 @@ export default function TopicNav() {
 
       <div
         ref={scrollRef}
-        className="flex items-center gap-1.5 overflow-x-auto no-scrollbar"
+        className={`no-scrollbar ${marquee.enabled ? "overflow-hidden" : "overflow-x-auto"}`}
         style={{ scrollbarWidth: "none", msOverflowStyle: "none", WebkitOverflowScrolling: "touch" }}
       >
-        {TOPICS.map(({ name, family, glyph, anim }) => {
-          const familyColor = FAMILY_COLORS[family];
-          const data = topicData[name];
-          const pulse = pulseStateFor(data?.latest?.created_at);
-          const recency = formatRecency(data?.latest?.created_at);
-          const count = data ? formatCount(data.total) : "—";
-          return (
-            <Link
-              key={name}
-              href={`/tag/${tagSlug(name)}`}
-              onMouseEnter={(e) => handleEnter(name, e)}
-              onMouseLeave={handleLeave}
-              onFocus={(e) => handleEnter(name, e)}
-              onBlur={handleLeave}
-              className="topic-pill flex items-center gap-2.5 rounded-xl border px-3.5 py-2 whitespace-nowrap"
-              style={{
-                background: "var(--surface-card)",
-                borderColor: "var(--border)",
-                color: "var(--text-secondary)",
-                "--family-color": familyColor,
-              }}
-            >
-              <Glyph kind={glyph} animClass={anim} />
-              <div className="flex flex-col gap-0.5">
-                <div className="flex items-center gap-1.5 leading-none">
-                  <span
-                    className="text-[13px] font-semibold"
-                    style={{ color: "var(--text-primary)" }}
+        <div
+          ref={trackRef}
+          className={`flex items-center gap-1.5 ${marquee.enabled ? "auto-marquee w-max" : ""}`}
+          style={marquee.enabled ? { "--marquee-duration": `${marquee.duration}s` } : undefined}
+        >
+          {(marquee.enabled ? [...TOPICS, ...TOPICS] : TOPICS).map(({ name, family, glyph, anim }, i) => {
+            const familyColor = FAMILY_COLORS[family];
+            const data = topicData[name];
+            const pulse = pulseStateFor(data?.latest?.created_at);
+            const recency = formatRecency(data?.latest?.created_at);
+            const count = data ? formatCount(data.total) : "—";
+            const isCopy = marquee.enabled && i >= TOPICS.length;
+            return (
+              <Link
+                key={`${name}-${i}`}
+                href={`/tag/${tagSlug(name)}`}
+                onMouseEnter={(e) => handleEnter(name, e)}
+                onMouseLeave={handleLeave}
+                onFocus={(e) => handleEnter(name, e)}
+                onBlur={handleLeave}
+                aria-hidden={isCopy ? true : undefined}
+                tabIndex={isCopy ? -1 : undefined}
+                className="topic-pill flex items-center gap-2.5 rounded-xl border px-3.5 py-2 whitespace-nowrap"
+                style={{
+                  background: "var(--surface-card)",
+                  borderColor: "var(--border)",
+                  color: "var(--text-secondary)",
+                  "--family-color": familyColor,
+                }}
+              >
+                <Glyph kind={glyph} animClass={anim} />
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-1.5 leading-none">
+                    <span
+                      className="text-[13px] font-semibold"
+                      style={{ color: "var(--text-primary)" }}
+                    >
+                      {name}
+                    </span>
+                    {pulse && <PulseDot state={pulse} />}
+                  </div>
+                  <div
+                    className="flex items-center gap-1 text-[10px] leading-none"
+                    style={{
+                      fontFamily: "var(--font-display)",
+                      color: "var(--text-muted)",
+                      letterSpacing: "0.04em",
+                    }}
                   >
-                    {name}
-                  </span>
-                  {pulse && <PulseDot state={pulse} />}
+                    <span>{count}</span>
+                    {recency && (
+                      <>
+                        <span style={{ opacity: 0.4 }}>·</span>
+                        <span>{recency}</span>
+                      </>
+                    )}
+                  </div>
                 </div>
-                <div
-                  className="flex items-center gap-1 text-[10px] leading-none"
-                  style={{
-                    fontFamily: "var(--font-display)",
-                    color: "var(--text-muted)",
-                    letterSpacing: "0.04em",
-                  }}
-                >
-                  <span>{count}</span>
-                  {recency && (
-                    <>
-                      <span style={{ opacity: 0.4 }}>·</span>
-                      <span>{recency}</span>
-                    </>
-                  )}
-                </div>
-              </div>
-            </Link>
-          );
-        })}
+              </Link>
+            );
+          })}
+        </div>
       </div>
 
       {hoveredData?.latest && hoveredTopic && (
