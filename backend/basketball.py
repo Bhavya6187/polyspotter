@@ -513,6 +513,31 @@ def _extract_date_from_slug(event_slug: str) -> str | None:
     return None
 
 
+_SLUG_TRICODE_PATTERN = re.compile(
+    r"^(?:nba|ncaa)-([a-z0-9]{2,6})-([a-z0-9]{2,6})-\d{4}-\d{2}-\d{2}$"
+)
+
+
+def extract_tricodes_from_slug(event_slug: str) -> tuple[str, str] | None:
+    """Extract two team tricodes from an event_slug like 'nba-phx-okc-2026-04-19'.
+
+    Used as a fallback when parsing team names from the market title fails —
+    for spread/moneyline/over-under markets whose title names only one team
+    (e.g. 'Spread: Thunder (-15.5)'). Returns uppercase tricodes or None if
+    either token doesn't resolve to a known team.
+    """
+    if not event_slug:
+        return None
+    m = _SLUG_TRICODE_PATTERN.match(event_slug)
+    if not m:
+        return None
+    tri_a = resolve_tricode(m.group(1))
+    tri_b = resolve_tricode(m.group(2))
+    if not tri_a or not tri_b:
+        return None
+    return tri_a, tri_b
+
+
 # ---------------------------------------------------------------------------
 # NBA CDN data parsers
 # ---------------------------------------------------------------------------
@@ -640,13 +665,21 @@ def get_basketball_data(
     For games not on today's NBA CDN scoreboard (upcoming games), falls back
     to the ESPN API using the date extracted from *event_slug*.
     """
-    parsed = parse_team_names(title)
-    if not parsed:
-        return None
-    name_a, name_b = parsed
+    tri_a: str | None = None
+    tri_b: str | None = None
 
-    tri_a = resolve_tricode(name_a)
-    tri_b = resolve_tricode(name_b)
+    parsed = parse_team_names(title)
+    if parsed:
+        tri_a = resolve_tricode(parsed[0])
+        tri_b = resolve_tricode(parsed[1])
+
+    # Fallback: spread/moneyline/over-under titles name only one team
+    # (e.g. "Spread: Thunder (-15.5)"). The event_slug carries both tricodes.
+    if (not tri_a or not tri_b) and event_slug:
+        from_slug = extract_tricodes_from_slug(event_slug)
+        if from_slug:
+            tri_a, tri_b = from_slug
+
     if not tri_a or not tri_b:
         return None
 

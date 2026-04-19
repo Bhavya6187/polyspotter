@@ -286,3 +286,35 @@ def test_get_basketball_data_unknown_teams():
     from basketball import get_basketball_data
     result = get_basketball_data("Unicorns vs. Dragons", ["Sports"])
     assert result is None
+
+
+def test_extract_tricodes_from_slug_nba():
+    from basketball import extract_tricodes_from_slug
+    assert extract_tricodes_from_slug("nba-phx-okc-2026-04-19") == ("PHX", "OKC")
+    assert extract_tricodes_from_slug("nba-min-det-2026-04-02") == ("MIN", "DET")
+
+
+def test_extract_tricodes_from_slug_four_letter():
+    from basketball import extract_tricodes_from_slug
+    # Some tricodes are 3 letters, some aliases 2 (e.g. BKN/BOS/NYK are 3; ensure 3+3 works)
+    assert extract_tricodes_from_slug("nba-bkn-nyk-2026-01-15") == ("BKN", "NYK")
+
+
+def test_extract_tricodes_from_slug_ncaa():
+    from basketball import extract_tricodes_from_slug
+    assert extract_tricodes_from_slug("ncaa-duke-unc-2026-03-01") is None  # unknown tricodes
+
+
+def test_extract_tricodes_from_slug_invalid():
+    from basketball import extract_tricodes_from_slug
+    assert extract_tricodes_from_slug("") is None
+    assert extract_tricodes_from_slug("nba-phx-okc") is None  # missing date
+    assert extract_tricodes_from_slug("nba-zzz-yyy-2026-04-19") is None  # unknown tricodes
+    assert extract_tricodes_from_slug("some-random-slug") is None
+
+
+def test_get_basketball_data_spread_title_no_slug_returns_none():
+    """Spread-style title with no event_slug cannot resolve teams -> None."""
+    from basketball import get_basketball_data
+    result = get_basketball_data("Spread: Thunder (-15.5)", [])
+    assert result is None
