@@ -75,14 +75,17 @@ def _seed_alert(cur, **overrides):
         "event_end_estimate": None,
         "scanned_at": datetime.now(timezone.utc).isoformat(),
         "dedup_key": f"test_dedup_{id(overrides)}",
+        "llm_summary": None,
+        "llm_copy_action": "{}",
     }
     defaults.update(overrides)
     cur.execute(
         """INSERT INTO alerts
            (alert_type, composite_score, tags, market_title, condition_id,
             event_slug, wallet, total_usd, trade_count, end_date,
-            game_start_time, event_end_estimate, scanned_at, dedup_key)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            game_start_time, event_end_estimate, scanned_at, dedup_key,
+            llm_summary, llm_copy_action)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
            RETURNING id""",
         (
             defaults["alert_type"], defaults["composite_score"], defaults["tags"],
@@ -90,6 +93,7 @@ def _seed_alert(cur, **overrides):
             defaults["wallet"], defaults["total_usd"], defaults["trade_count"],
             defaults["end_date"], defaults["game_start_time"],
             defaults["event_end_estimate"], defaults["scanned_at"], defaults["dedup_key"],
+            defaults["llm_summary"], defaults["llm_copy_action"],
         ),
     )
     return cur.fetchone()["id"]
@@ -531,3 +535,202 @@ class TestMarketTheses:
         resp = client.get("/api/market/test_cond_notheses/theses")
         assert resp.status_code == 200
         assert resp.json()["theses"] == []
+
+
+# ---------------------------------------------------------------------------
+# /api/top3 endpoint tests
+# ---------------------------------------------------------------------------
+
+@skip_no_db
+class TestTopThree:
+    def test_top3_empty_when_no_alerts(self):
+        resp = client.get("/api/top3")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_top3_happy_path_three_categories(self):
+        """Seed one alert qualifying for each category; expect one per bucket."""
+        now = datetime.now(timezone.utc)
+        with db() as conn:
+            cur = conn.cursor()
+
+            # Sharp wallet profile (HIGHEST_CONVICTION qualifier)
+            cur.execute(
+                """INSERT INTO wallet_profiles (wallet, win_rate, total_pnl, total_invested, updated_at)
+                   VALUES ('test_sharp', 0.92, 482000.0, 520000.0, NOW())
+                   ON CONFLICT (wallet) DO UPDATE SET win_rate = 0.92,
+                     total_pnl = 482000.0, total_invested = 520000.0""",
+            )
+
+            # Conviction alert: sharp wallet, 48h to resolve
+            conviction_id = _seed_alert(
+                cur, dedup_key="test_top3_conv",
+                market_title="TEST: Conviction",
+                condition_id="test_top3_cond_a",
+                wallet="test_sharp",
+                composite_score=80.0,
+                total_usd=48000.0,
+                tags='["Geopolitics"]',
+                end_date=(now + timedelta(hours=48)).isoformat(),
+                llm_summary="Sharp wallet loaded up",
+                llm_copy_action=json.dumps({"outcome": "YES", "entry_price": 0.18}),
+            )
+
+            # Coordinated alert: two trades from two wallets (coordinated flow)
+            coord_id = _seed_alert(
+                cur, dedup_key="test_top3_coord",
+                market_title="TEST: Coordinated",
+                condition_id="test_top3_cond_b",
+                wallet="test_coord_lead",
+                composite_score=60.0,
+                total_usd=112000.0,
+                end_date=(now + timedelta(days=11)).isoformat(),
+                llm_summary="Linked wallets piled on",
+                llm_copy_action=json.dumps({"outcome": "YES", "entry_price": 0.41}),
+            )
+            cur.execute(
+                """INSERT INTO alert_signals (alert_id, strategy, severity, headline)
+                   VALUES (%s, 'wallet_clustering', 5.0, 'Linked wallets')""",
+                (coord_id,),
+            )
+
+            # Timing alert: resolves in 30 minutes
+            timing_id = _seed_alert(
+                cur, dedup_key="test_top3_timing",
+                market_title="TEST: Timing",
+                condition_id="test_top3_cond_c",
+                wallet="test_timing_wallet",
+                composite_score=40.0,
+                total_usd=22000.0,
+                end_date=(now + timedelta(minutes=30)).isoformat(),
+                llm_summary="Wallet loaded 47m before tipoff",
+                llm_copy_action=json.dumps({"outcome": "YES", "entry_price": 0.55}),
+            )
+
+        resp = client.get("/api/top3")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert len(data) == 3
+        categories = [row["category"] for row in data]
+        assert categories == ["HIGHEST_CONVICTION", "COORDINATED_FLOW", "TIMING_EDGE"]
+        ranks = [row["rank"] for row in data]
+        assert ranks == [1, 2, 3]
+
+        by_cat = {row["category"]: row for row in data}
+        assert by_cat["HIGHEST_CONVICTION"]["id"] == conviction_id
+        assert by_cat["COORDINATED_FLOW"]["id"] == coord_id
+        assert by_cat["TIMING_EDGE"]["id"] == timing_id
+
+        # Shape sanity
+        conv = by_cat["HIGHEST_CONVICTION"]
+        assert conv["market_title"] == "TEST: Conviction"
+        assert conv["primary_tag"] == "Geopolitics"
+        assert conv["llm_copy_action"]["outcome"] == "YES"
+        assert conv["wallet"]["address"] == "test_sharp"
+        assert conv["wallet"]["win_rate"] == 0.92
+        assert conv["wallet"]["total_invested"] == 520000.0
+
+    def test_top3_fills_empty_buckets_with_top_scorers(self):
+        """Only one alert qualifies (coordinated); remaining two slots fill by score."""
+        now = datetime.now(timezone.utc)
+        with db() as conn:
+            cur = conn.cursor()
+
+            # Single coordinated alert (2 wallets)
+            coord_id = _seed_alert(
+                cur, dedup_key="test_top3_only_coord",
+                market_title="TEST: OnlyCoord",
+                condition_id="test_top3_cond_only_coord",
+                composite_score=40.0,
+                end_date=(now + timedelta(days=5)).isoformat(),
+            )
+            cur.execute(
+                """INSERT INTO alert_signals (alert_id, strategy, severity, headline)
+                   VALUES (%s, 'wallet_clustering', 5.0, 'Linked')""",
+                (coord_id,),
+            )
+
+            # Two non-qualifying filler alerts (no sharp wallet, >6h to resolve, no cluster signal)
+            filler_a = _seed_alert(
+                cur, dedup_key="test_top3_fill_a",
+                market_title="TEST: FillA",
+                condition_id="test_top3_cond_fill_a",
+                composite_score=30.0,
+                end_date=(now + timedelta(days=2)).isoformat(),
+            )
+            filler_b = _seed_alert(
+                cur, dedup_key="test_top3_fill_b",
+                market_title="TEST: FillB",
+                condition_id="test_top3_cond_fill_b",
+                composite_score=20.0,
+                end_date=(now + timedelta(days=2)).isoformat(),
+            )
+
+        resp = client.get("/api/top3")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert len(data) == 3
+        # Fixed display order regardless of selection
+        assert [row["category"] for row in data] == [
+            "HIGHEST_CONVICTION", "COORDINATED_FLOW", "TIMING_EDGE"
+        ]
+
+        # Coordinated slot is the qualifying alert
+        by_cat = {row["category"]: row for row in data}
+        assert by_cat["COORDINATED_FLOW"]["id"] == coord_id
+
+        # Other two slots are the fillers (higher score first)
+        assert by_cat["HIGHEST_CONVICTION"]["id"] == filler_a
+        assert by_cat["TIMING_EDGE"]["id"] == filler_b
+
+    def test_top3_excludes_settled_markets(self):
+        """Alert with latest price <= 0.03 is excluded."""
+        now = datetime.now(timezone.utc)
+        with db() as conn:
+            cur = conn.cursor()
+            settled_id = _seed_alert(
+                cur, dedup_key="test_top3_settled",
+                market_title="TEST: Settled",
+                condition_id="test_top3_cond_settled",
+                composite_score=99.0,
+                end_date=(now + timedelta(days=1)).isoformat(),
+            )
+            # Insert a settled candle
+            cur.execute(
+                """INSERT INTO price_candles (condition_id, token_id, outcome, t, p)
+                   VALUES ('test_top3_cond_settled', 'test_top3_token_settled',
+                           'Yes', EXTRACT(EPOCH FROM NOW()), 0.02)""",
+            )
+
+        resp = client.get("/api/top3")
+        assert resp.status_code == 200
+        assert all(row["id"] != settled_id for row in resp.json())
+
+    def test_top3_strength_banding(self):
+        """Strength is min(4, floor(composite_score/25) + 1)."""
+        now = datetime.now(timezone.utc)
+        with db() as conn:
+            cur = conn.cursor()
+            low = _seed_alert(cur, dedup_key="test_top3_s_low",
+                              market_title="TEST: Slow",
+                              condition_id="test_top3_cond_s_low",
+                              composite_score=10.0,
+                              end_date=(now + timedelta(days=2)).isoformat())
+            mid = _seed_alert(cur, dedup_key="test_top3_s_mid",
+                              market_title="TEST: Smid",
+                              condition_id="test_top3_cond_s_mid",
+                              composite_score=50.0,
+                              end_date=(now + timedelta(days=2)).isoformat())
+            high = _seed_alert(cur, dedup_key="test_top3_s_high",
+                               market_title="TEST: Shigh",
+                               condition_id="test_top3_cond_s_high",
+                               composite_score=200.0,
+                               end_date=(now + timedelta(days=2)).isoformat())
+
+        resp = client.get("/api/top3")
+        data = {row["id"]: row for row in resp.json()}
+        assert data[low]["strength"] == 1        # floor(10/25)+1 = 1
+        assert data[mid]["strength"] == 3        # floor(50/25)+1 = 3
+        assert data[high]["strength"] == 4       # capped at 4
