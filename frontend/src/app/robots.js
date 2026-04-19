@@ -6,7 +6,17 @@ export default function robots() {
       {
         userAgent: "*",
         allow: "/",
+        // Filter-only query params (resolves=, severity=) produce thin/duplicate
+        // variants of tag pages. Canonicals consolidate authority, but blocking
+        // reduces crawl waste on faceted URLs. Pagination (?page=) is allowed
+        // since paginated tag pages have unique content and self-canonical.
+        disallow: ["/*?*resolves=", "/*?*severity="],
       },
+      // AI crawlers (GPTBot, ClaudeBot, PerplexityBot, Google-Extended, etc.)
+      // fall under the default "*" allow rule above. We explicitly permit them
+      // because these bots cite sources in their answers, which drives referral
+      // traffic back to PolySpotter. Remove this comment and add disallow rules
+      // here if that policy changes.
     ],
     sitemap: `${SITE_URL}/sitemap.xml`,
   };

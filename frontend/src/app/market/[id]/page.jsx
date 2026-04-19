@@ -1,3 +1,4 @@
+import { cache } from "react";
 import MarketPageClient from "./market-page-client";
 import BasketballPageClient from "./basketball-page-client";
 import CricketPageClient from "./cricket-page-client";
@@ -21,103 +22,133 @@ async function resolveConditionId(partialId) {
   return partialId;
 }
 
-async function getMarketData(conditionId) {
-  try {
-    const [liveRes, alertsRes, priceRes, holdersRes, thesesRes] =
-      await Promise.all([
-        fetch(`${API_URL}/api/market/${conditionId}/live`, {
-          next: { revalidate: 60 },
-        }),
-        fetch(
-          `${API_URL}/api/alerts?condition_id=${conditionId}&per_page=50`,
-          { next: { revalidate: 60 } }
-        ),
-        fetch(
-          `${API_URL}/api/market/${conditionId}/price-history?range=7d`,
-          { next: { revalidate: 60 } }
-        ),
-        fetch(`${API_URL}/api/market/${conditionId}/holders`, {
-          next: { revalidate: 300 },
-        }),
-        fetch(`${API_URL}/api/market/${conditionId}/theses`, {
-          next: { revalidate: 300 },
-        }),
-      ]);
+// Single source of truth for everything generateMetadata and the page body need.
+// Wrapped in React's cache() so both render phases share one execution per request
+// — avoids the double JSON parsing and conditional basketball/cricket fetches that
+// previously ran twice.
+const loadMarketPage = cache(async (partialId) => {
+  const conditionId = await resolveConditionId(partialId);
 
-    const live = liveRes.ok ? await liveRes.json() : null;
-    const alertsData = alertsRes.ok ? await alertsRes.json() : null;
-    const priceData = priceRes.ok ? await priceRes.json() : null;
-    const holdersData = holdersRes.ok ? await holdersRes.json() : null;
-    const thesesData = thesesRes.ok ? await thesesRes.json() : null;
+  const [liveRes, alertsRes, priceRes, holdersRes, thesesRes] =
+    await Promise.all([
+      fetch(`${API_URL}/api/market/${conditionId}/live`, {
+        next: { revalidate: 60 },
+      }).catch(() => null),
+      fetch(
+        `${API_URL}/api/alerts?condition_id=${conditionId}&per_page=50`,
+        { next: { revalidate: 60 } }
+      ).catch(() => null),
+      fetch(
+        `${API_URL}/api/market/${conditionId}/price-history?range=7d`,
+        { next: { revalidate: 60 } }
+      ).catch(() => null),
+      fetch(`${API_URL}/api/market/${conditionId}/holders`, {
+        next: { revalidate: 300 },
+      }).catch(() => null),
+      fetch(`${API_URL}/api/market/${conditionId}/theses`, {
+        next: { revalidate: 300 },
+      }).catch(() => null),
+    ]);
 
-    // Only fetch basketball data if tags suggest it's a basketball market
-    const basketballTags = ["nba", "basketball", "ncaa", "march madness", "cbb"];
-    const tags = (alertsData?.alerts || []).flatMap((a) => a.tags || []);
-    const maybeBasketball = tags.some((t) =>
-      basketballTags.includes(t.toLowerCase())
-    );
-    let basketballData = null;
-    if (maybeBasketball) {
-      const marketTitle = live?.title || (alertsData?.alerts || [])[0]?.market_title || "";
-      const eventSlug = (alertsData?.alerts || [])[0]?.event_slug || "";
-      try {
-        const bbParams = new URLSearchParams({ title: marketTitle, event_slug: eventSlug });
-        const basketballRes = await fetch(
-          `${API_URL}/api/market/${conditionId}/basketball?${bbParams}`,
-          { next: { revalidate: 15 } }
-        );
-        basketballData = basketballRes?.ok ? await basketballRes.json() : null;
-      } catch {}
-    }
+  const live = liveRes?.ok ? await liveRes.json() : null;
+  const alertsData = alertsRes?.ok ? await alertsRes.json() : null;
+  const priceHistory = priceRes?.ok ? await priceRes.json() : null;
+  const holdersData = holdersRes?.ok ? await holdersRes.json() : null;
+  const thesesData = thesesRes?.ok ? await thesesRes.json() : null;
 
-    // Only fetch cricket data if tags suggest it's a cricket market
-    const cricketTags = ["cricket", "ipl", "indian premier league"];
-    const maybeCricket = !maybeBasketball && tags.some((t) =>
-      cricketTags.includes(t.toLowerCase())
-    );
-    let cricketData = null;
-    if (maybeCricket) {
-      const marketTitle = live?.title || (alertsData?.alerts || [])[0]?.market_title || "";
-      const eventSlug = (alertsData?.alerts || [])[0]?.event_slug || "";
-      try {
-        const cricketParams = new URLSearchParams({ title: marketTitle, event_slug: eventSlug });
-        const cricketRes = await fetch(
-          `${API_URL}/api/market/${conditionId}/cricket?${cricketParams}`,
-          { next: { revalidate: 15 } }
-        );
-        cricketData = cricketRes?.ok ? await cricketRes.json() : null;
-      } catch {}
-    }
+  const alerts = alertsData?.alerts || [];
+  const holders = holdersData?.holders || [];
+  const theses = thesesData?.theses || [];
+  const title = live?.title || alerts?.[0]?.market_title || "Market";
 
-    return {
-      live,
-      alerts: alertsData?.alerts || [],
-      priceHistory: priceData,
-      holders: holdersData?.holders || [],
-      theses: thesesData?.theses || [],
-      basketballData,
-      cricketData,
-    };
-  } catch {
-    return {
-      live: null,
-      alerts: [],
-      priceHistory: null,
-      holders: [],
-      theses: [],
-      basketballData: null,
-      cricketData: null,
-    };
+  const tags = alerts.flatMap((a) => a.tags || []);
+  const basketballTags = ["nba", "basketball", "ncaa", "march madness", "cbb"];
+  const cricketTags = ["cricket", "ipl", "indian premier league"];
+  const maybeBasketball = tags.some((t) =>
+    basketballTags.includes(t.toLowerCase())
+  );
+  const maybeCricket =
+    !maybeBasketball &&
+    tags.some((t) => cricketTags.includes(t.toLowerCase()));
+
+  let basketballData = null;
+  let cricketData = null;
+  if (maybeBasketball) {
+    const eventSlug = alerts[0]?.event_slug || "";
+    try {
+      const bbParams = new URLSearchParams({ title, event_slug: eventSlug });
+      const bbRes = await fetch(
+        `${API_URL}/api/market/${conditionId}/basketball?${bbParams}`,
+        { next: { revalidate: 15 } }
+      );
+      basketballData = bbRes?.ok ? await bbRes.json() : null;
+    } catch {}
+  } else if (maybeCricket) {
+    const eventSlug = alerts[0]?.event_slug || "";
+    try {
+      const cricketParams = new URLSearchParams({
+        title,
+        event_slug: eventSlug,
+      });
+      const cRes = await fetch(
+        `${API_URL}/api/market/${conditionId}/cricket?${cricketParams}`,
+        { next: { revalidate: 15 } }
+      );
+      cricketData = cRes?.ok ? await cRes.json() : null;
+    } catch {}
   }
-}
+
+  // LLM-generated SEO fields (title/description/summary/FAQs) live on the
+  // market-group record. Fetch once here and expose to both render phases.
+  let seoTitle = null;
+  let seoDescription = null;
+  let seoSummary = null;
+  let seoFaqs = [];
+  try {
+    const mgRes = await fetch(
+      `${API_URL}/api/alerts/by-market?q=${encodeURIComponent(title)}&per_page=1`,
+      { next: { revalidate: 60 } }
+    );
+    if (mgRes.ok) {
+      const mgData = await mgRes.json();
+      const match = mgData.markets?.find((m) => m.condition_id === conditionId);
+      if (match) {
+        seoTitle = match.seo_title || null;
+        seoDescription = match.seo_description || null;
+        seoSummary = match.seo_summary || null;
+        seoFaqs = match.seo_faqs || [];
+      }
+    }
+  } catch {}
+
+  return {
+    conditionId,
+    title,
+    live,
+    alerts,
+    priceHistory,
+    holders,
+    theses,
+    basketballData,
+    cricketData,
+    seoTitle,
+    seoDescription,
+    seoSummary,
+    seoFaqs,
+  };
+});
 
 export async function generateMetadata({ params }) {
   const { id } = await params;
   const partialId = partialIdFromSlug(id);
-  const conditionId = await resolveConditionId(partialId);
-  const { live, alerts } = await getMarketData(conditionId);
+  const {
+    conditionId,
+    title,
+    alerts,
+    seoTitle,
+    seoDescription,
+  } = await loadMarketPage(partialId);
 
-  const title = live?.title || alerts?.[0]?.market_title || "Market";
   const alertCount = alerts.length;
   const totalUsd = alerts.reduce((sum, a) => sum + (a.total_usd || 0), 0);
   const usdStr = new Intl.NumberFormat("en-US", {
@@ -132,23 +163,6 @@ export async function generateMetadata({ params }) {
       ? `${alertCount} smart money signal${alertCount !== 1 ? "s" : ""} on "${title}" totaling ${usdStr}. Track sharp bettors and whale trades on PolySpotter.`
       : `"${title}" — track smart money, whale trades, and sharp bettor signals on PolySpotter.`;
 
-  // Fetch SEO fields from market group endpoint
-  let seoTitle = null, seoDescription = null;
-  try {
-    const marketGroupRes = await fetch(
-      `${API_URL}/api/alerts/by-market?q=${encodeURIComponent(title)}&per_page=1`,
-      { next: { revalidate: 60 } }
-    );
-    if (marketGroupRes.ok) {
-      const mgData = await marketGroupRes.json();
-      const match = mgData.markets?.find((m) => m.condition_id === conditionId);
-      if (match) {
-        seoTitle = match.seo_title;
-        seoDescription = match.seo_description;
-      }
-    }
-  } catch {}
-
   const canonicalSlug = marketSlug(title, conditionId);
 
   const bestAlert = [...alerts].sort(
@@ -158,12 +172,18 @@ export async function generateMetadata({ params }) {
   const siteUrl =
     process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
 
+  // Markets with zero alerts have no unique PolySpotter-authored content —
+  // live metadata alone duplicates polymarket.com. Noindex to avoid thin-content
+  // penalties; keep follow so link equity still flows to tags/wallets/theses.
+  const noindex = alertCount === 0;
+
   return {
     title: seoTitle || title,
     description: seoDescription || description,
     alternates: {
       canonical: `/market/${canonicalSlug}`,
     },
+    robots: noindex ? { index: false, follow: true } : undefined,
     openGraph: {
       title: `${seoTitle || title} | PolySpotter`,
       description: seoDescription || description,
@@ -180,28 +200,20 @@ export async function generateMetadata({ params }) {
 export default async function MarketPage({ params }) {
   const { id } = await params;
   const partialId = partialIdFromSlug(id);
-  const conditionId = await resolveConditionId(partialId);
-  const { live, alerts, priceHistory, holders, theses, basketballData, cricketData } =
-    await getMarketData(conditionId);
+  const {
+    conditionId,
+    title,
+    live,
+    alerts,
+    priceHistory,
+    holders,
+    theses,
+    basketballData,
+    cricketData,
+    seoSummary,
+    seoFaqs,
+  } = await loadMarketPage(partialId);
 
-  const title = live?.title || alerts?.[0]?.market_title || "Market";
-
-  // Fetch SEO content from market group
-  let seoSummary = null, seoFaqs = [];
-  try {
-    const mgRes = await fetch(
-      `${API_URL}/api/alerts/by-market?q=${encodeURIComponent(title)}&per_page=1`,
-      { next: { revalidate: 60 } }
-    );
-    if (mgRes.ok) {
-      const mgData = await mgRes.json();
-      const match = mgData.markets?.find((m) => m.condition_id === conditionId);
-      if (match) {
-        seoSummary = match.seo_summary;
-        seoFaqs = match.seo_faqs || [];
-      }
-    }
-  } catch {}
   const alertCount = alerts.length;
   const totalUsd = alerts.reduce((sum, a) => sum + (a.total_usd || 0), 0);
 
