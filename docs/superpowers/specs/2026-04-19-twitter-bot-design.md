@@ -89,7 +89,7 @@ Appended to `backend/schema.sql`:
 
 ```sql
 CREATE TABLE IF NOT EXISTS tweeted_alerts (
-    alert_id       TEXT PRIMARY KEY,
+    alert_id       BIGINT PRIMARY KEY,
     wallet         TEXT NOT NULL,
     condition_id   TEXT NOT NULL,
     tweet_id       TEXT NOT NULL,
@@ -100,6 +100,8 @@ CREATE TABLE IF NOT EXISTS tweeted_alerts (
 CREATE INDEX IF NOT EXISTS idx_tweeted_alerts_wallet_market
     ON tweeted_alerts (wallet, condition_id, tweeted_at DESC);
 ```
+
+`alert_id` is `BIGINT` because `alerts.id` is `SERIAL` (integer). Matches the existing PK type.
 
 The bot also runs this SQL idempotently at startup (`CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`) so the first production run provisions the table without requiring a manual migration step.
 
@@ -129,18 +131,20 @@ The bot also runs this SQL idempotently at startup (`CREATE TABLE IF NOT EXISTS`
 
 ### User-message payload
 
-Compact JSON with the 5 candidate alerts. Each alert includes:
+Compact JSON with the 5 candidate alerts. Each alert includes (fields straight from `AlertOut` at `/api/alerts`; no per-alert detail calls needed):
 
-- `alert_id`
+- `alert_id` (integer — from `AlertOut.id`)
 - `composite_score`
 - `llm_headline`
 - `llm_summary`
 - `market_title`
 - `wallet`
-- `wallet_win_rate`
-- `wallet_total_pnl`
-- `signal_strategies` (list of strategy names that fired)
-- `trade_usd_size`
+- `wallet_win_rate` (from `AlertOut.win_rate`)
+- `wallet_total_pnl` (from `AlertOut.total_pnl`)
+- `total_usd` (aggregate trade size for this alert)
+- `tags` (topic tags — helps the LLM pick relevant hashtags)
+
+Note: signal strategy names are not included because the listing endpoint doesn't return them. The existing `llm_headline` and `llm_summary` already encode the signal context in natural language.
 
 ### Structured output schema (JSON mode, strict)
 
@@ -148,11 +152,13 @@ Compact JSON with the 5 candidate alerts. Each alert includes:
 {
   "decision": "post" | "skip",
   "reason": "short string explaining the choice",
-  "alert_ids": ["<id>", "..."] | null,
+  "alert_ids": [<int>, ...] | null,
   "tweet": "<string ≤260 chars | null>",
   "is_composite": true | false
 }
 ```
+
+`alert_ids` are integers matching `AlertOut.id`.
 
 ## Error handling
 
