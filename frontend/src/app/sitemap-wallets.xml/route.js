@@ -2,14 +2,22 @@
 // because wallets are unbounded (thousands+) and update on a different cadence
 // than content pages — keeping them isolated keeps the main sitemap small and
 // prevents one slow upstream from blocking content-URL discovery.
+//
+// force-dynamic (rather than ISR revalidate) avoids a deploy-race footgun: if
+// the frontend ships before the backend endpoint exists, ISR would bake an
+// empty XML into the static cache and serve it stale until revalidation. With
+// force-dynamic the response is recomputed on each request, and the explicit
+// Cache-Control below delegates caching to the CDN edge — still cheap.
 
-export const revalidate = 3600;
+export const dynamic = "force-dynamic";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
 
 const PER_PAGE = 1000;
-const FETCH_OPTS = { next: { revalidate: 3600 } };
+// no-store on the upstream fetch — we don't want a partially-successful prior
+// fetch to be replayed from Next's data cache. The CDN caches the final XML.
+const FETCH_OPTS = { cache: "no-store" };
 
 function escapeXml(s) {
   return String(s)
