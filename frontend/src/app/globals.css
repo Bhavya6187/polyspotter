@@ -27,6 +27,11 @@
   --accent-subtle: #e6f9f0;
   --accent-glow: rgba(0, 194, 106, 0.15);
 
+  /* Top 3 category accents */
+  --category-conviction: var(--accent);
+  --category-coordinated: #7c3aed;
+  --category-timing: #2563eb;
+
   /* Semantic */
   --bullish: #00c26a;
   --bearish: #ef4444;
@@ -52,6 +57,10 @@
   --text-muted: #535e76;
 
   --accent-subtle: rgba(0, 194, 106, 0.08);
+
+  --category-conviction: var(--accent);
+  --category-coordinated: #a78bfa;
+  --category-timing: #60a5fa;
 
   --glow-strong: 0 0 24px rgba(0, 194, 106, 0.25), 0 0 60px rgba(0, 194, 106, 0.08);
   --glow-medium: 0 0 16px rgba(0, 194, 106, 0.15);

@@ -64,6 +64,10 @@ export function fetchSpotlight() {
   return request("/api/spotlight");
 }
 
+export function fetchTopThree() {
+  return request("/api/top3");
+}
+
 export function fetchResolvingSoon() {
   return request("/api/resolving-soon");
 }

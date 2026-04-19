@@ -7,7 +7,7 @@ import AlertList from "../components/AlertList";
 import Pagination from "../components/Pagination";
 import Ticker from "../components/Ticker";
 import ThemeToggle from "../components/ThemeToggle";
-import HeroSpotlight from "../components/HeroSpotlight";
+import TopThree from "../components/TopThree";
 import ResolvingSoonStrip from "../components/ResolvingSoonStrip";
 import CommandPalette from "../components/CommandPalette";
 import TopicNav from "../components/TopicNav";
@@ -160,10 +160,8 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
       {/* Topic navigation */}
       <TopicNav tags={tags} />
 
-      {/* Hero Spotlight */}
-      <section aria-label="Spotlight" className="mb-5">
-        <HeroSpotlight />
-      </section>
+      {/* Today's Top 3 */}
+      <TopThree />
 
       {/* Live ticker — hidden on mobile, duplicates feed */}
       <section aria-label="Live ticker" className="hidden sm:block mb-5 sm:mx-0 sm:rounded-xl sm:overflow-hidden">

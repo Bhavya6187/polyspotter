@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import os
 import time as _time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
@@ -1130,6 +1130,150 @@ def _fetch_resolving_soon() -> list[dict]:
         ]
 
     return results[:7]
+
+
+@app.get("/api/top3")
+def get_top3():
+    """Today's top 3 — one alert per category (HIGHEST_CONVICTION, COORDINATED_FLOW,
+    TIMING_EDGE). Empty buckets are filled from remaining top scorers, keeping
+    their slot's category label."""
+    CATEGORY_ORDER = ["HIGHEST_CONVICTION", "COORDINATED_FLOW", "TIMING_EDGE"]
+
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT a.id, a.market_title, a.condition_id, a.event_slug,
+                   a.composite_score, a.total_usd, a.end_date, a.event_end_estimate, a.tags,
+                   a.llm_summary, a.llm_copy_action, a.market_image, a.wallet,
+                   (SELECT COUNT(DISTINCT at2.wallet)
+                      FROM alert_trades at2 WHERE at2.alert_id = a.id) AS wallet_count,
+                   (SELECT ARRAY_AGG(DISTINCT strategy)
+                      FROM alert_signals WHERE alert_id = a.id) AS strategies,
+                   wp.win_rate, wp.total_pnl, wp.total_invested,
+                   latest_candle.p AS latest_price
+            FROM alerts a
+            LEFT JOIN wallet_profiles wp ON a.wallet = wp.wallet
+            LEFT JOIN LATERAL (
+                SELECT p FROM price_candles pc
+                WHERE pc.condition_id = a.condition_id
+                ORDER BY pc.t DESC
+                LIMIT 1
+            ) latest_candle ON TRUE
+            WHERE COALESCE(a.event_end_estimate, a.end_date) IS NOT NULL
+              AND COALESCE(a.event_end_estimate, a.end_date) > NOW()
+              AND a.created_at > NOW() - INTERVAL '1 day'
+              AND (latest_candle.p IS NULL OR (latest_candle.p > 0.03 AND latest_candle.p < 0.97))
+            ORDER BY a.composite_score DESC
+        """)
+        rows = cur.fetchall()
+
+    if not rows:
+        return []
+
+    now = datetime.now(timezone.utc)
+    six_hours = timedelta(hours=6)
+
+    def qualifies_timing(row):
+        strategies = row["strategies"] or []
+        effective = row["event_end_estimate"] or row["end_date"]
+        return (
+            "timing_relative_resolution" in strategies
+            or (effective is not None and effective <= now + six_hours)
+        )
+
+    def qualifies_coordinated(row):
+        strategies = row["strategies"] or []
+        return (
+            "wallet_clustering" in strategies
+            or "concentrated_one_sided" in strategies
+            or (row["wallet_count"] or 0) >= 2
+        )
+
+    def qualifies_conviction(row):
+        wr = row["win_rate"]
+        pnl = row["total_pnl"]
+        return wr is not None and wr >= 0.7 and pnl is not None and pnl >= 50000
+
+    # Selection order: TIMING → COORDINATED → CONVICTION. Rows already sorted by score desc.
+    picked_ids: set = set()
+    picks: dict[str, dict] = {}
+
+    for key, predicate in (
+        ("TIMING_EDGE", qualifies_timing),
+        ("COORDINATED_FLOW", qualifies_coordinated),
+        ("HIGHEST_CONVICTION", qualifies_conviction),
+    ):
+        for row in rows:
+            if row["id"] in picked_ids:
+                continue
+            if predicate(row):
+                picks[key] = row
+                picked_ids.add(row["id"])
+                break
+
+    # Fill empty buckets from remaining rows in score order
+    fill_iter = (row for row in rows if row["id"] not in picked_ids)
+    for key in CATEGORY_ORDER:
+        if key not in picks:
+            try:
+                row = next(fill_iter)
+                picks[key] = row
+                picked_ids.add(row["id"])
+            except StopIteration:
+                break
+
+    results = []
+    for rank_idx, key in enumerate(CATEGORY_ORDER, start=1):
+        if key not in picks:
+            continue
+        row = picks[key]
+
+        copy_action = row["llm_copy_action"]
+        if isinstance(copy_action, str):
+            try:
+                copy_action = json.loads(copy_action)
+            except (json.JSONDecodeError, TypeError):
+                copy_action = {}
+
+        tags_raw = row["tags"] or "[]"
+        primary_tag = None
+        try:
+            parsed = json.loads(tags_raw) if isinstance(tags_raw, str) else tags_raw
+            if isinstance(parsed, list) and parsed:
+                primary_tag = parsed[0]
+        except (json.JSONDecodeError, TypeError):
+            primary_tag = None
+
+        score = row["composite_score"] or 0
+        strength = min(4, int(score // 25) + 1)
+
+        # Surface event_end_estimate as `end_date` so the frontend countdown
+        # targets the actual event time, matching /api/spotlight behavior.
+        effective_end = row["event_end_estimate"] or row["end_date"]
+
+        results.append({
+            "category": key,
+            "rank": rank_idx,
+            "strength": strength,
+            "id": row["id"],
+            "market_title": row["market_title"],
+            "condition_id": row["condition_id"],
+            "event_slug": row["event_slug"],
+            "market_image": row["market_image"],
+            "primary_tag": primary_tag,
+            "end_date": effective_end.isoformat() if effective_end else None,
+            "llm_summary": row["llm_summary"],
+            "llm_copy_action": copy_action,
+            "total_usd": row["total_usd"],
+            "latest_price": row["latest_price"],
+            "wallet": {
+                "address": row["wallet"],
+                "win_rate": row["win_rate"],
+                "total_pnl": row["total_pnl"],
+                "total_invested": row["total_invested"],
+            },
+        })
+    return results
 
 
 def _parse_json_field(obj: dict, key: str) -> list:
