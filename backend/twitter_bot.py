@@ -440,6 +440,24 @@ def main(
             log_event("run_end", run_id=run_id, posted=False, reason="no_candidates")
             return 0
 
+        if TWITTER_BOT_DRY_RUN:
+            log_event(
+                "dry_run_top5",
+                run_id=run_id,
+                alerts=[
+                    {
+                        "id": int(a["id"]),
+                        "composite_score": a.get("composite_score"),
+                        "market_title": a.get("market_title"),
+                        "wallet": a.get("wallet"),
+                        "win_rate": a.get("win_rate"),
+                        "total_usd": a.get("total_usd"),
+                        "llm_headline": a.get("llm_headline"),
+                    }
+                    for a in top5
+                ],
+            )
+
         # 4. LLM.
         try:
             decision = call_llm(top5, llm_client=llm_client)
