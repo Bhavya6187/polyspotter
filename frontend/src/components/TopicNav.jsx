@@ -3,25 +3,27 @@
 import Link from "next/link";
 import { useRef, useState, useEffect } from "react";
 
+const TOPICS = [
+  "Sports",
+  "NBA",
+  "Soccer",
+  "Esports",
+  "Politics",
+  "Geopolitics",
+  "Elections",
+  "Crypto",
+  "Economy",
+  "Culture",
+];
+
 function tagSlug(name) {
   return encodeURIComponent(name.toLowerCase().replace(/\s+/g, "-"));
 }
 
-export default function TopicNav({ tags = [] }) {
+export default function TopicNav() {
   const scrollRef = useRef(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
-
-  const sorted = [...tags]
-    .filter((t) => {
-      const name = typeof t === "string" ? t : t.tag;
-      return name && name !== "Hide From New";
-    })
-    .sort((a, b) => {
-      const ca = typeof a === "object" ? a.alert_count || 0 : 0;
-      const cb = typeof b === "object" ? b.alert_count || 0 : 0;
-      return cb - ca;
-    });
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -43,8 +45,6 @@ export default function TopicNav({ tags = [] }) {
   function scroll(dir) {
     scrollRef.current?.scrollBy({ left: dir * 200, behavior: "smooth" });
   }
-
-  if (sorted.length === 0) return null;
 
   return (
     <nav
@@ -109,24 +109,20 @@ export default function TopicNav({ tags = [] }) {
         className="flex items-center gap-1.5 overflow-x-auto no-scrollbar"
         style={{ scrollbarWidth: "none", msOverflowStyle: "none", WebkitOverflowScrolling: "touch" }}
       >
-        {sorted.map((t) => {
-          const name = typeof t === "string" ? t : t.tag;
-          const count = typeof t === "object" ? t.alert_count : 0;
-          return (
-            <Link
-              key={name}
-              href={`/tag/${tagSlug(name)}`}
-              className="rounded-lg border px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-all hover:border-[var(--accent)] hover:shadow-[var(--glow-medium)]"
-              style={{
-                background: "var(--surface-card)",
-                borderColor: "var(--border)",
-                color: "var(--text-secondary)",
-              }}
-            >
-              {name}
-            </Link>
-          );
-        })}
+        {TOPICS.map((name) => (
+          <Link
+            key={name}
+            href={`/tag/${tagSlug(name)}`}
+            className="rounded-lg border px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-all hover:border-[var(--accent)] hover:shadow-[var(--glow-medium)]"
+            style={{
+              background: "var(--surface-card)",
+              borderColor: "var(--border)",
+              color: "var(--text-secondary)",
+            }}
+          >
+            {name}
+          </Link>
+        ))}
       </div>
     </nav>
   );

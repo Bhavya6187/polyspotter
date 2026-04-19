@@ -158,7 +158,7 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
       </header>
 
       {/* Topic navigation */}
-      <TopicNav tags={tags} />
+      <TopicNav />
 
       {/* Today's Top 3 */}
       <TopThree />
