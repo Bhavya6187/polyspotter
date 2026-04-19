@@ -258,15 +258,21 @@ export default function TopThreeCard({ alert }) {
         </p>
       )}
 
-      {/* Stats row — Smart Money + hero Upside */}
+      {/* Stats row — Bet size + Market flow + hero Upside */}
       <div
-        className="grid grid-cols-2 gap-3 border-t pt-3 text-xs"
+        className="grid grid-cols-3 gap-3 border-t pt-3 text-xs"
         style={{ borderColor: "var(--border-subtle)", fontFamily: "var(--font-display)" }}
       >
         <div>
-          <div className="uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Smart Money</div>
+          <div className="uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Bet size</div>
           <div className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>
             {alert.total_usd != null ? usdCompact.format(alert.total_usd) : "—"}
+          </div>
+        </div>
+        <div style={{ borderLeft: "1px solid var(--border-subtle)", paddingLeft: "0.75rem" }}>
+          <div className="uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Market flow</div>
+          <div className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>
+            {alert.market_total_usd != null ? usdCompact.format(alert.market_total_usd) : "—"}
           </div>
         </div>
         <div style={{ borderLeft: "1px solid var(--border-subtle)", paddingLeft: "0.75rem" }}>

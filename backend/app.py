@@ -1167,7 +1167,8 @@ def get_top3():
                    (SELECT ARRAY_AGG(DISTINCT strategy)
                       FROM alert_signals WHERE alert_id = a.id) AS strategies,
                    wp.win_rate, wp.total_pnl, wp.total_invested,
-                   latest_candle.p AS latest_price
+                   latest_candle.p AS latest_price,
+                   market_totals.market_total_usd
             FROM alerts a
             LEFT JOIN wallet_profiles wp ON a.wallet = wp.wallet
             LEFT JOIN LATERAL (
@@ -1176,6 +1177,11 @@ def get_top3():
                 ORDER BY pc.t DESC
                 LIMIT 1
             ) latest_candle ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT SUM(a2.total_usd) AS market_total_usd
+                FROM alerts a2
+                WHERE a2.condition_id = a.condition_id
+            ) market_totals ON TRUE
             WHERE (
                   -- Game-level markets stay visible during play (kickoff + 3h)
                   (a.game_start_time IS NOT NULL
@@ -1317,6 +1323,7 @@ def get_top3():
             "llm_summary": row["llm_summary"],
             "llm_copy_action": copy_action,
             "total_usd": row["total_usd"],
+            "market_total_usd": row["market_total_usd"],
             "latest_price": row["latest_price"],
             "wallet_count": row["wallet_count"] or 0,
             "wallet": {
