@@ -18,6 +18,11 @@ export default function robots() {
       // traffic back to PolySpotter. Remove this comment and add disallow rules
       // here if that policy changes.
     ],
-    sitemap: `${SITE_URL}/sitemap.xml`,
+    // Multiple Sitemap: lines are valid per robots.txt spec and let crawlers
+    // discover the wallet sitemap without a manual GSC submission.
+    sitemap: [
+      `${SITE_URL}/sitemap.xml`,
+      `${SITE_URL}/sitemap-wallets.xml`,
+    ],
   };
 }

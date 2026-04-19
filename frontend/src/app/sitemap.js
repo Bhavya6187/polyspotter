@@ -60,55 +60,19 @@ async function getTagEntries() {
   }
 }
 
-async function getThesisEntries() {
-  try {
-    const allTheses = [];
-    let page = 1;
-    let totalPages = 1;
-    while (page <= totalPages) {
-      const res = await fetch(
-        `${API_URL}/api/theses?per_page=100&page=${page}`,
-        FETCH_OPTS
-      );
-      if (!res.ok) break;
-      const data = await res.json();
-      allTheses.push(...(data?.theses || data || []));
-      const total = data?.total || 0;
-      totalPages = Math.ceil(total / 100);
-      page++;
-    }
-    return allTheses
-      .filter((t) => t.markets?.length > 0)
-      .map((t) => ({
-        url: `${SITE_URL}/thesis/${t.id}`,
-        lastModified: new Date(),
-        changeFrequency: "daily",
-        priority: 0.7,
-      }));
-  } catch {
-    return [];
-  }
-}
+// Theses are intentionally excluded from the sitemap. As of 2026-04-19 the DB
+// has ~17k thesis rows but 0 of them have thesis_headline populated, so every
+// thesis page renders as the generic "Cross-Market Thesis" title — pure thin/
+// duplicate content. Indexing them would dilute site authority. Additionally,
+// paginating through all theses (backend caps per_page=50 → 340 sequential
+// pages) was causing the /sitemap.xml static-generation step to time out.
+//
+// When the LLM starts writing thesis_headline values, restore this section
+// and filter on `t.thesis_headline && t.markets?.length > 0`.
 
-async function getWalletEntries() {
-  try {
-    const res = await fetch(`${API_URL}/api/wallets/top?limit=50`, FETCH_OPTS);
-    if (!res.ok) return [];
-    const data = await res.json();
-    const wallets = data?.wallets || data || [];
-    return wallets.map((w) => {
-      const address = typeof w === "string" ? w : w.wallet;
-      return {
-        url: `${SITE_URL}/wallet/${address.toLowerCase()}`,
-        lastModified: new Date(),
-        changeFrequency: "daily",
-        priority: 0.6,
-      };
-    });
-  } catch {
-    return [];
-  }
-}
+// Wallets are served from a separate sitemap at /sitemap-wallets.xml.
+// They're unbounded in count and updated on a different cadence than content
+// pages, so isolating them keeps this main sitemap small and fast.
 
 export default async function sitemap() {
   const staticPages = [
@@ -123,12 +87,10 @@ export default async function sitemap() {
   // Run all sections in parallel. Each section is self-contained with its own
   // try/catch so one failing upstream (e.g. a /api/theses timeout) degrades
   // only that section instead of collapsing the entire sitemap to the homepage.
-  const [markets, tags, theses, wallets] = await Promise.all([
+  const [markets, tags] = await Promise.all([
     getMarketEntries(),
     getTagEntries(),
-    getThesisEntries(),
-    getWalletEntries(),
   ]);
 
-  return [...staticPages, ...markets, ...tags, ...theses, ...wallets];
+  return [...staticPages, ...markets, ...tags];
 }

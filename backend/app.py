@@ -749,6 +749,56 @@ def top_wallets(limit: int = Query(50, ge=1, le=200)):
     return {"wallets": [{"wallet": r["wallet"], "alert_count": r["alert_count"]} for r in rows]}
 
 
+@app.get("/api/wallets/sitemap")
+def wallets_sitemap(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(1000, ge=1, le=5000),
+):
+    """Return paginated wallet addresses for sitemap generation.
+
+    Includes every wallet that appears in at least one alert — i.e. has
+    confirmed Polymarket activity, so its profile page won't 404. Ordered by
+    alert_count DESC so the first pages contain the highest-value wallets and
+    can be ranked first by Google even if later pages time out.
+    """
+    offset = (page - 1) * per_page
+    with db() as conn:
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT COUNT(DISTINCT wallet) AS total
+            FROM alerts
+            WHERE wallet IS NOT NULL
+        """)
+        total = cur.fetchone()["total"]
+
+        cur.execute("""
+            SELECT wallet,
+                   COUNT(*)        AS alert_count,
+                   MAX(scanned_at) AS last_seen
+            FROM alerts
+            WHERE wallet IS NOT NULL
+            GROUP BY wallet
+            ORDER BY COUNT(*) DESC, wallet ASC
+            LIMIT %s OFFSET %s
+        """, (per_page, offset))
+        rows = cur.fetchall()
+
+    return {
+        "wallets": [
+            {
+                "wallet": r["wallet"],
+                "alert_count": r["alert_count"],
+                "last_seen": r["last_seen"].isoformat() if r["last_seen"] else None,
+            }
+            for r in rows
+        ],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    }
+
+
 @app.get("/api/wallets/{wallet_address}", response_model=WalletProfileDetailOut)
 def get_wallet(wallet_address: str):
     """Get wallet profile with stats from DB (accumulated by seeder) and
