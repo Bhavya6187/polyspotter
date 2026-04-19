@@ -371,6 +371,103 @@ class TestGammaStatusHelpers:
         assert not _is_market_settled({})
 
 
+class TestFetchGammaStatus:
+    """Gamma's /markets default query hides closed markets. _fetch_gamma_status
+    must retry with closed=true so settled markets can be classified as such —
+    otherwise zombie alerts for already-resolved games leak into /api/top3."""
+
+    def _fake_market(self, cid, closed=False, uma="", prices=(0.5, 0.5)):
+        import json as _json
+        return {
+            "conditionId": cid,
+            "closed": closed,
+            "umaResolutionStatus": uma,
+            "outcomePrices": _json.dumps([str(p) for p in prices]),
+            "gameStartTime": None,
+        }
+
+    def _install_fake_gamma(self, monkeypatch, responses):
+        """Wire up _requests.get to return queued responses and record calls."""
+        import app as app_mod
+
+        calls = []
+
+        class _Resp:
+            def __init__(self, payload):
+                self._payload = payload
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return self._payload
+
+        def fake_get(url, params=None, timeout=None):
+            calls.append({"url": url, "params": list(params) if params else []})
+            return _Resp(responses.pop(0))
+
+        # Reset the module-level TTL cache so nothing bleeds in from earlier tests.
+        app_mod._gamma_status_cache.clear()
+        monkeypatch.setattr(app_mod._requests, "get", fake_get)
+        return calls
+
+    def test_retries_with_closed_true_when_default_returns_empty(self, monkeypatch):
+        """Default /markets hides closed markets — must retry with closed=true."""
+        from app import _fetch_gamma_status
+
+        cid = "0xdeadbeef_resolved"
+        responses = [
+            [],  # default query: empty because market is closed
+            [self._fake_market(cid, closed=True, uma="resolved", prices=(1.0, 0.0))],
+        ]
+        calls = self._install_fake_gamma(monkeypatch, responses)
+
+        result = _fetch_gamma_status([cid])
+
+        assert cid in result, "retry with closed=true should surface the closed market"
+        assert result[cid]["closed"] is True
+        assert result[cid]["uma_status"] == "resolved"
+        assert len(calls) == 2, "must make exactly two Gamma calls (default + closed=true fallback)"
+        assert ("closed", "true") not in calls[0]["params"]
+        assert ("closed", "true") in calls[1]["params"]
+
+    def test_skips_retry_when_default_returns_all_requested(self, monkeypatch):
+        """If every cid comes back on the default call, don't waste a second request."""
+        from app import _fetch_gamma_status
+
+        cid = "0xdeadbeef_active"
+        responses = [
+            [self._fake_market(cid, closed=False, prices=(0.6, 0.4))],
+        ]
+        calls = self._install_fake_gamma(monkeypatch, responses)
+
+        result = _fetch_gamma_status([cid])
+
+        assert cid in result
+        assert result[cid]["closed"] is False
+        assert len(calls) == 1, "no fallback needed when default query returned the cid"
+
+    def test_retry_only_for_missing_cids(self, monkeypatch):
+        """Partial hits: retry should request only the cids the default call missed."""
+        from app import _fetch_gamma_status
+
+        active_cid = "0xactive"
+        closed_cid = "0xclosed"
+        responses = [
+            [self._fake_market(active_cid, closed=False, prices=(0.6, 0.4))],
+            [self._fake_market(closed_cid, closed=True, uma="resolved", prices=(1.0, 0.0))],
+        ]
+        calls = self._install_fake_gamma(monkeypatch, responses)
+
+        result = _fetch_gamma_status([active_cid, closed_cid])
+
+        assert active_cid in result and closed_cid in result
+        assert result[closed_cid]["closed"] is True
+        # Second call's params should only include the missing cid, not the one we already have.
+        second_cids = [v for (k, v) in calls[1]["params"] if k == "condition_ids"]
+        assert second_cids == [closed_cid]
+
+
 # ---------------------------------------------------------------------------
 # /api/wallets/{address} endpoint tests
 # ---------------------------------------------------------------------------

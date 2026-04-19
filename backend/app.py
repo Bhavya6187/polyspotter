@@ -1001,35 +1001,44 @@ def _fetch_gamma_status(condition_ids: list[str]) -> dict[str, dict]:
         else:
             to_fetch.append(cid)
 
-    if to_fetch:
+    # Gamma's /markets hides closed markets by default, so any cid missing from
+    # the first response may actually be a settled market. Retry the gap with
+    # closed=true (mirroring gamma_cache.get_market_by_condition) so settled
+    # games can be flagged and dropped from /top3 — otherwise zombie alerts
+    # for already-resolved events leak through.
+    def _ingest(markets):
+        for m in markets:
+            cid = m.get("conditionId") or m.get("condition_id")
+            if not cid:
+                continue
+            try:
+                prices = _parse_json_field(m, "outcomePrices")
+                prices = [float(p) for p in prices] if prices else []
+            except (ValueError, TypeError):
+                prices = []
+            info = {
+                "closed": bool(m.get("closed")),
+                "uma_status": (m.get("umaResolutionStatus") or "").strip(),
+                "prices": prices,
+                "game_start_time": m.get("gameStartTime"),
+            }
+            out[cid] = info
+            _gamma_status_cache[cid] = (now + _GAMMA_STATUS_TTL, info)
+
+    for attempt_params in ({}, {"closed": "true"}):
+        if not to_fetch:
+            break
+        params = [("condition_ids", cid) for cid in to_fetch]
+        params.extend(attempt_params.items())
         try:
-            resp = _requests.get(
-                f"{GAMMA_API}/markets",
-                params=[("condition_ids", cid) for cid in to_fetch],
-                timeout=10,
-            )
+            resp = _requests.get(f"{GAMMA_API}/markets", params=params, timeout=10)
             resp.raise_for_status()
-            for m in resp.json():
-                cid = m.get("conditionId") or m.get("condition_id")
-                if not cid:
-                    continue
-                try:
-                    prices = _parse_json_field(m, "outcomePrices")
-                    prices = [float(p) for p in prices] if prices else []
-                except (ValueError, TypeError):
-                    prices = []
-                info = {
-                    "closed": bool(m.get("closed")),
-                    "uma_status": (m.get("umaResolutionStatus") or "").strip(),
-                    "prices": prices,
-                    "game_start_time": m.get("gameStartTime"),
-                }
-                out[cid] = info
-                _gamma_status_cache[cid] = (now + _GAMMA_STATUS_TTL, info)
+            _ingest(resp.json())
         except Exception:
             # On Gamma failure we return whatever we already had cached and let
             # callers decide how to degrade — better than breaking the endpoint.
             pass
+        to_fetch = [cid for cid in to_fetch if cid not in out]
 
     return out
 
