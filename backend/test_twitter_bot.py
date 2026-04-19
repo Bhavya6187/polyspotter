@@ -95,3 +95,89 @@ def test_fetch_recent_alerts_returns_empty_on_no_alerts():
     )
 
     assert result == []
+
+
+# ------------------------------------------------------------- filter_dedup --
+
+class FakeCursor:
+    """Stand-in for a psycopg2 cursor. Returns canned results for queries."""
+
+    def __init__(self, hard_dedup_ids=None, soft_dedup_pairs=None):
+        # Set of alert ids already tweeted.
+        self._hard = set(hard_dedup_ids or [])
+        # Set of (wallet, condition_id) pairs tweeted within the soft window.
+        self._soft = set(soft_dedup_pairs or [])
+        self._last_query = None
+        self._last_params = None
+
+    def execute(self, query, params=None):
+        self._last_query = query
+        self._last_params = params
+
+    def fetchall(self):
+        if "SELECT alert_id FROM tweeted_alerts WHERE alert_id" in self._last_query:
+            requested = self._last_params[0]
+            return [{"alert_id": i} for i in requested if i in self._hard]
+        if "SELECT wallet, condition_id" in self._last_query:
+            return [
+                {"wallet": w, "condition_id": c}
+                for (w, c) in self._soft
+            ]
+        return []
+
+    def close(self):
+        pass
+
+
+class FakeConn:
+    def __init__(self, cur):
+        self._cur = cur
+
+    def cursor(self, cursor_factory=None):
+        return self._cur
+
+    def commit(self):
+        pass
+
+    def close(self):
+        pass
+
+
+def test_filter_dedup_drops_alerts_already_tweeted_by_id():
+    cur = FakeCursor(hard_dedup_ids={2})
+    conn = FakeConn(cur)
+    candidates = [_alert(id=1), _alert(id=2), _alert(id=3)]
+
+    result = tb.filter_dedup(candidates, conn)
+
+    assert [a["id"] for a in result] == [1, 3]
+
+
+def test_filter_dedup_drops_alerts_with_recent_same_wallet_market():
+    cur = FakeCursor(soft_dedup_pairs={("0xw1", "0xc1")})
+    conn = FakeConn(cur)
+    candidates = [
+        _alert(id=10, wallet="0xw1", condition_id="0xc1"),   # dropped
+        _alert(id=11, wallet="0xw1", condition_id="0xc2"),   # kept (different market)
+        _alert(id=12, wallet="0xw2", condition_id="0xc1"),   # kept (different wallet)
+    ]
+
+    result = tb.filter_dedup(candidates, conn)
+
+    assert [a["id"] for a in result] == [11, 12]
+
+
+def test_filter_dedup_keeps_everything_when_no_prior_tweets():
+    cur = FakeCursor()
+    conn = FakeConn(cur)
+    candidates = [_alert(id=1), _alert(id=2)]
+
+    result = tb.filter_dedup(candidates, conn)
+
+    assert [a["id"] for a in result] == [1, 2]
+
+
+def test_filter_dedup_with_empty_candidate_list_returns_empty():
+    cur = FakeCursor()
+    conn = FakeConn(cur)
+    assert tb.filter_dedup([], conn) == []

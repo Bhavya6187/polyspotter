@@ -104,5 +104,56 @@ def fetch_recent_alerts(api_url: str, min_score: float, *, http=requests) -> lis
     return recent
 
 
+# --- Deduplication -----------------------------------------------------------
+
+def filter_dedup(candidates: list[dict], db_conn) -> list[dict]:
+    """Drop candidates that have already been tweeted, or whose
+    (wallet, condition_id) pair was tweeted within SOFT_DEDUP_HOURS.
+
+    Runs two queries:
+      1. Hard dedup: exact alert_id match.
+      2. Soft dedup: (wallet, condition_id) match within the window.
+    """
+    if not candidates:
+        return []
+
+    cur = db_conn.cursor(cursor_factory=RealDictCursor)
+    try:
+        # 1. Hard dedup: alert_id already tweeted?
+        ids = [int(a["id"]) for a in candidates]
+        cur.execute(
+            "SELECT alert_id FROM tweeted_alerts WHERE alert_id = ANY(%s)",
+            (ids,),
+        )
+        hard = {row["alert_id"] for row in cur.fetchall()}
+
+        # 2. Soft dedup: (wallet, condition_id) tweeted recently?
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=SOFT_DEDUP_HOURS)
+        cur.execute(
+            """
+            SELECT wallet, condition_id
+            FROM tweeted_alerts
+            WHERE tweeted_at >= %s
+              AND wallet = ANY(%s)
+              AND condition_id = ANY(%s)
+            """,
+            (cutoff, [a.get("wallet") for a in candidates if a.get("wallet")],
+             [a.get("condition_id") for a in candidates if a.get("condition_id")]),
+        )
+        soft = {(row["wallet"], row["condition_id"]) for row in cur.fetchall()}
+    finally:
+        cur.close()
+
+    kept = []
+    for a in candidates:
+        if int(a["id"]) in hard:
+            continue
+        pair = (a.get("wallet"), a.get("condition_id"))
+        if pair in soft:
+            continue
+        kept.append(a)
+    return kept
+
+
 if __name__ == "__main__":
     sys.exit(0)  # placeholder; real main() added in Task 10
