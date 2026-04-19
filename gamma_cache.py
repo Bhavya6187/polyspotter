@@ -32,24 +32,33 @@ def invalidate_market(condition_id: str) -> None:
 
 def get_market_by_condition(condition_id: str) -> dict | None:
     """Fetch market metadata from Gamma API by conditionId.
+
+    Gamma's /markets endpoint defaults to active markets only. When a market
+    has closed (e.g. a sports game that just ended), the default lookup
+    returns empty. Retry once with closed=true so we still get metadata for
+    recently closed markets — this is what lets the scanner populate
+    game_start_time for concluded sports events and keeps them from
+    lingering as 'zombie' alerts in Top 3.
+
     Results are cached so repeated calls across strategies are free."""
     if condition_id in _market_cache:
         return _market_cache[condition_id]
 
-    time.sleep(MARKET_LOOKUP_DELAY)
-    try:
-        resp = requests.get(
-            f"{GAMMA_API}/markets",
-            params={"condition_ids": condition_id},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        markets = resp.json()
-        if markets:
-            _market_cache[condition_id] = markets[0]
-            return markets[0]
-    except requests.RequestException as e:
-        print(f"[WARN] Market lookup failed for condition {condition_id}: {e}", file=sys.stderr)
+    for params in (
+        {"condition_ids": condition_id},
+        {"condition_ids": condition_id, "closed": "true"},
+    ):
+        time.sleep(MARKET_LOOKUP_DELAY)
+        try:
+            resp = requests.get(f"{GAMMA_API}/markets", params=params, timeout=10)
+            resp.raise_for_status()
+            markets = resp.json()
+            if markets:
+                _market_cache[condition_id] = markets[0]
+                return markets[0]
+        except requests.RequestException as e:
+            print(f"[WARN] Market lookup failed for condition {condition_id}: {e}", file=sys.stderr)
+            return None
     return None
 
 
