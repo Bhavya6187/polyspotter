@@ -181,3 +181,88 @@ def test_filter_dedup_with_empty_candidate_list_returns_empty():
     cur = FakeCursor()
     conn = FakeConn(cur)
     assert tb.filter_dedup([], conn) == []
+
+
+# ------------------------------------------------------------------ call_llm --
+
+class FakeLLMClient:
+    """Stand-in for openai.OpenAI. chat.completions.create returns canned output."""
+
+    def __init__(self, responses):
+        # `responses` is a list of dicts — each becomes one response body.
+        self._responses = list(responses)
+        self.calls = []
+        # Mirror the nested structure the real client exposes.
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def _create(self, **kwargs):
+        self.calls.append(kwargs)
+        body = self._responses.pop(0)
+        content = body if isinstance(body, str) else json.dumps(body)
+        choice = SimpleNamespace(message=SimpleNamespace(content=content))
+        return SimpleNamespace(choices=[choice])
+
+
+def test_call_llm_returns_skip_decision_cleanly():
+    response = {
+        "decision": "skip",
+        "reason": "all candidates routine",
+        "alert_ids": None,
+        "tweet": None,
+        "is_composite": False,
+    }
+    client = FakeLLMClient([response])
+    top5 = [_alert(id=1)]
+
+    result = tb.call_llm(top5, llm_client=client)
+
+    assert result["decision"] == "skip"
+    assert len(client.calls) == 1
+
+
+def test_call_llm_returns_valid_post_decision_first_try():
+    response = {
+        "decision": "post",
+        "reason": "whale on hot market",
+        "alert_ids": [1],
+        "tweet": "Short tweet. link in bio.",
+        "is_composite": False,
+    }
+    client = FakeLLMClient([response])
+    top5 = [_alert(id=1)]
+
+    result = tb.call_llm(top5, llm_client=client)
+
+    assert result["tweet"] == "Short tweet. link in bio."
+    assert len(client.calls) == 1
+
+
+def test_call_llm_retries_once_on_length_overshoot_and_succeeds():
+    long_tweet = "x" * 300
+    retry_tweet = "x" * 200
+    first = {"decision": "post", "reason": "ok", "alert_ids": [1], "tweet": long_tweet, "is_composite": False}
+    second = {"decision": "post", "reason": "shorter", "alert_ids": [1], "tweet": retry_tweet, "is_composite": False}
+    client = FakeLLMClient([first, second])
+    top5 = [_alert(id=1)]
+
+    result = tb.call_llm(top5, llm_client=client)
+
+    assert result["tweet"] == retry_tweet
+    assert len(client.calls) == 2
+    # Retry should reference the length.
+    retry_messages = client.calls[1]["messages"]
+    assert any("260" in m["content"] for m in retry_messages if m["role"] == "user")
+
+
+def test_call_llm_returns_overlong_result_when_retry_also_fails():
+    long_tweet = "x" * 300
+    first = {"decision": "post", "reason": "ok", "alert_ids": [1], "tweet": long_tweet, "is_composite": False}
+    second = {"decision": "post", "reason": "still long", "alert_ids": [1], "tweet": "x" * 280, "is_composite": False}
+    client = FakeLLMClient([first, second])
+
+    result = tb.call_llm([_alert(id=1)], llm_client=client)
+
+    # call_llm does NOT itself judge validity — it returns what the LLM said.
+    # Caller (validate_decision) decides. This test just asserts it tried twice.
+    assert len(client.calls) == 2
+    assert len(result["tweet"]) == 280

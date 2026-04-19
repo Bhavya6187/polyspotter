@@ -155,5 +155,114 @@ def filter_dedup(candidates: list[dict], db_conn) -> list[dict]:
     return kept
 
 
+# --- LLM composition ---------------------------------------------------------
+
+SYSTEM_PROMPT = (
+    "You are the social media voice for PolySpotter, a service that surfaces "
+    "notable Polymarket bets from sharp wallets, whales, and coordinated flow.\n\n"
+
+    "You'll be given up to 5 alerts from the last hour. Your job: write ONE "
+    "tweet that's as engaging as possible — drawing on one OR multiple alerts "
+    "— or skip the hour if nothing is compelling.\n\n"
+
+    "## Single vs composite\n"
+    "- If one alert clearly stands out, write a tight hook-driven tweet focused on it.\n"
+    "- If 2+ alerts tell a bigger story together (same market, same wallet across "
+    "markets, a theme like '3 whales all loaded up on Iran markets today'), "
+    "compose a synthesis tweet.\n"
+    "- Never force synthesis. If alerts are unrelated, just pick the best one.\n\n"
+
+    "## Tweet rules\n"
+    "- Max 260 characters (safety margin under X's 280 limit).\n"
+    "- Hook-driven opening: lead with the most striking fact (dollar amount, "
+    "win rate, timing).\n"
+    "- Use specific numbers, not vague descriptors.\n"
+    "- End with a CTA that drives clicks to bio, e.g., "
+    "'→ link in bio', 'full details in bio 👀', 'who is this wallet? bio link'.\n"
+    "- 1–2 relevant hashtags max. Prefer topic-specific over generic #Polymarket.\n"
+    "- 0–2 emojis, only if they add something. No emoji spam.\n"
+    "- No URLs. No @mentions of real users.\n"
+    "- Never fabricate numbers or facts not in the alert data.\n"
+    "- Write like a sharp trading desk analyst, not a corporate account.\n\n"
+
+    "## Skip criteria\n"
+    "If all 5 alerts are routine/low-signal, return decision=skip with a short reason.\n\n"
+
+    "## Output format (strict JSON)\n"
+    '{\n'
+    '  "decision": "post" | "skip",\n'
+    '  "reason": "short string",\n'
+    '  "alert_ids": [<int>, ...] | null,\n'
+    '  "tweet": "<string ≤260 chars | null>",\n'
+    '  "is_composite": true | false\n'
+    '}\n'
+    "alert_ids must be integers taken from the alerts you were shown. "
+    "If is_composite=false, alert_ids must contain exactly one id."
+)
+
+
+def _build_user_message(top5: list[dict]) -> str:
+    """Build the JSON payload describing the 5 candidate alerts."""
+    payload = []
+    for a in top5:
+        payload.append({
+            "alert_id": int(a["id"]),
+            "composite_score": a.get("composite_score"),
+            "llm_headline": a.get("llm_headline"),
+            "llm_summary": a.get("llm_summary"),
+            "market_title": a.get("market_title"),
+            "wallet": a.get("wallet"),
+            "wallet_win_rate": a.get("win_rate"),
+            "wallet_total_pnl": a.get("total_pnl"),
+            "total_usd": a.get("total_usd"),
+            "tags": a.get("tags") or [],
+        })
+    return json.dumps({"alerts": payload}, default=str)
+
+
+def call_llm(top5: list[dict], *, llm_client) -> dict:
+    """Send the top 5 alerts to GPT and parse its decision.
+
+    Retries once if the returned tweet exceeds TWEET_MAX_CHARS, asking the model
+    to shorten. Returns the raw decision dict (caller is responsible for any
+    validation beyond length — e.g. alert_id membership).
+    """
+    user_msg = _build_user_message(top5)
+
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_msg},
+    ]
+
+    decision = _llm_decide(messages, llm_client=llm_client)
+
+    # Length retry (only if decision is 'post' and tweet is over limit).
+    tweet = decision.get("tweet") or ""
+    if decision.get("decision") == "post" and len(tweet) > TWEET_MAX_CHARS:
+        retry_messages = messages + [
+            {"role": "assistant", "content": json.dumps(decision)},
+            {"role": "user", "content": (
+                f"Your tweet was {len(tweet)} characters, must be ≤{TWEET_MAX_CHARS}. "
+                f"Shorten it, keep the hook and CTA. Return the same JSON format."
+            )},
+        ]
+        decision = _llm_decide(retry_messages, llm_client=llm_client)
+
+    return decision
+
+
+def _llm_decide(messages: list[dict], *, llm_client) -> dict:
+    """Call the model once and parse JSON out of the response."""
+    response = llm_client.chat.completions.create(
+        model=MODEL,
+        messages=messages,
+        response_format={"type": "json_object"},
+        temperature=0.7,
+        max_completion_tokens=500,
+    )
+    content = response.choices[0].message.content or "{}"
+    return json.loads(content)
+
+
 if __name__ == "__main__":
     sys.exit(0)  # placeholder; real main() added in Task 10
