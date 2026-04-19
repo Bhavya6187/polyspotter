@@ -190,8 +190,9 @@ export default function TopThreeCard({ alert }) {
           </div>
         </div>
         <span
-          className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold"
+          className="inline-flex max-w-[8rem] items-center gap-1 truncate whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-bold"
           style={{ background: "var(--accent)", color: "#0a0f1a" }}
+          title={`Copy ${outcome}`}
         >
           Copy {outcome} &rarr;
         </span>
