@@ -107,6 +107,106 @@ def fetch_recent_alerts(api_url: str, min_score: float, *, http=requests) -> lis
     return recent
 
 
+# --- Enrichment --------------------------------------------------------------
+
+def enrich_alerts_for_stage1(alerts: list[dict], db_conn) -> None:
+    """Attach stage-1 editorial metadata to each alert dict, in place.
+
+    Adds three groups of fields the scanner payload doesn't already carry:
+      - `signals`: list of {strategy, severity, headline} rows from alert_signals.
+      - wallet extras: `wallet_current_streak`, `wallet_times_flagged`,
+        `wallet_wins`, `wallet_losses` from wallet_profiles.
+      - `recently_tweeted_wallet` / `recently_tweeted_market`: whether we've
+        tweeted about this wallet or condition_id in the last 7 days.
+
+    One batched query per group. Errors are swallowed so a DB hiccup doesn't
+    block the run — alerts still have their original fields.
+    """
+    if not alerts:
+        return
+
+    alert_ids = [int(a["id"]) for a in alerts]
+    wallets = [w for w in {(a.get("wallet") or "").lower() for a in alerts} if w]
+    condition_ids = [c for c in {a.get("condition_id") for a in alerts} if c]
+
+    signals_by_alert: dict[int, list[dict]] = {}
+    wallet_extras: dict[str, dict] = {}
+    tweeted_wallets: set[str] = set()
+    tweeted_markets: set[str] = set()
+
+    cur = db_conn.cursor(cursor_factory=RealDictCursor)
+    try:
+        try:
+            cur.execute(
+                """
+                SELECT alert_id, strategy, severity, headline
+                FROM alert_signals
+                WHERE alert_id = ANY(%s)
+                ORDER BY severity DESC
+                """,
+                (alert_ids,),
+            )
+            for row in cur.fetchall():
+                signals_by_alert.setdefault(row["alert_id"], []).append({
+                    "strategy": row["strategy"],
+                    "severity": float(row["severity"]),
+                    "headline": row["headline"],
+                })
+        except Exception as e:
+            log_event("enrich_signals_error", error=str(e))
+            db_conn.rollback()
+
+        if wallets:
+            try:
+                cur.execute(
+                    """
+                    SELECT wallet, current_streak, times_flagged, wins, losses
+                    FROM wallet_profiles WHERE wallet = ANY(%s)
+                    """,
+                    (wallets,),
+                )
+                for row in cur.fetchall():
+                    wallet_extras[row["wallet"]] = dict(row)
+            except Exception as e:
+                log_event("enrich_wallet_error", error=str(e))
+                db_conn.rollback()
+
+        if wallets or condition_ids:
+            try:
+                cur.execute(
+                    """
+                    SELECT wallet, condition_id FROM tweeted_alerts
+                    WHERE tweeted_at > NOW() - interval '7 days'
+                      AND (wallet = ANY(%s) OR condition_id = ANY(%s))
+                    """,
+                    (wallets or [""], condition_ids or [""]),
+                )
+                for row in cur.fetchall():
+                    if row["wallet"]:
+                        tweeted_wallets.add(row["wallet"])
+                    if row["condition_id"]:
+                        tweeted_markets.add(row["condition_id"])
+            except Exception as e:
+                log_event("enrich_tweeted_error", error=str(e))
+                db_conn.rollback()
+    finally:
+        cur.close()
+
+    for a in alerts:
+        aid = int(a["id"])
+        wallet = (a.get("wallet") or "").lower()
+        cond_id = a.get("condition_id")
+
+        a["signals"] = signals_by_alert.get(aid, [])
+        extras = wallet_extras.get(wallet, {})
+        a["wallet_current_streak"] = extras.get("current_streak")
+        a["wallet_times_flagged"] = extras.get("times_flagged")
+        a["wallet_wins"] = extras.get("wins")
+        a["wallet_losses"] = extras.get("losses")
+        a["recently_tweeted_wallet"] = bool(wallet and wallet in tweeted_wallets)
+        a["recently_tweeted_market"] = bool(cond_id and cond_id in tweeted_markets)
+
+
 # --- Deduplication -----------------------------------------------------------
 
 def filter_dedup(candidates: list[dict], db_conn) -> list[dict]:
@@ -453,6 +553,99 @@ def record_tweet(
     db_conn.commit()
 
 
+# --- Dry-run display helpers -------------------------------------------------
+
+def _short_wallet(wallet: str | None) -> str:
+    if not wallet:
+        return "(cluster)"
+    if wallet.startswith("0x") and len(wallet) > 12:
+        return f"{wallet[:6]}…{wallet[-4:]}"
+    return wallet
+
+
+def _print_stage1_candidate(i: int, a: dict) -> None:
+    """Pretty-print one alert exactly as stage 1 sees it (all fields from
+    build_stage1_user_message). Human-readable, not JSON."""
+    score = a.get("composite_score", 0)
+    total = a.get("total_usd", 0)
+    alert_type = a.get("alert_type") or "composite"
+    market = (a.get("market_title") or "")[:70]
+    print(
+        f"  {i}. #{int(a['id']):<6}  "
+        f"score={score:>5.2f}  ${total:>9,.0f}  "
+        f"[{alert_type}]  {_short_wallet(a.get('wallet')):<14}  {market}",
+        flush=True,
+    )
+
+    if a.get("llm_headline"):
+        print(f"       headline: {a['llm_headline']}", flush=True)
+    if a.get("llm_summary"):
+        print(f"       summary:  {a['llm_summary']}", flush=True)
+    if a.get("cluster_headline"):
+        print(f"       cluster:  {a['cluster_headline']}", flush=True)
+
+    bullets = a.get("llm_bullets") or []
+    for b in bullets:
+        print(f"       • {b}", flush=True)
+
+    copy = a.get("llm_copy_action") or {}
+    if isinstance(copy, dict) and copy.get("outcome"):
+        print(
+            f"       copy:     {copy.get('side','')} {copy.get('outcome','')} "
+            f"@ {copy.get('entry_price','?')} → max {copy.get('max_price','?')}",
+            flush=True,
+        )
+
+    # Wallet record line (only when we have a wallet)
+    if a.get("wallet"):
+        wr = a.get("win_rate")
+        wr_s = f"{wr*100:.0f}%" if wr is not None else "-"
+        pnl = a.get("total_pnl")
+        pnl_s = f"${pnl:,.0f}" if pnl is not None else "-"
+        wins, losses = a.get("wallet_wins"), a.get("wallet_losses")
+        record = f"{wins}-{losses}" if wins is not None and losses is not None else "-"
+        streak = a.get("wallet_current_streak")
+        streak_s = f"{streak:+d}" if isinstance(streak, int) else "-"
+        flagged = a.get("wallet_times_flagged")
+        flagged_s = f"{flagged}x" if flagged is not None else "-"
+        print(
+            f"       wallet:   wr={wr_s}  pnl={pnl_s}  record={record}  "
+            f"streak={streak_s}  flagged={flagged_s}",
+            flush=True,
+        )
+
+    trades_n = a.get("trade_count")
+    tags = a.get("tags") or []
+    end_date = a.get("end_date")
+    meta_parts: list[str] = []
+    if trades_n is not None:
+        meta_parts.append(f"trades={trades_n}")
+    if end_date:
+        meta_parts.append(f"ends={end_date}")
+    if tags:
+        meta_parts.append(f"tags={tags}")
+    if meta_parts:
+        print(f"       meta:     " + "  ".join(meta_parts), flush=True)
+
+    recency_flags: list[str] = []
+    if a.get("recently_tweeted_wallet"):
+        recency_flags.append("wallet")
+    if a.get("recently_tweeted_market"):
+        recency_flags.append("market")
+    if recency_flags:
+        print(f"       recent tweet: {', '.join(recency_flags)} (last 7d)", flush=True)
+
+    signals = a.get("signals") or []
+    if signals:
+        print(f"       signals ({len(signals)}):", flush=True)
+        for s in signals:
+            print(
+                f"         - {s.get('strategy','?'):<28} "
+                f"sev={s.get('severity',0):>4.1f}  {s.get('headline','')}",
+                flush=True,
+            )
+
+
 # --- Entrypoint --------------------------------------------------------------
 
 def main(
@@ -502,7 +695,7 @@ def main(
         after_dedup = filter_dedup(candidates, db_conn)
         log_event("after_dedup", run_id=run_id, count=len(after_dedup))
 
-        # 3. Top 5 by composite_score.
+        # 3. Top 20 by composite_score.
         top_alerts = sorted(after_dedup, key=lambda a: a.get("composite_score", 0), reverse=True)[:20]
         if not top_alerts:
             log_event("no_candidates", run_id=run_id)
@@ -510,28 +703,14 @@ def main(
                       **_stage1_run_end_fields(None))
             return 0
 
+        # 3b. Enrich with stage-1 editorial metadata (signals, wallet streak,
+        # tweet recency). Mutates top_alerts in place; stage 2 also benefits.
+        enrich_alerts_for_stage1(top_alerts, db_conn)
+
         if TWITTER_BOT_DRY_RUN:
-            print(f"\n--- Top {len(top_alerts)} candidate alerts ---", flush=True)
+            print(f"\n--- Top {len(top_alerts)} candidate alerts (stage 1 view) ---", flush=True)
             for i, a in enumerate(top_alerts, 1):
-                wallet = a.get("wallet")
-                if wallet and wallet.startswith("0x") and len(wallet) > 12:
-                    wallet_display = f"{wallet[:6]}…{wallet[-4:]}"
-                elif wallet:
-                    wallet_display = wallet
-                else:
-                    wallet_display = "(cluster)"
-                win = a.get("win_rate")
-                win_display = f"{win * 100:.0f}%" if win is not None else "  -"
-                market = (a.get("market_title") or "")[:60]
-                print(
-                    f"  {i}. #{int(a['id']):<6}  "
-                    f"score={a.get('composite_score', 0):>5.2f}  "
-                    f"${a.get('total_usd', 0):>9,.0f}  "
-                    f"wr={win_display:<4}  {wallet_display:<14}  {market}",
-                    flush=True,
-                )
-                if a.get("llm_headline"):
-                    print(f"       → {a['llm_headline']}", flush=True)
+                _print_stage1_candidate(i, a)
             print("", flush=True)
 
         # 4. LLM (two-stage agentic composer).

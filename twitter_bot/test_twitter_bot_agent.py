@@ -1231,8 +1231,9 @@ def test_select_shortlist_makes_exactly_one_llm_call_with_json_mode():
     assert "tools" not in call  # stage 1 has no tools
 
 
-def test_select_shortlist_user_message_includes_slim_alert_fields():
-    """Stage-1 payload should include enough for editorial judgment, not trade detail."""
+def test_select_shortlist_user_message_includes_editorial_alert_fields():
+    """Stage-1 payload should carry the editorial fields (bullets, copy action,
+    signals, recency flags) — but not trade-level detail like market_description."""
     llm = FakeStage1LLM({"decision": "skip", "reason": "x"})
     agent.select_shortlist(
         [_stage1_alert(id=42, market_title="Tigers vs Red Sox", win_rate=0.91)],
@@ -1242,9 +1243,12 @@ def test_select_shortlist_user_message_includes_slim_alert_fields():
     # Required fields appear:
     assert "42" in user_msg["content"]
     assert "Tigers vs Red Sox" in user_msg["content"]
-    # Bullets / copy_action / market_description NOT included (slim payload):
-    assert "llm_bullets" not in user_msg["content"]
-    assert "llm_copy_action" not in user_msg["content"]
+    # Editorial fields are now included:
+    assert "llm_bullets" in user_msg["content"]
+    assert "llm_copy_action" in user_msg["content"]
+    assert "signals" in user_msg["content"]
+    assert "recently_tweeted_wallet" in user_msg["content"]
+    # Trade-level detail still excluded:
     assert "market_description" not in user_msg["content"]
 
 

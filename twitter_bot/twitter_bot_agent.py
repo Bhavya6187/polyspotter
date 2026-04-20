@@ -754,6 +754,25 @@ STAGE1_SYSTEM_PROMPT = (
     "specific, surprising, story-rich bets — sharp wallets, big size, unusual "
     "timing, named themes.\n\n"
 
+    "## Fields to weigh\n"
+    "- `signals`: strategy+headline+severity rows — the WHY behind the alert. "
+    "Two alerts with the same score can have very different stories ("
+    "`wallet_clustering` = 3 wallets sharing a funder vs "
+    "`timing_relative_resolution` = bet placed minutes from close). Use this "
+    "to distinguish them.\n"
+    "- `llm_bullets`: punchy pre-written facts. If the bullets are thin or "
+    "generic, the tweet will be too.\n"
+    "- `llm_copy_action`: {outcome, side, entry_price}. Contrarian bets "
+    "(e.g. No at 0.85) are more tweetable than consensus ones.\n"
+    "- Wallet track record: `wallet_wins/losses`, `wallet_current_streak`, "
+    "`wallet_times_flagged` — '10-2 record', '6 in a row', 'flagged 9x' are "
+    "the kind of specifics that carry a tweet.\n"
+    "- `alert_type='cluster'`: no single wallet; the story is `cluster_headline` "
+    "(e.g. '3 wallets, same direction, $5,859').\n"
+    "- `recently_tweeted_wallet` / `recently_tweeted_market`: true means we "
+    "posted about this wallet or market in the last 7 days. Bias against "
+    "repeats unless the new alert has a materially different angle.\n\n"
+
     "## Single vs composite\n"
     "- mode='single': you want a tweet about ONE alert. Stage 2 will pick the "
     "strongest from your shortlist; the others are backups in case the first "
@@ -788,21 +807,38 @@ STAGE1_SYSTEM_PROMPT = (
 
 
 def build_stage1_user_message(top_alerts: list[dict]) -> str:
-    """Slim payload for stage 1 — fields needed for editorial judgment, no trade detail."""
+    """Editorial payload for stage 1. No trade-level detail, but enough for
+    story judgment: headline/summary/bullets, copy action, wallet track record,
+    signals (why it was flagged), and tweet-recency flags.
+    """
     payload = []
     for a in top_alerts:
         payload.append({
             "alert_id": int(a["id"]),
+            "alert_type": a.get("alert_type"),
             "composite_score": a.get("composite_score"),
             "llm_headline": a.get("llm_headline"),
             "llm_summary": a.get("llm_summary"),
+            "llm_bullets": a.get("llm_bullets") or [],
+            "llm_copy_action": a.get("llm_copy_action") or {},
+            "cluster_headline": a.get("cluster_headline"),
             "wallet": a.get("wallet"),
             "wallet_win_rate": a.get("win_rate"),
+            "wallet_total_pnl": a.get("total_pnl"),
+            "wallet_wins": a.get("wallet_wins"),
+            "wallet_losses": a.get("wallet_losses"),
+            "wallet_current_streak": a.get("wallet_current_streak"),
+            "wallet_times_flagged": a.get("wallet_times_flagged"),
             "total_usd": a.get("total_usd"),
+            "trade_count": a.get("trade_count"),
             "market_title": a.get("market_title"),
             "tags": a.get("tags") or [],
             "condition_id": a.get("condition_id"),
             "event_slug": a.get("event_slug"),
+            "end_date": a.get("end_date"),
+            "signals": a.get("signals") or [],
+            "recently_tweeted_wallet": bool(a.get("recently_tweeted_wallet")),
+            "recently_tweeted_market": bool(a.get("recently_tweeted_market")),
         })
     return json.dumps({"alerts": payload}, default=str)
 
