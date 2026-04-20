@@ -170,11 +170,22 @@ from psycopg2.extras import RealDictCursor
 
 
 def _pg_fetchall(db_conn_pg, query: str, params: tuple) -> list[dict]:
-    """Run a SELECT and return RealDictCursor rows as plain dicts."""
+    """Run a SELECT and return RealDictCursor rows as plain dicts.
+
+    On any error, rolls back the connection so subsequent queries in the same
+    run aren't blocked by an aborted transaction state.
+    """
     cur = db_conn_pg.cursor(cursor_factory=RealDictCursor)
     try:
-        cur.execute(query, params)
-        return [dict(r) for r in cur.fetchall()]
+        try:
+            cur.execute(query, params)
+            return [dict(r) for r in cur.fetchall()]
+        except Exception:
+            try:
+                db_conn_pg.rollback()
+            except Exception:
+                pass
+            raise
     finally:
         cur.close()
 
@@ -206,7 +217,7 @@ def get_event_alerts(*, event_slug: str, limit: int = 20, db_conn_pg) -> Any:
 
 @_safe_tool
 def search_alerts_by_tag(*, tag: str, hours: int = 24, limit: int = 20, db_conn_pg) -> Any:
-    """Alerts from the last N hours whose tags array contains this tag.
+    """Alerts from the last N hours whose tags array contains this tag (case-insensitive).
 
     Thematic synthesis, e.g., tag="Iran" → every Iran-tagged alert in the window.
     """
@@ -214,10 +225,12 @@ def search_alerts_by_tag(*, tag: str, hours: int = 24, limit: int = 20, db_conn_
         SELECT id, composite_score, wallet, market_title, condition_id,
                total_usd, llm_headline, created_at
         FROM alerts
-        WHERE tags::jsonb @> %s::jsonb
-          AND created_at >= NOW() - (%s || ' hours')::interval
+        WHERE EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text(tags::jsonb) AS t
+            WHERE LOWER(t) = LOWER(%s)
+        )
+          AND created_at >= NOW() - make_interval(hours => %s)
         ORDER BY composite_score DESC
         LIMIT %s
     """
-    tag_json = json.dumps([tag])
-    return _pg_fetchall(db_conn_pg, query, (tag_json, int(hours), int(limit)))
+    return _pg_fetchall(db_conn_pg, query, (tag, int(hours), int(limit)))

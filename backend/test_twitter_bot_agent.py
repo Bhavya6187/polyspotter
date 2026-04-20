@@ -284,11 +284,34 @@ def test_get_event_alerts_queries_event_slug():
 def test_search_alerts_by_tag_filters_by_tag_and_window():
     rows = [{"id": 100, "composite_score": 9.0, "wallet": "0x1", "market_title": "x",
              "total_usd": 5000, "llm_headline": "hh", "created_at": "2026-04-19T08:00:00Z"}]
-    cur = FakePgCursor({"tags::jsonb @>": rows})
+    cur = FakePgCursor({"jsonb_array_elements_text": rows})
     conn = FakePgConn(cur)
     env = agent.search_alerts_by_tag(tag="Iran", hours=12, limit=5, db_conn_pg=conn)
     assert env["data"][0]["id"] == 100
-    # First param is the JSON-encoded tag array.
-    assert cur.last_params[0] == '["Iran"]'
+    # Case-insensitive matching: bare tag string, not JSON-encoded array.
+    assert cur.last_params[0] == "Iran"
     assert cur.last_params[1] == 12
     assert cur.last_params[2] == 5
+
+
+def test_pg_fetchall_rolls_back_on_error():
+    """After a query fails, the connection must be usable again."""
+    class RaisingCursor(FakePgCursor):
+        def execute(self, query, params=None):
+            raise RuntimeError("simulated db error")
+
+    class RollbackTrackingConn(FakePgConn):
+        def __init__(self, cur):
+            super().__init__(cur)
+            self.rolled_back = False
+
+        def rollback(self):
+            self.rolled_back = True
+
+    raising = RaisingCursor({})
+    conn = RollbackTrackingConn(raising)
+
+    env = agent.get_market_alerts(condition_id="0xcond", limit=10, db_conn_pg=conn)
+
+    assert "error" in env
+    assert conn.rolled_back is True
