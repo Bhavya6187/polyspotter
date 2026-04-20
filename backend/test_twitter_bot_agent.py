@@ -530,3 +530,36 @@ def test_get_market_volume_history_returns_rows():
     assert len(env["data"]) == 2
     # Sorted most recent first.
     assert env["data"][0]["volume_24h"] == 12000
+
+
+# ---------------------------------------------------------- call_gamma_api ---
+
+def test_call_gamma_api_allowed_path_makes_request():
+    body = {"id": 1, "slug": "will-x", "volume": 5000}
+    http = FakeHTTP({"https://gamma-api.polymarket.com/markets": body})
+    env = agent.call_gamma_api(path="/markets", http=http)
+    assert env["data"] == body
+    assert http.calls[0]["url"] == "https://gamma-api.polymarket.com/markets"
+
+
+def test_call_gamma_api_passes_query_params():
+    http = FakeHTTP({"https://gamma-api.polymarket.com/events/my-event": {"id": 9}})
+    env = agent.call_gamma_api(path="/events/my-event", params={"limit": 5}, http=http)
+    assert env["data"]["id"] == 9
+    assert http.calls[0]["params"] == {"limit": 5}
+
+
+def test_call_gamma_api_rejects_disallowed_path():
+    env = agent.call_gamma_api(path="/admin/secret", http=FakeHTTP({}))
+    assert "error" in env
+    assert "not allowed" in env["error"]
+
+
+def test_call_gamma_api_rejects_missing_leading_slash():
+    env = agent.call_gamma_api(path="markets", http=FakeHTTP({}))
+    assert "error" in env
+
+
+def test_call_gamma_api_rejects_external_path_injection():
+    env = agent.call_gamma_api(path="/markets/../admin", http=FakeHTTP({}))
+    assert "error" in env

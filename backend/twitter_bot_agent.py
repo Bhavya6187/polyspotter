@@ -385,3 +385,30 @@ def get_market_volume_history(*, condition_id: str, limit: int = 50, db_conn_sql
         db_conn_sqlite, query, (condition_id, int(limit)),
         keys=["volume_24h", "snapshot_at"],
     )
+
+
+# --- Gamma API generic caller ------------------------------------------------
+
+GAMMA_BASE_URL = "https://gamma-api.polymarket.com"
+GAMMA_PATH_ALLOWLIST = ("/markets", "/events", "/trades")
+
+
+def _gamma_path_allowed(path: str) -> bool:
+    """Allow paths that start with an allowlisted prefix and contain no parent traversals."""
+    if not path.startswith("/"):
+        return False
+    if ".." in path or "//" in path:
+        return False
+    return any(path == prefix or path.startswith(prefix + "/") for prefix in GAMMA_PATH_ALLOWLIST)
+
+
+@_safe_tool
+def call_gamma_api(*, path: str, params: dict | None = None, http) -> Any:
+    """Generic GET against https://gamma-api.polymarket.com with path allowlist.
+
+    Allowed prefixes: /markets, /events, /trades (with arbitrary subpaths).
+    """
+    if not _gamma_path_allowed(path):
+        raise ValueError("path not allowed")
+    url = f"{GAMMA_BASE_URL}{path}"
+    return _http_get_json(url, http=http, params=params or None)
