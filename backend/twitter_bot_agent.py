@@ -412,3 +412,228 @@ def call_gamma_api(*, path: str, params: dict | None = None, http) -> Any:
         raise ValueError("path not allowed")
     url = f"{GAMMA_BASE_URL}{path}"
     return _http_get_json(url, http=http, params=params or None)
+
+
+# --- Tool registry & dispatcher ----------------------------------------------
+
+from dataclasses import dataclass
+
+
+@dataclass
+class ToolDeps:
+    """Bundle of injected dependencies. Pass into the loop and the dispatcher."""
+    http: Any
+    api_url: str | None
+    db_conn_pg: Any
+    db_conn_sqlite: Any
+
+
+# Registry: tool name → (callable, set of dep names it needs)
+_TOOL_REGISTRY: dict[str, tuple[Any, set[str]]] = {
+    "get_wallet_profile": (get_wallet_profile, {"http", "api_url"}),
+    "get_alert_detail": (get_alert_detail, {"http", "api_url"}),
+    "get_market_price_history": (get_market_price_history, {"http", "api_url"}),
+    "get_market_holders": (get_market_holders, {"http", "api_url"}),
+    "get_market_alerts": (get_market_alerts, {"db_conn_pg"}),
+    "get_event_alerts": (get_event_alerts, {"db_conn_pg"}),
+    "get_live_market": (get_live_market, {"http", "api_url"}),
+    "get_theses": (get_theses, {"http", "api_url"}),
+    "search_alerts_by_tag": (search_alerts_by_tag, {"db_conn_pg"}),
+    "get_wallet_pnl_positions": (get_wallet_pnl_positions, {"db_conn_sqlite"}),
+    "get_wallet_timing_pattern": (get_wallet_timing_pattern, {"db_conn_sqlite"}),
+    "get_wallet_event_history": (get_wallet_event_history, {"db_conn_sqlite"}),
+    "get_funder_cluster": (get_funder_cluster, {"db_conn_sqlite"}),
+    "get_orderbook_snapshot": (get_orderbook_snapshot, {"db_conn_sqlite"}),
+    "get_market_volume_history": (get_market_volume_history, {"db_conn_sqlite"}),
+    "call_gamma_api": (call_gamma_api, {"http"}),
+}
+
+
+def _projection_param() -> dict:
+    return {
+        "type": "string",
+        "description": (
+            "Optional JMESPath expression applied to the result before it "
+            "reaches you. Example: 'length(bet_history)'."
+        ),
+    }
+
+
+TOOL_SCHEMAS: list[dict] = [
+    {"type": "function", "function": {
+        "name": "get_wallet_profile",
+        "description": (
+            "Profile + up to 10 recent alerts + up to 20 bet history items for a wallet. "
+            "Example projection: 'length(bet_history)' to count bets only."
+        ),
+        "parameters": {"type": "object", "required": ["wallet"], "properties": {
+            "wallet": {"type": "string"},
+            "projection": _projection_param(),
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "get_alert_detail",
+        "description": "Full trades + signals for a single alert id.",
+        "parameters": {"type": "object", "required": ["alert_id"], "properties": {
+            "alert_id": {"type": "integer"},
+            "projection": _projection_param(),
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "get_market_price_history",
+        "description": "Price candles for a market over the last N hours (default 24).",
+        "parameters": {"type": "object", "required": ["condition_id"], "properties": {
+            "condition_id": {"type": "string"},
+            "hours": {"type": "integer", "default": 24},
+            "projection": _projection_param(),
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "get_market_holders",
+        "description": "Top holders per outcome for a market.",
+        "parameters": {"type": "object", "required": ["condition_id"], "properties": {
+            "condition_id": {"type": "string"},
+            "projection": _projection_param(),
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "get_market_alerts",
+        "description": "Other PolySpotter alerts on the same market, highest score first.",
+        "parameters": {"type": "object", "required": ["condition_id"], "properties": {
+            "condition_id": {"type": "string"},
+            "limit": {"type": "integer", "default": 10},
+            "projection": _projection_param(),
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "get_event_alerts",
+        "description": "Alerts on sibling markets in the same event (e.g., different props on the same game).",
+        "parameters": {"type": "object", "required": ["event_slug"], "properties": {
+            "event_slug": {"type": "string"},
+            "limit": {"type": "integer", "default": 20},
+            "projection": _projection_param(),
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "get_live_market",
+        "description": "Live sports/event state (score, clock, phase) when available.",
+        "parameters": {"type": "object", "required": ["condition_id"], "properties": {
+            "condition_id": {"type": "string"},
+            "projection": _projection_param(),
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "get_theses",
+        "description": (
+            "Cross-market thesis groupings. Provide exactly one of wallet, condition_id, or event_slug."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "wallet": {"type": "string"},
+            "condition_id": {"type": "string"},
+            "event_slug": {"type": "string"},
+            "projection": _projection_param(),
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "search_alerts_by_tag",
+        "description": (
+            "Alerts in the last N hours whose tags array contains the given tag. "
+            "Use for thematic synthesis (e.g., tag='Iran')."
+        ),
+        "parameters": {"type": "object", "required": ["tag"], "properties": {
+            "tag": {"type": "string"},
+            "hours": {"type": "integer", "default": 24},
+            "limit": {"type": "integer", "default": 20},
+            "projection": _projection_param(),
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "get_wallet_pnl_positions",
+        "description": "Per-position detail from polybot.db: outcome, avg_price, cur_price, realized_pnl, position_type.",
+        "parameters": {"type": "object", "required": ["wallet"], "properties": {
+            "wallet": {"type": "string"},
+            "limit": {"type": "integer", "default": 20},
+            "projection": _projection_param(),
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "get_wallet_timing_pattern",
+        "description": "How often this wallet bets near resolution: total_flags, distinct_markets, avg/min minutes.",
+        "parameters": {"type": "object", "required": ["wallet"], "properties": {
+            "wallet": {"type": "string"},
+            "projection": _projection_param(),
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "get_wallet_event_history",
+        "description": "Every trade (flagged or not) this wallet made on a given event.",
+        "parameters": {"type": "object", "required": ["wallet", "event_slug"], "properties": {
+            "wallet": {"type": "string"},
+            "event_slug": {"type": "string"},
+            "projection": _projection_param(),
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "get_funder_cluster",
+        "description": "Wallets sharing a funder (Etherscan-derived) with this one.",
+        "parameters": {"type": "object", "required": ["wallet"], "properties": {
+            "wallet": {"type": "string"},
+            "projection": _projection_param(),
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "get_orderbook_snapshot",
+        "description": "Most recent orderbook snapshot per outcome token (spread, depth, mid price).",
+        "parameters": {"type": "object", "required": ["condition_id"], "properties": {
+            "condition_id": {"type": "string"},
+            "projection": _projection_param(),
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "get_market_volume_history",
+        "description": "Recent 24h-volume snapshots for a market, most recent first.",
+        "parameters": {"type": "object", "required": ["condition_id"], "properties": {
+            "condition_id": {"type": "string"},
+            "limit": {"type": "integer", "default": 50},
+            "projection": _projection_param(),
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "call_gamma_api",
+        "description": (
+            "Generic GET to https://gamma-api.polymarket.com. Allowed path prefixes: "
+            "/markets, /events, /trades. Example: path='/events/my-event'."
+        ),
+        "parameters": {"type": "object", "required": ["path"], "properties": {
+            "path": {"type": "string"},
+            "params": {"type": "object"},
+            "projection": _projection_param(),
+        }},
+    }},
+]
+
+
+def dispatch_tool(name: str, arguments: dict, *, deps: ToolDeps) -> dict:
+    """Look up a tool by name, inject deps, run it, return the envelope."""
+    entry = _TOOL_REGISTRY.get(name)
+    if entry is None:
+        return build_envelope(None, error=f"unknown tool: {name}")
+
+    fn, needed = entry
+    kwargs = dict(arguments) if isinstance(arguments, dict) else {}
+    for dep_name in needed:
+        kwargs[dep_name] = getattr(deps, dep_name)
+    try:
+        return fn(**kwargs)
+    except TypeError as exc:
+        # Wrong argument types / missing required args.
+        return build_envelope(None, error=f"TypeError: {exc}")
+
+
+def dispatch_tool_over_budget(name: str, *, deps: ToolDeps) -> dict:
+    """Return a budget-exhausted error envelope without running the tool.
+
+    Used when a single assistant turn requests more tool calls than the
+    remaining budget: the first N are dispatched normally, the rest get this.
+    """
+    return build_envelope(None, error="tool budget exhausted")

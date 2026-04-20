@@ -563,3 +563,66 @@ def test_call_gamma_api_rejects_missing_leading_slash():
 def test_call_gamma_api_rejects_external_path_injection():
     env = agent.call_gamma_api(path="/markets/../admin", http=FakeHTTP({}))
     assert "error" in env
+
+
+# ------------------------------------------------------------- dispatcher ---
+
+def test_tool_schemas_include_all_16_tools():
+    schemas = agent.TOOL_SCHEMAS
+    names = {s["function"]["name"] for s in schemas}
+    expected = {
+        "get_wallet_profile", "get_alert_detail", "get_market_price_history",
+        "get_market_holders", "get_market_alerts", "get_event_alerts",
+        "get_live_market", "get_theses", "search_alerts_by_tag",
+        "get_wallet_pnl_positions", "get_wallet_timing_pattern",
+        "get_wallet_event_history", "get_funder_cluster",
+        "get_orderbook_snapshot", "get_market_volume_history",
+        "call_gamma_api",
+    }
+    assert names == expected
+
+
+def test_tool_schemas_every_tool_has_projection_param():
+    for s in agent.TOOL_SCHEMAS:
+        params = s["function"]["parameters"]["properties"]
+        assert "projection" in params, f"{s['function']['name']} missing projection"
+
+
+def test_dispatch_calls_tool_with_projection():
+    body = {"wallet": "0xa", "bet_history": [1, 2, 3]}
+    http = FakeHTTP({"https://api.example.test/api/wallets/0xa": body})
+    deps = agent.ToolDeps(
+        http=http, api_url="https://api.example.test",
+        db_conn_pg=None, db_conn_sqlite=None,
+    )
+    env = agent.dispatch_tool(
+        "get_wallet_profile",
+        {"wallet": "0xa", "projection": "length(bet_history)"},
+        deps=deps,
+    )
+    assert env["data"] == 3
+
+
+def test_dispatch_unknown_tool_returns_error():
+    deps = agent.ToolDeps(http=None, api_url=None, db_conn_pg=None, db_conn_sqlite=None)
+    env = agent.dispatch_tool("made_up_tool", {}, deps=deps)
+    assert "error" in env
+    assert "unknown tool" in env["error"].lower()
+
+
+def test_dispatch_bad_arg_types_returns_error():
+    http = FakeHTTP({"https://api.example.test/api/alerts/7": {"id": 7}})
+    deps = agent.ToolDeps(
+        http=http, api_url="https://api.example.test",
+        db_conn_pg=None, db_conn_sqlite=None,
+    )
+    # alert_id must be int — pass dict, triggers a coercion failure downstream.
+    env = agent.dispatch_tool("get_alert_detail", {"alert_id": {"bad": "value"}}, deps=deps)
+    assert "error" in env
+
+
+def test_dispatch_respects_budget_marker():
+    deps = agent.ToolDeps(http=None, api_url=None, db_conn_pg=None, db_conn_sqlite=None)
+    env = agent.dispatch_tool_over_budget("get_wallet_profile", deps=deps)
+    assert "error" in env
+    assert "budget" in env["error"].lower()
