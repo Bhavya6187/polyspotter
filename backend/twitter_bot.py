@@ -480,7 +480,8 @@ def main(
         top_alerts = sorted(after_dedup, key=lambda a: a.get("composite_score", 0), reverse=True)[:20]
         if not top_alerts:
             log_event("no_candidates", run_id=run_id)
-            log_event("run_end", run_id=run_id, posted=False, reason="no_candidates")
+            log_event("run_end", run_id=run_id, posted=False, reason="no_candidates",
+                      stage1_mode=None, stage1_fallback=False)
             return 0
 
         if TWITTER_BOT_DRY_RUN:
@@ -507,7 +508,7 @@ def main(
                     print(f"       → {a['llm_headline']}", flush=True)
             print("", flush=True)
 
-        # 4. LLM (agentic composer).
+        # 4. LLM (two-stage agentic composer).
         from db import get_db as _get_sqlite_db
         try:
             db_conn_sqlite = _get_sqlite_db()
@@ -516,25 +517,31 @@ def main(
             db_conn_sqlite = None
 
         try:
-            decision = call_llm(
+            shortlist_decision, decision = call_llm(
                 top_alerts,
                 llm_client=llm_client,
                 db_conn_pg=db_conn,
                 db_conn_sqlite=db_conn_sqlite,
                 http=http,
+                run_id=run_id,
             )
         except Exception as e:
-            log_event("llm_error", run_id=run_id, error=str(e))
+            log_event("llm_error", run_id=run_id, stage=2, error=str(e))
             return 1
 
         if decision.get("decision") == "skip":
-            log_event("llm_skip", run_id=run_id, reason=decision.get("reason"))
-            log_event("run_end", run_id=run_id, posted=False, reason="llm_skip")
+            stage = 1 if shortlist_decision.decision == "skip" else 2
+            log_event("llm_skip", run_id=run_id, stage=stage, reason=decision.get("reason"))
+            log_event(
+                "run_end", run_id=run_id, posted=False, reason="llm_skip",
+                stage1_mode=shortlist_decision.mode or "skip",
+                stage1_fallback=False,
+            )
             return 0
 
         # 5. Validate.
-        top_alert_ids = {int(a["id"]) for a in top_alerts}
-        ok, err = validate_decision(decision, top_alert_ids)
+        shortlisted_ids = {item.alert_id for item in shortlist_decision.shortlist}
+        ok, err = validate_decision(decision, shortlisted_ids, shortlist_decision.mode)
         if not ok:
             log_event("validation_error", run_id=run_id, error=err, decision=decision)
             return 1
@@ -556,7 +563,9 @@ def main(
 
         # 7. Record (skip in dry run).
         if TWITTER_BOT_DRY_RUN:
-            log_event("run_end", run_id=run_id, posted=True, dry_run=True, tweet_id=tweet_id)
+            log_event("run_end", run_id=run_id, posted=True, dry_run=True, tweet_id=tweet_id,
+                      stage1_mode=shortlist_decision.mode,
+                      stage1_fallback=("fallback" in (shortlist_decision.reason or "")))
             return 0
 
         try:
@@ -564,10 +573,14 @@ def main(
         except Exception as e:
             log_event("record_error", run_id=run_id, error=str(e))
             # Intentionally still success: the tweet is already live.
-            log_event("run_end", run_id=run_id, posted=True, tweet_id=tweet_id, recorded=False)
+            log_event("run_end", run_id=run_id, posted=True, tweet_id=tweet_id, recorded=False,
+                      stage1_mode=shortlist_decision.mode,
+                      stage1_fallback=("fallback" in (shortlist_decision.reason or "")))
             return 0
 
-        log_event("run_end", run_id=run_id, posted=True, tweet_id=tweet_id, recorded=True)
+        log_event("run_end", run_id=run_id, posted=True, tweet_id=tweet_id, recorded=True,
+                  stage1_mode=shortlist_decision.mode,
+                  stage1_fallback=("fallback" in (shortlist_decision.reason or "")))
         return 0
     finally:
         if owns_conn:

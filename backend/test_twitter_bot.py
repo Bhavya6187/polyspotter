@@ -596,13 +596,16 @@ def test_main_runs_full_flow_successfully(monkeypatch):
     }
     http = FakeHTTP(api_body)
 
-    llm = FakeLLMClient([{
-        "decision": "post",
-        "reason": "hot",
-        "alert_ids": [1],
-        "tweet": "Whale dropped $25k. link in bio",
-        "is_composite": False,
-    }])
+    llm = FakeLLMClient([
+        _stage1_shortlist(1, 2),
+        {
+            "decision": "post",
+            "reason": "hot",
+            "alert_ids": [1],
+            "tweet": "Whale dropped $25k. link in bio",
+            "is_composite": False,
+        },
+    ])
 
     twitter = FakeTwitterClient(tweet_id="99")
     conn = RecordingConn()
@@ -639,13 +642,7 @@ def test_main_skips_cleanly_when_llm_says_skip(monkeypatch):
         "total": 1, "page": 1, "per_page": 100,
     }
     http = FakeHTTP(api_body)
-    llm = FakeLLMClient([{
-        "decision": "skip",
-        "reason": "nothing compelling",
-        "alert_ids": None,
-        "tweet": None,
-        "is_composite": False,
-    }])
+    llm = FakeLLMClient([_stage1_skip("nothing compelling")])
     twitter = FakeTwitterClient()
 
     class CombinedCursor(RecordingCursor):
@@ -685,16 +682,20 @@ def test_main_exits_zero_with_no_candidates(monkeypatch):
 def test_main_exits_one_on_validation_error(monkeypatch):
     now = datetime.now(timezone.utc)
     api_body = {
-        "alerts": [_alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat())],
-        "total": 1, "page": 1, "per_page": 100,
+        "alerts": [
+            _alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat()),
+            _alert(id=2, created_at=(now - timedelta(minutes=5)).isoformat()),
+        ],
+        "total": 2, "page": 1, "per_page": 100,
     }
     http = FakeHTTP(api_body)
     # LLM claims alert_id=999 which wasn't in our input. No retry triggers
     # because this isn't a length problem.
-    llm = FakeLLMClient([{
-        "decision": "post", "reason": "x", "alert_ids": [999],
-        "tweet": "ok", "is_composite": False,
-    }])
+    llm = FakeLLMClient([
+        _stage1_shortlist(1, 2),
+        {"decision": "post", "reason": "x", "alert_ids": [999],
+         "tweet": "ok", "is_composite": False},
+    ])
     twitter = FakeTwitterClient()
 
     class CombinedCursor(RecordingCursor):
@@ -713,14 +714,18 @@ def test_main_exits_one_on_validation_error(monkeypatch):
 def test_main_post_error_does_not_write_to_db(monkeypatch):
     now = datetime.now(timezone.utc)
     api_body = {
-        "alerts": [_alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat())],
-        "total": 1, "page": 1, "per_page": 100,
+        "alerts": [
+            _alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat()),
+            _alert(id=2, created_at=(now - timedelta(minutes=5)).isoformat()),
+        ],
+        "total": 2, "page": 1, "per_page": 100,
     }
     http = FakeHTTP(api_body)
-    llm = FakeLLMClient([{
-        "decision": "post", "reason": "x", "alert_ids": [1],
-        "tweet": "ok", "is_composite": False,
-    }])
+    llm = FakeLLMClient([
+        _stage1_shortlist(1, 2),
+        {"decision": "post", "reason": "x", "alert_ids": [1],
+         "tweet": "ok", "is_composite": False},
+    ])
     twitter = FakeTwitterClient(raise_exc=RuntimeError("429 rate limit"))
 
     class CombinedCursor(RecordingCursor):
@@ -741,14 +746,18 @@ def test_main_dry_run_does_not_post_or_record(monkeypatch):
     monkeypatch.setattr(tb, "TWITTER_BOT_DRY_RUN", True)
     now = datetime.now(timezone.utc)
     api_body = {
-        "alerts": [_alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat())],
-        "total": 1, "page": 1, "per_page": 100,
+        "alerts": [
+            _alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat()),
+            _alert(id=2, created_at=(now - timedelta(minutes=5)).isoformat()),
+        ],
+        "total": 2, "page": 1, "per_page": 100,
     }
     http = FakeHTTP(api_body)
-    llm = FakeLLMClient([{
-        "decision": "post", "reason": "x", "alert_ids": [1],
-        "tweet": "hello link in bio", "is_composite": False,
-    }])
+    llm = FakeLLMClient([
+        _stage1_shortlist(1, 2),
+        {"decision": "post", "reason": "x", "alert_ids": [1],
+         "tweet": "hello link in bio", "is_composite": False},
+    ])
     twitter = FakeTwitterClient()
 
     class CombinedCursor(RecordingCursor):
@@ -764,3 +773,101 @@ def test_main_dry_run_does_not_post_or_record(monkeypatch):
     assert twitter.calls == []          # dry run: no real post
     insert_calls = [e for e in conn.cur.executions if "INSERT INTO tweeted_alerts" in e[1]]
     assert insert_calls == []           # dry run: no recording
+
+
+# ------------------------------------------------------------ stage-1 main ----
+
+def test_main_stage1_skip_does_not_call_stage2(monkeypatch):
+    """When stage 1 skips, the LLM is called once and no tweet is posted."""
+    now = datetime.now(timezone.utc)
+    api_body = {
+        "alerts": [_alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat())],
+        "total": 1, "page": 1, "per_page": 100,
+    }
+    http = FakeHTTP(api_body)
+    llm = FakeLLMClient([_stage1_skip("nothing compelling")])
+    twitter = FakeTwitterClient()
+
+    class CombinedCursor(RecordingCursor):
+        def fetchall(self):
+            return []
+
+    conn = RecordingConn()
+    conn.cur = CombinedCursor()
+
+    exit_code = tb.main(http=http, llm_client=llm, twitter_client=twitter, db_conn=conn)
+
+    assert exit_code == 0
+    assert twitter.calls == []
+    assert len(llm.calls) == 1  # only stage 1
+
+
+def test_main_stage1_fallback_logs_and_proceeds(monkeypatch, capsys):
+    """Stage-1 invalid JSON triggers fallback, stage 2 runs, tweet is posted."""
+    now = datetime.now(timezone.utc)
+    api_body = {
+        "alerts": [
+            _alert(id=1, composite_score=10.0,
+                   created_at=(now - timedelta(minutes=5)).isoformat()),
+            _alert(id=2, composite_score=8.0,
+                   created_at=(now - timedelta(minutes=5)).isoformat()),
+        ],
+        "total": 2, "page": 1, "per_page": 100,
+    }
+    http = FakeHTTP(api_body)
+    final = {
+        "decision": "post", "reason": "ok", "alert_ids": [1],
+        "tweet": "fallback worked. link in bio", "is_composite": False,
+    }
+    llm = FakeLLMClient(["{bad json", final])
+    twitter = FakeTwitterClient(tweet_id="42")
+
+    class CombinedCursor(RecordingCursor):
+        def fetchall(self):
+            return []
+
+    conn = RecordingConn()
+    conn.cur = CombinedCursor()
+
+    exit_code = tb.main(http=http, llm_client=llm, twitter_client=twitter, db_conn=conn)
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert twitter.calls == ["fallback worked. link in bio"]
+    # Verify stage1_fallback event was logged.
+    assert "stage1_fallback" in out
+
+
+def test_main_runs_full_two_stage_flow_successfully(monkeypatch):
+    """Stage 1 shortlists 2 alerts, stage 2 posts a single-mode tweet."""
+    now = datetime.now(timezone.utc)
+    api_body = {
+        "alerts": [
+            _alert(id=1, composite_score=9.0,
+                   created_at=(now - timedelta(minutes=10)).isoformat()),
+            _alert(id=2, composite_score=8.0,
+                   created_at=(now - timedelta(minutes=15)).isoformat()),
+        ],
+        "total": 2, "page": 1, "per_page": 100,
+    }
+    http = FakeHTTP(api_body)
+    llm = FakeLLMClient([
+        _stage1_shortlist(1, 2),
+        {"decision": "post", "reason": "hot", "alert_ids": [1],
+         "tweet": "Whale dropped $25k. link in bio", "is_composite": False},
+    ])
+    twitter = FakeTwitterClient(tweet_id="99")
+
+    class CombinedCursor(RecordingCursor):
+        def fetchall(self):
+            return []
+
+    conn = RecordingConn()
+    conn.cur = CombinedCursor()
+
+    exit_code = tb.main(http=http, llm_client=llm, twitter_client=twitter, db_conn=conn)
+
+    assert exit_code == 0
+    assert twitter.calls == ["Whale dropped $25k. link in bio"]
+    insert_calls = [e for e in conn.cur.executions if "INSERT INTO tweeted_alerts" in e[1]]
+    assert len(insert_calls) == 1
