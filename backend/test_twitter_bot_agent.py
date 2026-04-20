@@ -208,3 +208,87 @@ def test_get_live_market_returns_live_data():
     http = FakeHTTP({"https://api.example.test/api/market/0xcond/live": body})
     env = agent.get_live_market(condition_id="0xcond", http=http, api_url="https://api.example.test")
     assert env["data"] == body
+
+
+# --------------------------------------------------------- Postgres fakes ---
+
+class FakePgCursor:
+    """Minimal psycopg2 cursor substitute with canned rows per query pattern."""
+
+    def __init__(self, rows_by_marker):
+        # rows_by_marker: dict mapping a substring marker -> list of RealDict-like rows
+        self._rows_by_marker = rows_by_marker
+        self._rows = []
+        self.last_query = None
+        self.last_params = None
+
+    def execute(self, query, params=None):
+        self.last_query = query
+        self.last_params = params
+        self._rows = []
+        for marker, rows in self._rows_by_marker.items():
+            if marker in query:
+                self._rows = rows
+                return
+        # No marker matched — return empty.
+
+    def fetchall(self):
+        return list(self._rows)
+
+    def close(self):
+        pass
+
+
+class FakePgConn:
+    def __init__(self, cursor):
+        self._cur = cursor
+
+    def cursor(self, cursor_factory=None):
+        return self._cur
+
+    def commit(self):
+        pass
+
+
+# ------------------------------------------------------- get_market_alerts ---
+
+def test_get_market_alerts_returns_rows():
+    rows = [
+        {"id": 1, "composite_score": 12.0, "wallet": "0xa", "total_usd": 10000,
+         "llm_headline": "hd1", "created_at": "2026-04-19T12:00:00Z"},
+        {"id": 2, "composite_score": 11.0, "wallet": "0xb", "total_usd": 8000,
+         "llm_headline": "hd2", "created_at": "2026-04-19T11:00:00Z"},
+    ]
+    cur = FakePgCursor({"FROM alerts WHERE condition_id": rows})
+    conn = FakePgConn(cur)
+    env = agent.get_market_alerts(condition_id="0xcond", limit=10, db_conn_pg=conn)
+    assert len(env["data"]) == 2
+    assert env["data"][0]["id"] == 1
+    assert cur.last_params == ("0xcond", 10)
+
+
+# ------------------------------------------------------- get_event_alerts ---
+
+def test_get_event_alerts_queries_event_slug():
+    rows = [{"id": 7, "composite_score": 15.0, "wallet": "0xz", "total_usd": 20000,
+             "llm_headline": "h", "market_title": "mt", "created_at": "2026-04-19T10:00:00Z"}]
+    cur = FakePgCursor({"FROM alerts WHERE event_slug": rows})
+    conn = FakePgConn(cur)
+    env = agent.get_event_alerts(event_slug="my-event", limit=20, db_conn_pg=conn)
+    assert env["data"][0]["id"] == 7
+    assert cur.last_params == ("my-event", 20)
+
+
+# ---------------------------------------------------- search_alerts_by_tag ---
+
+def test_search_alerts_by_tag_filters_by_tag_and_window():
+    rows = [{"id": 100, "composite_score": 9.0, "wallet": "0x1", "market_title": "x",
+             "total_usd": 5000, "llm_headline": "hh", "created_at": "2026-04-19T08:00:00Z"}]
+    cur = FakePgCursor({"tags::jsonb @>": rows})
+    conn = FakePgConn(cur)
+    env = agent.search_alerts_by_tag(tag="Iran", hours=12, limit=5, db_conn_pg=conn)
+    assert env["data"][0]["id"] == 100
+    # First param is the JSON-encoded tag array.
+    assert cur.last_params[0] == '["Iran"]'
+    assert cur.last_params[1] == 12
+    assert cur.last_params[2] == 5

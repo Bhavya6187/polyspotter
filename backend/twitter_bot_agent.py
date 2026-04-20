@@ -162,3 +162,62 @@ def get_live_market(*, condition_id: str, http, api_url: str) -> Any:
     """Live sports/event state for a market, when available."""
     url = f"{api_url.rstrip('/')}/api/market/{condition_id}/live"
     return _http_get_json(url, http=http)
+
+
+# --- Postgres tools ----------------------------------------------------------
+
+from psycopg2.extras import RealDictCursor
+
+
+def _pg_fetchall(db_conn_pg, query: str, params: tuple) -> list[dict]:
+    """Run a SELECT and return RealDictCursor rows as plain dicts."""
+    cur = db_conn_pg.cursor(cursor_factory=RealDictCursor)
+    try:
+        cur.execute(query, params)
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        cur.close()
+
+
+@_safe_tool
+def get_market_alerts(*, condition_id: str, limit: int = 10, db_conn_pg) -> Any:
+    """Other alerts on the same market (highest composite_score first)."""
+    query = """
+        SELECT id, composite_score, wallet, total_usd, llm_headline, created_at
+        FROM alerts WHERE condition_id = %s
+        ORDER BY composite_score DESC
+        LIMIT %s
+    """
+    return _pg_fetchall(db_conn_pg, query, (condition_id, int(limit)))
+
+
+@_safe_tool
+def get_event_alerts(*, event_slug: str, limit: int = 20, db_conn_pg) -> Any:
+    """Alerts on sibling markets in the same event."""
+    query = """
+        SELECT id, composite_score, wallet, market_title, condition_id,
+               total_usd, llm_headline, created_at
+        FROM alerts WHERE event_slug = %s
+        ORDER BY composite_score DESC
+        LIMIT %s
+    """
+    return _pg_fetchall(db_conn_pg, query, (event_slug, int(limit)))
+
+
+@_safe_tool
+def search_alerts_by_tag(*, tag: str, hours: int = 24, limit: int = 20, db_conn_pg) -> Any:
+    """Alerts from the last N hours whose tags array contains this tag.
+
+    Thematic synthesis, e.g., tag="Iran" → every Iran-tagged alert in the window.
+    """
+    query = """
+        SELECT id, composite_score, wallet, market_title, condition_id,
+               total_usd, llm_headline, created_at
+        FROM alerts
+        WHERE tags::jsonb @> %s::jsonb
+          AND created_at >= NOW() - (%s || ' hours')::interval
+        ORDER BY composite_score DESC
+        LIMIT %s
+    """
+    tag_json = json.dumps([tag])
+    return _pg_fetchall(db_conn_pg, query, (tag_json, int(hours), int(limit)))
