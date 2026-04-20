@@ -138,6 +138,7 @@ def call_llm(
     db_conn_sqlite=None,
     http=None,
     run_id: str | None = None,
+    on_stage1_complete=None,
 ):
     """Orchestrate stage 1 → stage 2 and return (ShortlistDecision, decision_dict).
 
@@ -185,6 +186,9 @@ def call_llm(
         reason=shortlist_decision.reason,
         fallback=fallback,
     )
+
+    if on_stage1_complete is not None:
+        on_stage1_complete(shortlist_decision)
 
     if shortlist_decision.decision == "skip":
         return shortlist_decision, {
@@ -533,6 +537,27 @@ def main(
             log_event("sqlite_open_error", run_id=run_id, error=str(e))
             db_conn_sqlite = None
 
+        def _on_stage1(sd):
+            if not TWITTER_BOT_DRY_RUN:
+                return
+            if sd.decision == "skip":
+                print(f"\n--- Stage 1 skip: {sd.reason} ---", flush=True)
+                return
+            if sd.fallback:
+                print(
+                    f"\n--- Stage 1 fallback: {sd.reason} — using top-{len(sd.shortlist)} by score ---",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"\n--- Stage 1 selection: {sd.mode} ({len(sd.shortlist)} alerts) ---",
+                    flush=True,
+                )
+                print(f"  → reason: {sd.reason}", flush=True)
+            for item in sd.shortlist:
+                print(f"  #{item.alert_id}  {item.angle}", flush=True)
+            print("", flush=True)
+
         try:
             shortlist_decision, decision = call_llm(
                 top_alerts,
@@ -541,6 +566,7 @@ def main(
                 db_conn_sqlite=db_conn_sqlite,
                 http=http,
                 run_id=run_id,
+                on_stage1_complete=_on_stage1,
             )
         except Exception as e:
             log_event("llm_error", run_id=run_id, stage=2, error=str(e))

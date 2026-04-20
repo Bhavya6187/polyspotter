@@ -904,3 +904,66 @@ def test_main_stage1_skip_run_end_has_mode_none(monkeypatch, capsys):
     final = json.loads(run_end_lines[-1])
     assert final.get("stage1_mode") is None
     assert final.get("stage1_fallback") is False
+
+
+# ------------------------------------------------------------ dry-run output --
+
+def test_main_dry_run_prints_stage1_selection_block(monkeypatch, capsys):
+    monkeypatch.setattr(tb, "TWITTER_BOT_DRY_RUN", True)
+    now = datetime.now(timezone.utc)
+    api_body = {
+        "alerts": [
+            _alert(id=1, composite_score=9.0,
+                   created_at=(now - timedelta(minutes=5)).isoformat()),
+            _alert(id=2, composite_score=8.0,
+                   created_at=(now - timedelta(minutes=5)).isoformat()),
+        ],
+        "total": 2, "page": 1, "per_page": 100,
+    }
+    http = FakeHTTP(api_body)
+    llm = FakeLLMClient([
+        _stage1_shortlist(1, 2, mode="single"),
+        {"decision": "post", "reason": "ok", "alert_ids": [1],
+         "tweet": "hello link in bio", "is_composite": False},
+    ])
+    twitter = FakeTwitterClient()
+
+    class CombinedCursor(RecordingCursor):
+        def fetchall(self):
+            return []
+    conn = RecordingConn()
+    conn.cur = CombinedCursor()
+
+    tb.main(http=http, llm_client=llm, twitter_client=twitter, db_conn=conn)
+    out = capsys.readouterr().out
+
+    assert "Stage 1 selection: single (2 alerts)" in out
+    # Each shortlisted alert id appears in the block:
+    assert "#1" in out
+    assert "#2" in out
+    # Angles appear:
+    assert "angle for 1" in out
+
+
+def test_main_dry_run_prints_stage1_skip_block(monkeypatch, capsys):
+    monkeypatch.setattr(tb, "TWITTER_BOT_DRY_RUN", True)
+    now = datetime.now(timezone.utc)
+    api_body = {
+        "alerts": [_alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat())],
+        "total": 1, "page": 1, "per_page": 100,
+    }
+    http = FakeHTTP(api_body)
+    llm = FakeLLMClient([_stage1_skip("nothing compelling")])
+    twitter = FakeTwitterClient()
+
+    class CombinedCursor(RecordingCursor):
+        def fetchall(self):
+            return []
+    conn = RecordingConn()
+    conn.cur = CombinedCursor()
+
+    tb.main(http=http, llm_client=llm, twitter_client=twitter, db_conn=conn)
+    out = capsys.readouterr().out
+
+    assert "Stage 1 skip:" in out
+    assert "nothing compelling" in out
