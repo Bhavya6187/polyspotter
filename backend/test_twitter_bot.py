@@ -339,53 +339,73 @@ def test_call_llm_exercises_tool_calls_through_agent_loop():
 
 def test_validate_decision_accepts_valid_single_post():
     d = {"decision": "post", "alert_ids": [1], "tweet": "ok", "is_composite": False}
-    ok, err = tb.validate_decision(d, top_alert_ids={1, 2, 3})
+    ok, err = tb.validate_decision(d, shortlisted_ids={1, 2}, mode="single")
     assert ok
     assert err == ""
 
 
-def test_validate_decision_accepts_skip():
+def test_validate_decision_accepts_skip_in_either_mode():
     d = {"decision": "skip", "alert_ids": None, "tweet": None, "is_composite": False}
-    ok, _ = tb.validate_decision(d, top_alert_ids={1, 2, 3})
-    assert ok
+    for mode in ("single", "composite"):
+        ok, _ = tb.validate_decision(d, shortlisted_ids={1, 2}, mode=mode)
+        assert ok
 
 
-def test_validate_decision_rejects_alert_id_not_in_input():
+def test_validate_decision_rejects_alert_id_not_in_shortlist():
     d = {"decision": "post", "alert_ids": [99], "tweet": "ok", "is_composite": False}
-    ok, err = tb.validate_decision(d, top_alert_ids={1, 2, 3})
+    ok, err = tb.validate_decision(d, shortlisted_ids={1, 2, 3}, mode="single")
     assert not ok
     assert "99" in err
 
 
 def test_validate_decision_rejects_tweet_over_max_length():
     d = {"decision": "post", "alert_ids": [1], "tweet": "x" * 300, "is_composite": False}
-    ok, err = tb.validate_decision(d, top_alert_ids={1})
+    ok, err = tb.validate_decision(d, shortlisted_ids={1}, mode="single")
     assert not ok
     assert "length" in err.lower()
 
 
 def test_validate_decision_rejects_empty_alert_ids_on_post():
     d = {"decision": "post", "alert_ids": [], "tweet": "ok", "is_composite": False}
-    ok, err = tb.validate_decision(d, top_alert_ids={1})
+    ok, err = tb.validate_decision(d, shortlisted_ids={1}, mode="single")
     assert not ok
 
 
-def test_validate_decision_rejects_non_composite_with_multiple_ids():
+def test_validate_decision_single_mode_rejects_multiple_alert_ids():
     d = {"decision": "post", "alert_ids": [1, 2], "tweet": "ok", "is_composite": False}
-    ok, err = tb.validate_decision(d, top_alert_ids={1, 2})
+    ok, err = tb.validate_decision(d, shortlisted_ids={1, 2}, mode="single")
+    assert not ok
+    assert "single" in err.lower()
+
+
+def test_validate_decision_single_mode_rejects_is_composite_true():
+    d = {"decision": "post", "alert_ids": [1], "tweet": "ok", "is_composite": True}
+    ok, err = tb.validate_decision(d, shortlisted_ids={1, 2}, mode="single")
+    assert not ok
+
+
+def test_validate_decision_composite_mode_accepts_full_shortlist():
+    d = {"decision": "post", "alert_ids": [1, 2, 3], "tweet": "ok", "is_composite": True}
+    ok, err = tb.validate_decision(d, shortlisted_ids={1, 2, 3}, mode="composite")
+    assert ok
+
+
+def test_validate_decision_composite_mode_rejects_partial_shortlist():
+    d = {"decision": "post", "alert_ids": [1, 2], "tweet": "ok", "is_composite": True}
+    ok, err = tb.validate_decision(d, shortlisted_ids={1, 2, 3}, mode="composite")
     assert not ok
     assert "composite" in err.lower()
 
 
-def test_validate_decision_accepts_composite_with_multiple_ids():
-    d = {"decision": "post", "alert_ids": [1, 2], "tweet": "ok", "is_composite": True}
-    ok, err = tb.validate_decision(d, top_alert_ids={1, 2, 3})
-    assert ok
+def test_validate_decision_composite_mode_rejects_is_composite_false():
+    d = {"decision": "post", "alert_ids": [1, 2], "tweet": "ok", "is_composite": False}
+    ok, err = tb.validate_decision(d, shortlisted_ids={1, 2}, mode="composite")
+    assert not ok
 
 
 def test_validate_decision_rejects_unknown_decision_value():
     d = {"decision": "maybe", "alert_ids": [1], "tweet": "ok", "is_composite": False}
-    ok, _ = tb.validate_decision(d, top_alert_ids={1})
+    ok, _ = tb.validate_decision(d, shortlisted_ids={1}, mode="single")
     assert not ok
 
 

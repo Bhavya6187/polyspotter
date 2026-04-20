@@ -219,16 +219,27 @@ def _shorten_tweet(decision: dict, top_alerts: list[dict], *, llm_client) -> dic
 
 # --- Validation --------------------------------------------------------------
 
-def validate_decision(decision: dict, top_alert_ids: set[int]) -> tuple[bool, str]:
-    """Validate the LLM's decision dict. Returns (ok, error_message).
+def validate_decision(
+    decision: dict,
+    shortlisted_ids: set[int],
+    mode: str,
+) -> tuple[bool, str]:
+    """Validate the LLM's stage-2 decision dict. Returns (ok, error_message).
+
+    Args:
+        decision: the dict returned by compose_tweet.
+        shortlisted_ids: the set of alert IDs stage 1 shortlisted (the only
+            valid alert IDs the tweet may reference).
+        mode: "single" or "composite", from the ShortlistDecision.
 
     Rules:
       - decision must be 'post' or 'skip'.
-      - if 'skip', nothing else is checked.
+      - if 'skip', nothing else is checked (mode-agnostic).
       - if 'post':
-          - alert_ids must be a non-empty list of ints all present in top_alert_ids.
+          - alert_ids must be a non-empty list of ints, all ∈ shortlisted_ids.
           - tweet must be a non-empty string with length <= TWEET_MAX_CHARS.
-          - if is_composite is False, alert_ids must have length 1.
+          - mode='single':    len(alert_ids) == 1 AND is_composite is False.
+          - mode='composite': set(alert_ids) == shortlisted_ids AND is_composite is True.
     """
     d = decision.get("decision")
     if d == "skip":
@@ -245,13 +256,27 @@ def validate_decision(decision: dict, top_alert_ids: set[int]) -> tuple[bool, st
     except (TypeError, ValueError):
         return False, f"alert_ids must be integers, got {alert_ids!r}"
 
-    unknown = [i for i in int_ids if i not in top_alert_ids]
+    unknown = [i for i in int_ids if i not in shortlisted_ids]
     if unknown:
-        return False, f"alert_ids contains ids not in input: {unknown}"
+        return False, f"alert_ids contains ids not in shortlist: {unknown}"
 
     is_composite = bool(decision.get("is_composite"))
-    if not is_composite and len(int_ids) != 1:
-        return False, "non-composite tweet must reference exactly one alert_id"
+
+    if mode == "single":
+        if len(int_ids) != 1:
+            return False, f"single-mode tweet must reference exactly one alert_id, got {len(int_ids)}"
+        if is_composite:
+            return False, "single-mode tweet must have is_composite=false"
+    elif mode == "composite":
+        if set(int_ids) != shortlisted_ids:
+            return False, (
+                f"composite-mode tweet must reference all shortlisted ids "
+                f"{sorted(shortlisted_ids)}, got {sorted(int_ids)}"
+            )
+        if not is_composite:
+            return False, "composite-mode tweet must have is_composite=true"
+    else:
+        return False, f"unknown mode: {mode!r}"
 
     tweet = decision.get("tweet") or ""
     if not isinstance(tweet, str) or not tweet.strip():
