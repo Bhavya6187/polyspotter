@@ -999,3 +999,114 @@ def test_validate_shortlist_composite_with_two_items_succeeds():
     }
     result = agent.validate_shortlist_decision(raw, valid_alert_ids={1, 2})
     assert result.mode == "composite"
+
+
+# ============================================================================
+# Stage 1 — select_shortlist
+# ============================================================================
+
+class FakeStage1LLM:
+    """One-shot LLM fake. Returns the scripted content on first .create() call."""
+
+    def __init__(self, response):
+        # response: dict (returned as JSON content) or str (returned raw)
+        self._response = response
+        self.calls = []
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def _create(self, **kwargs):
+        self.calls.append(kwargs)
+        if isinstance(self._response, dict):
+            content = json.dumps(self._response)
+        else:
+            content = self._response
+        msg = SimpleNamespace(content=content, tool_calls=None, role="assistant")
+        return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+
+
+def _stage1_alert(**overrides):
+    """Slim alert dict shaped like what the bot passes into select_shortlist."""
+    base = {
+        "id": 1,
+        "composite_score": 8.0,
+        "llm_headline": "Whale loads X",
+        "llm_summary": "Wallet dropped $25k.",
+        "wallet": "0xa",
+        "win_rate": 0.82,
+        "total_usd": 25000.0,
+        "market_title": "Will X happen?",
+        "tags": ["Politics"],
+        "condition_id": "0xcond",
+        "event_slug": "ev-1",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_select_shortlist_returns_skip_decision():
+    llm = FakeStage1LLM({"decision": "skip", "reason": "nothing compelling"})
+    result = agent.select_shortlist([_stage1_alert(id=1)], llm_client=llm)
+    assert result.decision == "skip"
+    assert result.reason == "nothing compelling"
+
+
+def test_select_shortlist_returns_single_mode_with_angles():
+    llm = FakeStage1LLM({
+        "decision": "shortlist", "reason": "two clear picks", "mode": "single",
+        "shortlist": [
+            {"alert_id": 1, "angle": "20-0 wallet"},
+            {"alert_id": 2, "angle": "new wallet near close"},
+        ],
+    })
+    result = agent.select_shortlist(
+        [_stage1_alert(id=1), _stage1_alert(id=2), _stage1_alert(id=3)],
+        llm_client=llm,
+    )
+    assert result.mode == "single"
+    assert [s.alert_id for s in result.shortlist] == [1, 2]
+    assert result.shortlist[0].angle == "20-0 wallet"
+
+
+def test_select_shortlist_raises_on_invalid_json():
+    llm = FakeStage1LLM("{not valid json")
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.select_shortlist([_stage1_alert(id=1)], llm_client=llm)
+
+
+def test_select_shortlist_raises_on_alert_id_not_in_input():
+    llm = FakeStage1LLM({
+        "decision": "shortlist", "reason": "x", "mode": "single",
+        "shortlist": [
+            {"alert_id": 1, "angle": "a"},
+            {"alert_id": 999, "angle": "b"},
+        ],
+    })
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.select_shortlist([_stage1_alert(id=1), _stage1_alert(id=2)], llm_client=llm)
+
+
+def test_select_shortlist_makes_exactly_one_llm_call_with_json_mode():
+    llm = FakeStage1LLM({"decision": "skip", "reason": "x"})
+    agent.select_shortlist([_stage1_alert(id=1)], llm_client=llm)
+    assert len(llm.calls) == 1
+    call = llm.calls[0]
+    assert call["model"] == agent.MODEL
+    assert call["response_format"] == {"type": "json_object"}
+    assert "tools" not in call  # stage 1 has no tools
+
+
+def test_select_shortlist_user_message_includes_slim_alert_fields():
+    """Stage-1 payload should include enough for editorial judgment, not trade detail."""
+    llm = FakeStage1LLM({"decision": "skip", "reason": "x"})
+    agent.select_shortlist(
+        [_stage1_alert(id=42, market_title="Tigers vs Red Sox", win_rate=0.91)],
+        llm_client=llm,
+    )
+    user_msg = next(m for m in llm.calls[0]["messages"] if m["role"] == "user")
+    # Required fields appear:
+    assert "42" in user_msg["content"]
+    assert "Tigers vs Red Sox" in user_msg["content"]
+    # Bullets / copy_action / market_description NOT included (slim payload):
+    assert "llm_bullets" not in user_msg["content"]
+    assert "llm_copy_action" not in user_msg["content"]
+    assert "market_description" not in user_msg["content"]

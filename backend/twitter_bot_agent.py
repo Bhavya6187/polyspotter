@@ -730,6 +730,100 @@ def dispatch_tool_over_budget(name: str, *, deps: ToolDeps) -> dict:
 
 # --- Prompt + loop -----------------------------------------------------------
 
+STAGE1_SYSTEM_PROMPT = (
+    "You are the editor for the PolySpotter Twitter feed. Each hour you see "
+    "up to 20 candidate alerts (notable Polymarket bets surfaced by our scanner). "
+    "Your job is to pick the 2-4 alerts most likely to make a great tweet — "
+    "OR skip the hour if nothing is compelling.\n\n"
+
+    "## How to choose\n"
+    "- Pick the FEWEST alerts that work: 2 if there's one clear story plus a backup, "
+    "3-4 if you're genuinely torn between several.\n"
+    "- 'Most tweetable' is not the same as 'highest composite_score'. Look for "
+    "specific, surprising, story-rich bets — sharp wallets, big size, unusual "
+    "timing, named themes.\n"
+    "- Skip the hour if every alert feels routine or low-signal.\n\n"
+
+    "## Single vs composite\n"
+    "- mode='single': you want a tweet about ONE alert. Stage 2 will pick the "
+    "strongest from your shortlist; the others are backups in case the first "
+    "doesn't hold up to research.\n"
+    "- mode='composite': the alerts share a tight thread — same wallet across "
+    "markets, same event, shared funder cluster, same theme — and they belong "
+    "in ONE tweet together. Only pick composite if you'd genuinely combine them. "
+    "Never force synthesis.\n\n"
+
+    "## The angle field\n"
+    "For each shortlisted alert, write one short sentence describing the STORY "
+    "you'd want the tweet to tell. Not a recap of the headline — the angle "
+    "(e.g., 'verify this wallet is actually 20-0 and size is 25× their average', "
+    "or '3 wallets sharing a funder all loaded the under in the last 40 min'). "
+    "Stage 2 will use your angle to focus its research tools.\n\n"
+
+    "## Output format (strict JSON)\n"
+    'For shortlist:\n'
+    '{\n'
+    '  "decision": "shortlist",\n'
+    '  "reason": "one short sentence on why these",\n'
+    '  "mode": "single" | "composite",\n'
+    '  "shortlist": [\n'
+    '    {"alert_id": <int>, "angle": "<short story>"},\n'
+    '    ...\n'
+    '  ]\n'
+    '}\n\n'
+    'For skip:\n'
+    '{"decision": "skip", "reason": "one short sentence"}\n\n'
+    "alert_id values must be integers drawn from the alerts you were shown."
+)
+
+
+def build_stage1_user_message(top_alerts: list[dict]) -> str:
+    """Slim payload for stage 1 — fields needed for editorial judgment, no trade detail."""
+    payload = []
+    for a in top_alerts:
+        payload.append({
+            "alert_id": int(a["id"]),
+            "composite_score": a.get("composite_score"),
+            "llm_headline": a.get("llm_headline"),
+            "llm_summary": a.get("llm_summary"),
+            "wallet": a.get("wallet"),
+            "wallet_win_rate": a.get("win_rate"),
+            "total_usd": a.get("total_usd"),
+            "market_title": a.get("market_title"),
+            "tags": a.get("tags") or [],
+            "condition_id": a.get("condition_id"),
+            "event_slug": a.get("event_slug"),
+        })
+    return json.dumps({"alerts": payload}, default=str)
+
+
+def select_shortlist(top_alerts: list[dict], *, llm_client) -> ShortlistDecision:
+    """Run stage 1: LLM picks 2-4 alerts (with mode + angles) or decides to skip.
+
+    Single LLM call, JSON mode, no tools. Raises ShortlistValidationError if the
+    output is malformed; raises any LLM-client exception unchanged. Caller
+    (twitter_bot.call_llm) is responsible for the fallback path.
+    """
+    valid_alert_ids = {int(a["id"]) for a in top_alerts}
+    messages = [
+        {"role": "system", "content": STAGE1_SYSTEM_PROMPT},
+        {"role": "user", "content": build_stage1_user_message(top_alerts)},
+    ]
+    response = llm_client.chat.completions.create(
+        model=MODEL,
+        messages=messages,
+        response_format={"type": "json_object"},
+        temperature=0.7,
+        max_completion_tokens=400,
+    )
+    content = response.choices[0].message.content or ""
+    try:
+        raw = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise ShortlistValidationError(f"non-JSON content: {exc}") from exc
+    return validate_shortlist_decision(raw, valid_alert_ids=valid_alert_ids)
+
+
 MODEL = "gpt-5.4"
 
 
