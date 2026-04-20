@@ -75,3 +75,62 @@ def truncate_payload(data: Any, *, cap_bytes: int = RESPONSE_CAP_BYTES) -> tuple
 
     # Fall-through: dict, scalar, or anything else. Stringify and cut.
     return serialized[: cap_bytes - 1] + "…", True
+
+
+# --- HTTP helper -------------------------------------------------------------
+
+HTTP_TIMEOUT_SECONDS = 5
+
+
+class HTTPToolError(Exception):
+    """Raised for HTTP failures (timeout, non-2xx, bad JSON)."""
+
+
+def _http_get_json(url: str, *, http, params: dict | None = None, timeout: int = HTTP_TIMEOUT_SECONDS) -> Any:
+    """GET a URL and return parsed JSON, or raise HTTPToolError."""
+    try:
+        resp = http.get(url, params=params, timeout=timeout)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as exc:
+        raise HTTPToolError(f"{type(exc).__name__}: {exc}") from exc
+
+
+def _safe_tool(fn):
+    """Wrap a tool so exceptions become error envelopes, and apply projection + truncation.
+
+    The wrapped tool must return raw data (any JSON-serializable value). The
+    decorator applies projection (if `projection` kwarg is set), truncates to
+    8KB, and wraps the result in an envelope. Exceptions surface as error
+    envelopes.
+    """
+    def wrapped(*args, projection: str | None = None, **kwargs):
+        try:
+            raw = fn(*args, **kwargs)
+        except ProjectionError as exc:
+            return build_envelope(None, error=f"projection {exc}")
+        except HTTPToolError as exc:
+            return build_envelope(None, error=f"http: {exc}")
+        except Exception as exc:
+            return build_envelope(None, error=f"{type(exc).__name__}: {exc}")
+
+        try:
+            projected = apply_projection(raw, projection)
+        except ProjectionError as exc:
+            return build_envelope(None, error=f"projection {exc}")
+
+        truncated_value, was_truncated = truncate_payload(projected)
+        return build_envelope(truncated_value, truncated=was_truncated)
+
+    wrapped.__name__ = fn.__name__
+    wrapped.__wrapped__ = fn
+    return wrapped
+
+
+# --- Backend API tools -------------------------------------------------------
+
+@_safe_tool
+def get_wallet_profile(*, wallet: str, http, api_url: str) -> Any:
+    """Profile + recent alerts (≤10) + bet history (≤20) for a wallet."""
+    url = f"{api_url.rstrip('/')}/api/wallets/{wallet}"
+    return _http_get_json(url, http=http)
