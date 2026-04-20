@@ -4,7 +4,7 @@ Hourly Twitter bot for PolySpotter.
 Runs as a standalone script (Railway cron, once per hour at :00):
     python backend/twitter_bot.py
 
-Flow: fetch last-hour alerts → dedup → send top 5 to GPT-5.4 → either post
+Flow: fetch last-hour alerts → dedup → send top 20 to GPT-5.4 → either post
 a tweet via the X API or skip → record to tweeted_alerts.
 
 Design spec: docs/superpowers/specs/2026-04-19-twitter-bot-design.md
@@ -163,7 +163,7 @@ def filter_dedup(candidates: list[dict], db_conn) -> list[dict]:
 
 # --- LLM composition ---------------------------------------------------------
 
-def _build_user_message(top5: list[dict]) -> str:
+def _build_user_message(top_alerts: list[dict]) -> str:
     """Build the JSON payload describing the 5 candidate alerts.
 
     Delegates to twitter_bot_agent.build_user_message so the field list stays
@@ -171,10 +171,10 @@ def _build_user_message(top5: list[dict]) -> str:
     etc. — required for tool calls).
     """
     from twitter_bot_agent import build_user_message
-    return build_user_message(top5)
+    return build_user_message(top_alerts)
 
 
-def call_llm(top5: list[dict], *, llm_client, db_conn_pg=None, db_conn_sqlite=None, http=None) -> dict:
+def call_llm(top_alerts: list[dict], *, llm_client, db_conn_pg=None, db_conn_sqlite=None, http=None) -> dict:
     """Run the agentic composer and handle the 260-char length retry.
 
     Delegates composition to twitter_bot_agent.compose_tweet (which runs the
@@ -191,22 +191,36 @@ def call_llm(top5: list[dict], *, llm_client, db_conn_pg=None, db_conn_sqlite=No
         db_conn_sqlite=db_conn_sqlite,
     )
 
-    decision = compose_tweet(top5, llm_client=llm_client, deps=deps)
+    def _on_tool_call(name: str, args: dict, envelope: dict) -> None:
+        log_event(
+            "tool_call",
+            name=name,
+            args=args,
+            error=envelope.get("error"),
+            truncated=envelope.get("truncated", False),
+        )
+
+    decision = compose_tweet(
+        top_alerts,
+        llm_client=llm_client,
+        deps=deps,
+        on_tool_call=_on_tool_call,
+    )
 
     tweet = decision.get("tweet") or ""
     if decision.get("decision") == "post" and len(tweet) > TWEET_MAX_CHARS:
-        decision = _shorten_tweet(decision, top5, llm_client=llm_client)
+        decision = _shorten_tweet(decision, top_alerts, llm_client=llm_client)
 
     return decision
 
 
-def _shorten_tweet(decision: dict, top5: list[dict], *, llm_client) -> dict:
+def _shorten_tweet(decision: dict, top_alerts: list[dict], *, llm_client) -> dict:
     """One-shot non-agentic call to shorten an over-length tweet."""
     from twitter_bot_agent import SYSTEM_PROMPT, build_user_message
     original = decision.get("tweet") or ""
     retry_messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": build_user_message(top5)},
+        {"role": "user", "content": build_user_message(top_alerts)},
         {"role": "assistant", "content": json.dumps(decision)},
         {"role": "user", "content": (
             f"Your tweet was {len(original)} characters, must be ≤{TWEET_MAX_CHARS}. "
@@ -227,14 +241,14 @@ def _shorten_tweet(decision: dict, top5: list[dict], *, llm_client) -> dict:
 
 # --- Validation --------------------------------------------------------------
 
-def validate_decision(decision: dict, top5_ids: set[int]) -> tuple[bool, str]:
+def validate_decision(decision: dict, top_alert_ids: set[int]) -> tuple[bool, str]:
     """Validate the LLM's decision dict. Returns (ok, error_message).
 
     Rules:
       - decision must be 'post' or 'skip'.
       - if 'skip', nothing else is checked.
       - if 'post':
-          - alert_ids must be a non-empty list of ints all present in top5_ids.
+          - alert_ids must be a non-empty list of ints all present in top_alert_ids.
           - tweet must be a non-empty string with length <= TWEET_MAX_CHARS.
           - if is_composite is False, alert_ids must have length 1.
     """
@@ -253,7 +267,7 @@ def validate_decision(decision: dict, top5_ids: set[int]) -> tuple[bool, str]:
     except (TypeError, ValueError):
         return False, f"alert_ids must be integers, got {alert_ids!r}"
 
-    unknown = [i for i in int_ids if i not in top5_ids]
+    unknown = [i for i in int_ids if i not in top_alert_ids]
     if unknown:
         return False, f"alert_ids contains ids not in input: {unknown}"
 
@@ -395,15 +409,15 @@ def main(
         log_event("after_dedup", run_id=run_id, count=len(after_dedup))
 
         # 3. Top 5 by composite_score.
-        top5 = sorted(after_dedup, key=lambda a: a.get("composite_score", 0), reverse=True)[:5]
-        if not top5:
+        top_alerts = sorted(after_dedup, key=lambda a: a.get("composite_score", 0), reverse=True)[:20]
+        if not top_alerts:
             log_event("no_candidates", run_id=run_id)
             log_event("run_end", run_id=run_id, posted=False, reason="no_candidates")
             return 0
 
         if TWITTER_BOT_DRY_RUN:
             log_event(
-                "dry_run_top5",
+                "dry_run_top_alerts",
                 run_id=run_id,
                 alerts=[
                     {
@@ -415,7 +429,7 @@ def main(
                         "total_usd": a.get("total_usd"),
                         "llm_headline": a.get("llm_headline"),
                     }
-                    for a in top5
+                    for a in top_alerts
                 ],
             )
 
@@ -429,7 +443,7 @@ def main(
 
         try:
             decision = call_llm(
-                top5,
+                top_alerts,
                 llm_client=llm_client,
                 db_conn_pg=db_conn,
                 db_conn_sqlite=db_conn_sqlite,
@@ -445,15 +459,15 @@ def main(
             return 0
 
         # 5. Validate.
-        top5_ids = {int(a["id"]) for a in top5}
-        ok, err = validate_decision(decision, top5_ids)
+        top_alert_ids = {int(a["id"]) for a in top_alerts}
+        ok, err = validate_decision(decision, top_alert_ids)
         if not ok:
             log_event("validation_error", run_id=run_id, error=err, decision=decision)
             return 1
 
         # 6. Post.
         picked_ids = [int(i) for i in decision["alert_ids"]]
-        picked_alerts = [a for a in top5 if int(a["id"]) in picked_ids]
+        picked_alerts = [a for a in top_alerts if int(a["id"]) in picked_ids]
         tweet_text = decision["tweet"]
         try:
             tweet_id = post_tweet(tweet_text, twitter_client=twitter_client, dry_run=TWITTER_BOT_DRY_RUN)
@@ -463,6 +477,8 @@ def main(
 
         log_event("posted", run_id=run_id, tweet_id=tweet_id, alert_ids=picked_ids,
                   is_composite=bool(decision.get("is_composite")))
+
+        print(f"\n--- Final tweet ({len(tweet_text)} chars) ---\n{tweet_text}\n", flush=True)
 
         # 7. Record (skip in dry run).
         if TWITTER_BOT_DRY_RUN:

@@ -1,7 +1,7 @@
 """
 Agentic composer for backend/twitter_bot.py.
 
-The bot hands this module the top 5 recent alerts. compose_tweet() drives a
+The bot hands this module the top 20 recent alerts. compose_tweet() drives a
 GPT-5.4 function-calling loop with up to 5 tool calls, then returns the same
 decision dict the bot expects (post/skip, alert_ids, tweet, is_composite).
 
@@ -648,7 +648,7 @@ SYSTEM_PROMPT = (
     "You are the social media voice for PolySpotter, a service that surfaces "
     "notable Polymarket bets from sharp wallets, whales, and coordinated flow.\n\n"
 
-    "You'll be given up to 5 alerts from the last hour. Your job: write ONE "
+    "You'll be given up to 20 alerts from the last hour. Your job: write ONE "
     "tweet that's as engaging as possible — drawing on one OR multiple alerts "
     "— or skip the hour if nothing is compelling.\n\n"
 
@@ -708,14 +708,14 @@ SYSTEM_PROMPT = (
 )
 
 
-def build_user_message(top5: list[dict]) -> str:
+def build_user_message(top_alerts: list[dict]) -> str:
     """Build the JSON payload describing the 5 candidate alerts.
 
     Includes every field an investigative composer needs to call deeper tools:
     condition_id, event_slug, end_date, market_description, llm_bullets.
     """
     payload = []
-    for a in top5:
+    for a in top_alerts:
         payload.append({
             "alert_id": int(a["id"]),
             "composite_score": a.get("composite_score"),
@@ -738,15 +738,25 @@ def build_user_message(top5: list[dict]) -> str:
     return json.dumps({"alerts": payload}, default=str)
 
 
-def compose_tweet(top5: list[dict], *, llm_client, deps: ToolDeps) -> dict:
+def compose_tweet(
+    top_alerts: list[dict],
+    *,
+    llm_client,
+    deps: ToolDeps,
+    on_tool_call=None,
+) -> dict:
     """Run the function-calling loop and return the final decision dict.
+
+    If `on_tool_call` is provided, it's invoked as `on_tool_call(name, args, envelope)`
+    after each tool dispatch (including budget-exhausted ones), giving callers a
+    streaming view of what the agent did.
 
     Raises AgentOutputError if the model fails to emit a valid final JSON
     response within MAX_ITERATIONS.
     """
     messages: list[dict] = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": build_user_message(top5)},
+        {"role": "user", "content": build_user_message(top_alerts)},
     ]
     tool_calls_used = 0
     forcing_final = False
@@ -776,13 +786,15 @@ def compose_tweet(top5: list[dict], *, llm_client, deps: ToolDeps) -> dict:
             messages.append(_assistant_tool_message(msg))
             dispatched = 0
             for call in tool_calls:
+                args = json.loads(call.function.arguments or "{}")
                 if not forcing_final and dispatched < remaining:
-                    args = json.loads(call.function.arguments or "{}")
                     env = dispatch_tool(call.function.name, args, deps=deps)
                     dispatched += 1
                 else:
                     # Either forcing_final, or this turn exceeds remaining budget.
                     env = dispatch_tool_over_budget(call.function.name, deps=deps)
+                if on_tool_call is not None:
+                    on_tool_call(call.function.name, args, env)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": call.id,

@@ -18,10 +18,9 @@ An autonomous bot that runs hourly, reviews recent PolySpotter alerts, and posts
 
 ### Deployment
 
-- Runs as a second Railway service on the existing `polybot` repo.
-- Start command: `python backend/twitter_bot.py`.
-- Cron schedule: `0 * * * *` (top of every hour).
-- Reuses the existing Postgres database (`DATABASE_URL`) and Azure OpenAI credentials already configured for the main backend.
+- Runs on the local scanner machine as an hourly cron (`0 * * * *`) invoking `python backend/twitter_bot.py`.
+- Connects to the hosted Railway Postgres via `DATABASE_URL` from `.env`, and reuses the same Azure OpenAI credentials configured for the main backend.
+- Co-located with the scanner so it has direct access to `polybot.db` (SQLite) for agentic research tools.
 
 ### File layout
 
@@ -38,7 +37,7 @@ Module functions accept injectable dependencies (e.g., `llm_client`, `twitter_cl
 
 ### Environment variables
 
-Already in `.env` locally; must also be set in the Railway bot service:
+Loaded from `.env` on the local machine:
 
 | Var | Purpose |
 |---|---|
@@ -175,7 +174,7 @@ Matches user choice **7b=A** (log and skip the hour, no retries), with the one t
 
 ## Logging
 
-Structured single-line JSON to stdout (Railway captures stdout). Every run emits:
+Structured single-line JSON to stdout (captured by the local cron's log redirection). Every run emits:
 
 - One `run_start` line with run id and timestamp.
 - One `run_end` line with counts: `candidates_fetched`, `after_dedup`, `llm_decision`, `posted` (bool), `tweet_id` (if posted).

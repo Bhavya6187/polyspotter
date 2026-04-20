@@ -268,9 +268,9 @@ def test_call_llm_returns_skip_decision_cleanly():
         "is_composite": False,
     }
     client = FakeLLMClient([response])
-    top5 = [_alert(id=1)]
+    top_alerts = [_alert(id=1)]
 
-    result = tb.call_llm(top5, llm_client=client)
+    result = tb.call_llm(top_alerts, llm_client=client)
 
     assert result["decision"] == "skip"
     assert len(client.calls) == 1
@@ -285,9 +285,9 @@ def test_call_llm_returns_valid_post_decision_first_try():
         "is_composite": False,
     }
     client = FakeLLMClient([response])
-    top5 = [_alert(id=1)]
+    top_alerts = [_alert(id=1)]
 
-    result = tb.call_llm(top5, llm_client=client)
+    result = tb.call_llm(top_alerts, llm_client=client)
 
     assert result["tweet"] == "Short tweet. link in bio."
     assert len(client.calls) == 1
@@ -299,9 +299,9 @@ def test_call_llm_retries_once_on_length_overshoot_and_succeeds():
     first = {"decision": "post", "reason": "ok", "alert_ids": [1], "tweet": long_tweet, "is_composite": False}
     second = {"decision": "post", "reason": "shorter", "alert_ids": [1], "tweet": retry_tweet, "is_composite": False}
     client = FakeLLMClient([first, second])
-    top5 = [_alert(id=1)]
+    top_alerts = [_alert(id=1)]
 
-    result = tb.call_llm(top5, llm_client=client)
+    result = tb.call_llm(top_alerts, llm_client=client)
 
     assert result["tweet"] == retry_tweet
     assert len(client.calls) == 2
@@ -360,53 +360,53 @@ def test_call_llm_exercises_tool_calls_through_agent_loop():
 
 def test_validate_decision_accepts_valid_single_post():
     d = {"decision": "post", "alert_ids": [1], "tweet": "ok", "is_composite": False}
-    ok, err = tb.validate_decision(d, top5_ids={1, 2, 3})
+    ok, err = tb.validate_decision(d, top_alert_ids={1, 2, 3})
     assert ok
     assert err == ""
 
 
 def test_validate_decision_accepts_skip():
     d = {"decision": "skip", "alert_ids": None, "tweet": None, "is_composite": False}
-    ok, _ = tb.validate_decision(d, top5_ids={1, 2, 3})
+    ok, _ = tb.validate_decision(d, top_alert_ids={1, 2, 3})
     assert ok
 
 
 def test_validate_decision_rejects_alert_id_not_in_input():
     d = {"decision": "post", "alert_ids": [99], "tweet": "ok", "is_composite": False}
-    ok, err = tb.validate_decision(d, top5_ids={1, 2, 3})
+    ok, err = tb.validate_decision(d, top_alert_ids={1, 2, 3})
     assert not ok
     assert "99" in err
 
 
 def test_validate_decision_rejects_tweet_over_max_length():
     d = {"decision": "post", "alert_ids": [1], "tweet": "x" * 300, "is_composite": False}
-    ok, err = tb.validate_decision(d, top5_ids={1})
+    ok, err = tb.validate_decision(d, top_alert_ids={1})
     assert not ok
     assert "length" in err.lower()
 
 
 def test_validate_decision_rejects_empty_alert_ids_on_post():
     d = {"decision": "post", "alert_ids": [], "tweet": "ok", "is_composite": False}
-    ok, err = tb.validate_decision(d, top5_ids={1})
+    ok, err = tb.validate_decision(d, top_alert_ids={1})
     assert not ok
 
 
 def test_validate_decision_rejects_non_composite_with_multiple_ids():
     d = {"decision": "post", "alert_ids": [1, 2], "tweet": "ok", "is_composite": False}
-    ok, err = tb.validate_decision(d, top5_ids={1, 2})
+    ok, err = tb.validate_decision(d, top_alert_ids={1, 2})
     assert not ok
     assert "composite" in err.lower()
 
 
 def test_validate_decision_accepts_composite_with_multiple_ids():
     d = {"decision": "post", "alert_ids": [1, 2], "tweet": "ok", "is_composite": True}
-    ok, err = tb.validate_decision(d, top5_ids={1, 2, 3})
+    ok, err = tb.validate_decision(d, top_alert_ids={1, 2, 3})
     assert ok
 
 
 def test_validate_decision_rejects_unknown_decision_value():
     d = {"decision": "maybe", "alert_ids": [1], "tweet": "ok", "is_composite": False}
-    ok, _ = tb.validate_decision(d, top5_ids={1})
+    ok, _ = tb.validate_decision(d, top_alert_ids={1})
     assert not ok
 
 

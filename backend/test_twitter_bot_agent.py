@@ -801,6 +801,35 @@ def test_compose_tweet_raises_on_malformed_final_json():
         agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps)
 
 
+def test_compose_tweet_invokes_on_tool_call_callback_per_dispatch():
+    """Callback fires once per tool call with name, args, and envelope."""
+    body = {"wallet": "0xa", "wins": 7}
+    http = FakeHTTP({"https://api.example.test/api/wallets/0xa": body})
+    final = {
+        "decision": "post", "reason": "ok",
+        "alert_ids": [1], "tweet": "7 wins.", "is_composite": False,
+    }
+    llm = FakeLLMWithTools([
+        [("get_wallet_profile", {"wallet": "0xa"})],
+        final,
+    ])
+    deps = agent.ToolDeps(http=http, api_url="https://api.example.test",
+                          db_conn_pg=None, db_conn_sqlite=None)
+
+    seen = []
+    def cb(name, args, envelope):
+        seen.append((name, args, envelope))
+
+    agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps, on_tool_call=cb)
+
+    assert len(seen) == 1
+    name, args, envelope = seen[0]
+    assert name == "get_wallet_profile"
+    assert args == {"wallet": "0xa"}
+    assert envelope.get("error") is None
+    assert envelope["data"]["wins"] == 7
+
+
 def test_compose_tweet_user_message_includes_condition_id_and_event_slug():
     """Without these fields, tools can't be called. Verify they're in the prompt."""
     llm = FakeLLMWithTools([{
