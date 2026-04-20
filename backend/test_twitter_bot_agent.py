@@ -626,3 +626,203 @@ def test_dispatch_respects_budget_marker():
     env = agent.dispatch_tool_over_budget("get_wallet_profile", deps=deps)
     assert "error" in env
     assert "budget" in env["error"].lower()
+
+
+# ----------------------------------------------------------- compose_tweet ---
+
+class FakeLLMWithTools:
+    """LLM fake that emits either tool_calls or a final content per scripted step.
+
+    `script` is a list of either:
+      - list of (tool_name, arguments_dict) — the model requests those tool calls
+      - dict — final JSON decision (returned as message.content)
+    """
+
+    def __init__(self, script):
+        self._script = list(script)
+        self.call_log = []  # List of dicts mirroring create() kwargs (minus messages)
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def _create(self, **kwargs):
+        self.call_log.append({k: v for k, v in kwargs.items() if k != "messages"})
+        if not self._script:
+            raise RuntimeError("FakeLLMWithTools script exhausted")
+        step = self._script.pop(0)
+
+        if isinstance(step, dict):
+            # Final JSON content response, no tool calls.
+            msg = SimpleNamespace(
+                content=json.dumps(step),
+                tool_calls=None,
+                role="assistant",
+            )
+            return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+
+        if isinstance(step, str):
+            # Raw string content (for malformed JSON tests).
+            msg = SimpleNamespace(
+                content=step,
+                tool_calls=None,
+                role="assistant",
+            )
+            return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+
+        # Tool-call step.
+        tc = []
+        for i, (name, args) in enumerate(step):
+            tc.append(SimpleNamespace(
+                id=f"call_{len(self.call_log)}_{i}",
+                type="function",
+                function=SimpleNamespace(name=name, arguments=json.dumps(args)),
+            ))
+        msg = SimpleNamespace(content=None, tool_calls=tc, role="assistant")
+        return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+
+
+def _alert(**overrides):
+    base = {
+        "id": 1,
+        "composite_score": 8.0,
+        "market_title": "Will X?",
+        "condition_id": "0xcond",
+        "event_slug": "ev",
+        "wallet": "0xa",
+        "total_usd": 25000,
+        "trade_count": 2,
+        "llm_headline": "Whale X",
+        "llm_summary": "Wallet dropped $25k.",
+        "win_rate": 0.82,
+        "total_pnl": 340000,
+        "tags": ["Politics"],
+        "end_date": "2026-04-20T00:00:00Z",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_compose_tweet_zero_tool_calls_returns_decision():
+    final = {
+        "decision": "post", "reason": "strong alert",
+        "alert_ids": [1], "tweet": "Short tweet. link in bio",
+        "is_composite": False,
+    }
+    llm = FakeLLMWithTools([final])
+    deps = agent.ToolDeps(http=None, api_url=None, db_conn_pg=None, db_conn_sqlite=None)
+
+    result = agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps)
+
+    assert result["decision"] == "post"
+    assert result["tweet"] == "Short tweet. link in bio"
+
+
+def test_compose_tweet_uses_tool_result_then_composes():
+    body = {"wallet": "0xa", "wins": 12}
+    http = FakeHTTP({"https://api.example.test/api/wallets/0xa": body})
+    final = {
+        "decision": "post", "reason": "ok",
+        "alert_ids": [1], "tweet": "12 wins.",
+        "is_composite": False,
+    }
+    llm = FakeLLMWithTools([
+        [("get_wallet_profile", {"wallet": "0xa"})],
+        final,
+    ])
+    deps = agent.ToolDeps(http=http, api_url="https://api.example.test",
+                          db_conn_pg=None, db_conn_sqlite=None)
+
+    result = agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps)
+
+    assert result["decision"] == "post"
+    assert http.calls[0]["url"] == "https://api.example.test/api/wallets/0xa"
+
+
+def test_compose_tweet_exhausts_budget_forcing_final_json():
+    body = {"wallet": "0xa"}
+    http = FakeHTTP({"https://api.example.test/api/wallets/0xa": body})
+    # Script: 5 single-tool rounds, then a 6th attempt that we'll force into JSON.
+    rounds = [[("get_wallet_profile", {"wallet": "0xa"})] for _ in range(5)]
+    rounds.append([("get_wallet_profile", {"wallet": "0xa"})])  # 6th attempt
+    final = {
+        "decision": "skip", "reason": "exhausted",
+        "alert_ids": None, "tweet": None, "is_composite": False,
+    }
+    rounds.append(final)
+    llm = FakeLLMWithTools(rounds)
+    deps = agent.ToolDeps(http=http, api_url="https://api.example.test",
+                          db_conn_pg=None, db_conn_sqlite=None)
+
+    result = agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps)
+
+    assert result["decision"] == "skip"
+    # 6th call should have tool_choice='none' (forcing final JSON).
+    last_call = llm.call_log[-1]
+    assert last_call.get("tool_choice") == "none"
+
+
+def test_compose_tweet_single_turn_over_budget_truncates_dispatched():
+    """If model asks for 6 tools in one turn at budget 0, we dispatch 5 and error the 6th."""
+    body = {"wallet": "0xa"}
+    http = FakeHTTP({"https://api.example.test/api/wallets/0xa": body})
+    calls_in_one_turn = [("get_wallet_profile", {"wallet": "0xa"}) for _ in range(6)]
+    final = {
+        "decision": "skip", "reason": "x", "alert_ids": None,
+        "tweet": None, "is_composite": False,
+    }
+    llm = FakeLLMWithTools([calls_in_one_turn, final])
+    deps = agent.ToolDeps(http=http, api_url="https://api.example.test",
+                          db_conn_pg=None, db_conn_sqlite=None)
+
+    result = agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps)
+
+    assert result["decision"] == "skip"
+    # HTTP called exactly 5 times (first 5 dispatched, 6th got budget error).
+    assert len(http.calls) == 5
+
+
+def test_compose_tweet_raises_on_max_iterations_without_final_json():
+    """A misbehaving model that never emits content triggers AgentOutputError."""
+    body = {"wallet": "0xa"}
+    http = FakeHTTP({"https://api.example.test/api/wallets/0xa": body})
+    # Feed endless tool-call rounds.
+    script = [[("get_wallet_profile", {"wallet": "0xa"})] for _ in range(20)]
+    llm = FakeLLMWithTools(script)
+    deps = agent.ToolDeps(http=http, api_url="https://api.example.test",
+                          db_conn_pg=None, db_conn_sqlite=None)
+
+    with pytest.raises(agent.AgentOutputError):
+        agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps)
+
+
+def test_compose_tweet_raises_on_malformed_final_json():
+    bad = "{not valid json"
+    llm = FakeLLMWithTools([bad])
+    deps = agent.ToolDeps(http=None, api_url=None, db_conn_pg=None, db_conn_sqlite=None)
+    with pytest.raises(agent.AgentOutputError):
+        agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps)
+
+
+def test_compose_tweet_user_message_includes_condition_id_and_event_slug():
+    """Without these fields, tools can't be called. Verify they're in the prompt."""
+    llm = FakeLLMWithTools([{
+        "decision": "skip", "reason": "x", "alert_ids": None,
+        "tweet": None, "is_composite": False,
+    }])
+    deps = agent.ToolDeps(http=None, api_url=None, db_conn_pg=None, db_conn_sqlite=None)
+
+    # We don't directly inspect messages in the fake — instead, capture via a
+    # subclass that records the messages list.
+    captured = {}
+    orig_create = llm.chat.completions.create
+    def wrapped(**kwargs):
+        captured["messages"] = kwargs.get("messages")
+        return orig_create(**kwargs)
+    llm.chat.completions.create = wrapped
+
+    agent.compose_tweet(
+        [_alert(id=1, condition_id="0xcond", event_slug="my-ev")],
+        llm_client=llm, deps=deps,
+    )
+
+    user_msg = next(m for m in captured["messages"] if m["role"] == "user")
+    assert "0xcond" in user_msg["content"]
+    assert "my-ev" in user_msg["content"]

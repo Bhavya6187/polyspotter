@@ -637,3 +637,193 @@ def dispatch_tool_over_budget(name: str, *, deps: ToolDeps) -> dict:
     remaining budget: the first N are dispatched normally, the rest get this.
     """
     return build_envelope(None, error="tool budget exhausted")
+
+
+# --- Prompt + loop -----------------------------------------------------------
+
+MODEL = "gpt-5.4"
+
+
+SYSTEM_PROMPT = (
+    "You are the social media voice for PolySpotter, a service that surfaces "
+    "notable Polymarket bets from sharp wallets, whales, and coordinated flow.\n\n"
+
+    "You'll be given up to 5 alerts from the last hour. Your job: write ONE "
+    "tweet that's as engaging as possible — drawing on one OR multiple alerts "
+    "— or skip the hour if nothing is compelling.\n\n"
+
+    "## You have research tools\n"
+    "You can call up to 5 tools before writing the tweet. Use them when "
+    "digging deeper would sharpen the story. A good tweet cites a SPECIFIC "
+    "fact the alert payload doesn't already contain (e.g., 'bought the Under "
+    "at 0.35 — market now at 0.62', 'this wallet has late-timed 17 markets "
+    "in 3 weeks', 'volume 12x'd in the last 4 hours'). You don't have to use "
+    "all 5. Zero calls is fine if the alerts already tell a tight story.\n\n"
+
+    "## JMESPath projection\n"
+    "Every tool accepts an optional `projection` string (a JMESPath expression). "
+    "Use it to pull narrow values without loading large blobs into context. "
+    "Examples:\n"
+    "  - `length(bet_history)` — just a count\n"
+    "  - `{win_rate: win_rate, total_pnl: total_pnl}` — pick fields\n"
+    "  - `bet_history[?won==`true`].pnl_usd` — filtered list\n"
+    "  - `avg(bet_history[?won==`true`].entry_price)` — computed aggregate\n"
+    "Bad projections return `{\"error\": \"projection failed: ...\"}` and still "
+    "cost a tool call. If you want to explore a tool's shape, call it once "
+    "without projection to see the raw (8KB-capped) response.\n\n"
+
+    "## Single vs composite\n"
+    "- If one alert clearly stands out, write a tight hook-driven tweet focused on it.\n"
+    "- If 2+ alerts tell a bigger story together (same market, same wallet across "
+    "markets, a theme like '3 whales all loaded up on Iran markets today'), "
+    "compose a synthesis tweet.\n"
+    "- Never force synthesis. If alerts are unrelated, just pick the best one.\n\n"
+
+    "## Tweet rules\n"
+    "- Max 260 characters (safety margin under X's 280 limit).\n"
+    "- Hook-driven opening: lead with the most striking fact.\n"
+    "- Use specific numbers, not vague descriptors.\n"
+    "- End with a CTA driving clicks to bio: '→ link in bio', "
+    "'full details in bio 👀', 'who is this wallet? bio link'.\n"
+    "- 1–2 relevant hashtags max. Prefer topic-specific over generic #Polymarket.\n"
+    "- 0–2 emojis, only if they add something.\n"
+    "- No URLs. No @mentions.\n"
+    "- Never fabricate numbers or facts. Only cite values from the alert payload "
+    "or from tool responses in this conversation.\n"
+    "- Write like a sharp trading desk analyst, not a corporate account.\n\n"
+
+    "## Skip criteria\n"
+    "If all alerts are routine/low-signal, return decision=skip with a short reason.\n\n"
+
+    "## Output format (strict JSON, returned as your final assistant content)\n"
+    '{\n'
+    '  "decision": "post" | "skip",\n'
+    '  "reason": "short string",\n'
+    '  "alert_ids": [<int>, ...] | null,\n'
+    '  "tweet": "<string ≤260 chars | null>",\n'
+    '  "is_composite": true | false\n'
+    '}\n'
+    "alert_ids must be integers taken from the alerts you were shown. "
+    "If is_composite=false, alert_ids must contain exactly one id."
+)
+
+
+def build_user_message(top5: list[dict]) -> str:
+    """Build the JSON payload describing the 5 candidate alerts.
+
+    Includes every field an investigative composer needs to call deeper tools:
+    condition_id, event_slug, end_date, market_description, llm_bullets.
+    """
+    payload = []
+    for a in top5:
+        payload.append({
+            "alert_id": int(a["id"]),
+            "composite_score": a.get("composite_score"),
+            "llm_headline": a.get("llm_headline"),
+            "llm_summary": a.get("llm_summary"),
+            "llm_bullets": a.get("llm_bullets") or [],
+            "llm_copy_action": a.get("llm_copy_action") or {},
+            "market_title": a.get("market_title"),
+            "market_description": a.get("market_description"),
+            "condition_id": a.get("condition_id"),
+            "event_slug": a.get("event_slug"),
+            "wallet": a.get("wallet"),
+            "wallet_win_rate": a.get("win_rate"),
+            "wallet_total_pnl": a.get("total_pnl"),
+            "total_usd": a.get("total_usd"),
+            "trade_count": a.get("trade_count"),
+            "tags": a.get("tags") or [],
+            "end_date": a.get("end_date"),
+        })
+    return json.dumps({"alerts": payload}, default=str)
+
+
+def compose_tweet(top5: list[dict], *, llm_client, deps: ToolDeps) -> dict:
+    """Run the function-calling loop and return the final decision dict.
+
+    Raises AgentOutputError if the model fails to emit a valid final JSON
+    response within MAX_ITERATIONS.
+    """
+    messages: list[dict] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": build_user_message(top5)},
+    ]
+    tool_calls_used = 0
+    forcing_final = False
+
+    for _ in range(MAX_ITERATIONS):
+        remaining = MAX_TOOL_CALLS - tool_calls_used
+        call_kwargs = {
+            "model": MODEL,
+            "messages": messages,
+            "tools": TOOL_SCHEMAS,
+            "temperature": 0.7,
+            "max_completion_tokens": 800,
+        }
+        if remaining > 0 and not forcing_final:
+            call_kwargs["tool_choice"] = "auto"
+        else:
+            call_kwargs["tool_choice"] = "none"
+            call_kwargs["response_format"] = {"type": "json_object"}
+
+        response = llm_client.chat.completions.create(**call_kwargs)
+        msg = response.choices[0].message
+
+        tool_calls = getattr(msg, "tool_calls", None)
+
+        if tool_calls:
+            # Record the assistant turn exactly as the API expects to echo back.
+            messages.append(_assistant_tool_message(msg))
+            dispatched = 0
+            for call in tool_calls:
+                if not forcing_final and dispatched < remaining:
+                    args = json.loads(call.function.arguments or "{}")
+                    env = dispatch_tool(call.function.name, args, deps=deps)
+                    dispatched += 1
+                else:
+                    # Either forcing_final, or this turn exceeds remaining budget.
+                    env = dispatch_tool_over_budget(call.function.name, deps=deps)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": call.id,
+                    "content": json.dumps(env, default=str),
+                })
+            tool_calls_used += dispatched
+            if tool_calls_used >= MAX_TOOL_CALLS and not forcing_final:
+                forcing_final = True
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "Tool budget exhausted. Return your final JSON decision now — "
+                        "no more tool calls."
+                    ),
+                })
+            continue
+
+        # No tool calls — expect final JSON content.
+        content = msg.content or ""
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise AgentOutputError(f"final content was not valid JSON: {exc}") from exc
+
+    raise AgentOutputError("agent exceeded MAX_ITERATIONS without final JSON")
+
+
+def _assistant_tool_message(msg) -> dict:
+    """Shape an assistant message with tool_calls for echoing back to the API."""
+    return {
+        "role": "assistant",
+        "content": msg.content,  # usually None
+        "tool_calls": [
+            {
+                "id": c.id,
+                "type": "function",
+                "function": {
+                    "name": c.function.name,
+                    "arguments": c.function.arguments,
+                },
+            }
+            for c in msg.tool_calls
+        ],
+    }
