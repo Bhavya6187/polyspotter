@@ -1128,3 +1128,30 @@ def test_select_shortlist_raises_on_empty_content():
     llm = EmptyContentLLM()
     with pytest.raises(agent.ShortlistValidationError, match="empty"):
         agent.select_shortlist([_stage1_alert(id=1)], llm_client=llm)
+
+
+# ============================================================================
+# build_user_message — selection arg
+# ============================================================================
+
+def test_build_user_message_without_selection_omits_selection_field():
+    msg = agent.build_user_message([_alert(id=1)])
+    parsed = json.loads(msg)
+    assert "selection" not in parsed
+    assert len(parsed["alerts"]) == 1
+
+
+def test_build_user_message_with_selection_includes_mode_and_angles():
+    selection = {"mode": "single", "angles": {"1": "verify 20-0 record", "2": "new wallet"}}
+    msg = agent.build_user_message([_alert(id=1), _alert(id=2)], selection=selection)
+    parsed = json.loads(msg)
+    assert parsed["selection"]["mode"] == "single"
+    assert parsed["selection"]["angles"]["1"] == "verify 20-0 record"
+    assert parsed["selection"]["angles"]["2"] == "new wallet"
+
+
+def test_build_user_message_with_composite_selection_passes_through():
+    selection = {"mode": "composite", "angles": {"1": "wallet A"}}
+    msg = agent.build_user_message([_alert(id=1)], selection=selection)
+    parsed = json.loads(msg)
+    assert parsed["selection"]["mode"] == "composite"

@@ -898,11 +898,15 @@ SYSTEM_PROMPT = (
 )
 
 
-def build_user_message(top_alerts: list[dict]) -> str:
-    """Build the JSON payload describing the 5 candidate alerts.
+def build_user_message(top_alerts: list[dict], *, selection: dict | None = None) -> str:
+    """Build the JSON payload describing the shortlisted alerts.
 
     Includes every field an investigative composer needs to call deeper tools:
     condition_id, event_slug, end_date, market_description, llm_bullets.
+
+    When `selection` is provided (from stage 1), it is included as a top-level
+    `selection: {mode, angles}` field so stage 2 knows the chosen mode and
+    each alert's suggested angle.
     """
     payload = []
     for a in top_alerts:
@@ -925,7 +929,10 @@ def build_user_message(top_alerts: list[dict]) -> str:
             "tags": a.get("tags") or [],
             "end_date": a.get("end_date"),
         })
-    return json.dumps({"alerts": payload}, default=str)
+    body: dict = {"alerts": payload}
+    if selection is not None:
+        body["selection"] = selection
+    return json.dumps(body, default=str)
 
 
 def compose_tweet(
