@@ -236,6 +236,22 @@ def call_llm(
     return shortlist_decision, decision
 
 
+def _stage1_run_end_fields(shortlist_decision) -> dict:
+    """Build the stage1_mode + stage1_fallback fields for run_end log events.
+
+    On no_candidates (shortlist_decision is None), both fields are absent/defaults.
+    On stage-1 skip, stage1_mode is None (the decision has no mode).
+    Otherwise, stage1_mode is the committed mode and stage1_fallback reflects
+    whether this came from _build_fallback_shortlist.
+    """
+    if shortlist_decision is None:
+        return {"stage1_mode": None, "stage1_fallback": False}
+    return {
+        "stage1_mode": shortlist_decision.mode,
+        "stage1_fallback": shortlist_decision.fallback,
+    }
+
+
 def _build_fallback_shortlist(top_alerts: list[dict]):
     """Top-3 by composite_score, mode=single, no angles. Used on stage-1 failure."""
     from twitter_bot_agent import ShortlistDecision, ShortlistItem
@@ -249,6 +265,7 @@ def _build_fallback_shortlist(top_alerts: list[dict]):
         reason="stage-1 fallback: top by composite_score",
         mode="single",
         shortlist=items,
+        fallback=True,
     )
 
 
@@ -481,7 +498,7 @@ def main(
         if not top_alerts:
             log_event("no_candidates", run_id=run_id)
             log_event("run_end", run_id=run_id, posted=False, reason="no_candidates",
-                      stage1_mode=None, stage1_fallback=False)
+                      **_stage1_run_end_fields(None))
             return 0
 
         if TWITTER_BOT_DRY_RUN:
@@ -534,8 +551,7 @@ def main(
             log_event("llm_skip", run_id=run_id, stage=stage, reason=decision.get("reason"))
             log_event(
                 "run_end", run_id=run_id, posted=False, reason="llm_skip",
-                stage1_mode=shortlist_decision.mode or "skip",
-                stage1_fallback=False,
+                **_stage1_run_end_fields(shortlist_decision),
             )
             return 0
 
@@ -564,8 +580,7 @@ def main(
         # 7. Record (skip in dry run).
         if TWITTER_BOT_DRY_RUN:
             log_event("run_end", run_id=run_id, posted=True, dry_run=True, tweet_id=tweet_id,
-                      stage1_mode=shortlist_decision.mode,
-                      stage1_fallback=("fallback" in (shortlist_decision.reason or "")))
+                      **_stage1_run_end_fields(shortlist_decision))
             return 0
 
         try:
@@ -574,13 +589,11 @@ def main(
             log_event("record_error", run_id=run_id, error=str(e))
             # Intentionally still success: the tweet is already live.
             log_event("run_end", run_id=run_id, posted=True, tweet_id=tweet_id, recorded=False,
-                      stage1_mode=shortlist_decision.mode,
-                      stage1_fallback=("fallback" in (shortlist_decision.reason or "")))
+                      **_stage1_run_end_fields(shortlist_decision))
             return 0
 
         log_event("run_end", run_id=run_id, posted=True, tweet_id=tweet_id, recorded=True,
-                  stage1_mode=shortlist_decision.mode,
-                  stage1_fallback=("fallback" in (shortlist_decision.reason or "")))
+                  **_stage1_run_end_fields(shortlist_decision))
         return 0
     finally:
         if owns_conn:

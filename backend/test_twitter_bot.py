@@ -834,8 +834,14 @@ def test_main_stage1_fallback_logs_and_proceeds(monkeypatch, capsys):
 
     assert exit_code == 0
     assert twitter.calls == ["fallback worked. link in bio"]
-    # Verify stage1_fallback event was logged.
-    assert "stage1_fallback" in out
+
+    # Verify the terminal run_end JSON line carries stage1_fallback=True and
+    # stage1_mode="single" (from _build_fallback_shortlist).
+    run_end_lines = [line for line in out.splitlines() if '"event": "run_end"' in line]
+    assert run_end_lines, "expected a run_end log event"
+    final = json.loads(run_end_lines[-1])
+    assert final.get("stage1_fallback") is True
+    assert final.get("stage1_mode") == "single"
 
 
 def test_main_runs_full_two_stage_flow_successfully(monkeypatch):
@@ -871,3 +877,30 @@ def test_main_runs_full_two_stage_flow_successfully(monkeypatch):
     assert twitter.calls == ["Whale dropped $25k. link in bio"]
     insert_calls = [e for e in conn.cur.executions if "INSERT INTO tweeted_alerts" in e[1]]
     assert len(insert_calls) == 1
+
+
+def test_main_stage1_skip_run_end_has_mode_none(monkeypatch, capsys):
+    """When stage 1 skips, the run_end event logs stage1_mode=None (not 'skip')."""
+    now = datetime.now(timezone.utc)
+    api_body = {
+        "alerts": [_alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat())],
+        "total": 1, "page": 1, "per_page": 100,
+    }
+    http = FakeHTTP(api_body)
+    llm = FakeLLMClient([_stage1_skip("nothing compelling")])
+    twitter = FakeTwitterClient()
+
+    class CombinedCursor(RecordingCursor):
+        def fetchall(self):
+            return []
+
+    conn = RecordingConn()
+    conn.cur = CombinedCursor()
+
+    tb.main(http=http, llm_client=llm, twitter_client=twitter, db_conn=conn)
+    out = capsys.readouterr().out
+    run_end_lines = [line for line in out.splitlines() if '"event": "run_end"' in line]
+    assert run_end_lines, "expected a run_end log event"
+    final = json.loads(run_end_lines[-1])
+    assert final.get("stage1_mode") is None
+    assert final.get("stage1_fallback") is False

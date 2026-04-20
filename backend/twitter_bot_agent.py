@@ -51,11 +51,16 @@ class ShortlistDecision:
 
     decision = "shortlist": shortlist + mode are populated.
     decision = "skip":      shortlist + mode are None; reason explains why.
+
+    fallback is True only when this decision was produced by
+    _build_fallback_shortlist (stage-1 LLM output failed validation or the
+    LLM itself raised). Real stage-1 outputs always have fallback=False.
     """
     decision: str
     reason: str
     mode: str | None
     shortlist: list[ShortlistItem] | None
+    fallback: bool = False
 
 
 _VALID_MODES = {"single", "composite"}
