@@ -159,3 +159,52 @@ def test_get_wallet_profile_http_error_returns_error():
     )
     assert "error" in env
     assert "http" in env["error"].lower()
+
+
+# ---------------------------------------------------- get_alert_detail --
+
+def test_get_alert_detail_calls_correct_endpoint():
+    body = {"id": 42, "trades": [], "signals": [{"strategy": "new_wallet_large_bet", "severity": 4.0}]}
+    http = FakeHTTP({"https://api.example.test/api/alerts/42": body})
+    env = agent.get_alert_detail(alert_id=42, http=http, api_url="https://api.example.test")
+    assert env["data"]["id"] == 42
+    assert http.calls[0]["url"] == "https://api.example.test/api/alerts/42"
+
+
+# ------------------------------------------ get_market_price_history --
+
+def test_get_market_price_history_passes_hours_param():
+    body = {"candles": [{"t": 1, "p": 0.5}]}
+    http = FakeHTTP({"https://api.example.test/api/market/0xcond/price-history": body})
+    env = agent.get_market_price_history(
+        condition_id="0xcond", hours=12,
+        http=http, api_url="https://api.example.test",
+    )
+    assert env["data"] == body
+    assert http.calls[0]["params"] == {"hours": 12}
+
+
+def test_get_market_price_history_defaults_to_24_hours():
+    http = FakeHTTP({"https://api.example.test/api/market/0xcond/price-history": {"candles": []}})
+    agent.get_market_price_history(
+        condition_id="0xcond", http=http, api_url="https://api.example.test",
+    )
+    assert http.calls[0]["params"] == {"hours": 24}
+
+
+# ------------------------------------------------- get_market_holders --
+
+def test_get_market_holders_returns_holder_data():
+    body = {"holders": {"Yes": [{"wallet": "0x1", "shares": 100}]}}
+    http = FakeHTTP({"https://api.example.test/api/market/0xcond/holders": body})
+    env = agent.get_market_holders(condition_id="0xcond", http=http, api_url="https://api.example.test")
+    assert env["data"] == body
+
+
+# ----------------------------------------------------- get_live_market --
+
+def test_get_live_market_returns_live_data():
+    body = {"state": "live", "score": "2-1"}
+    http = FakeHTTP({"https://api.example.test/api/market/0xcond/live": body})
+    env = agent.get_live_market(condition_id="0xcond", http=http, api_url="https://api.example.test")
+    assert env["data"] == body

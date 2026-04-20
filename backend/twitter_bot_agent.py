@@ -134,3 +134,31 @@ def get_wallet_profile(*, wallet: str, http, api_url: str) -> Any:
     """Profile + recent alerts (≤10) + bet history (≤20) for a wallet."""
     url = f"{api_url.rstrip('/')}/api/wallets/{wallet}"
     return _http_get_json(url, http=http)
+
+
+@_safe_tool
+def get_alert_detail(*, alert_id: int, http, api_url: str) -> Any:
+    """Full trades + signals for a single alert."""
+    url = f"{api_url.rstrip('/')}/api/alerts/{int(alert_id)}"
+    return _http_get_json(url, http=http)
+
+
+@_safe_tool
+def get_market_price_history(*, condition_id: str, hours: int = 24, http, api_url: str) -> Any:
+    """Price candles for a market over the last N hours."""
+    url = f"{api_url.rstrip('/')}/api/market/{condition_id}/price-history"
+    return _http_get_json(url, http=http, params={"hours": int(hours)})
+
+
+@_safe_tool
+def get_market_holders(*, condition_id: str, http, api_url: str) -> Any:
+    """Top holders per outcome for a market."""
+    url = f"{api_url.rstrip('/')}/api/market/{condition_id}/holders"
+    return _http_get_json(url, http=http)
+
+
+@_safe_tool
+def get_live_market(*, condition_id: str, http, api_url: str) -> Any:
+    """Live sports/event state for a market, when available."""
+    url = f"{api_url.rstrip('/')}/api/market/{condition_id}/live"
+    return _http_get_json(url, http=http)
