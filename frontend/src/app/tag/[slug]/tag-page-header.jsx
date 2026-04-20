@@ -5,6 +5,7 @@ import { useRef, useEffect } from "react";
 import CommandPalette from "../../../components/CommandPalette";
 import BrandMark from "../../../components/BrandMark";
 import ThemeToggle from "../../../components/ThemeToggle";
+import HeaderActions from "../../../components/HeaderActions";
 
 function tagSlugify(name) {
   return encodeURIComponent(name.toLowerCase().replace(/\s+/g, "-"));
@@ -40,14 +41,24 @@ export default function TagPageHeader({
 
   return (
     <>
-      {/* Top bar: brand + search + theme */}
-      <div className="flex items-center justify-between mb-4">
-        <Link href="/" aria-label="PolySpotter home" className="transition-opacity hover:opacity-80">
-          <BrandMark />
-        </Link>
-        <div className="flex items-center gap-3">
+      {/* Top bar: brand + prominent search + actions in one row */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 mb-5">
+        <div className="flex items-center justify-between sm:shrink-0">
+          <Link href="/" aria-label="PolySpotter home" className="transition-opacity hover:opacity-80">
+            <BrandMark />
+          </Link>
+          <div className="flex items-center gap-1 sm:hidden">
+            <ThemeToggle />
+            <HeaderActions variant="compact" />
+          </div>
+        </div>
+        <div className="min-w-0 sm:flex-1 sm:max-w-xl sm:mx-auto">
           <CommandPalette tags={allTags} topWallets={topWallets} />
+        </div>
+        <div className="hidden sm:flex items-center gap-3 shrink-0">
           <ThemeToggle />
+          <span className="h-5 w-px" style={{ background: "var(--border)" }} aria-hidden="true" />
+          <HeaderActions />
         </div>
       </div>
 

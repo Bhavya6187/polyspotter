@@ -13,6 +13,7 @@ import MarketTheses from "../../../components/MarketTheses";
 import useLiveMarket from "../../../hooks/useLiveMarket";
 import ThemeToggle from "../../../components/ThemeToggle";
 import ShareButton from "../../../components/ShareButton";
+import HeaderActions from "../../../components/HeaderActions";
 
 const usdFmt = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -121,6 +122,7 @@ export default function MarketPageClient({
             iconOnly
           />
           <ThemeToggle />
+          <HeaderActions variant="compact" />
         </div>
       </nav>
 

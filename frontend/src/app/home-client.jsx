@@ -12,6 +12,7 @@ import ResolvingSoonStrip from "../components/ResolvingSoonStrip";
 import CommandPalette from "../components/CommandPalette";
 import TopicNav from "../components/TopicNav";
 import BrandMark from "../components/BrandMark";
+import HeaderActions from "../components/HeaderActions";
 
 function formatRelativeTime(date) {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -119,13 +120,25 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6">
-      {/* Header */}
+      {/* Header — brand, prominent search, and consolidated actions in one row */}
       <header className="mb-8">
-        <div className="flex items-center justify-between">
-          <BrandMark />
-          <div className="flex items-center gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+          {/* Brand + mobile-only actions */}
+          <div className="flex items-center justify-between sm:shrink-0">
+            <BrandMark />
+            <div className="flex items-center gap-1 sm:hidden">
+              <ThemeToggle />
+              <HeaderActions variant="compact" />
+            </div>
+          </div>
+
+          {/* Prominent search — grows to fill space */}
+          <div className="min-w-0 sm:flex-1 sm:max-w-xl sm:mx-auto">
             <CommandPalette tags={tags} topWallets={topWallets || []} />
-            <ThemeToggle />
+          </div>
+
+          {/* Desktop-only status + actions */}
+          <div className="hidden sm:flex items-center gap-3 shrink-0">
             <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
               <span className="flex items-center gap-1.5">
                 <span className="relative flex h-2 w-2">
@@ -134,7 +147,7 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
                 </span>
                 Live
               </span>
-              <span className="mx-1" style={{ color: 'var(--border)' }}>|</span>
+              <span style={{ color: 'var(--border)' }}>·</span>
               <span>{formatRelativeTime(lastUpdated)}</span>
               <button
                 onClick={refresh}
@@ -153,6 +166,9 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
                 </svg>
               </button>
             </div>
+            <span className="h-5 w-px" style={{ background: 'var(--border)' }} aria-hidden="true" />
+            <ThemeToggle />
+            <HeaderActions />
           </div>
         </div>
       </header>

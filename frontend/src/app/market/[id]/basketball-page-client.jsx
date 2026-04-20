@@ -19,6 +19,7 @@ import PreGameStats from "../../../components/PreGameStats";
 import useLiveMarket from "../../../hooks/useLiveMarket";
 import useBasketballData from "../../../hooks/useBasketballData";
 import ThemeToggle from "../../../components/ThemeToggle";
+import HeaderActions from "../../../components/HeaderActions";
 
 const usdFmt = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -82,7 +83,10 @@ export default function BasketballPageClient({
           </svg>
           All markets
         </Link>
-        <ThemeToggle />
+        <div className="flex items-center gap-1">
+          <ThemeToggle />
+          <HeaderActions variant="compact" />
+        </div>
       </nav>
 
       {/* Compact header: image thumbnail + title + outcomes in one band */}

@@ -254,27 +254,36 @@ export default function CommandPalette({ tags = [], topWallets = [] }) {
 
   return (
     <>
-      {/* Trigger button */}
+      {/* Trigger button — prominent, fluid: fills the flex container it sits in */}
       <button
         onClick={() => setOpen(true)}
-        className="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition-all hover:border-[var(--text-muted)]"
+        className="group flex w-full items-center gap-3 rounded-xl border px-4 h-11 text-sm transition-all hover:border-[var(--accent)] focus:outline-none focus-visible:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent-subtle)]"
         style={{
           background: "var(--surface-card)",
           borderColor: "var(--border)",
           color: "var(--text-muted)",
-          minWidth: "180px",
         }}
+        aria-label="Open search"
       >
-        <svg className="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <svg
+          className="h-4 w-4 shrink-0 transition-colors group-hover:text-[var(--accent)]"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
           <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
         </svg>
-        <span className="flex-1 text-left">Search markets...</span>
+        <span className="flex-1 text-left truncate">
+          Search markets, topics, wallets<span className="hidden sm:inline">…</span>
+        </span>
         <kbd
-          className="hidden sm:inline-flex items-center gap-0.5 rounded border px-1.5 py-px text-[10px] font-medium"
+          className="hidden sm:inline-flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold tracking-wide"
           style={{
             color: "var(--text-muted)",
             borderColor: "var(--border)",
             background: "var(--surface-0)",
+            fontFamily: "var(--font-display)",
           }}
         >
           ⌘K

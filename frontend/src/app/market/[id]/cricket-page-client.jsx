@@ -17,6 +17,7 @@ import CricketPreMatch from "../../../components/CricketPreMatch";
 import useLiveMarket from "../../../hooks/useLiveMarket";
 import useCricketData from "../../../hooks/useCricketData";
 import ThemeToggle from "../../../components/ThemeToggle";
+import HeaderActions from "../../../components/HeaderActions";
 
 const usdFmt = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -80,7 +81,10 @@ export default function CricketPageClient({
           </svg>
           All markets
         </Link>
-        <ThemeToggle />
+        <div className="flex items-center gap-1">
+          <ThemeToggle />
+          <HeaderActions variant="compact" />
+        </div>
       </nav>
 
       {/* Compact header */}
