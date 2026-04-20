@@ -264,3 +264,124 @@ def get_theses(
     if wallet:
         return [t for t in items if t.get("wallet") == wallet]
     return [t for t in items if t.get("event_slug") == event_slug]
+
+
+# --- SQLite tools ------------------------------------------------------------
+
+def _sqlite_rows(db_conn_sqlite, query: str, params: tuple, *, keys: list[str]) -> list[dict]:
+    """Run a SELECT and zip column-order keys into per-row dicts."""
+    cur = db_conn_sqlite.execute(query, params)
+    return [dict(zip(keys, row)) for row in cur.fetchall()]
+
+
+@_safe_tool
+def get_wallet_pnl_positions(*, wallet: str, limit: int = 20, db_conn_sqlite) -> Any:
+    """Per-position detail (outcome, avg_price, cur_price, realized_pnl) for a wallet."""
+    query = """
+        SELECT condition_id, outcome, avg_price, total_bought, realized_pnl,
+               cur_price, position_type, end_date
+        FROM wallet_pnl
+        WHERE wallet = ?
+        ORDER BY total_bought DESC
+        LIMIT ?
+    """
+    return _sqlite_rows(
+        db_conn_sqlite, query, (wallet.lower(), int(limit)),
+        keys=["condition_id", "outcome", "avg_price", "total_bought",
+              "realized_pnl", "cur_price", "position_type", "end_date"],
+    )
+
+
+@_safe_tool
+def get_wallet_timing_pattern(*, wallet: str, db_conn_sqlite) -> Any:
+    """How often this wallet bets near resolution (excluding short-duration markets)."""
+    row = db_conn_sqlite.execute(
+        """
+        SELECT COUNT(*), COUNT(DISTINCT condition_id),
+               AVG(minutes_to_resolution), MIN(minutes_to_resolution),
+               SUM(usd_value)
+        FROM timing_flags
+        WHERE wallet = ?
+          AND (market_duration_hours IS NULL OR market_duration_hours >= 1.0)
+        """,
+        (wallet.lower(),),
+    ).fetchone()
+    return {
+        "total_flags": row[0] or 0,
+        "distinct_markets": row[1] or 0,
+        "avg_minutes": row[2] or 0.0,
+        "min_minutes": row[3] or 0.0,
+        "total_usd": row[4] or 0.0,
+    }
+
+
+@_safe_tool
+def get_wallet_event_history(*, wallet: str, event_slug: str, db_conn_sqlite) -> Any:
+    """Every trade (not just flagged) this wallet made on a given event."""
+    query = """
+        SELECT condition_id, outcome, side, usd_value, trade_timestamp, price, market_title
+        FROM wallet_event_history
+        WHERE wallet = ? AND event_slug = ?
+        ORDER BY trade_timestamp ASC
+    """
+    return _sqlite_rows(
+        db_conn_sqlite, query, (wallet.lower(), event_slug),
+        keys=["condition_id", "outcome", "side", "usd_value",
+              "trade_timestamp", "price", "market_title"],
+    )
+
+
+@_safe_tool
+def get_funder_cluster(*, wallet: str, db_conn_sqlite) -> Any:
+    """Wallets sharing a funder with this one (wallet inclusive if present)."""
+    w = wallet.lower()
+    row = db_conn_sqlite.execute(
+        "SELECT funder FROM wallet_funders WHERE wallet = ?", (w,)
+    ).fetchone()
+    if not row or not row[0]:
+        return {"funder": None, "wallets": []}
+    funder = row[0]
+    peers = db_conn_sqlite.execute(
+        "SELECT wallet FROM wallet_funders WHERE funder = ?", (funder,)
+    ).fetchall()
+    return {"funder": funder, "wallets": [r[0] for r in peers]}
+
+
+@_safe_tool
+def get_orderbook_snapshot(*, condition_id: str, db_conn_sqlite) -> Any:
+    """Most recent orderbook snapshot per outcome token on a market."""
+    query = """
+        SELECT o.token_id, o.outcome, o.best_bid, o.best_ask, o.spread,
+               o.bid_depth, o.ask_depth, o.mid_price, o.snapshot_at
+        FROM orderbook_snapshots AS o
+        JOIN (
+            SELECT token_id, MAX(snapshot_at) AS max_at
+            FROM orderbook_snapshots
+            WHERE condition_id = ?
+            GROUP BY token_id
+        ) AS latest
+          ON latest.token_id = o.token_id
+         AND latest.max_at = o.snapshot_at
+        WHERE o.condition_id = ?
+    """
+    return _sqlite_rows(
+        db_conn_sqlite, query, (condition_id, condition_id),
+        keys=["token_id", "outcome", "best_bid", "best_ask", "spread",
+              "bid_depth", "ask_depth", "mid_price", "snapshot_at"],
+    )
+
+
+@_safe_tool
+def get_market_volume_history(*, condition_id: str, limit: int = 50, db_conn_sqlite) -> Any:
+    """Recent 24h-volume snapshots for a market (most recent first)."""
+    query = """
+        SELECT volume_24h, snapshot_at
+        FROM market_volume_snapshots
+        WHERE condition_id = ?
+        ORDER BY snapshot_at DESC
+        LIMIT ?
+    """
+    return _sqlite_rows(
+        db_conn_sqlite, query, (condition_id, int(limit)),
+        keys=["volume_24h", "snapshot_at"],
+    )

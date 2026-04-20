@@ -361,3 +361,172 @@ def test_get_theses_filters_client_side_by_event_slug():
     http = FakeHTTP({"https://api.example.test/api/theses": body})
     env = agent.get_theses(event_slug="e1", http=http, api_url="https://api.example.test")
     assert {t["id"] for t in env["data"]} == {1, 2}
+
+
+# ------------------------------------------------------------- SQLite tools --
+
+def _make_sqlite_conn():
+    """Build an in-memory SQLite DB seeded with the tables our tools query."""
+    import sqlite3
+    conn = sqlite3.connect(":memory:")
+    conn.execute("""
+        CREATE TABLE wallet_pnl (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            wallet TEXT, condition_id TEXT, asset TEXT, outcome TEXT,
+            avg_price REAL, total_bought REAL, realized_pnl REAL, cur_price REAL,
+            event_slug TEXT, end_date TEXT, position_type TEXT,
+            recorded_at TEXT, api_timestamp INTEGER
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE timing_flags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            wallet TEXT, condition_id TEXT, minutes_to_resolution REAL,
+            usd_value REAL, trade_timestamp REAL, recorded_at TEXT,
+            market_duration_hours REAL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE wallet_event_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            wallet TEXT, event_slug TEXT, condition_id TEXT, outcome TEXT,
+            side TEXT, usd_value REAL, trade_timestamp REAL, recorded_at TEXT,
+            price REAL, market_title TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE wallet_funders (
+            wallet TEXT PRIMARY KEY, funder TEXT, discovered_at TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE orderbook_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            condition_id TEXT, token_id TEXT, outcome TEXT,
+            best_bid REAL, best_ask REAL, spread REAL,
+            bid_depth REAL, ask_depth REAL, mid_price REAL, snapshot_at TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE market_volume_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            condition_id TEXT, volume_24h REAL, snapshot_at TEXT
+        )
+    """)
+    conn.commit()
+    return conn
+
+
+def test_get_wallet_pnl_positions_returns_rows():
+    conn = _make_sqlite_conn()
+    conn.execute(
+        "INSERT INTO wallet_pnl (wallet, condition_id, outcome, avg_price, total_bought, "
+        "realized_pnl, cur_price, position_type, end_date, recorded_at) VALUES "
+        "('0xa', 'c1', 'Yes', 0.35, 10000, 500, 0.62, 'open', NULL, '2026-04-19')"
+    )
+    conn.commit()
+    env = agent.get_wallet_pnl_positions(wallet="0xa", limit=10, db_conn_sqlite=conn)
+    assert len(env["data"]) == 1
+    assert env["data"][0]["outcome"] == "Yes"
+    assert env["data"][0]["avg_price"] == 0.35
+
+
+def test_get_wallet_pnl_positions_lowercases_wallet():
+    conn = _make_sqlite_conn()
+    conn.execute(
+        "INSERT INTO wallet_pnl (wallet, condition_id, outcome, avg_price, total_bought, "
+        "realized_pnl, cur_price, position_type, end_date, recorded_at) VALUES "
+        "('0xabc', 'c1', 'Yes', 0.3, 5000, 0, 0.5, 'open', NULL, '2026-04-19')"
+    )
+    conn.commit()
+    env = agent.get_wallet_pnl_positions(wallet="0xABC", limit=10, db_conn_sqlite=conn)
+    assert len(env["data"]) == 1
+
+
+def test_get_wallet_timing_pattern_returns_stats():
+    conn = _make_sqlite_conn()
+    conn.execute(
+        "INSERT INTO timing_flags (wallet, condition_id, minutes_to_resolution, "
+        "usd_value, trade_timestamp, recorded_at, market_duration_hours) VALUES "
+        "('0xa', 'c1', 5.0, 10000, 1700000000, '2026-04-19', 72)"
+    )
+    conn.execute(
+        "INSERT INTO timing_flags (wallet, condition_id, minutes_to_resolution, "
+        "usd_value, trade_timestamp, recorded_at, market_duration_hours) VALUES "
+        "('0xa', 'c2', 10.0, 5000, 1700000100, '2026-04-19', 48)"
+    )
+    conn.commit()
+    env = agent.get_wallet_timing_pattern(wallet="0xa", db_conn_sqlite=conn)
+    assert env["data"]["total_flags"] == 2
+    assert env["data"]["distinct_markets"] == 2
+    assert env["data"]["min_minutes"] == 5.0
+
+
+def test_get_wallet_event_history_returns_trades():
+    conn = _make_sqlite_conn()
+    conn.execute(
+        "INSERT INTO wallet_event_history (wallet, event_slug, condition_id, outcome, "
+        "side, usd_value, trade_timestamp, recorded_at, price, market_title) VALUES "
+        "('0xa', 'ev1', 'c1', 'Yes', 'BUY', 5000, 1700000000, '2026-04-19', 0.3, 'Mkt A')"
+    )
+    conn.execute(
+        "INSERT INTO wallet_event_history (wallet, event_slug, condition_id, outcome, "
+        "side, usd_value, trade_timestamp, recorded_at, price, market_title) VALUES "
+        "('0xa', 'ev1', 'c2', 'No', 'BUY', 3000, 1700000100, '2026-04-19', 0.4, 'Mkt B')"
+    )
+    conn.commit()
+    env = agent.get_wallet_event_history(wallet="0xa", event_slug="ev1", db_conn_sqlite=conn)
+    assert len(env["data"]) == 2
+
+
+def test_get_funder_cluster_returns_linked_wallets():
+    conn = _make_sqlite_conn()
+    conn.executemany(
+        "INSERT INTO wallet_funders (wallet, funder, discovered_at) VALUES (?, ?, ?)",
+        [("0xa", "0xfund", "t1"), ("0xb", "0xfund", "t2"), ("0xc", "0xother", "t3")],
+    )
+    conn.commit()
+    env = agent.get_funder_cluster(wallet="0xa", db_conn_sqlite=conn)
+    assert env["data"]["funder"] == "0xfund"
+    assert set(env["data"]["wallets"]) == {"0xa", "0xb"}
+
+
+def test_get_funder_cluster_returns_empty_when_no_funder():
+    conn = _make_sqlite_conn()
+    env = agent.get_funder_cluster(wallet="0xnone", db_conn_sqlite=conn)
+    assert env["data"] == {"funder": None, "wallets": []}
+
+
+def test_get_orderbook_snapshot_returns_latest_per_token():
+    conn = _make_sqlite_conn()
+    conn.executemany(
+        "INSERT INTO orderbook_snapshots (condition_id, token_id, outcome, "
+        "best_bid, best_ask, spread, bid_depth, ask_depth, mid_price, snapshot_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+        [
+            ("c1", "tok-yes", "Yes", 0.60, 0.62, 0.02, 10000, 8000, 0.61, "2026-04-19T10:00:00"),
+            ("c1", "tok-yes", "Yes", 0.58, 0.60, 0.02, 9000, 7500, 0.59, "2026-04-19T09:00:00"),
+            ("c1", "tok-no", "No", 0.38, 0.40, 0.02, 5000, 4500, 0.39, "2026-04-19T10:00:00"),
+        ],
+    )
+    conn.commit()
+    env = agent.get_orderbook_snapshot(condition_id="c1", db_conn_sqlite=conn)
+    assert len(env["data"]) == 2
+    # Latest per token_id — check best_bid for tok-yes is 0.60 (from the 10:00 row).
+    yes_row = next(r for r in env["data"] if r["token_id"] == "tok-yes")
+    assert yes_row["best_bid"] == 0.60
+
+
+def test_get_market_volume_history_returns_rows():
+    conn = _make_sqlite_conn()
+    conn.executemany(
+        "INSERT INTO market_volume_snapshots (condition_id, volume_24h, snapshot_at) VALUES (?, ?, ?)",
+        [("c1", 5000, "2026-04-19T08:00:00"),
+         ("c1", 12000, "2026-04-19T10:00:00"),
+         ("c2", 9999, "2026-04-19T10:00:00")],
+    )
+    conn.commit()
+    env = agent.get_market_volume_history(condition_id="c1", limit=10, db_conn_sqlite=conn)
+    assert len(env["data"]) == 2
+    # Sorted most recent first.
+    assert env["data"][0]["volume_24h"] == 12000
