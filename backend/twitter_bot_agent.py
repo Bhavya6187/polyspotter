@@ -737,8 +737,12 @@ STAGE1_SYSTEM_PROMPT = (
     "OR skip the hour if nothing is compelling.\n\n"
 
     "## How to choose\n"
-    "- Pick the FEWEST alerts that work: 2 if there's one clear story plus a backup, "
-    "3-4 if you're genuinely torn between several.\n"
+    "- Pick 2-4 alerts. Never fewer than 2, never more than 4. 2 when there's one "
+    "clear story (the extra is a backup in case stage 2 finds the top pick doesn't "
+    "hold up on research), 3-4 when you're genuinely torn between several.\n"
+    "- If only one alert is truly worth tweeting and none of the others make "
+    "plausible backups, skip the hour rather than padding the shortlist with a "
+    "weak second pick.\n"
     "- 'Most tweetable' is not the same as 'highest composite_score'. Look for "
     "specific, surprising, story-rich bets — sharp wallets, big size, unusual "
     "timing, named themes.\n"
@@ -816,7 +820,9 @@ def select_shortlist(top_alerts: list[dict], *, llm_client) -> ShortlistDecision
         temperature=0.7,
         max_completion_tokens=400,
     )
-    content = response.choices[0].message.content or ""
+    content = response.choices[0].message.content
+    if not content:
+        raise ShortlistValidationError("empty LLM response content")
     try:
         raw = json.loads(content)
     except json.JSONDecodeError as exc:

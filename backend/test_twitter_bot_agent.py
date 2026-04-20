@@ -1110,3 +1110,21 @@ def test_select_shortlist_user_message_includes_slim_alert_fields():
     assert "llm_bullets" not in user_msg["content"]
     assert "llm_copy_action" not in user_msg["content"]
     assert "market_description" not in user_msg["content"]
+
+
+def test_select_shortlist_raises_on_empty_content():
+    """When the LLM returns empty/None content, raise ShortlistValidationError."""
+
+    class EmptyContentLLM:
+        def __init__(self):
+            self.calls = []
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+        def _create(self, **kwargs):
+            self.calls.append(kwargs)
+            msg = SimpleNamespace(content=None, tool_calls=None, role="assistant")
+            return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+
+    llm = EmptyContentLLM()
+    with pytest.raises(agent.ShortlistValidationError, match="empty"):
+        agent.select_shortlist([_stage1_alert(id=1)], llm_client=llm)
