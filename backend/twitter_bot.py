@@ -56,9 +56,6 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "")
 # cron drift).
 LOOKBACK_MINUTES = 65
 
-# Soft-dedup window: don't tweet same (wallet, condition_id) within this many hours.
-SOFT_DEDUP_HOURS = 24
-
 # Hard length cap for tweets (under X's 280 limit, leaves safety margin).
 TWEET_MAX_CHARS = 260
 
@@ -113,52 +110,22 @@ def fetch_recent_alerts(api_url: str, min_score: float, *, http=requests) -> lis
 # --- Deduplication -----------------------------------------------------------
 
 def filter_dedup(candidates: list[dict], db_conn) -> list[dict]:
-    """Drop candidates that have already been tweeted, or whose
-    (wallet, condition_id) pair was tweeted within SOFT_DEDUP_HOURS.
-
-    Runs two queries:
-      1. Hard dedup: exact alert_id match.
-      2. Soft dedup: (wallet, condition_id) match within the window.
-    """
+    """Drop candidates whose alert_id has already been tweeted."""
     if not candidates:
         return []
 
     cur = db_conn.cursor(cursor_factory=RealDictCursor)
     try:
-        # 1. Hard dedup: alert_id already tweeted?
         ids = [int(a["id"]) for a in candidates]
         cur.execute(
             "SELECT alert_id FROM tweeted_alerts WHERE alert_id = ANY(%s)",
             (ids,),
         )
         hard = {row["alert_id"] for row in cur.fetchall()}
-
-        # 2. Soft dedup: (wallet, condition_id) tweeted recently?
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=SOFT_DEDUP_HOURS)
-        cur.execute(
-            """
-            SELECT wallet, condition_id
-            FROM tweeted_alerts
-            WHERE tweeted_at >= %s
-              AND wallet = ANY(%s)
-              AND condition_id = ANY(%s)
-            """,
-            (cutoff, [a.get("wallet") for a in candidates if a.get("wallet")],
-             [a.get("condition_id") for a in candidates if a.get("condition_id")]),
-        )
-        soft = {(row["wallet"], row["condition_id"]) for row in cur.fetchall()}
     finally:
         cur.close()
 
-    kept = []
-    for a in candidates:
-        if int(a["id"]) in hard:
-            continue
-        pair = (a.get("wallet"), a.get("condition_id"))
-        if pair in soft:
-            continue
-        kept.append(a)
-    return kept
+    return [a for a in candidates if int(a["id"]) not in hard]
 
 
 # --- LLM composition ---------------------------------------------------------
@@ -192,6 +159,17 @@ def call_llm(top_alerts: list[dict], *, llm_client, db_conn_pg=None, db_conn_sql
     )
 
     def _on_tool_call(name: str, args: dict, envelope: dict) -> None:
+        if TWITTER_BOT_DRY_RUN:
+            proj = args.get("projection")
+            other = {k: v for k, v in args.items() if k != "projection"}
+            err = envelope.get("error")
+            status = f"ERROR: {err}" if err else "ok"
+            line = f"  tool  {name}  {other}"
+            if proj:
+                line += f"\n        proj: {proj}"
+            line += f"\n        → {status}"
+            print(line, flush=True)
+            return
         log_event(
             "tool_call",
             name=name,
@@ -304,7 +282,6 @@ def post_tweet(text: str, *, twitter_client, dry_run: bool) -> str:
     whether to record the tweet in the DB (dry runs must not poison dedup).
     """
     if dry_run:
-        log_event("dry_run_tweet", tweet=text)
         return f"dryrun-{uuid.uuid4().hex[:12]}"
 
     response = twitter_client.create_tweet(text=text)
@@ -416,22 +393,28 @@ def main(
             return 0
 
         if TWITTER_BOT_DRY_RUN:
-            log_event(
-                "dry_run_top_alerts",
-                run_id=run_id,
-                alerts=[
-                    {
-                        "id": int(a["id"]),
-                        "composite_score": a.get("composite_score"),
-                        "market_title": a.get("market_title"),
-                        "wallet": a.get("wallet"),
-                        "win_rate": a.get("win_rate"),
-                        "total_usd": a.get("total_usd"),
-                        "llm_headline": a.get("llm_headline"),
-                    }
-                    for a in top_alerts
-                ],
-            )
+            print(f"\n--- Top {len(top_alerts)} candidate alerts ---", flush=True)
+            for i, a in enumerate(top_alerts, 1):
+                wallet = a.get("wallet")
+                if wallet and wallet.startswith("0x") and len(wallet) > 12:
+                    wallet_display = f"{wallet[:6]}…{wallet[-4:]}"
+                elif wallet:
+                    wallet_display = wallet
+                else:
+                    wallet_display = "(cluster)"
+                win = a.get("win_rate")
+                win_display = f"{win * 100:.0f}%" if win is not None else "  -"
+                market = (a.get("market_title") or "")[:60]
+                print(
+                    f"  {i}. #{int(a['id']):<6}  "
+                    f"score={a.get('composite_score', 0):>5.2f}  "
+                    f"${a.get('total_usd', 0):>9,.0f}  "
+                    f"wr={win_display:<4}  {wallet_display:<14}  {market}",
+                    flush=True,
+                )
+                if a.get("llm_headline"):
+                    print(f"       → {a['llm_headline']}", flush=True)
+            print("", flush=True)
 
         # 4. LLM (agentic composer).
         from db import get_db as _get_sqlite_db

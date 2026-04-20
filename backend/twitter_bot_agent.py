@@ -18,8 +18,8 @@ import jmespath
 
 # --- Constants ---------------------------------------------------------------
 
-MAX_TOOL_CALLS = 5
-MAX_ITERATIONS = 7  # 5 tool rounds + 1 forcing + 1 safety
+MAX_TOOL_CALLS = 10
+MAX_ITERATIONS = 12  # 10 tool rounds + 1 forcing + 1 safety
 RESPONSE_CAP_BYTES = 8192
 
 
@@ -102,7 +102,9 @@ def _safe_tool(fn):
     The wrapped tool must return raw data (any JSON-serializable value). The
     decorator applies projection (if `projection` kwarg is set), truncates to
     8KB, and wraps the result in an envelope. Exceptions surface as error
-    envelopes.
+    envelopes. If projection fails, the raw (unprojected) data is returned
+    along with a `projection_error` field so the model sees the failure but
+    doesn't waste another tool call to get the raw shape.
     """
     def wrapped(*args, projection: str | None = None, **kwargs):
         try:
@@ -114,13 +116,18 @@ def _safe_tool(fn):
         except Exception as exc:
             return build_envelope(None, error=f"{type(exc).__name__}: {exc}")
 
+        projection_error: str | None = None
         try:
             projected = apply_projection(raw, projection)
         except ProjectionError as exc:
-            return build_envelope(None, error=f"projection {exc}")
+            projection_error = f"projection {exc} — raw data returned instead"
+            projected = raw
 
         truncated_value, was_truncated = truncate_payload(projected)
-        return build_envelope(truncated_value, truncated=was_truncated)
+        envelope = build_envelope(truncated_value, truncated=was_truncated)
+        if projection_error is not None:
+            envelope["projection_error"] = projection_error
+        return envelope
 
     wrapped.__name__ = fn.__name__
     wrapped.__wrapped__ = fn
@@ -653,7 +660,7 @@ SYSTEM_PROMPT = (
     "— or skip the hour if nothing is compelling.\n\n"
 
     "## You have research tools\n"
-    "You can call up to 5 tools before writing the tweet. Use them when "
+    "You can call up to 10 tools before writing the tweet. Use them when "
     "digging deeper would sharpen the story. A good tweet cites a SPECIFIC "
     "fact the alert payload doesn't already contain (e.g., 'bought the Under "
     "at 0.35 — market now at 0.62', 'this wallet has late-timed 17 markets "
@@ -668,9 +675,10 @@ SYSTEM_PROMPT = (
     "  - `{win_rate: win_rate, total_pnl: total_pnl}` — pick fields\n"
     "  - `bet_history[?won==`true`].pnl_usd` — filtered list\n"
     "  - `avg(bet_history[?won==`true`].entry_price)` — computed aggregate\n"
-    "Bad projections return `{\"error\": \"projection failed: ...\"}` and still "
-    "cost a tool call. If you want to explore a tool's shape, call it once "
-    "without projection to see the raw (8KB-capped) response.\n\n"
+    "If the projection fails (bad JMESPath, null values, etc.), the envelope "
+    "includes a `projection_error` field AND the raw (8KB-capped) data — you "
+    "don't need a second call to recover. Use the raw data or retry with a "
+    "safer expression (e.g., filter out nulls).\n\n"
 
     "## Single vs composite\n"
     "- If one alert clearly stands out, write a tight hook-driven tweet focused on it.\n"

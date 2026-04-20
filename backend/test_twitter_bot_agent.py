@@ -143,14 +143,19 @@ def test_get_wallet_profile_applies_projection():
     assert env["data"] == 5
 
 
-def test_get_wallet_profile_bad_projection_returns_error():
-    http = FakeHTTP({"https://api.example.test/api/wallets/0xabc": {"a": 1}})
+def test_get_wallet_profile_bad_projection_returns_raw_with_projection_error():
+    body = {"a": 1}
+    http = FakeHTTP({"https://api.example.test/api/wallets/0xabc": body})
     env = agent.get_wallet_profile(
         wallet="0xabc", projection="invalid(",
         http=http, api_url="https://api.example.test",
     )
-    assert "error" in env
-    assert "projection" in env["error"]
+    # Bad projection no longer fails the call — raw data comes back with a
+    # projection_error note so the model can recover without a second call.
+    assert env["data"] == body
+    assert "projection_error" in env
+    assert "projection" in env["projection_error"]
+    assert "error" not in env
 
 
 def test_get_wallet_profile_http_error_returns_error():
@@ -739,9 +744,9 @@ def test_compose_tweet_uses_tool_result_then_composes():
 def test_compose_tweet_exhausts_budget_forcing_final_json():
     body = {"wallet": "0xa"}
     http = FakeHTTP({"https://api.example.test/api/wallets/0xa": body})
-    # Script: 5 single-tool rounds, then a 6th attempt that we'll force into JSON.
-    rounds = [[("get_wallet_profile", {"wallet": "0xa"})] for _ in range(5)]
-    rounds.append([("get_wallet_profile", {"wallet": "0xa"})])  # 6th attempt
+    # Script: MAX_TOOL_CALLS single-tool rounds + 1 more attempt that we force into JSON.
+    rounds = [[("get_wallet_profile", {"wallet": "0xa"})] for _ in range(agent.MAX_TOOL_CALLS)]
+    rounds.append([("get_wallet_profile", {"wallet": "0xa"})])
     final = {
         "decision": "skip", "reason": "exhausted",
         "alert_ids": None, "tweet": None, "is_composite": False,
@@ -754,16 +759,17 @@ def test_compose_tweet_exhausts_budget_forcing_final_json():
     result = agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps)
 
     assert result["decision"] == "skip"
-    # 6th call should have tool_choice='none' (forcing final JSON).
+    # After budget exhaustion, the next LLM call should force tool_choice='none'.
     last_call = llm.call_log[-1]
     assert last_call.get("tool_choice") == "none"
 
 
 def test_compose_tweet_single_turn_over_budget_truncates_dispatched():
-    """If model asks for 6 tools in one turn at budget 0, we dispatch 5 and error the 6th."""
+    """If model asks for MAX+1 tools in one turn, we dispatch MAX and error the extras."""
     body = {"wallet": "0xa"}
     http = FakeHTTP({"https://api.example.test/api/wallets/0xa": body})
-    calls_in_one_turn = [("get_wallet_profile", {"wallet": "0xa"}) for _ in range(6)]
+    over_budget = agent.MAX_TOOL_CALLS + 1
+    calls_in_one_turn = [("get_wallet_profile", {"wallet": "0xa"}) for _ in range(over_budget)]
     final = {
         "decision": "skip", "reason": "x", "alert_ids": None,
         "tweet": None, "is_composite": False,
@@ -775,8 +781,8 @@ def test_compose_tweet_single_turn_over_budget_truncates_dispatched():
     result = agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps)
 
     assert result["decision"] == "skip"
-    # HTTP called exactly 5 times (first 5 dispatched, 6th got budget error).
-    assert len(http.calls) == 5
+    # HTTP called exactly MAX_TOOL_CALLS times; the extras got budget-error envelopes.
+    assert len(http.calls) == agent.MAX_TOOL_CALLS
 
 
 def test_compose_tweet_raises_on_max_iterations_without_final_json():
