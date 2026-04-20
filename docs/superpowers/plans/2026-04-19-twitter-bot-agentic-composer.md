@@ -10,6 +10,8 @@
 
 **Design doc:** [2026-04-19-twitter-bot-agentic-composer-design.md](../specs/2026-04-19-twitter-bot-agentic-composer-design.md)
 
+**Smoke test (dry-run against live API):** Ran 2026-04-19, produced composite tweet "Utah just saw a coordinated shove: 14 wallets put in $46.3k across 24 buys, including one bettor with a 79% win rate (+$76k)..." (228 chars, 2 alert_ids). Agent cited specific win rates and price-movement data only reachable via tool calls. No errors.
+
 **Repo layout while executing this plan:**
 - Worktree root: `/home/bhavya/git/polybot/.worktrees/twitter-agent/`
 - Branch: `feature/twitter-agentic-composer`
