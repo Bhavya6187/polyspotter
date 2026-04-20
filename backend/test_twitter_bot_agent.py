@@ -635,6 +635,21 @@ def test_dispatch_respects_budget_marker():
 
 # ----------------------------------------------------------- compose_tweet ---
 
+def _shortlist(*alert_ids, mode="single", angles=None):
+    """Build a simple ShortlistDecision for tests."""
+    if angles is None:
+        angles = {aid: f"angle for {aid}" for aid in alert_ids}
+    return agent.ShortlistDecision(
+        decision="shortlist",
+        reason="test shortlist",
+        mode=mode,
+        shortlist=[
+            agent.ShortlistItem(alert_id=int(aid), angle=angles[aid])
+            for aid in alert_ids
+        ],
+    )
+
+
 class FakeLLMWithTools:
     """LLM fake that emits either tool_calls or a final content per scripted step.
 
@@ -714,7 +729,11 @@ def test_compose_tweet_zero_tool_calls_returns_decision():
     llm = FakeLLMWithTools([final])
     deps = agent.ToolDeps(http=None, api_url=None, db_conn_pg=None, db_conn_sqlite=None)
 
-    result = agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps)
+    result = agent.compose_tweet(
+        [_alert(id=1), _alert(id=2)],
+        llm_client=llm, deps=deps,
+        shortlist_decision=_shortlist(1, 2),
+    )
 
     assert result["decision"] == "post"
     assert result["tweet"] == "Short tweet. link in bio"
@@ -735,7 +754,11 @@ def test_compose_tweet_uses_tool_result_then_composes():
     deps = agent.ToolDeps(http=http, api_url="https://api.example.test",
                           db_conn_pg=None, db_conn_sqlite=None)
 
-    result = agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps)
+    result = agent.compose_tweet(
+        [_alert(id=1), _alert(id=2)],
+        llm_client=llm, deps=deps,
+        shortlist_decision=_shortlist(1, 2),
+    )
 
     assert result["decision"] == "post"
     assert http.calls[0]["url"] == "https://api.example.test/api/wallets/0xa"
@@ -756,7 +779,11 @@ def test_compose_tweet_exhausts_budget_forcing_final_json():
     deps = agent.ToolDeps(http=http, api_url="https://api.example.test",
                           db_conn_pg=None, db_conn_sqlite=None)
 
-    result = agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps)
+    result = agent.compose_tweet(
+        [_alert(id=1), _alert(id=2)],
+        llm_client=llm, deps=deps,
+        shortlist_decision=_shortlist(1, 2),
+    )
 
     assert result["decision"] == "skip"
     # After budget exhaustion, the next LLM call should force tool_choice='none'.
@@ -778,7 +805,11 @@ def test_compose_tweet_single_turn_over_budget_truncates_dispatched():
     deps = agent.ToolDeps(http=http, api_url="https://api.example.test",
                           db_conn_pg=None, db_conn_sqlite=None)
 
-    result = agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps)
+    result = agent.compose_tweet(
+        [_alert(id=1), _alert(id=2)],
+        llm_client=llm, deps=deps,
+        shortlist_decision=_shortlist(1, 2),
+    )
 
     assert result["decision"] == "skip"
     # HTTP called exactly MAX_TOOL_CALLS times; the extras got budget-error envelopes.
@@ -796,7 +827,11 @@ def test_compose_tweet_raises_on_max_iterations_without_final_json():
                           db_conn_pg=None, db_conn_sqlite=None)
 
     with pytest.raises(agent.AgentOutputError):
-        agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps)
+        agent.compose_tweet(
+            [_alert(id=1), _alert(id=2)],
+            llm_client=llm, deps=deps,
+            shortlist_decision=_shortlist(1, 2),
+        )
 
 
 def test_compose_tweet_raises_on_malformed_final_json():
@@ -804,7 +839,11 @@ def test_compose_tweet_raises_on_malformed_final_json():
     llm = FakeLLMWithTools([bad])
     deps = agent.ToolDeps(http=None, api_url=None, db_conn_pg=None, db_conn_sqlite=None)
     with pytest.raises(agent.AgentOutputError):
-        agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps)
+        agent.compose_tweet(
+            [_alert(id=1), _alert(id=2)],
+            llm_client=llm, deps=deps,
+            shortlist_decision=_shortlist(1, 2),
+        )
 
 
 def test_compose_tweet_invokes_on_tool_call_callback_per_dispatch():
@@ -826,7 +865,12 @@ def test_compose_tweet_invokes_on_tool_call_callback_per_dispatch():
     def cb(name, args, envelope):
         seen.append((name, args, envelope))
 
-    agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps, on_tool_call=cb)
+    agent.compose_tweet(
+        [_alert(id=1), _alert(id=2)],
+        llm_client=llm, deps=deps,
+        shortlist_decision=_shortlist(1, 2),
+        on_tool_call=cb,
+    )
 
     assert len(seen) == 1
     name, args, envelope = seen[0]
@@ -854,13 +898,69 @@ def test_compose_tweet_user_message_includes_condition_id_and_event_slug():
     llm.chat.completions.create = wrapped
 
     agent.compose_tweet(
-        [_alert(id=1, condition_id="0xcond", event_slug="my-ev")],
+        [_alert(id=1, condition_id="0xcond", event_slug="my-ev"), _alert(id=2)],
         llm_client=llm, deps=deps,
+        shortlist_decision=_shortlist(1, 2),
     )
 
     user_msg = next(m for m in captured["messages"] if m["role"] == "user")
     assert "0xcond" in user_msg["content"]
     assert "my-ev" in user_msg["content"]
+
+
+# ============================================================================
+# compose_tweet — shortlist_decision integration
+# ============================================================================
+
+
+def test_compose_tweet_filters_top_alerts_to_shortlist():
+    """User message should only contain alerts from the shortlist, not the full input."""
+    captured = {}
+    llm = FakeLLMWithTools([{
+        "decision": "skip", "reason": "x", "alert_ids": None,
+        "tweet": None, "is_composite": False,
+    }])
+    orig_create = llm.chat.completions.create
+    def wrapped(**kwargs):
+        captured["messages"] = kwargs.get("messages")
+        return orig_create(**kwargs)
+    llm.chat.completions.create = wrapped
+
+    deps = agent.ToolDeps(http=None, api_url=None, db_conn_pg=None, db_conn_sqlite=None)
+    agent.compose_tweet(
+        [_alert(id=1), _alert(id=2), _alert(id=3), _alert(id=4)],
+        llm_client=llm, deps=deps,
+        shortlist_decision=_shortlist(1, 3),  # only 1 and 3 are shortlisted
+    )
+    user_msg = next(m for m in captured["messages"] if m["role"] == "user")
+    parsed = json.loads(user_msg["content"])
+    ids = {int(a["alert_id"]) for a in parsed["alerts"]}
+    assert ids == {1, 3}
+
+
+def test_compose_tweet_user_message_includes_selection_mode_and_angles():
+    captured = {}
+    llm = FakeLLMWithTools([{
+        "decision": "skip", "reason": "x", "alert_ids": None,
+        "tweet": None, "is_composite": False,
+    }])
+    orig_create = llm.chat.completions.create
+    def wrapped(**kwargs):
+        captured["messages"] = kwargs.get("messages")
+        return orig_create(**kwargs)
+    llm.chat.completions.create = wrapped
+
+    deps = agent.ToolDeps(http=None, api_url=None, db_conn_pg=None, db_conn_sqlite=None)
+    sd = _shortlist(1, 2, mode="composite", angles={1: "wallet A", 2: "wallet B same funder"})
+    agent.compose_tweet(
+        [_alert(id=1), _alert(id=2)],
+        llm_client=llm, deps=deps, shortlist_decision=sd,
+    )
+    user_msg = next(m for m in captured["messages"] if m["role"] == "user")
+    parsed = json.loads(user_msg["content"])
+    assert parsed["selection"]["mode"] == "composite"
+    assert parsed["selection"]["angles"]["1"] == "wallet A"
+    assert parsed["selection"]["angles"]["2"] == "wallet B same funder"
 
 
 # ============================================================================

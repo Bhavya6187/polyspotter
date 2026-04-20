@@ -940,9 +940,13 @@ def compose_tweet(
     *,
     llm_client,
     deps: ToolDeps,
+    shortlist_decision: ShortlistDecision,
     on_tool_call=None,
 ) -> dict:
     """Run the function-calling loop and return the final decision dict.
+
+    Stage-2 entry point: receives a ShortlistDecision from stage 1 and
+    operates only on the shortlisted alerts.
 
     If `on_tool_call` is provided, it's invoked as `on_tool_call(name, args, envelope)`
     after each tool dispatch (including budget-exhausted ones), giving callers a
@@ -951,9 +955,19 @@ def compose_tweet(
     Raises AgentOutputError if the model fails to emit a valid final JSON
     response within MAX_ITERATIONS.
     """
+    if shortlist_decision.shortlist is None:
+        raise ValueError("compose_tweet requires a shortlist_decision with shortlist set")
+
+    shortlisted_ids = {item.alert_id for item in shortlist_decision.shortlist}
+    filtered = [a for a in top_alerts if int(a["id"]) in shortlisted_ids]
+    selection = {
+        "mode": shortlist_decision.mode,
+        "angles": {str(item.alert_id): item.angle for item in shortlist_decision.shortlist},
+    }
+
     messages: list[dict] = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": build_user_message(top_alerts)},
+        {"role": "user", "content": build_user_message(filtered, selection=selection)},
     ]
     tool_calls_used = 0
     forcing_final = False
