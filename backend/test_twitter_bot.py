@@ -191,19 +191,20 @@ def test_filter_dedup_with_empty_candidate_list_returns_empty():
 # ------------------------------------------------------------------ call_llm --
 
 class FakeLLMClient:
-    """Stand-in that scripts the agentic loop.
+    """Stand-in that scripts the LLM call sequence.
 
     `responses` is a list of steps. Each step is either:
       - a final decision dict (emitted as message.content)
       - a raw string (for malformed-JSON tests)
       - a list of (tool_name, arguments_dict) tuples (emitted as tool_calls)
 
-    Each `create()` consumes one step from the list.
+    Each `create()` consumes one step from the list. Stage 1 consumes one step
+    (its JSON output); stage 2 consumes 1+ steps (tool rounds + final).
     """
 
     def __init__(self, responses):
         self._responses = list(responses)
-        self.calls = []  # Preserved for legacy tests that inspect call counts.
+        self.calls = []
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     def _create(self, **kwargs):
@@ -214,9 +215,7 @@ class FakeLLMClient:
 
         if isinstance(step, dict):
             msg = SimpleNamespace(
-                content=json.dumps(step),
-                tool_calls=None,
-                role="assistant",
+                content=json.dumps(step), tool_calls=None, role="assistant",
             )
             return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
 
@@ -224,7 +223,6 @@ class FakeLLMClient:
             msg = SimpleNamespace(content=step, tool_calls=None, role="assistant")
             return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
 
-        # Tool-call step.
         import uuid as _uuid
         tc = [
             SimpleNamespace(
@@ -238,38 +236,47 @@ class FakeLLMClient:
         return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
 
 
-def test_call_llm_returns_skip_decision_cleanly():
-    response = {
-        "decision": "skip",
-        "reason": "all candidates routine",
-        "alert_ids": None,
-        "tweet": None,
-        "is_composite": False,
+# Reusable stage-1 responses for tests.
+def _stage1_skip(reason="all routine"):
+    return {"decision": "skip", "reason": reason}
+
+
+def _stage1_shortlist(*alert_ids, mode="single"):
+    return {
+        "decision": "shortlist", "reason": "test pick", "mode": mode,
+        "shortlist": [{"alert_id": int(i), "angle": f"angle for {i}"} for i in alert_ids],
     }
-    client = FakeLLMClient([response])
-    top_alerts = [_alert(id=1)]
 
-    result = tb.call_llm(top_alerts, llm_client=client)
 
-    assert result["decision"] == "skip"
+def test_call_llm_stage1_skip_returns_skip_without_calling_stage2():
+    """Stage-1 skip should short-circuit; only one LLM call happens."""
+    client = FakeLLMClient([_stage1_skip("nothing compelling")])
+    top_alerts = [_alert(id=1), _alert(id=2)]
+
+    sd, decision = tb.call_llm(top_alerts, llm_client=client)
+
+    assert sd.decision == "skip"
+    assert decision["decision"] == "skip"
+    assert decision["reason"] == "nothing compelling"
     assert len(client.calls) == 1
 
 
-def test_call_llm_returns_valid_post_decision_first_try():
-    response = {
-        "decision": "post",
-        "reason": "whale on hot market",
-        "alert_ids": [1],
-        "tweet": "Short tweet. link in bio.",
+def test_call_llm_full_flow_returns_post_decision():
+    """Stage 1 shortlists 2 alerts, stage 2 emits a valid post decision."""
+    final = {
+        "decision": "post", "reason": "whale on hot market",
+        "alert_ids": [1], "tweet": "Short tweet. link in bio.",
         "is_composite": False,
     }
-    client = FakeLLMClient([response])
-    top_alerts = [_alert(id=1)]
+    client = FakeLLMClient([_stage1_shortlist(1, 2), final])
+    top_alerts = [_alert(id=1), _alert(id=2)]
 
-    result = tb.call_llm(top_alerts, llm_client=client)
+    sd, decision = tb.call_llm(top_alerts, llm_client=client)
 
-    assert result["tweet"] == "Short tweet. link in bio."
-    assert len(client.calls) == 1
+    assert sd.mode == "single"
+    assert {item.alert_id for item in sd.shortlist} == {1, 2}
+    assert decision["tweet"] == "Short tweet. link in bio."
+    assert len(client.calls) == 2  # stage 1 + stage 2 final
 
 
 def test_call_llm_retries_once_on_length_overshoot_and_succeeds():
@@ -277,115 +284,189 @@ def test_call_llm_retries_once_on_length_overshoot_and_succeeds():
     retry_tweet = "x" * 200
     first = {"decision": "post", "reason": "ok", "alert_ids": [1], "tweet": long_tweet, "is_composite": False}
     second = {"decision": "post", "reason": "shorter", "alert_ids": [1], "tweet": retry_tweet, "is_composite": False}
-    client = FakeLLMClient([first, second])
-    top_alerts = [_alert(id=1)]
+    client = FakeLLMClient([_stage1_shortlist(1, 2), first, second])
+    top_alerts = [_alert(id=1), _alert(id=2)]
 
-    result = tb.call_llm(top_alerts, llm_client=client)
+    sd, decision = tb.call_llm(top_alerts, llm_client=client)
 
-    assert result["tweet"] == retry_tweet
-    assert len(client.calls) == 2
-    # Retry should reference the length.
-    retry_messages = client.calls[1]["messages"]
-    assert any("260" in m["content"] for m in retry_messages if m["role"] == "user")
+    assert decision["tweet"] == retry_tweet
+    assert len(client.calls) == 3  # stage 1 + stage 2 first + retry
 
 
 def test_call_llm_returns_overlong_result_when_retry_also_fails():
     long_tweet = "x" * 300
     first = {"decision": "post", "reason": "ok", "alert_ids": [1], "tweet": long_tweet, "is_composite": False}
     second = {"decision": "post", "reason": "still long", "alert_ids": [1], "tweet": "x" * 280, "is_composite": False}
-    client = FakeLLMClient([first, second])
+    client = FakeLLMClient([_stage1_shortlist(1, 2), first, second])
 
-    result = tb.call_llm([_alert(id=1)], llm_client=client)
+    sd, decision = tb.call_llm([_alert(id=1), _alert(id=2)], llm_client=client)
 
-    # call_llm does NOT itself judge validity — it returns what the LLM said.
-    # Caller (validate_decision) decides. This test just asserts it tried twice.
-    assert len(client.calls) == 2
-    assert len(result["tweet"]) == 280
+    assert len(client.calls) == 3
+    assert len(decision["tweet"]) == 280
 
 
 def test_call_llm_exercises_tool_calls_through_agent_loop():
-    """Verify the agent can make a tool call via call_llm and still return a decision."""
-    # Step 1: agent requests get_wallet_profile.
-    # Step 2: agent emits final JSON decision.
+    """Stage-1 shortlists, stage-2 makes a tool call, then emits a final decision."""
     final = {
         "decision": "post", "reason": "whale has 17 wins",
         "alert_ids": [1], "tweet": "Whale with 17 wins just loaded up. link in bio",
         "is_composite": False,
     }
     client = FakeLLMClient([
+        _stage1_shortlist(1, 2),
         [("get_wallet_profile", {"wallet": "0xwallet1"})],
         final,
     ])
-
-    # FakeHTTP with a canned wallet profile response.
     fake_http = FakeHTTP({"https://api.example.test/api/wallets/0xwallet1": {"wins": 17, "wallet": "0xwallet1"}})
 
-    result = tb.call_llm(
-        [_alert(id=1)],
-        llm_client=client,
-        db_conn_pg=None,
-        db_conn_sqlite=None,
-        http=fake_http,
+    sd, decision = tb.call_llm(
+        [_alert(id=1), _alert(id=2)],
+        llm_client=client, db_conn_pg=None, db_conn_sqlite=None, http=fake_http,
     )
-    assert result["decision"] == "post"
-    assert "17 wins" in result["tweet"]
-    # Two LLM calls: one that returned tool_calls, one that returned the final JSON.
-    assert len(client.calls) == 2
-    # And the HTTP fake was hit exactly once.
+    assert decision["decision"] == "post"
+    assert "17 wins" in decision["tweet"]
+    assert len(client.calls) == 3  # stage 1 + stage 2 tool round + stage 2 final
     assert len(fake_http.calls) == 1
+
+
+def test_call_llm_stage1_invalid_json_falls_back_to_top_3_by_score():
+    """Malformed stage-1 output triggers fallback shortlist (top-3 by composite_score)."""
+    final = {
+        "decision": "post", "reason": "ok", "alert_ids": [3],
+        "tweet": "fallback worked. link in bio", "is_composite": False,
+    }
+    # Stage 1 returns garbage, stage 2 emits final.
+    client = FakeLLMClient(["{not json", final])
+    top_alerts = [
+        _alert(id=1, composite_score=5.0),
+        _alert(id=2, composite_score=8.0),
+        _alert(id=3, composite_score=12.0),
+        _alert(id=4, composite_score=10.0),
+    ]
+    sd, decision = tb.call_llm(top_alerts, llm_client=client)
+    # Fallback: top-3 by composite_score → ids {3, 4, 2}, mode single.
+    assert sd.mode == "single"
+    assert {item.alert_id for item in sd.shortlist} == {2, 3, 4}
+    assert decision["decision"] == "post"
+
+
+def test_call_llm_stage1_exception_falls_back():
+    """If stage-1 LLM raises, fall back to top-3 and proceed."""
+    final = {
+        "decision": "post", "reason": "ok", "alert_ids": [1],
+        "tweet": "fallback. link in bio", "is_composite": False,
+    }
+
+    class RaisingThenWorkingLLM:
+        def __init__(self, second_response):
+            self._second = second_response
+            self._first = True
+            self.calls = []
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+        def _create(self, **kwargs):
+            self.calls.append(kwargs)
+            if self._first:
+                self._first = False
+                raise RuntimeError("stage-1 LLM down")
+            msg = SimpleNamespace(
+                content=json.dumps(self._second), tool_calls=None, role="assistant",
+            )
+            return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+
+    client = RaisingThenWorkingLLM(final)
+    top_alerts = [_alert(id=1, composite_score=10.0), _alert(id=2, composite_score=8.0)]
+    sd, decision = tb.call_llm(top_alerts, llm_client=client)
+    # Fallback shortlist: top-3 by score (only 2 available, so both included).
+    assert sd.mode == "single"
+    assert {item.alert_id for item in sd.shortlist} == {1, 2}
+    assert decision["tweet"] == "fallback. link in bio"
+
+
+def test_call_llm_stage1_fallback_with_fewer_than_three_alerts():
+    """When fewer than 3 alerts are in input on fallback, shortlist whatever is there."""
+    final = {
+        "decision": "post", "reason": "ok", "alert_ids": [1],
+        "tweet": "lone alert. link in bio", "is_composite": False,
+    }
+    client = FakeLLMClient(["{bad", final])
+    sd, decision = tb.call_llm([_alert(id=1, composite_score=10.0)], llm_client=client)
+    assert sd.mode == "single"
+    assert len(sd.shortlist) == 1
+    assert sd.shortlist[0].alert_id == 1
 
 
 # ---------------------------------------------------------- validate_decision --
 
 def test_validate_decision_accepts_valid_single_post():
     d = {"decision": "post", "alert_ids": [1], "tweet": "ok", "is_composite": False}
-    ok, err = tb.validate_decision(d, top_alert_ids={1, 2, 3})
+    ok, err = tb.validate_decision(d, shortlisted_ids={1, 2}, mode="single")
     assert ok
     assert err == ""
 
 
-def test_validate_decision_accepts_skip():
+def test_validate_decision_accepts_skip_in_either_mode():
     d = {"decision": "skip", "alert_ids": None, "tweet": None, "is_composite": False}
-    ok, _ = tb.validate_decision(d, top_alert_ids={1, 2, 3})
-    assert ok
+    for mode in ("single", "composite"):
+        ok, _ = tb.validate_decision(d, shortlisted_ids={1, 2}, mode=mode)
+        assert ok
 
 
-def test_validate_decision_rejects_alert_id_not_in_input():
+def test_validate_decision_rejects_alert_id_not_in_shortlist():
     d = {"decision": "post", "alert_ids": [99], "tweet": "ok", "is_composite": False}
-    ok, err = tb.validate_decision(d, top_alert_ids={1, 2, 3})
+    ok, err = tb.validate_decision(d, shortlisted_ids={1, 2, 3}, mode="single")
     assert not ok
     assert "99" in err
 
 
 def test_validate_decision_rejects_tweet_over_max_length():
     d = {"decision": "post", "alert_ids": [1], "tweet": "x" * 300, "is_composite": False}
-    ok, err = tb.validate_decision(d, top_alert_ids={1})
+    ok, err = tb.validate_decision(d, shortlisted_ids={1}, mode="single")
     assert not ok
     assert "length" in err.lower()
 
 
 def test_validate_decision_rejects_empty_alert_ids_on_post():
     d = {"decision": "post", "alert_ids": [], "tweet": "ok", "is_composite": False}
-    ok, err = tb.validate_decision(d, top_alert_ids={1})
+    ok, err = tb.validate_decision(d, shortlisted_ids={1}, mode="single")
     assert not ok
 
 
-def test_validate_decision_rejects_non_composite_with_multiple_ids():
+def test_validate_decision_single_mode_rejects_multiple_alert_ids():
     d = {"decision": "post", "alert_ids": [1, 2], "tweet": "ok", "is_composite": False}
-    ok, err = tb.validate_decision(d, top_alert_ids={1, 2})
+    ok, err = tb.validate_decision(d, shortlisted_ids={1, 2}, mode="single")
+    assert not ok
+    assert "single" in err.lower()
+
+
+def test_validate_decision_single_mode_rejects_is_composite_true():
+    d = {"decision": "post", "alert_ids": [1], "tweet": "ok", "is_composite": True}
+    ok, err = tb.validate_decision(d, shortlisted_ids={1, 2}, mode="single")
+    assert not ok
+
+
+def test_validate_decision_composite_mode_accepts_full_shortlist():
+    d = {"decision": "post", "alert_ids": [1, 2, 3], "tweet": "ok", "is_composite": True}
+    ok, err = tb.validate_decision(d, shortlisted_ids={1, 2, 3}, mode="composite")
+    assert ok
+
+
+def test_validate_decision_composite_mode_rejects_partial_shortlist():
+    d = {"decision": "post", "alert_ids": [1, 2], "tweet": "ok", "is_composite": True}
+    ok, err = tb.validate_decision(d, shortlisted_ids={1, 2, 3}, mode="composite")
     assert not ok
     assert "composite" in err.lower()
 
 
-def test_validate_decision_accepts_composite_with_multiple_ids():
-    d = {"decision": "post", "alert_ids": [1, 2], "tweet": "ok", "is_composite": True}
-    ok, err = tb.validate_decision(d, top_alert_ids={1, 2, 3})
-    assert ok
+def test_validate_decision_composite_mode_rejects_is_composite_false():
+    d = {"decision": "post", "alert_ids": [1, 2], "tweet": "ok", "is_composite": False}
+    ok, err = tb.validate_decision(d, shortlisted_ids={1, 2}, mode="composite")
+    assert not ok
 
 
 def test_validate_decision_rejects_unknown_decision_value():
     d = {"decision": "maybe", "alert_ids": [1], "tweet": "ok", "is_composite": False}
-    ok, _ = tb.validate_decision(d, top_alert_ids={1})
+    ok, _ = tb.validate_decision(d, shortlisted_ids={1}, mode="single")
     assert not ok
 
 
@@ -515,13 +596,16 @@ def test_main_runs_full_flow_successfully(monkeypatch):
     }
     http = FakeHTTP(api_body)
 
-    llm = FakeLLMClient([{
-        "decision": "post",
-        "reason": "hot",
-        "alert_ids": [1],
-        "tweet": "Whale dropped $25k. link in bio",
-        "is_composite": False,
-    }])
+    llm = FakeLLMClient([
+        _stage1_shortlist(1, 2),
+        {
+            "decision": "post",
+            "reason": "hot",
+            "alert_ids": [1],
+            "tweet": "Whale dropped $25k. link in bio",
+            "is_composite": False,
+        },
+    ])
 
     twitter = FakeTwitterClient(tweet_id="99")
     conn = RecordingConn()
@@ -558,13 +642,7 @@ def test_main_skips_cleanly_when_llm_says_skip(monkeypatch):
         "total": 1, "page": 1, "per_page": 100,
     }
     http = FakeHTTP(api_body)
-    llm = FakeLLMClient([{
-        "decision": "skip",
-        "reason": "nothing compelling",
-        "alert_ids": None,
-        "tweet": None,
-        "is_composite": False,
-    }])
+    llm = FakeLLMClient([_stage1_skip("nothing compelling")])
     twitter = FakeTwitterClient()
 
     class CombinedCursor(RecordingCursor):
@@ -604,16 +682,20 @@ def test_main_exits_zero_with_no_candidates(monkeypatch):
 def test_main_exits_one_on_validation_error(monkeypatch):
     now = datetime.now(timezone.utc)
     api_body = {
-        "alerts": [_alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat())],
-        "total": 1, "page": 1, "per_page": 100,
+        "alerts": [
+            _alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat()),
+            _alert(id=2, created_at=(now - timedelta(minutes=5)).isoformat()),
+        ],
+        "total": 2, "page": 1, "per_page": 100,
     }
     http = FakeHTTP(api_body)
     # LLM claims alert_id=999 which wasn't in our input. No retry triggers
     # because this isn't a length problem.
-    llm = FakeLLMClient([{
-        "decision": "post", "reason": "x", "alert_ids": [999],
-        "tweet": "ok", "is_composite": False,
-    }])
+    llm = FakeLLMClient([
+        _stage1_shortlist(1, 2),
+        {"decision": "post", "reason": "x", "alert_ids": [999],
+         "tweet": "ok", "is_composite": False},
+    ])
     twitter = FakeTwitterClient()
 
     class CombinedCursor(RecordingCursor):
@@ -632,14 +714,18 @@ def test_main_exits_one_on_validation_error(monkeypatch):
 def test_main_post_error_does_not_write_to_db(monkeypatch):
     now = datetime.now(timezone.utc)
     api_body = {
-        "alerts": [_alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat())],
-        "total": 1, "page": 1, "per_page": 100,
+        "alerts": [
+            _alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat()),
+            _alert(id=2, created_at=(now - timedelta(minutes=5)).isoformat()),
+        ],
+        "total": 2, "page": 1, "per_page": 100,
     }
     http = FakeHTTP(api_body)
-    llm = FakeLLMClient([{
-        "decision": "post", "reason": "x", "alert_ids": [1],
-        "tweet": "ok", "is_composite": False,
-    }])
+    llm = FakeLLMClient([
+        _stage1_shortlist(1, 2),
+        {"decision": "post", "reason": "x", "alert_ids": [1],
+         "tweet": "ok", "is_composite": False},
+    ])
     twitter = FakeTwitterClient(raise_exc=RuntimeError("429 rate limit"))
 
     class CombinedCursor(RecordingCursor):
@@ -660,14 +746,18 @@ def test_main_dry_run_does_not_post_or_record(monkeypatch):
     monkeypatch.setattr(tb, "TWITTER_BOT_DRY_RUN", True)
     now = datetime.now(timezone.utc)
     api_body = {
-        "alerts": [_alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat())],
-        "total": 1, "page": 1, "per_page": 100,
+        "alerts": [
+            _alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat()),
+            _alert(id=2, created_at=(now - timedelta(minutes=5)).isoformat()),
+        ],
+        "total": 2, "page": 1, "per_page": 100,
     }
     http = FakeHTTP(api_body)
-    llm = FakeLLMClient([{
-        "decision": "post", "reason": "x", "alert_ids": [1],
-        "tweet": "hello link in bio", "is_composite": False,
-    }])
+    llm = FakeLLMClient([
+        _stage1_shortlist(1, 2),
+        {"decision": "post", "reason": "x", "alert_ids": [1],
+         "tweet": "hello link in bio", "is_composite": False},
+    ])
     twitter = FakeTwitterClient()
 
     class CombinedCursor(RecordingCursor):
@@ -683,3 +773,233 @@ def test_main_dry_run_does_not_post_or_record(monkeypatch):
     assert twitter.calls == []          # dry run: no real post
     insert_calls = [e for e in conn.cur.executions if "INSERT INTO tweeted_alerts" in e[1]]
     assert insert_calls == []           # dry run: no recording
+
+
+# ------------------------------------------------------------ stage-1 main ----
+
+def test_main_stage1_skip_does_not_call_stage2(monkeypatch):
+    """When stage 1 skips, the LLM is called once and no tweet is posted."""
+    now = datetime.now(timezone.utc)
+    api_body = {
+        "alerts": [_alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat())],
+        "total": 1, "page": 1, "per_page": 100,
+    }
+    http = FakeHTTP(api_body)
+    llm = FakeLLMClient([_stage1_skip("nothing compelling")])
+    twitter = FakeTwitterClient()
+
+    class CombinedCursor(RecordingCursor):
+        def fetchall(self):
+            return []
+
+    conn = RecordingConn()
+    conn.cur = CombinedCursor()
+
+    exit_code = tb.main(http=http, llm_client=llm, twitter_client=twitter, db_conn=conn)
+
+    assert exit_code == 0
+    assert twitter.calls == []
+    assert len(llm.calls) == 1  # only stage 1
+
+
+def test_main_stage1_fallback_logs_and_proceeds(monkeypatch, capsys):
+    """Stage-1 invalid JSON triggers fallback, stage 2 runs, tweet is posted."""
+    now = datetime.now(timezone.utc)
+    api_body = {
+        "alerts": [
+            _alert(id=1, composite_score=10.0,
+                   created_at=(now - timedelta(minutes=5)).isoformat()),
+            _alert(id=2, composite_score=8.0,
+                   created_at=(now - timedelta(minutes=5)).isoformat()),
+        ],
+        "total": 2, "page": 1, "per_page": 100,
+    }
+    http = FakeHTTP(api_body)
+    final = {
+        "decision": "post", "reason": "ok", "alert_ids": [1],
+        "tweet": "fallback worked. link in bio", "is_composite": False,
+    }
+    llm = FakeLLMClient(["{bad json", final])
+    twitter = FakeTwitterClient(tweet_id="42")
+
+    class CombinedCursor(RecordingCursor):
+        def fetchall(self):
+            return []
+
+    conn = RecordingConn()
+    conn.cur = CombinedCursor()
+
+    exit_code = tb.main(http=http, llm_client=llm, twitter_client=twitter, db_conn=conn)
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert twitter.calls == ["fallback worked. link in bio"]
+
+    # Verify the terminal run_end JSON line carries stage1_fallback=True and
+    # stage1_mode="single" (from _build_fallback_shortlist).
+    run_end_lines = [line for line in out.splitlines() if '"event": "run_end"' in line]
+    assert run_end_lines, "expected a run_end log event"
+    final = json.loads(run_end_lines[-1])
+    assert final.get("stage1_fallback") is True
+    assert final.get("stage1_mode") == "single"
+
+
+def test_main_runs_full_two_stage_flow_successfully(monkeypatch):
+    """Stage 1 shortlists 2 alerts, stage 2 posts a single-mode tweet."""
+    now = datetime.now(timezone.utc)
+    api_body = {
+        "alerts": [
+            _alert(id=1, composite_score=9.0,
+                   created_at=(now - timedelta(minutes=10)).isoformat()),
+            _alert(id=2, composite_score=8.0,
+                   created_at=(now - timedelta(minutes=15)).isoformat()),
+        ],
+        "total": 2, "page": 1, "per_page": 100,
+    }
+    http = FakeHTTP(api_body)
+    llm = FakeLLMClient([
+        _stage1_shortlist(1, 2),
+        {"decision": "post", "reason": "hot", "alert_ids": [1],
+         "tweet": "Whale dropped $25k. link in bio", "is_composite": False},
+    ])
+    twitter = FakeTwitterClient(tweet_id="99")
+
+    class CombinedCursor(RecordingCursor):
+        def fetchall(self):
+            return []
+
+    conn = RecordingConn()
+    conn.cur = CombinedCursor()
+
+    exit_code = tb.main(http=http, llm_client=llm, twitter_client=twitter, db_conn=conn)
+
+    assert exit_code == 0
+    assert twitter.calls == ["Whale dropped $25k. link in bio"]
+    insert_calls = [e for e in conn.cur.executions if "INSERT INTO tweeted_alerts" in e[1]]
+    assert len(insert_calls) == 1
+
+
+def test_main_stage1_skip_run_end_has_mode_none(monkeypatch, capsys):
+    """When stage 1 skips, the run_end event logs stage1_mode=None (not 'skip')."""
+    now = datetime.now(timezone.utc)
+    api_body = {
+        "alerts": [_alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat())],
+        "total": 1, "page": 1, "per_page": 100,
+    }
+    http = FakeHTTP(api_body)
+    llm = FakeLLMClient([_stage1_skip("nothing compelling")])
+    twitter = FakeTwitterClient()
+
+    class CombinedCursor(RecordingCursor):
+        def fetchall(self):
+            return []
+
+    conn = RecordingConn()
+    conn.cur = CombinedCursor()
+
+    tb.main(http=http, llm_client=llm, twitter_client=twitter, db_conn=conn)
+    out = capsys.readouterr().out
+    run_end_lines = [line for line in out.splitlines() if '"event": "run_end"' in line]
+    assert run_end_lines, "expected a run_end log event"
+    final = json.loads(run_end_lines[-1])
+    assert final.get("stage1_mode") is None
+    assert final.get("stage1_fallback") is False
+
+
+# ------------------------------------------------------------ dry-run output --
+
+def test_main_dry_run_prints_stage1_selection_block(monkeypatch, capsys):
+    monkeypatch.setattr(tb, "TWITTER_BOT_DRY_RUN", True)
+    now = datetime.now(timezone.utc)
+    api_body = {
+        "alerts": [
+            _alert(id=1, composite_score=9.0,
+                   created_at=(now - timedelta(minutes=5)).isoformat()),
+            _alert(id=2, composite_score=8.0,
+                   created_at=(now - timedelta(minutes=5)).isoformat()),
+        ],
+        "total": 2, "page": 1, "per_page": 100,
+    }
+    http = FakeHTTP(api_body)
+    llm = FakeLLMClient([
+        _stage1_shortlist(1, 2, mode="single"),
+        {"decision": "post", "reason": "ok", "alert_ids": [1],
+         "tweet": "hello link in bio", "is_composite": False},
+    ])
+    twitter = FakeTwitterClient()
+
+    class CombinedCursor(RecordingCursor):
+        def fetchall(self):
+            return []
+    conn = RecordingConn()
+    conn.cur = CombinedCursor()
+
+    tb.main(http=http, llm_client=llm, twitter_client=twitter, db_conn=conn)
+    out = capsys.readouterr().out
+
+    assert "Stage 1 selection: single (2 alerts)" in out
+    # Each shortlisted alert id appears in the block:
+    assert "#1" in out
+    assert "#2" in out
+    # Angles appear:
+    assert "angle for 1" in out
+
+
+def test_main_dry_run_prints_stage1_skip_block(monkeypatch, capsys):
+    monkeypatch.setattr(tb, "TWITTER_BOT_DRY_RUN", True)
+    now = datetime.now(timezone.utc)
+    api_body = {
+        "alerts": [_alert(id=1, created_at=(now - timedelta(minutes=5)).isoformat())],
+        "total": 1, "page": 1, "per_page": 100,
+    }
+    http = FakeHTTP(api_body)
+    llm = FakeLLMClient([_stage1_skip("nothing compelling")])
+    twitter = FakeTwitterClient()
+
+    class CombinedCursor(RecordingCursor):
+        def fetchall(self):
+            return []
+    conn = RecordingConn()
+    conn.cur = CombinedCursor()
+
+    tb.main(http=http, llm_client=llm, twitter_client=twitter, db_conn=conn)
+    out = capsys.readouterr().out
+
+    assert "Stage 1 skip:" in out
+    assert "nothing compelling" in out
+
+
+def test_main_stage1_invalid_logs_raw_output(monkeypatch, capsys):
+    """When stage-1 LLM emits malformed JSON, stage1_invalid carries raw_output."""
+    now = datetime.now(timezone.utc)
+    api_body = {
+        "alerts": [
+            _alert(id=1, composite_score=10.0,
+                   created_at=(now - timedelta(minutes=5)).isoformat()),
+            _alert(id=2, composite_score=8.0,
+                   created_at=(now - timedelta(minutes=5)).isoformat()),
+        ],
+        "total": 2, "page": 1, "per_page": 100,
+    }
+    http = FakeHTTP(api_body)
+    bad = "{this is not valid json at all"
+    final = {
+        "decision": "post", "reason": "ok", "alert_ids": [1],
+        "tweet": "ok. link in bio", "is_composite": False,
+    }
+    llm = FakeLLMClient([bad, final])
+    twitter = FakeTwitterClient(tweet_id="42")
+
+    class CombinedCursor(RecordingCursor):
+        def fetchall(self):
+            return []
+    conn = RecordingConn()
+    conn.cur = CombinedCursor()
+
+    tb.main(http=http, llm_client=llm, twitter_client=twitter, db_conn=conn)
+    out = capsys.readouterr().out
+    invalid_lines = [line for line in out.splitlines() if '"event": "stage1_invalid"' in line]
+    assert invalid_lines, "expected a stage1_invalid log event"
+    event = json.loads(invalid_lines[-1])
+    assert "raw_output" in event
+    assert event["raw_output"] == bad  # raw_output contains the original bad content

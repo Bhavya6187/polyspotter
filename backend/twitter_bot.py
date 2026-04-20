@@ -130,27 +130,78 @@ def filter_dedup(candidates: list[dict], db_conn) -> list[dict]:
 
 # --- LLM composition ---------------------------------------------------------
 
-def _build_user_message(top_alerts: list[dict]) -> str:
-    """Build the JSON payload describing the 5 candidate alerts.
+def call_llm(
+    top_alerts: list[dict],
+    *,
+    llm_client,
+    db_conn_pg=None,
+    db_conn_sqlite=None,
+    http=None,
+    run_id: str | None = None,
+    on_stage1_complete=None,
+):
+    """Orchestrate stage 1 → stage 2 and return (ShortlistDecision, decision_dict).
 
-    Delegates to twitter_bot_agent.build_user_message so the field list stays
-    in sync with the agent's expectations (condition_id, event_slug, end_date,
-    etc. — required for tool calls).
+    Stage 1: select_shortlist picks 2-4 alerts (or skips). On invalid output or
+    LLM exception, falls back to a deterministic top-3-by-score shortlist.
+
+    Stage 2: compose_tweet researches the shortlist and writes the tweet.
+    Length-retry is applied to the stage-2 output.
+
+    Returns:
+        (shortlist_decision, decision_dict). On stage-1 skip, the decision dict
+        is {"decision": "skip", "reason": shortlist_decision.reason} and stage 2
+        is not invoked.
     """
-    from twitter_bot_agent import build_user_message
-    return build_user_message(top_alerts)
+    from twitter_bot_agent import (
+        compose_tweet, select_shortlist,
+        ShortlistValidationError, ToolDeps,
+    )
 
+    log_event("stage1_start", run_id=run_id, input_count=len(top_alerts))
 
-def call_llm(top_alerts: list[dict], *, llm_client, db_conn_pg=None, db_conn_sqlite=None, http=None) -> dict:
-    """Run the agentic composer and handle the 260-char length retry.
+    # --- Stage 1 ---
+    fallback = False
+    try:
+        shortlist_decision = select_shortlist(top_alerts, llm_client=llm_client)
+    except ShortlistValidationError as exc:
+        log_event(
+            "stage1_invalid",
+            run_id=run_id,
+            validation_error=str(exc)[:500],
+            raw_output=(getattr(exc, "raw_content", "") or "")[:500],
+        )
+        shortlist_decision = _build_fallback_shortlist(top_alerts)
+        log_event("stage1_fallback", run_id=run_id, error=str(exc)[:500])
+        fallback = True
+    except Exception as exc:
+        shortlist_decision = _build_fallback_shortlist(top_alerts)
+        log_event("stage1_fallback", run_id=run_id, error=f"{type(exc).__name__}: {exc}"[:500])
+        fallback = True
 
-    Delegates composition to twitter_bot_agent.compose_tweet (which runs the
-    tool-calling loop). If the returned tweet exceeds TWEET_MAX_CHARS, makes
-    one non-agentic follow-up LLM call asking to shorten, matching the
-    behavior of the pre-agent bot.
-    """
-    from twitter_bot_agent import compose_tweet, ToolDeps
+    log_event(
+        "stage1_result",
+        run_id=run_id,
+        decision=shortlist_decision.decision,
+        mode=shortlist_decision.mode,
+        shortlist_ids=(
+            [item.alert_id for item in shortlist_decision.shortlist]
+            if shortlist_decision.shortlist else None
+        ),
+        reason=shortlist_decision.reason,
+        fallback=fallback,
+    )
 
+    if on_stage1_complete is not None:
+        on_stage1_complete(shortlist_decision)
+
+    if shortlist_decision.decision == "skip":
+        return shortlist_decision, {
+            "decision": "skip",
+            "reason": shortlist_decision.reason,
+        }
+
+    # --- Stage 2 ---
     deps = ToolDeps(
         http=http if http is not None else requests,
         api_url=POLYSPOTTER_API_URL,
@@ -172,6 +223,7 @@ def call_llm(top_alerts: list[dict], *, llm_client, db_conn_pg=None, db_conn_sql
             return
         log_event(
             "tool_call",
+            run_id=run_id,
             name=name,
             args=args,
             error=envelope.get("error"),
@@ -182,23 +234,63 @@ def call_llm(top_alerts: list[dict], *, llm_client, db_conn_pg=None, db_conn_sql
         top_alerts,
         llm_client=llm_client,
         deps=deps,
+        shortlist_decision=shortlist_decision,
         on_tool_call=_on_tool_call,
     )
 
     tweet = decision.get("tweet") or ""
     if decision.get("decision") == "post" and len(tweet) > TWEET_MAX_CHARS:
-        decision = _shorten_tweet(decision, top_alerts, llm_client=llm_client)
+        decision = _shorten_tweet(decision, top_alerts, shortlist_decision, llm_client=llm_client)
 
-    return decision
+    return shortlist_decision, decision
 
 
-def _shorten_tweet(decision: dict, top_alerts: list[dict], *, llm_client) -> dict:
+def _stage1_run_end_fields(shortlist_decision) -> dict:
+    """Build the stage1_mode + stage1_fallback fields for run_end log events.
+
+    On no_candidates (shortlist_decision is None), both fields are absent/defaults.
+    On stage-1 skip, stage1_mode is None (the decision has no mode).
+    Otherwise, stage1_mode is the committed mode and stage1_fallback reflects
+    whether this came from _build_fallback_shortlist.
+    """
+    if shortlist_decision is None:
+        return {"stage1_mode": None, "stage1_fallback": False}
+    return {
+        "stage1_mode": shortlist_decision.mode,
+        "stage1_fallback": shortlist_decision.fallback,
+    }
+
+
+def _build_fallback_shortlist(top_alerts: list[dict]):
+    """Top-3 by composite_score, mode=single, no angles. Used on stage-1 failure."""
+    from twitter_bot_agent import ShortlistDecision, ShortlistItem
+    sorted_alerts = sorted(
+        top_alerts, key=lambda a: a.get("composite_score", 0), reverse=True,
+    )
+    picks = sorted_alerts[:3]
+    items = [ShortlistItem(alert_id=int(a["id"]), angle="") for a in picks]
+    return ShortlistDecision(
+        decision="shortlist",
+        reason="stage-1 fallback: top by composite_score",
+        mode="single",
+        shortlist=items,
+        fallback=True,
+    )
+
+
+def _shorten_tweet(decision: dict, top_alerts: list[dict], shortlist_decision, *, llm_client) -> dict:
     """One-shot non-agentic call to shorten an over-length tweet."""
     from twitter_bot_agent import SYSTEM_PROMPT, build_user_message
     original = decision.get("tweet") or ""
+    shortlisted_ids = {item.alert_id for item in shortlist_decision.shortlist}
+    filtered = [a for a in top_alerts if int(a["id"]) in shortlisted_ids]
+    selection = {
+        "mode": shortlist_decision.mode,
+        "angles": {str(item.alert_id): item.angle for item in shortlist_decision.shortlist},
+    }
     retry_messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": build_user_message(top_alerts)},
+        {"role": "user", "content": build_user_message(filtered, selection=selection)},
         {"role": "assistant", "content": json.dumps(decision)},
         {"role": "user", "content": (
             f"Your tweet was {len(original)} characters, must be ≤{TWEET_MAX_CHARS}. "
@@ -219,16 +311,27 @@ def _shorten_tweet(decision: dict, top_alerts: list[dict], *, llm_client) -> dic
 
 # --- Validation --------------------------------------------------------------
 
-def validate_decision(decision: dict, top_alert_ids: set[int]) -> tuple[bool, str]:
-    """Validate the LLM's decision dict. Returns (ok, error_message).
+def validate_decision(
+    decision: dict,
+    shortlisted_ids: set[int],
+    mode: str,
+) -> tuple[bool, str]:
+    """Validate the LLM's stage-2 decision dict. Returns (ok, error_message).
+
+    Args:
+        decision: the dict returned by compose_tweet.
+        shortlisted_ids: the set of alert IDs stage 1 shortlisted (the only
+            valid alert IDs the tweet may reference).
+        mode: "single" or "composite", from the ShortlistDecision.
 
     Rules:
       - decision must be 'post' or 'skip'.
-      - if 'skip', nothing else is checked.
+      - if 'skip', nothing else is checked (mode-agnostic).
       - if 'post':
-          - alert_ids must be a non-empty list of ints all present in top_alert_ids.
+          - alert_ids must be a non-empty list of ints, all ∈ shortlisted_ids.
           - tweet must be a non-empty string with length <= TWEET_MAX_CHARS.
-          - if is_composite is False, alert_ids must have length 1.
+          - mode='single':    len(alert_ids) == 1 AND is_composite is False.
+          - mode='composite': set(alert_ids) == shortlisted_ids AND is_composite is True.
     """
     d = decision.get("decision")
     if d == "skip":
@@ -245,13 +348,27 @@ def validate_decision(decision: dict, top_alert_ids: set[int]) -> tuple[bool, st
     except (TypeError, ValueError):
         return False, f"alert_ids must be integers, got {alert_ids!r}"
 
-    unknown = [i for i in int_ids if i not in top_alert_ids]
+    unknown = [i for i in int_ids if i not in shortlisted_ids]
     if unknown:
-        return False, f"alert_ids contains ids not in input: {unknown}"
+        return False, f"alert_ids contains ids not in shortlist: {unknown}"
 
     is_composite = bool(decision.get("is_composite"))
-    if not is_composite and len(int_ids) != 1:
-        return False, "non-composite tweet must reference exactly one alert_id"
+
+    if mode == "single":
+        if len(int_ids) != 1:
+            return False, f"single-mode tweet must reference exactly one alert_id, got {len(int_ids)}"
+        if is_composite:
+            return False, "single-mode tweet must have is_composite=false"
+    elif mode == "composite":
+        if set(int_ids) != shortlisted_ids:
+            return False, (
+                f"composite-mode tweet must reference all shortlisted ids "
+                f"{sorted(shortlisted_ids)}, got {sorted(int_ids)}"
+            )
+        if not is_composite:
+            return False, "composite-mode tweet must have is_composite=true"
+    else:
+        return False, f"unknown mode: {mode!r}"
 
     tweet = decision.get("tweet") or ""
     if not isinstance(tweet, str) or not tweet.strip():
@@ -389,7 +506,8 @@ def main(
         top_alerts = sorted(after_dedup, key=lambda a: a.get("composite_score", 0), reverse=True)[:20]
         if not top_alerts:
             log_event("no_candidates", run_id=run_id)
-            log_event("run_end", run_id=run_id, posted=False, reason="no_candidates")
+            log_event("run_end", run_id=run_id, posted=False, reason="no_candidates",
+                      **_stage1_run_end_fields(None))
             return 0
 
         if TWITTER_BOT_DRY_RUN:
@@ -416,7 +534,7 @@ def main(
                     print(f"       → {a['llm_headline']}", flush=True)
             print("", flush=True)
 
-        # 4. LLM (agentic composer).
+        # 4. LLM (two-stage agentic composer).
         from db import get_db as _get_sqlite_db
         try:
             db_conn_sqlite = _get_sqlite_db()
@@ -424,26 +542,53 @@ def main(
             log_event("sqlite_open_error", run_id=run_id, error=str(e))
             db_conn_sqlite = None
 
+        def _on_stage1(sd):
+            if not TWITTER_BOT_DRY_RUN:
+                return
+            if sd.decision == "skip":
+                print(f"\n--- Stage 1 skip: {sd.reason} ---", flush=True)
+                return
+            if sd.fallback:
+                print(
+                    f"\n--- Stage 1 fallback: {sd.reason} — using top-{len(sd.shortlist)} by score ---",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"\n--- Stage 1 selection: {sd.mode} ({len(sd.shortlist)} alerts) ---",
+                    flush=True,
+                )
+                print(f"  → reason: {sd.reason}", flush=True)
+            for item in sd.shortlist:
+                print(f"  #{item.alert_id}  {item.angle}", flush=True)
+            print("", flush=True)
+
         try:
-            decision = call_llm(
+            shortlist_decision, decision = call_llm(
                 top_alerts,
                 llm_client=llm_client,
                 db_conn_pg=db_conn,
                 db_conn_sqlite=db_conn_sqlite,
                 http=http,
+                run_id=run_id,
+                on_stage1_complete=_on_stage1,
             )
         except Exception as e:
-            log_event("llm_error", run_id=run_id, error=str(e))
+            log_event("llm_error", run_id=run_id, stage=2, error=str(e))
             return 1
 
         if decision.get("decision") == "skip":
-            log_event("llm_skip", run_id=run_id, reason=decision.get("reason"))
-            log_event("run_end", run_id=run_id, posted=False, reason="llm_skip")
+            stage = 1 if shortlist_decision.decision == "skip" else 2
+            log_event("llm_skip", run_id=run_id, stage=stage, reason=decision.get("reason"))
+            log_event(
+                "run_end", run_id=run_id, posted=False, reason="llm_skip",
+                **_stage1_run_end_fields(shortlist_decision),
+            )
             return 0
 
         # 5. Validate.
-        top_alert_ids = {int(a["id"]) for a in top_alerts}
-        ok, err = validate_decision(decision, top_alert_ids)
+        shortlisted_ids = {item.alert_id for item in shortlist_decision.shortlist}
+        ok, err = validate_decision(decision, shortlisted_ids, shortlist_decision.mode)
         if not ok:
             log_event("validation_error", run_id=run_id, error=err, decision=decision)
             return 1
@@ -465,7 +610,8 @@ def main(
 
         # 7. Record (skip in dry run).
         if TWITTER_BOT_DRY_RUN:
-            log_event("run_end", run_id=run_id, posted=True, dry_run=True, tweet_id=tweet_id)
+            log_event("run_end", run_id=run_id, posted=True, dry_run=True, tweet_id=tweet_id,
+                      **_stage1_run_end_fields(shortlist_decision))
             return 0
 
         try:
@@ -473,10 +619,12 @@ def main(
         except Exception as e:
             log_event("record_error", run_id=run_id, error=str(e))
             # Intentionally still success: the tweet is already live.
-            log_event("run_end", run_id=run_id, posted=True, tweet_id=tweet_id, recorded=False)
+            log_event("run_end", run_id=run_id, posted=True, tweet_id=tweet_id, recorded=False,
+                      **_stage1_run_end_fields(shortlist_decision))
             return 0
 
-        log_event("run_end", run_id=run_id, posted=True, tweet_id=tweet_id, recorded=True)
+        log_event("run_end", run_id=run_id, posted=True, tweet_id=tweet_id, recorded=True,
+                  **_stage1_run_end_fields(shortlist_decision))
         return 0
     finally:
         if owns_conn:

@@ -635,6 +635,21 @@ def test_dispatch_respects_budget_marker():
 
 # ----------------------------------------------------------- compose_tweet ---
 
+def _shortlist(*alert_ids, mode="single", angles=None):
+    """Build a simple ShortlistDecision for tests."""
+    if angles is None:
+        angles = {aid: f"angle for {aid}" for aid in alert_ids}
+    return agent.ShortlistDecision(
+        decision="shortlist",
+        reason="test shortlist",
+        mode=mode,
+        shortlist=[
+            agent.ShortlistItem(alert_id=int(aid), angle=angles[aid])
+            for aid in alert_ids
+        ],
+    )
+
+
 class FakeLLMWithTools:
     """LLM fake that emits either tool_calls or a final content per scripted step.
 
@@ -714,7 +729,11 @@ def test_compose_tweet_zero_tool_calls_returns_decision():
     llm = FakeLLMWithTools([final])
     deps = agent.ToolDeps(http=None, api_url=None, db_conn_pg=None, db_conn_sqlite=None)
 
-    result = agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps)
+    result = agent.compose_tweet(
+        [_alert(id=1), _alert(id=2)],
+        llm_client=llm, deps=deps,
+        shortlist_decision=_shortlist(1, 2),
+    )
 
     assert result["decision"] == "post"
     assert result["tweet"] == "Short tweet. link in bio"
@@ -735,7 +754,11 @@ def test_compose_tweet_uses_tool_result_then_composes():
     deps = agent.ToolDeps(http=http, api_url="https://api.example.test",
                           db_conn_pg=None, db_conn_sqlite=None)
 
-    result = agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps)
+    result = agent.compose_tweet(
+        [_alert(id=1), _alert(id=2)],
+        llm_client=llm, deps=deps,
+        shortlist_decision=_shortlist(1, 2),
+    )
 
     assert result["decision"] == "post"
     assert http.calls[0]["url"] == "https://api.example.test/api/wallets/0xa"
@@ -756,7 +779,11 @@ def test_compose_tweet_exhausts_budget_forcing_final_json():
     deps = agent.ToolDeps(http=http, api_url="https://api.example.test",
                           db_conn_pg=None, db_conn_sqlite=None)
 
-    result = agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps)
+    result = agent.compose_tweet(
+        [_alert(id=1), _alert(id=2)],
+        llm_client=llm, deps=deps,
+        shortlist_decision=_shortlist(1, 2),
+    )
 
     assert result["decision"] == "skip"
     # After budget exhaustion, the next LLM call should force tool_choice='none'.
@@ -778,7 +805,11 @@ def test_compose_tweet_single_turn_over_budget_truncates_dispatched():
     deps = agent.ToolDeps(http=http, api_url="https://api.example.test",
                           db_conn_pg=None, db_conn_sqlite=None)
 
-    result = agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps)
+    result = agent.compose_tweet(
+        [_alert(id=1), _alert(id=2)],
+        llm_client=llm, deps=deps,
+        shortlist_decision=_shortlist(1, 2),
+    )
 
     assert result["decision"] == "skip"
     # HTTP called exactly MAX_TOOL_CALLS times; the extras got budget-error envelopes.
@@ -796,7 +827,11 @@ def test_compose_tweet_raises_on_max_iterations_without_final_json():
                           db_conn_pg=None, db_conn_sqlite=None)
 
     with pytest.raises(agent.AgentOutputError):
-        agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps)
+        agent.compose_tweet(
+            [_alert(id=1), _alert(id=2)],
+            llm_client=llm, deps=deps,
+            shortlist_decision=_shortlist(1, 2),
+        )
 
 
 def test_compose_tweet_raises_on_malformed_final_json():
@@ -804,7 +839,11 @@ def test_compose_tweet_raises_on_malformed_final_json():
     llm = FakeLLMWithTools([bad])
     deps = agent.ToolDeps(http=None, api_url=None, db_conn_pg=None, db_conn_sqlite=None)
     with pytest.raises(agent.AgentOutputError):
-        agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps)
+        agent.compose_tweet(
+            [_alert(id=1), _alert(id=2)],
+            llm_client=llm, deps=deps,
+            shortlist_decision=_shortlist(1, 2),
+        )
 
 
 def test_compose_tweet_invokes_on_tool_call_callback_per_dispatch():
@@ -826,7 +865,12 @@ def test_compose_tweet_invokes_on_tool_call_callback_per_dispatch():
     def cb(name, args, envelope):
         seen.append((name, args, envelope))
 
-    agent.compose_tweet([_alert(id=1)], llm_client=llm, deps=deps, on_tool_call=cb)
+    agent.compose_tweet(
+        [_alert(id=1), _alert(id=2)],
+        llm_client=llm, deps=deps,
+        shortlist_decision=_shortlist(1, 2),
+        on_tool_call=cb,
+    )
 
     assert len(seen) == 1
     name, args, envelope = seen[0]
@@ -854,10 +898,396 @@ def test_compose_tweet_user_message_includes_condition_id_and_event_slug():
     llm.chat.completions.create = wrapped
 
     agent.compose_tweet(
-        [_alert(id=1, condition_id="0xcond", event_slug="my-ev")],
+        [
+            _alert(id=1, condition_id="0xunique-for-id-1", event_slug="my-ev"),
+            _alert(id=2, condition_id="0xunique-for-id-2"),
+        ],
         llm_client=llm, deps=deps,
+        shortlist_decision=_shortlist(1, 2),
     )
 
     user_msg = next(m for m in captured["messages"] if m["role"] == "user")
-    assert "0xcond" in user_msg["content"]
+    assert "0xunique-for-id-1" in user_msg["content"]
     assert "my-ev" in user_msg["content"]
+
+
+# ============================================================================
+# compose_tweet — shortlist_decision integration
+# ============================================================================
+
+
+def test_compose_tweet_filters_top_alerts_to_shortlist():
+    """User message should only contain alerts from the shortlist, not the full input."""
+    captured = {}
+    llm = FakeLLMWithTools([{
+        "decision": "skip", "reason": "x", "alert_ids": None,
+        "tweet": None, "is_composite": False,
+    }])
+    orig_create = llm.chat.completions.create
+    def wrapped(**kwargs):
+        captured["messages"] = kwargs.get("messages")
+        return orig_create(**kwargs)
+    llm.chat.completions.create = wrapped
+
+    deps = agent.ToolDeps(http=None, api_url=None, db_conn_pg=None, db_conn_sqlite=None)
+    agent.compose_tweet(
+        [_alert(id=1), _alert(id=2), _alert(id=3), _alert(id=4)],
+        llm_client=llm, deps=deps,
+        shortlist_decision=_shortlist(1, 3),  # only 1 and 3 are shortlisted
+    )
+    user_msg = next(m for m in captured["messages"] if m["role"] == "user")
+    parsed = json.loads(user_msg["content"])
+    ids = {int(a["alert_id"]) for a in parsed["alerts"]}
+    assert ids == {1, 3}
+
+
+def test_compose_tweet_user_message_includes_selection_mode_and_angles():
+    captured = {}
+    llm = FakeLLMWithTools([{
+        "decision": "skip", "reason": "x", "alert_ids": None,
+        "tweet": None, "is_composite": False,
+    }])
+    orig_create = llm.chat.completions.create
+    def wrapped(**kwargs):
+        captured["messages"] = kwargs.get("messages")
+        return orig_create(**kwargs)
+    llm.chat.completions.create = wrapped
+
+    deps = agent.ToolDeps(http=None, api_url=None, db_conn_pg=None, db_conn_sqlite=None)
+    sd = _shortlist(1, 2, mode="composite", angles={1: "wallet A", 2: "wallet B same funder"})
+    agent.compose_tweet(
+        [_alert(id=1), _alert(id=2)],
+        llm_client=llm, deps=deps, shortlist_decision=sd,
+    )
+    user_msg = next(m for m in captured["messages"] if m["role"] == "user")
+    parsed = json.loads(user_msg["content"])
+    assert parsed["selection"]["mode"] == "composite"
+    assert parsed["selection"]["angles"]["1"] == "wallet A"
+    assert parsed["selection"]["angles"]["2"] == "wallet B same funder"
+
+
+def test_compose_tweet_raises_if_shortlist_is_none():
+    """A ShortlistDecision with shortlist=None (e.g. a skip decision) must not
+    reach compose_tweet. If it does, raise ShortlistValidationError."""
+    llm = FakeLLMWithTools([{
+        "decision": "skip", "reason": "x", "alert_ids": None,
+        "tweet": None, "is_composite": False,
+    }])
+    deps = agent.ToolDeps(http=None, api_url=None, db_conn_pg=None, db_conn_sqlite=None)
+    bad_sd = agent.ShortlistDecision(
+        decision="skip", reason="all routine", mode=None, shortlist=None,
+    )
+    with pytest.raises(agent.ShortlistValidationError, match="shortlist set"):
+        agent.compose_tweet(
+            [_alert(id=1), _alert(id=2)],
+            llm_client=llm, deps=deps, shortlist_decision=bad_sd,
+        )
+
+
+def test_compose_tweet_raises_if_shortlist_id_missing_from_top_alerts():
+    """If a shortlisted ID isn't in top_alerts, raise instead of silently dropping."""
+    llm = FakeLLMWithTools([{
+        "decision": "skip", "reason": "x", "alert_ids": None,
+        "tweet": None, "is_composite": False,
+    }])
+    deps = agent.ToolDeps(http=None, api_url=None, db_conn_pg=None, db_conn_sqlite=None)
+    with pytest.raises(agent.ShortlistValidationError, match="not present"):
+        agent.compose_tweet(
+            [_alert(id=1), _alert(id=2)],
+            llm_client=llm, deps=deps,
+            shortlist_decision=_shortlist(1, 99),  # 99 not in top_alerts
+        )
+
+
+# ============================================================================
+# Stage 1 — validate_shortlist_decision
+# ============================================================================
+
+def test_validate_shortlist_skip_decision_succeeds_with_minimal_fields():
+    raw = {"decision": "skip", "reason": "all routine"}
+    result = agent.validate_shortlist_decision(raw, valid_alert_ids={1, 2, 3})
+    assert result.decision == "skip"
+    assert result.reason == "all routine"
+    assert result.mode is None
+    assert result.shortlist is None
+
+
+def test_validate_shortlist_single_mode_with_two_items_succeeds():
+    raw = {
+        "decision": "shortlist", "reason": "two strong picks",
+        "mode": "single",
+        "shortlist": [
+            {"alert_id": 1, "angle": "20-0 wallet sized up"},
+            {"alert_id": 2, "angle": "new wallet near close"},
+        ],
+    }
+    result = agent.validate_shortlist_decision(raw, valid_alert_ids={1, 2, 3})
+    assert result.decision == "shortlist"
+    assert result.mode == "single"
+    assert len(result.shortlist) == 2
+    assert result.shortlist[0].alert_id == 1
+    assert result.shortlist[0].angle == "20-0 wallet sized up"
+
+
+def test_validate_shortlist_composite_mode_with_three_items_succeeds():
+    raw = {
+        "decision": "shortlist", "reason": "shared funder cluster",
+        "mode": "composite",
+        "shortlist": [
+            {"alert_id": 1, "angle": "wallet A"},
+            {"alert_id": 2, "angle": "wallet B (same funder)"},
+            {"alert_id": 3, "angle": "wallet C (same funder)"},
+        ],
+    }
+    result = agent.validate_shortlist_decision(raw, valid_alert_ids={1, 2, 3, 4})
+    assert result.mode == "composite"
+    assert len(result.shortlist) == 3
+
+
+def test_validate_shortlist_rejects_unknown_decision_value():
+    raw = {"decision": "maybe", "reason": "x"}
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.validate_shortlist_decision(raw, valid_alert_ids={1})
+
+
+def test_validate_shortlist_rejects_missing_mode_on_shortlist():
+    raw = {
+        "decision": "shortlist", "reason": "x",
+        "shortlist": [{"alert_id": 1, "angle": "a"}, {"alert_id": 2, "angle": "b"}],
+    }
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.validate_shortlist_decision(raw, valid_alert_ids={1, 2})
+
+
+def test_validate_shortlist_rejects_invalid_mode_value():
+    raw = {
+        "decision": "shortlist", "reason": "x", "mode": "ensemble",
+        "shortlist": [{"alert_id": 1, "angle": "a"}, {"alert_id": 2, "angle": "b"}],
+    }
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.validate_shortlist_decision(raw, valid_alert_ids={1, 2})
+
+
+def test_validate_shortlist_rejects_size_one():
+    raw = {
+        "decision": "shortlist", "reason": "x", "mode": "single",
+        "shortlist": [{"alert_id": 1, "angle": "only one"}],
+    }
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.validate_shortlist_decision(raw, valid_alert_ids={1})
+
+
+def test_validate_shortlist_rejects_size_five():
+    raw = {
+        "decision": "shortlist", "reason": "x", "mode": "single",
+        "shortlist": [{"alert_id": i, "angle": f"a{i}"} for i in (1, 2, 3, 4, 5)],
+    }
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.validate_shortlist_decision(raw, valid_alert_ids={1, 2, 3, 4, 5})
+
+
+def test_validate_shortlist_rejects_alert_id_not_in_input():
+    raw = {
+        "decision": "shortlist", "reason": "x", "mode": "single",
+        "shortlist": [
+            {"alert_id": 1, "angle": "a"},
+            {"alert_id": 99, "angle": "b"},  # 99 not in input
+        ],
+    }
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.validate_shortlist_decision(raw, valid_alert_ids={1, 2})
+
+
+def test_validate_shortlist_rejects_empty_angle():
+    raw = {
+        "decision": "shortlist", "reason": "x", "mode": "single",
+        "shortlist": [
+            {"alert_id": 1, "angle": ""},
+            {"alert_id": 2, "angle": "b"},
+        ],
+    }
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.validate_shortlist_decision(raw, valid_alert_ids={1, 2})
+
+
+def test_validate_shortlist_rejects_missing_angle():
+    raw = {
+        "decision": "shortlist", "reason": "x", "mode": "single",
+        "shortlist": [{"alert_id": 1}, {"alert_id": 2, "angle": "b"}],
+    }
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.validate_shortlist_decision(raw, valid_alert_ids={1, 2})
+
+
+def test_validate_shortlist_rejects_non_dict_input():
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.validate_shortlist_decision("not a dict", valid_alert_ids={1})
+
+
+def test_validate_shortlist_composite_with_two_items_succeeds():
+    """Composite needs >= 2; size 2 is the minimum and should pass."""
+    raw = {
+        "decision": "shortlist", "reason": "x", "mode": "composite",
+        "shortlist": [
+            {"alert_id": 1, "angle": "a"},
+            {"alert_id": 2, "angle": "b"},
+        ],
+    }
+    result = agent.validate_shortlist_decision(raw, valid_alert_ids={1, 2})
+    assert result.mode == "composite"
+
+
+# ============================================================================
+# Stage 1 — select_shortlist
+# ============================================================================
+
+class FakeStage1LLM:
+    """One-shot LLM fake. Returns the scripted content on first .create() call."""
+
+    def __init__(self, response):
+        # response: dict (returned as JSON content) or str (returned raw)
+        self._response = response
+        self.calls = []
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def _create(self, **kwargs):
+        self.calls.append(kwargs)
+        if isinstance(self._response, dict):
+            content = json.dumps(self._response)
+        else:
+            content = self._response
+        msg = SimpleNamespace(content=content, tool_calls=None, role="assistant")
+        return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+
+
+def _stage1_alert(**overrides):
+    """Slim alert dict shaped like what the bot passes into select_shortlist."""
+    base = {
+        "id": 1,
+        "composite_score": 8.0,
+        "llm_headline": "Whale loads X",
+        "llm_summary": "Wallet dropped $25k.",
+        "wallet": "0xa",
+        "win_rate": 0.82,
+        "total_usd": 25000.0,
+        "market_title": "Will X happen?",
+        "tags": ["Politics"],
+        "condition_id": "0xcond",
+        "event_slug": "ev-1",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_select_shortlist_returns_skip_decision():
+    llm = FakeStage1LLM({"decision": "skip", "reason": "nothing compelling"})
+    result = agent.select_shortlist([_stage1_alert(id=1)], llm_client=llm)
+    assert result.decision == "skip"
+    assert result.reason == "nothing compelling"
+
+
+def test_select_shortlist_returns_single_mode_with_angles():
+    llm = FakeStage1LLM({
+        "decision": "shortlist", "reason": "two clear picks", "mode": "single",
+        "shortlist": [
+            {"alert_id": 1, "angle": "20-0 wallet"},
+            {"alert_id": 2, "angle": "new wallet near close"},
+        ],
+    })
+    result = agent.select_shortlist(
+        [_stage1_alert(id=1), _stage1_alert(id=2), _stage1_alert(id=3)],
+        llm_client=llm,
+    )
+    assert result.mode == "single"
+    assert [s.alert_id for s in result.shortlist] == [1, 2]
+    assert result.shortlist[0].angle == "20-0 wallet"
+
+
+def test_select_shortlist_raises_on_invalid_json():
+    llm = FakeStage1LLM("{not valid json")
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.select_shortlist([_stage1_alert(id=1)], llm_client=llm)
+
+
+def test_select_shortlist_raises_on_alert_id_not_in_input():
+    llm = FakeStage1LLM({
+        "decision": "shortlist", "reason": "x", "mode": "single",
+        "shortlist": [
+            {"alert_id": 1, "angle": "a"},
+            {"alert_id": 999, "angle": "b"},
+        ],
+    })
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.select_shortlist([_stage1_alert(id=1), _stage1_alert(id=2)], llm_client=llm)
+
+
+def test_select_shortlist_makes_exactly_one_llm_call_with_json_mode():
+    llm = FakeStage1LLM({"decision": "skip", "reason": "x"})
+    agent.select_shortlist([_stage1_alert(id=1)], llm_client=llm)
+    assert len(llm.calls) == 1
+    call = llm.calls[0]
+    assert call["model"] == agent.MODEL
+    assert call["response_format"] == {"type": "json_object"}
+    assert "tools" not in call  # stage 1 has no tools
+
+
+def test_select_shortlist_user_message_includes_slim_alert_fields():
+    """Stage-1 payload should include enough for editorial judgment, not trade detail."""
+    llm = FakeStage1LLM({"decision": "skip", "reason": "x"})
+    agent.select_shortlist(
+        [_stage1_alert(id=42, market_title="Tigers vs Red Sox", win_rate=0.91)],
+        llm_client=llm,
+    )
+    user_msg = next(m for m in llm.calls[0]["messages"] if m["role"] == "user")
+    # Required fields appear:
+    assert "42" in user_msg["content"]
+    assert "Tigers vs Red Sox" in user_msg["content"]
+    # Bullets / copy_action / market_description NOT included (slim payload):
+    assert "llm_bullets" not in user_msg["content"]
+    assert "llm_copy_action" not in user_msg["content"]
+    assert "market_description" not in user_msg["content"]
+
+
+def test_select_shortlist_raises_on_empty_content():
+    """When the LLM returns empty/None content, raise ShortlistValidationError."""
+
+    class EmptyContentLLM:
+        def __init__(self):
+            self.calls = []
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+        def _create(self, **kwargs):
+            self.calls.append(kwargs)
+            msg = SimpleNamespace(content=None, tool_calls=None, role="assistant")
+            return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+
+    llm = EmptyContentLLM()
+    with pytest.raises(agent.ShortlistValidationError, match="empty"):
+        agent.select_shortlist([_stage1_alert(id=1)], llm_client=llm)
+
+
+# ============================================================================
+# build_user_message — selection arg
+# ============================================================================
+
+def test_build_user_message_without_selection_omits_selection_field():
+    msg = agent.build_user_message([_alert(id=1)])
+    parsed = json.loads(msg)
+    assert "selection" not in parsed
+    assert len(parsed["alerts"]) == 1
+
+
+def test_build_user_message_with_selection_includes_mode_and_angles():
+    selection = {"mode": "single", "angles": {"1": "verify 20-0 record", "2": "new wallet"}}
+    msg = agent.build_user_message([_alert(id=1), _alert(id=2)], selection=selection)
+    parsed = json.loads(msg)
+    assert parsed["selection"]["mode"] == "single"
+    assert parsed["selection"]["angles"]["1"] == "verify 20-0 record"
+    assert parsed["selection"]["angles"]["2"] == "new wallet"
+
+
+def test_build_user_message_with_composite_selection_passes_through():
+    selection = {"mode": "composite", "angles": {"1": "wallet A"}}
+    msg = agent.build_user_message([_alert(id=1)], selection=selection)
+    parsed = json.loads(msg)
+    assert parsed["selection"]["mode"] == "composite"

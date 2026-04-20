@@ -11,6 +11,7 @@ All tools are read-only. No schema changes. No new endpoints. No langchain.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any
 
 import jmespath
@@ -21,6 +22,7 @@ import jmespath
 MAX_TOOL_CALLS = 10
 MAX_ITERATIONS = 12  # 10 tool rounds + 1 forcing + 1 safety
 RESPONSE_CAP_BYTES = 8192
+MODEL = "gpt-5.4"
 
 
 # --- Errors ------------------------------------------------------------------
@@ -31,6 +33,94 @@ class ProjectionError(Exception):
 
 class AgentOutputError(Exception):
     """Raised when the agent fails to produce valid final JSON."""
+
+
+class ShortlistValidationError(Exception):
+    """Raised when stage-1 LLM output fails validation."""
+
+
+@dataclass
+class ShortlistItem:
+    """One alert chosen by stage 1, with the angle stage 1 wants stage 2 to verify."""
+    alert_id: int
+    angle: str
+
+
+@dataclass
+class ShortlistDecision:
+    """Result of stage 1.
+
+    decision = "shortlist": shortlist + mode are populated.
+    decision = "skip":      shortlist + mode are None; reason explains why.
+
+    fallback is True only when this decision was produced by
+    _build_fallback_shortlist (stage-1 LLM output failed validation or the
+    LLM itself raised). Real stage-1 outputs always have fallback=False.
+    """
+    decision: str
+    reason: str
+    mode: str | None
+    shortlist: list[ShortlistItem] | None
+    fallback: bool = False
+
+
+_VALID_MODES = {"single", "composite"}
+
+
+def validate_shortlist_decision(raw, *, valid_alert_ids: set[int]) -> ShortlistDecision:
+    """Parse and validate the stage-1 LLM JSON output.
+
+    Returns a ShortlistDecision on success. Raises ShortlistValidationError on
+    any rule violation. `valid_alert_ids` is the set of alert IDs the LLM was
+    allowed to choose from (i.e. the top-N input set).
+
+    Rules:
+      - raw must be a dict.
+      - decision must be 'shortlist' or 'skip'.
+      - skip → only `reason` matters; mode and shortlist are returned as None.
+      - shortlist requires mode in {single, composite} and a list of 2-4 items,
+        each with an int alert_id (∈ valid_alert_ids) and a non-empty angle.
+    """
+    if not isinstance(raw, dict):
+        raise ShortlistValidationError(f"raw must be dict, got {type(raw).__name__}")
+
+    decision = raw.get("decision")
+    reason = raw.get("reason") or ""
+
+    if decision == "skip":
+        return ShortlistDecision(decision="skip", reason=reason, mode=None, shortlist=None)
+
+    if decision != "shortlist":
+        raise ShortlistValidationError(f"unknown decision value: {decision!r}")
+
+    mode = raw.get("mode")
+    if mode not in _VALID_MODES:
+        raise ShortlistValidationError(f"mode must be one of {_VALID_MODES}, got {mode!r}")
+
+    shortlist_raw = raw.get("shortlist")
+    if not isinstance(shortlist_raw, list) or not (2 <= len(shortlist_raw) <= 4):
+        raise ShortlistValidationError(
+            f"shortlist must be a list of 2-4 items, got {shortlist_raw!r}"
+        )
+
+    items: list[ShortlistItem] = []
+    for i, item in enumerate(shortlist_raw):
+        if not isinstance(item, dict):
+            raise ShortlistValidationError(f"shortlist[{i}] must be dict, got {item!r}")
+        try:
+            alert_id = int(item["alert_id"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ShortlistValidationError(f"shortlist[{i}].alert_id invalid: {exc}") from exc
+        if alert_id not in valid_alert_ids:
+            raise ShortlistValidationError(
+                f"shortlist[{i}].alert_id {alert_id} not in valid set {sorted(valid_alert_ids)}"
+            )
+        angle = item.get("angle")
+        if not isinstance(angle, str) or not angle.strip():
+            raise ShortlistValidationError(f"shortlist[{i}].angle must be a non-empty string")
+        items.append(ShortlistItem(alert_id=alert_id, angle=angle.strip()))
+
+    return ShortlistDecision(decision="shortlist", reason=reason, mode=mode, shortlist=items)
 
 
 # --- Envelope helpers --------------------------------------------------------
@@ -423,8 +513,6 @@ def call_gamma_api(*, path: str, params: dict | None = None, http) -> Any:
 
 # --- Tool registry & dispatcher ----------------------------------------------
 
-from dataclasses import dataclass
-
 
 @dataclass
 class ToolDeps:
@@ -648,24 +736,135 @@ def dispatch_tool_over_budget(name: str, *, deps: ToolDeps) -> dict:
 
 # --- Prompt + loop -----------------------------------------------------------
 
-MODEL = "gpt-5.4"
+STAGE1_SYSTEM_PROMPT = (
+    "You are the editor for the PolySpotter Twitter feed. Each hour you see "
+    "up to 20 candidate alerts (notable Polymarket bets surfaced by our scanner). "
+    "Your job is to pick the 2-4 alerts most likely to make a great tweet — "
+    "OR skip the hour if nothing is compelling.\n\n"
+
+    "## How to choose\n"
+    "- You have two valid outputs: shortlist 2-4 alerts, or skip. Never 1.\n"
+    "- Shortlist 2 when there's one clear story and one backup (the backup "
+    "covers stage 2 finding the top pick doesn't hold up on research). "
+    "Shortlist 3-4 only when you're genuinely torn between several.\n"
+    "- If only one alert is truly worth tweeting and none of the others make "
+    "plausible backups, skip — do not pad with a weak second pick.\n"
+    "- Skip the hour if every alert feels routine or low-signal.\n"
+    "- 'Most tweetable' is not the same as 'highest composite_score'. Look for "
+    "specific, surprising, story-rich bets — sharp wallets, big size, unusual "
+    "timing, named themes.\n\n"
+
+    "## Single vs composite\n"
+    "- mode='single': you want a tweet about ONE alert. Stage 2 will pick the "
+    "strongest from your shortlist; the others are backups in case the first "
+    "doesn't hold up to research.\n"
+    "- mode='composite': the alerts share a tight thread — same wallet across "
+    "markets, same event, shared funder cluster, same theme — and they belong "
+    "in ONE tweet together. Only pick composite if you'd genuinely combine them. "
+    "Never force synthesis.\n\n"
+
+    "## The angle field\n"
+    "For each shortlisted alert, write one short sentence describing the STORY "
+    "you'd want the tweet to tell. Not a recap of the headline — the angle "
+    "(e.g., 'verify this wallet is actually 20-0 and size is 25× their average', "
+    "or '3 wallets sharing a funder all loaded the under in the last 40 min'). "
+    "Stage 2 will use your angle to focus its research tools.\n\n"
+
+    "## Output format (strict JSON)\n"
+    'For shortlist:\n'
+    '{\n'
+    '  "decision": "shortlist",\n'
+    '  "reason": "one short sentence on why these",\n'
+    '  "mode": "single" | "composite",\n'
+    '  "shortlist": [\n'
+    '    {"alert_id": <int>, "angle": "<short story>"},\n'
+    '    ...\n'
+    '  ]\n'
+    '}\n\n'
+    'For skip:\n'
+    '{"decision": "skip", "reason": "one short sentence"}\n\n'
+    "alert_id values must be integers drawn from the alerts you were shown."
+)
+
+
+def build_stage1_user_message(top_alerts: list[dict]) -> str:
+    """Slim payload for stage 1 — fields needed for editorial judgment, no trade detail."""
+    payload = []
+    for a in top_alerts:
+        payload.append({
+            "alert_id": int(a["id"]),
+            "composite_score": a.get("composite_score"),
+            "llm_headline": a.get("llm_headline"),
+            "llm_summary": a.get("llm_summary"),
+            "wallet": a.get("wallet"),
+            "wallet_win_rate": a.get("win_rate"),
+            "total_usd": a.get("total_usd"),
+            "market_title": a.get("market_title"),
+            "tags": a.get("tags") or [],
+            "condition_id": a.get("condition_id"),
+            "event_slug": a.get("event_slug"),
+        })
+    return json.dumps({"alerts": payload}, default=str)
+
+
+def select_shortlist(top_alerts: list[dict], *, llm_client) -> ShortlistDecision:
+    """Run stage 1: LLM picks 2-4 alerts (with mode + angles) or decides to skip.
+
+    Single LLM call, JSON mode, no tools. Raises ShortlistValidationError if the
+    output is malformed; raises any LLM-client exception unchanged. Caller
+    (twitter_bot.call_llm) is responsible for the fallback path.
+    """
+    valid_alert_ids = {int(a["id"]) for a in top_alerts}
+    messages = [
+        {"role": "system", "content": STAGE1_SYSTEM_PROMPT},
+        {"role": "user", "content": build_stage1_user_message(top_alerts)},
+    ]
+    response = llm_client.chat.completions.create(
+        model=MODEL,
+        messages=messages,
+        response_format={"type": "json_object"},
+        temperature=0.7,
+        max_completion_tokens=400,
+    )
+    content = response.choices[0].message.content
+    if not content:
+        exc = ShortlistValidationError("empty LLM response content")
+        exc.raw_content = ""
+        raise exc
+    try:
+        raw = json.loads(content)
+    except json.JSONDecodeError as json_exc:
+        exc = ShortlistValidationError(f"non-JSON content: {json_exc}")
+        exc.raw_content = content
+        raise exc from json_exc
+    try:
+        return validate_shortlist_decision(raw, valid_alert_ids=valid_alert_ids)
+    except ShortlistValidationError as exc:
+        exc.raw_content = content
+        raise
 
 
 SYSTEM_PROMPT = (
     "You are the social media voice for PolySpotter, a service that surfaces "
     "notable Polymarket bets from sharp wallets, whales, and coordinated flow.\n\n"
 
-    "You'll be given up to 20 alerts from the last hour. Your job: write ONE "
-    "tweet that's as engaging as possible — drawing on one OR multiple alerts "
-    "— or skip the hour if nothing is compelling.\n\n"
+    "## Selection context\n"
+    "Stage 1 has already shortlisted 2-4 alerts and committed to a mode (single "
+    "or composite). The user message includes a `selection` block with the mode "
+    "and a per-alert `angles` map — each angle is the story stage 1 wants you "
+    "to verify and sharpen. You may pivot to a stronger angle you discover "
+    "during research, but you must respect the mode:\n"
+    "- mode='single': feature ONE alert from the shortlist. Others are backups.\n"
+    "- mode='composite': your tweet must reference all shortlisted alerts as a "
+    "single weave (same wallet, same event, shared funders, same theme).\n\n"
 
     "## You have research tools\n"
     "You can call up to 10 tools before writing the tweet. Use them when "
     "digging deeper would sharpen the story. A good tweet cites a SPECIFIC "
     "fact the alert payload doesn't already contain (e.g., 'bought the Under "
     "at 0.35 — market now at 0.62', 'this wallet has late-timed 17 markets "
-    "in 3 weeks', 'volume 12x'd in the last 4 hours'). You don't have to use "
-    "all 5. Zero calls is fine if the alerts already tell a tight story.\n\n"
+    "in 3 weeks', 'volume 12x'd in the last 4 hours'). Zero calls is fine if "
+    "the alerts already tell a tight story.\n\n"
 
     "## JMESPath projection\n"
     "Every tool accepts an optional `projection` string (a JMESPath expression). "
@@ -679,13 +878,6 @@ SYSTEM_PROMPT = (
     "includes a `projection_error` field AND the raw (8KB-capped) data — you "
     "don't need a second call to recover. Use the raw data or retry with a "
     "safer expression (e.g., filter out nulls).\n\n"
-
-    "## Single vs composite\n"
-    "- If one alert clearly stands out, write a tight hook-driven tweet focused on it.\n"
-    "- If 2+ alerts tell a bigger story together (same market, same wallet across "
-    "markets, a theme like '3 whales all loaded up on Iran markets today'), "
-    "compose a synthesis tweet.\n"
-    "- Never force synthesis. If alerts are unrelated, just pick the best one.\n\n"
 
     "## Tweet rules\n"
     "- Max 260 characters (safety margin under X's 280 limit).\n"
@@ -701,7 +893,8 @@ SYSTEM_PROMPT = (
     "- Write like a sharp trading desk analyst, not a corporate account.\n\n"
 
     "## Skip criteria\n"
-    "If all alerts are routine/low-signal, return decision=skip with a short reason.\n\n"
+    "If after research the shortlisted alerts don't actually support a strong "
+    "tweet, return decision=skip with a short reason.\n\n"
 
     "## Output format (strict JSON, returned as your final assistant content)\n"
     '{\n'
@@ -711,16 +904,20 @@ SYSTEM_PROMPT = (
     '  "tweet": "<string ≤260 chars | null>",\n'
     '  "is_composite": true | false\n'
     '}\n'
-    "alert_ids must be integers taken from the alerts you were shown. "
-    "If is_composite=false, alert_ids must contain exactly one id."
+    "alert_ids must be integers from the shortlist. is_composite must match "
+    "the selection mode (true if mode=composite, false if mode=single)."
 )
 
 
-def build_user_message(top_alerts: list[dict]) -> str:
-    """Build the JSON payload describing the 5 candidate alerts.
+def build_user_message(top_alerts: list[dict], *, selection: dict | None = None) -> str:
+    """Build the JSON payload describing the shortlisted alerts.
 
     Includes every field an investigative composer needs to call deeper tools:
     condition_id, event_slug, end_date, market_description, llm_bullets.
+
+    When `selection` is provided (from stage 1), it is included as a top-level
+    `selection: {mode, angles}` field so stage 2 knows the chosen mode and
+    each alert's suggested angle.
     """
     payload = []
     for a in top_alerts:
@@ -743,7 +940,10 @@ def build_user_message(top_alerts: list[dict]) -> str:
             "tags": a.get("tags") or [],
             "end_date": a.get("end_date"),
         })
-    return json.dumps({"alerts": payload}, default=str)
+    body: dict = {"alerts": payload}
+    if selection is not None:
+        body["selection"] = selection
+    return json.dumps(body, default=str)
 
 
 def compose_tweet(
@@ -751,9 +951,13 @@ def compose_tweet(
     *,
     llm_client,
     deps: ToolDeps,
+    shortlist_decision: ShortlistDecision,
     on_tool_call=None,
 ) -> dict:
     """Run the function-calling loop and return the final decision dict.
+
+    Stage-2 entry point: receives a ShortlistDecision from stage 1 and
+    operates only on the shortlisted alerts.
 
     If `on_tool_call` is provided, it's invoked as `on_tool_call(name, args, envelope)`
     after each tool dispatch (including budget-exhausted ones), giving callers a
@@ -762,9 +966,26 @@ def compose_tweet(
     Raises AgentOutputError if the model fails to emit a valid final JSON
     response within MAX_ITERATIONS.
     """
+    if shortlist_decision.shortlist is None:
+        raise ShortlistValidationError(
+            "compose_tweet requires a shortlist_decision with shortlist set"
+        )
+
+    shortlisted_ids = {item.alert_id for item in shortlist_decision.shortlist}
+    filtered = [a for a in top_alerts if int(a["id"]) in shortlisted_ids]
+    if len(filtered) != len(shortlisted_ids):
+        missing = shortlisted_ids - {int(a["id"]) for a in top_alerts}
+        raise ShortlistValidationError(
+            f"shortlisted alert_ids not present in top_alerts: {sorted(missing)}"
+        )
+    selection = {
+        "mode": shortlist_decision.mode,
+        "angles": {str(item.alert_id): item.angle for item in shortlist_decision.shortlist},
+    }
+
     messages: list[dict] = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": build_user_message(top_alerts)},
+        {"role": "user", "content": build_user_message(filtered, selection=selection)},
     ]
     tool_calls_used = 0
     forcing_final = False
