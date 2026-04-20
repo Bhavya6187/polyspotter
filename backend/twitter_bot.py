@@ -27,6 +27,12 @@ from openai import OpenAI
 from psycopg2.extras import RealDictCursor
 
 
+# The scanner's db module lives at the repo root; add it to sys.path so we can
+# import polybot.db for SQLite-backed agent tools.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 load_dotenv()
 
 # --- Config (from env) --------------------------------------------------------
@@ -157,105 +163,60 @@ def filter_dedup(candidates: list[dict], db_conn) -> list[dict]:
 
 # --- LLM composition ---------------------------------------------------------
 
-SYSTEM_PROMPT = (
-    "You are the social media voice for PolySpotter, a service that surfaces "
-    "notable Polymarket bets from sharp wallets, whales, and coordinated flow.\n\n"
-
-    "You'll be given up to 5 alerts from the last hour. Your job: write ONE "
-    "tweet that's as engaging as possible — drawing on one OR multiple alerts "
-    "— or skip the hour if nothing is compelling.\n\n"
-
-    "## Single vs composite\n"
-    "- If one alert clearly stands out, write a tight hook-driven tweet focused on it.\n"
-    "- If 2+ alerts tell a bigger story together (same market, same wallet across "
-    "markets, a theme like '3 whales all loaded up on Iran markets today'), "
-    "compose a synthesis tweet.\n"
-    "- Never force synthesis. If alerts are unrelated, just pick the best one.\n\n"
-
-    "## Tweet rules\n"
-    "- Max 260 characters (safety margin under X's 280 limit).\n"
-    "- Hook-driven opening: lead with the most striking fact (dollar amount, "
-    "win rate, timing).\n"
-    "- Use specific numbers, not vague descriptors.\n"
-    "- End with a CTA that drives clicks to bio, e.g., "
-    "'→ link in bio', 'full details in bio 👀', 'who is this wallet? bio link'.\n"
-    "- 1–2 relevant hashtags max. Prefer topic-specific over generic #Polymarket.\n"
-    "- 0–2 emojis, only if they add something. No emoji spam.\n"
-    "- No URLs. No @mentions of real users.\n"
-    "- Never fabricate numbers or facts not in the alert data.\n"
-    "- Write like a sharp trading desk analyst, not a corporate account.\n\n"
-
-    "## Skip criteria\n"
-    "If all 5 alerts are routine/low-signal, return decision=skip with a short reason.\n\n"
-
-    "## Output format (strict JSON)\n"
-    '{\n'
-    '  "decision": "post" | "skip",\n'
-    '  "reason": "short string",\n'
-    '  "alert_ids": [<int>, ...] | null,\n'
-    '  "tweet": "<string ≤260 chars | null>",\n'
-    '  "is_composite": true | false\n'
-    '}\n'
-    "alert_ids must be integers taken from the alerts you were shown. "
-    "If is_composite=false, alert_ids must contain exactly one id."
-)
-
-
 def _build_user_message(top5: list[dict]) -> str:
-    """Build the JSON payload describing the 5 candidate alerts."""
-    payload = []
-    for a in top5:
-        payload.append({
-            "alert_id": int(a["id"]),
-            "composite_score": a.get("composite_score"),
-            "llm_headline": a.get("llm_headline"),
-            "llm_summary": a.get("llm_summary"),
-            "market_title": a.get("market_title"),
-            "wallet": a.get("wallet"),
-            "wallet_win_rate": a.get("win_rate"),
-            "wallet_total_pnl": a.get("total_pnl"),
-            "total_usd": a.get("total_usd"),
-            "tags": a.get("tags") or [],
-        })
-    return json.dumps({"alerts": payload}, default=str)
+    """Build the JSON payload describing the 5 candidate alerts.
 
-
-def call_llm(top5: list[dict], *, llm_client) -> dict:
-    """Send the top 5 alerts to GPT and parse its decision.
-
-    Retries once if the returned tweet exceeds TWEET_MAX_CHARS, asking the model
-    to shorten. Returns the raw decision dict (caller is responsible for any
-    validation beyond length — e.g. alert_id membership).
+    Delegates to twitter_bot_agent.build_user_message so the field list stays
+    in sync with the agent's expectations (condition_id, event_slug, end_date,
+    etc. — required for tool calls).
     """
-    user_msg = _build_user_message(top5)
+    from twitter_bot_agent import build_user_message
+    return build_user_message(top5)
 
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_msg},
-    ]
 
-    decision = _llm_decide(messages, llm_client=llm_client)
+def call_llm(top5: list[dict], *, llm_client, db_conn_pg=None, db_conn_sqlite=None, http=None) -> dict:
+    """Run the agentic composer and handle the 260-char length retry.
 
-    # Length retry (only if decision is 'post' and tweet is over limit).
+    Delegates composition to twitter_bot_agent.compose_tweet (which runs the
+    tool-calling loop). If the returned tweet exceeds TWEET_MAX_CHARS, makes
+    one non-agentic follow-up LLM call asking to shorten, matching the
+    behavior of the pre-agent bot.
+    """
+    from twitter_bot_agent import compose_tweet, ToolDeps
+
+    deps = ToolDeps(
+        http=http if http is not None else requests,
+        api_url=POLYSPOTTER_API_URL,
+        db_conn_pg=db_conn_pg,
+        db_conn_sqlite=db_conn_sqlite,
+    )
+
+    decision = compose_tweet(top5, llm_client=llm_client, deps=deps)
+
     tweet = decision.get("tweet") or ""
     if decision.get("decision") == "post" and len(tweet) > TWEET_MAX_CHARS:
-        retry_messages = messages + [
-            {"role": "assistant", "content": json.dumps(decision)},
-            {"role": "user", "content": (
-                f"Your tweet was {len(tweet)} characters, must be ≤{TWEET_MAX_CHARS}. "
-                f"Shorten it, keep the hook and CTA. Return the same JSON format."
-            )},
-        ]
-        decision = _llm_decide(retry_messages, llm_client=llm_client)
+        decision = _shorten_tweet(decision, top5, llm_client=llm_client)
 
     return decision
 
 
-def _llm_decide(messages: list[dict], *, llm_client) -> dict:
-    """Call the model once and parse JSON out of the response."""
+def _shorten_tweet(decision: dict, top5: list[dict], *, llm_client) -> dict:
+    """One-shot non-agentic call to shorten an over-length tweet."""
+    from twitter_bot_agent import SYSTEM_PROMPT, build_user_message
+    original = decision.get("tweet") or ""
+    retry_messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": build_user_message(top5)},
+        {"role": "assistant", "content": json.dumps(decision)},
+        {"role": "user", "content": (
+            f"Your tweet was {len(original)} characters, must be ≤{TWEET_MAX_CHARS}. "
+            f"Shorten it, keep the hook and CTA. Return the same JSON format — "
+            f"no tool calls, just the final JSON."
+        )},
+    ]
     response = llm_client.chat.completions.create(
         model=MODEL,
-        messages=messages,
+        messages=retry_messages,
         response_format={"type": "json_object"},
         temperature=0.7,
         max_completion_tokens=500,
@@ -458,9 +419,22 @@ def main(
                 ],
             )
 
-        # 4. LLM.
+        # 4. LLM (agentic composer).
+        from db import get_db as _get_sqlite_db
         try:
-            decision = call_llm(top5, llm_client=llm_client)
+            db_conn_sqlite = _get_sqlite_db()
+        except Exception as e:
+            log_event("sqlite_open_error", run_id=run_id, error=str(e))
+            db_conn_sqlite = None
+
+        try:
+            decision = call_llm(
+                top5,
+                llm_client=llm_client,
+                db_conn_pg=db_conn,
+                db_conn_sqlite=db_conn_sqlite,
+                http=http,
+            )
         except Exception as e:
             log_event("llm_error", run_id=run_id, error=str(e))
             return 1

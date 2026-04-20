@@ -33,12 +33,17 @@ def _alert(**overrides):
         "id": 1,
         "composite_score": 8.0,
         "market_title": "Will X happen?",
+        "market_description": "Resolves Yes if X.",
         "condition_id": "0xcond1",
+        "event_slug": "ev-1",
+        "end_date": "2026-04-20T00:00:00Z",
         "wallet": "0xwallet1",
         "total_usd": 25_000.0,
         "trade_count": 1,
         "llm_headline": "Whale loads up on X",
         "llm_summary": "Wallet with 82% win rate dropped $25k.",
+        "llm_bullets": [],
+        "llm_copy_action": {},
         "win_rate": 0.82,
         "total_pnl": 340_000.0,
         "tags": ["Politics"],
@@ -49,19 +54,40 @@ def _alert(**overrides):
 
 
 class FakeHTTP:
-    """Stand-in for the `requests` module. Records calls, returns a canned body."""
+    """Stand-in for the `requests` module. Records calls, returns a canned body.
 
-    def __init__(self, body):
-        self._body = body
+    `body_or_map` is either:
+      - a dict mapping URL -> response body (used when the same fake serves
+        multiple endpoints — e.g., agent tool calls), or
+      - any other value, served as the response body for every request.
+
+    The URL-mapping mode is detected by checking that every value is itself a
+    dict/list (i.e. looks like a response body). A raw alert-list response
+    body is served as-is.
+    """
+
+    def __init__(self, body_or_map):
+        self._body = body_or_map
         self.last_url = None
         self.last_params = None
+        self.calls = []
+
+    def _is_url_map(self):
+        # URL-map mode: dict whose keys are URLs (start with http).
+        return (
+            isinstance(self._body, dict)
+            and bool(self._body)
+            and all(isinstance(k, str) and k.startswith("http") for k in self._body.keys())
+        )
 
     def get(self, url, params=None, timeout=None):
         self.last_url = url
         self.last_params = params
+        self.calls.append({"url": url, "params": params, "timeout": timeout})
+        body = self._body.get(url, {}) if self._is_url_map() else self._body
         resp = SimpleNamespace()
         resp.status_code = 200
-        resp.json = lambda: self._body
+        resp.json = lambda: body
         resp.raise_for_status = lambda: None
         return resp
 
@@ -186,21 +212,51 @@ def test_filter_dedup_with_empty_candidate_list_returns_empty():
 # ------------------------------------------------------------------ call_llm --
 
 class FakeLLMClient:
-    """Stand-in for openai.OpenAI. chat.completions.create returns canned output."""
+    """Stand-in that scripts the agentic loop.
+
+    `responses` is a list of steps. Each step is either:
+      - a final decision dict (emitted as message.content)
+      - a raw string (for malformed-JSON tests)
+      - a list of (tool_name, arguments_dict) tuples (emitted as tool_calls)
+
+    Each `create()` consumes one step from the list.
+    """
 
     def __init__(self, responses):
-        # `responses` is a list of dicts — each becomes one response body.
         self._responses = list(responses)
-        self.calls = []
-        # Mirror the nested structure the real client exposes.
+        self.calls = []  # Preserved for legacy tests that inspect call counts.
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     def _create(self, **kwargs):
         self.calls.append(kwargs)
-        body = self._responses.pop(0)
-        content = body if isinstance(body, str) else json.dumps(body)
-        choice = SimpleNamespace(message=SimpleNamespace(content=content))
-        return SimpleNamespace(choices=[choice])
+        if not self._responses:
+            raise RuntimeError("FakeLLMClient script exhausted")
+        step = self._responses.pop(0)
+
+        if isinstance(step, dict):
+            msg = SimpleNamespace(
+                content=json.dumps(step),
+                tool_calls=None,
+                role="assistant",
+            )
+            return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+
+        if isinstance(step, str):
+            msg = SimpleNamespace(content=step, tool_calls=None, role="assistant")
+            return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+
+        # Tool-call step.
+        import uuid as _uuid
+        tc = [
+            SimpleNamespace(
+                id=f"call_{_uuid.uuid4().hex[:8]}",
+                type="function",
+                function=SimpleNamespace(name=name, arguments=json.dumps(args)),
+            )
+            for (name, args) in step
+        ]
+        msg = SimpleNamespace(content=None, tool_calls=tc, role="assistant")
+        return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
 
 
 def test_call_llm_returns_skip_decision_cleanly():
@@ -266,6 +322,38 @@ def test_call_llm_returns_overlong_result_when_retry_also_fails():
     # Caller (validate_decision) decides. This test just asserts it tried twice.
     assert len(client.calls) == 2
     assert len(result["tweet"]) == 280
+
+
+def test_call_llm_exercises_tool_calls_through_agent_loop():
+    """Verify the agent can make a tool call via call_llm and still return a decision."""
+    # Step 1: agent requests get_wallet_profile.
+    # Step 2: agent emits final JSON decision.
+    final = {
+        "decision": "post", "reason": "whale has 17 wins",
+        "alert_ids": [1], "tweet": "Whale with 17 wins just loaded up. link in bio",
+        "is_composite": False,
+    }
+    client = FakeLLMClient([
+        [("get_wallet_profile", {"wallet": "0xwallet1"})],
+        final,
+    ])
+
+    # FakeHTTP with a canned wallet profile response.
+    fake_http = FakeHTTP({"https://api.example.test/api/wallets/0xwallet1": {"wins": 17, "wallet": "0xwallet1"}})
+
+    result = tb.call_llm(
+        [_alert(id=1)],
+        llm_client=client,
+        db_conn_pg=None,
+        db_conn_sqlite=None,
+        http=fake_http,
+    )
+    assert result["decision"] == "post"
+    assert "17 wins" in result["tweet"]
+    # Two LLM calls: one that returned tool_calls, one that returned the final JSON.
+    assert len(client.calls) == 2
+    # And the HTTP fake was hit exactly once.
+    assert len(fake_http.calls) == 1
 
 
 # ---------------------------------------------------------- validate_decision --
