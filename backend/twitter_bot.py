@@ -130,27 +130,69 @@ def filter_dedup(candidates: list[dict], db_conn) -> list[dict]:
 
 # --- LLM composition ---------------------------------------------------------
 
-def _build_user_message(top_alerts: list[dict]) -> str:
-    """Build the JSON payload describing the 5 candidate alerts.
+def call_llm(
+    top_alerts: list[dict],
+    *,
+    llm_client,
+    db_conn_pg=None,
+    db_conn_sqlite=None,
+    http=None,
+    run_id: str | None = None,
+):
+    """Orchestrate stage 1 → stage 2 and return (ShortlistDecision, decision_dict).
 
-    Delegates to twitter_bot_agent.build_user_message so the field list stays
-    in sync with the agent's expectations (condition_id, event_slug, end_date,
-    etc. — required for tool calls).
+    Stage 1: select_shortlist picks 2-4 alerts (or skips). On invalid output or
+    LLM exception, falls back to a deterministic top-3-by-score shortlist.
+
+    Stage 2: compose_tweet researches the shortlist and writes the tweet.
+    Length-retry is applied to the stage-2 output.
+
+    Returns:
+        (shortlist_decision, decision_dict). On stage-1 skip, the decision dict
+        is {"decision": "skip", "reason": shortlist_decision.reason} and stage 2
+        is not invoked.
     """
-    from twitter_bot_agent import build_user_message
-    return build_user_message(top_alerts)
+    from twitter_bot_agent import (
+        compose_tweet, select_shortlist,
+        ShortlistValidationError, ToolDeps,
+    )
 
+    log_event("stage1_start", run_id=run_id, input_count=len(top_alerts))
 
-def call_llm(top_alerts: list[dict], *, llm_client, db_conn_pg=None, db_conn_sqlite=None, http=None) -> dict:
-    """Run the agentic composer and handle the 260-char length retry.
+    # --- Stage 1 ---
+    fallback = False
+    try:
+        shortlist_decision = select_shortlist(top_alerts, llm_client=llm_client)
+    except ShortlistValidationError as exc:
+        log_event("stage1_invalid", run_id=run_id, validation_error=str(exc)[:500])
+        shortlist_decision = _build_fallback_shortlist(top_alerts)
+        log_event("stage1_fallback", run_id=run_id, error=str(exc)[:500])
+        fallback = True
+    except Exception as exc:
+        shortlist_decision = _build_fallback_shortlist(top_alerts)
+        log_event("stage1_fallback", run_id=run_id, error=f"{type(exc).__name__}: {exc}"[:500])
+        fallback = True
 
-    Delegates composition to twitter_bot_agent.compose_tweet (which runs the
-    tool-calling loop). If the returned tweet exceeds TWEET_MAX_CHARS, makes
-    one non-agentic follow-up LLM call asking to shorten, matching the
-    behavior of the pre-agent bot.
-    """
-    from twitter_bot_agent import compose_tweet, ToolDeps
+    log_event(
+        "stage1_result",
+        run_id=run_id,
+        decision=shortlist_decision.decision,
+        mode=shortlist_decision.mode,
+        shortlist_ids=(
+            [item.alert_id for item in shortlist_decision.shortlist]
+            if shortlist_decision.shortlist else None
+        ),
+        reason=shortlist_decision.reason,
+        fallback=fallback,
+    )
 
+    if shortlist_decision.decision == "skip":
+        return shortlist_decision, {
+            "decision": "skip",
+            "reason": shortlist_decision.reason,
+        }
+
+    # --- Stage 2 ---
     deps = ToolDeps(
         http=http if http is not None else requests,
         api_url=POLYSPOTTER_API_URL,
@@ -172,6 +214,7 @@ def call_llm(top_alerts: list[dict], *, llm_client, db_conn_pg=None, db_conn_sql
             return
         log_event(
             "tool_call",
+            run_id=run_id,
             name=name,
             args=args,
             error=envelope.get("error"),
@@ -182,23 +225,46 @@ def call_llm(top_alerts: list[dict], *, llm_client, db_conn_pg=None, db_conn_sql
         top_alerts,
         llm_client=llm_client,
         deps=deps,
+        shortlist_decision=shortlist_decision,
         on_tool_call=_on_tool_call,
     )
 
     tweet = decision.get("tweet") or ""
     if decision.get("decision") == "post" and len(tweet) > TWEET_MAX_CHARS:
-        decision = _shorten_tweet(decision, top_alerts, llm_client=llm_client)
+        decision = _shorten_tweet(decision, top_alerts, shortlist_decision, llm_client=llm_client)
 
-    return decision
+    return shortlist_decision, decision
 
 
-def _shorten_tweet(decision: dict, top_alerts: list[dict], *, llm_client) -> dict:
+def _build_fallback_shortlist(top_alerts: list[dict]):
+    """Top-3 by composite_score, mode=single, no angles. Used on stage-1 failure."""
+    from twitter_bot_agent import ShortlistDecision, ShortlistItem
+    sorted_alerts = sorted(
+        top_alerts, key=lambda a: a.get("composite_score", 0), reverse=True,
+    )
+    picks = sorted_alerts[:3]
+    items = [ShortlistItem(alert_id=int(a["id"]), angle="") for a in picks]
+    return ShortlistDecision(
+        decision="shortlist",
+        reason="stage-1 fallback: top by composite_score",
+        mode="single",
+        shortlist=items,
+    )
+
+
+def _shorten_tweet(decision: dict, top_alerts: list[dict], shortlist_decision, *, llm_client) -> dict:
     """One-shot non-agentic call to shorten an over-length tweet."""
     from twitter_bot_agent import SYSTEM_PROMPT, build_user_message
     original = decision.get("tweet") or ""
+    shortlisted_ids = {item.alert_id for item in shortlist_decision.shortlist}
+    filtered = [a for a in top_alerts if int(a["id"]) in shortlisted_ids]
+    selection = {
+        "mode": shortlist_decision.mode,
+        "angles": {str(item.alert_id): item.angle for item in shortlist_decision.shortlist},
+    }
     retry_messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": build_user_message(top_alerts)},
+        {"role": "user", "content": build_user_message(filtered, selection=selection)},
         {"role": "assistant", "content": json.dumps(decision)},
         {"role": "user", "content": (
             f"Your tweet was {len(original)} characters, must be ≤{TWEET_MAX_CHARS}. "

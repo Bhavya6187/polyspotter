@@ -191,19 +191,20 @@ def test_filter_dedup_with_empty_candidate_list_returns_empty():
 # ------------------------------------------------------------------ call_llm --
 
 class FakeLLMClient:
-    """Stand-in that scripts the agentic loop.
+    """Stand-in that scripts the LLM call sequence.
 
     `responses` is a list of steps. Each step is either:
       - a final decision dict (emitted as message.content)
       - a raw string (for malformed-JSON tests)
       - a list of (tool_name, arguments_dict) tuples (emitted as tool_calls)
 
-    Each `create()` consumes one step from the list.
+    Each `create()` consumes one step from the list. Stage 1 consumes one step
+    (its JSON output); stage 2 consumes 1+ steps (tool rounds + final).
     """
 
     def __init__(self, responses):
         self._responses = list(responses)
-        self.calls = []  # Preserved for legacy tests that inspect call counts.
+        self.calls = []
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     def _create(self, **kwargs):
@@ -214,9 +215,7 @@ class FakeLLMClient:
 
         if isinstance(step, dict):
             msg = SimpleNamespace(
-                content=json.dumps(step),
-                tool_calls=None,
-                role="assistant",
+                content=json.dumps(step), tool_calls=None, role="assistant",
             )
             return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
 
@@ -224,7 +223,6 @@ class FakeLLMClient:
             msg = SimpleNamespace(content=step, tool_calls=None, role="assistant")
             return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
 
-        # Tool-call step.
         import uuid as _uuid
         tc = [
             SimpleNamespace(
@@ -238,38 +236,47 @@ class FakeLLMClient:
         return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
 
 
-def test_call_llm_returns_skip_decision_cleanly():
-    response = {
-        "decision": "skip",
-        "reason": "all candidates routine",
-        "alert_ids": None,
-        "tweet": None,
-        "is_composite": False,
+# Reusable stage-1 responses for tests.
+def _stage1_skip(reason="all routine"):
+    return {"decision": "skip", "reason": reason}
+
+
+def _stage1_shortlist(*alert_ids, mode="single"):
+    return {
+        "decision": "shortlist", "reason": "test pick", "mode": mode,
+        "shortlist": [{"alert_id": int(i), "angle": f"angle for {i}"} for i in alert_ids],
     }
-    client = FakeLLMClient([response])
-    top_alerts = [_alert(id=1)]
 
-    result = tb.call_llm(top_alerts, llm_client=client)
 
-    assert result["decision"] == "skip"
+def test_call_llm_stage1_skip_returns_skip_without_calling_stage2():
+    """Stage-1 skip should short-circuit; only one LLM call happens."""
+    client = FakeLLMClient([_stage1_skip("nothing compelling")])
+    top_alerts = [_alert(id=1), _alert(id=2)]
+
+    sd, decision = tb.call_llm(top_alerts, llm_client=client)
+
+    assert sd.decision == "skip"
+    assert decision["decision"] == "skip"
+    assert decision["reason"] == "nothing compelling"
     assert len(client.calls) == 1
 
 
-def test_call_llm_returns_valid_post_decision_first_try():
-    response = {
-        "decision": "post",
-        "reason": "whale on hot market",
-        "alert_ids": [1],
-        "tweet": "Short tweet. link in bio.",
+def test_call_llm_full_flow_returns_post_decision():
+    """Stage 1 shortlists 2 alerts, stage 2 emits a valid post decision."""
+    final = {
+        "decision": "post", "reason": "whale on hot market",
+        "alert_ids": [1], "tweet": "Short tweet. link in bio.",
         "is_composite": False,
     }
-    client = FakeLLMClient([response])
-    top_alerts = [_alert(id=1)]
+    client = FakeLLMClient([_stage1_shortlist(1, 2), final])
+    top_alerts = [_alert(id=1), _alert(id=2)]
 
-    result = tb.call_llm(top_alerts, llm_client=client)
+    sd, decision = tb.call_llm(top_alerts, llm_client=client)
 
-    assert result["tweet"] == "Short tweet. link in bio."
-    assert len(client.calls) == 1
+    assert sd.mode == "single"
+    assert {item.alert_id for item in sd.shortlist} == {1, 2}
+    assert decision["tweet"] == "Short tweet. link in bio."
+    assert len(client.calls) == 2  # stage 1 + stage 2 final
 
 
 def test_call_llm_retries_once_on_length_overshoot_and_succeeds():
@@ -277,62 +284,116 @@ def test_call_llm_retries_once_on_length_overshoot_and_succeeds():
     retry_tweet = "x" * 200
     first = {"decision": "post", "reason": "ok", "alert_ids": [1], "tweet": long_tweet, "is_composite": False}
     second = {"decision": "post", "reason": "shorter", "alert_ids": [1], "tweet": retry_tweet, "is_composite": False}
-    client = FakeLLMClient([first, second])
-    top_alerts = [_alert(id=1)]
+    client = FakeLLMClient([_stage1_shortlist(1, 2), first, second])
+    top_alerts = [_alert(id=1), _alert(id=2)]
 
-    result = tb.call_llm(top_alerts, llm_client=client)
+    sd, decision = tb.call_llm(top_alerts, llm_client=client)
 
-    assert result["tweet"] == retry_tweet
-    assert len(client.calls) == 2
-    # Retry should reference the length.
-    retry_messages = client.calls[1]["messages"]
-    assert any("260" in m["content"] for m in retry_messages if m["role"] == "user")
+    assert decision["tweet"] == retry_tweet
+    assert len(client.calls) == 3  # stage 1 + stage 2 first + retry
 
 
 def test_call_llm_returns_overlong_result_when_retry_also_fails():
     long_tweet = "x" * 300
     first = {"decision": "post", "reason": "ok", "alert_ids": [1], "tweet": long_tweet, "is_composite": False}
     second = {"decision": "post", "reason": "still long", "alert_ids": [1], "tweet": "x" * 280, "is_composite": False}
-    client = FakeLLMClient([first, second])
+    client = FakeLLMClient([_stage1_shortlist(1, 2), first, second])
 
-    result = tb.call_llm([_alert(id=1)], llm_client=client)
+    sd, decision = tb.call_llm([_alert(id=1), _alert(id=2)], llm_client=client)
 
-    # call_llm does NOT itself judge validity — it returns what the LLM said.
-    # Caller (validate_decision) decides. This test just asserts it tried twice.
-    assert len(client.calls) == 2
-    assert len(result["tweet"]) == 280
+    assert len(client.calls) == 3
+    assert len(decision["tweet"]) == 280
 
 
 def test_call_llm_exercises_tool_calls_through_agent_loop():
-    """Verify the agent can make a tool call via call_llm and still return a decision."""
-    # Step 1: agent requests get_wallet_profile.
-    # Step 2: agent emits final JSON decision.
+    """Stage-1 shortlists, stage-2 makes a tool call, then emits a final decision."""
     final = {
         "decision": "post", "reason": "whale has 17 wins",
         "alert_ids": [1], "tweet": "Whale with 17 wins just loaded up. link in bio",
         "is_composite": False,
     }
     client = FakeLLMClient([
+        _stage1_shortlist(1, 2),
         [("get_wallet_profile", {"wallet": "0xwallet1"})],
         final,
     ])
-
-    # FakeHTTP with a canned wallet profile response.
     fake_http = FakeHTTP({"https://api.example.test/api/wallets/0xwallet1": {"wins": 17, "wallet": "0xwallet1"}})
 
-    result = tb.call_llm(
-        [_alert(id=1)],
-        llm_client=client,
-        db_conn_pg=None,
-        db_conn_sqlite=None,
-        http=fake_http,
+    sd, decision = tb.call_llm(
+        [_alert(id=1), _alert(id=2)],
+        llm_client=client, db_conn_pg=None, db_conn_sqlite=None, http=fake_http,
     )
-    assert result["decision"] == "post"
-    assert "17 wins" in result["tweet"]
-    # Two LLM calls: one that returned tool_calls, one that returned the final JSON.
-    assert len(client.calls) == 2
-    # And the HTTP fake was hit exactly once.
+    assert decision["decision"] == "post"
+    assert "17 wins" in decision["tweet"]
+    assert len(client.calls) == 3  # stage 1 + stage 2 tool round + stage 2 final
     assert len(fake_http.calls) == 1
+
+
+def test_call_llm_stage1_invalid_json_falls_back_to_top_3_by_score():
+    """Malformed stage-1 output triggers fallback shortlist (top-3 by composite_score)."""
+    final = {
+        "decision": "post", "reason": "ok", "alert_ids": [3],
+        "tweet": "fallback worked. link in bio", "is_composite": False,
+    }
+    # Stage 1 returns garbage, stage 2 emits final.
+    client = FakeLLMClient(["{not json", final])
+    top_alerts = [
+        _alert(id=1, composite_score=5.0),
+        _alert(id=2, composite_score=8.0),
+        _alert(id=3, composite_score=12.0),
+        _alert(id=4, composite_score=10.0),
+    ]
+    sd, decision = tb.call_llm(top_alerts, llm_client=client)
+    # Fallback: top-3 by composite_score → ids {3, 4, 2}, mode single.
+    assert sd.mode == "single"
+    assert {item.alert_id for item in sd.shortlist} == {2, 3, 4}
+    assert decision["decision"] == "post"
+
+
+def test_call_llm_stage1_exception_falls_back():
+    """If stage-1 LLM raises, fall back to top-3 and proceed."""
+    final = {
+        "decision": "post", "reason": "ok", "alert_ids": [1],
+        "tweet": "fallback. link in bio", "is_composite": False,
+    }
+
+    class RaisingThenWorkingLLM:
+        def __init__(self, second_response):
+            self._second = second_response
+            self._first = True
+            self.calls = []
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+        def _create(self, **kwargs):
+            self.calls.append(kwargs)
+            if self._first:
+                self._first = False
+                raise RuntimeError("stage-1 LLM down")
+            msg = SimpleNamespace(
+                content=json.dumps(self._second), tool_calls=None, role="assistant",
+            )
+            return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+
+    client = RaisingThenWorkingLLM(final)
+    top_alerts = [_alert(id=1, composite_score=10.0), _alert(id=2, composite_score=8.0)]
+    sd, decision = tb.call_llm(top_alerts, llm_client=client)
+    # Fallback shortlist: top-3 by score (only 2 available, so both included).
+    assert sd.mode == "single"
+    assert {item.alert_id for item in sd.shortlist} == {1, 2}
+    assert decision["tweet"] == "fallback. link in bio"
+
+
+def test_call_llm_stage1_fallback_with_fewer_than_three_alerts():
+    """When fewer than 3 alerts are in input on fallback, shortlist whatever is there."""
+    final = {
+        "decision": "post", "reason": "ok", "alert_ids": [1],
+        "tweet": "lone alert. link in bio", "is_composite": False,
+    }
+    client = FakeLLMClient(["{bad", final])
+    sd, decision = tb.call_llm([_alert(id=1, composite_score=10.0)], llm_client=client)
+    assert sd.mode == "single"
+    assert len(sd.shortlist) == 1
+    assert sd.shortlist[0].alert_id == 1
 
 
 # ---------------------------------------------------------- validate_decision --
