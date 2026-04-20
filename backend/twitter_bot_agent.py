@@ -11,6 +11,7 @@ All tools are read-only. No schema changes. No new endpoints. No langchain.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any
 
 import jmespath
@@ -31,6 +32,89 @@ class ProjectionError(Exception):
 
 class AgentOutputError(Exception):
     """Raised when the agent fails to produce valid final JSON."""
+
+
+class ShortlistValidationError(Exception):
+    """Raised when stage-1 LLM output fails validation."""
+
+
+@dataclass
+class ShortlistItem:
+    """One alert chosen by stage 1, with the angle stage 1 wants stage 2 to verify."""
+    alert_id: int
+    angle: str
+
+
+@dataclass
+class ShortlistDecision:
+    """Result of stage 1.
+
+    decision = "shortlist": shortlist + mode are populated.
+    decision = "skip":      shortlist + mode are None; reason explains why.
+    """
+    decision: str
+    reason: str
+    mode: str | None
+    shortlist: list[ShortlistItem] | None
+
+
+_VALID_MODES = {"single", "composite"}
+
+
+def validate_shortlist_decision(raw, *, valid_alert_ids: set[int]) -> ShortlistDecision:
+    """Parse and validate the stage-1 LLM JSON output.
+
+    Returns a ShortlistDecision on success. Raises ShortlistValidationError on
+    any rule violation. `valid_alert_ids` is the set of alert IDs the LLM was
+    allowed to choose from (i.e. the top-N input set).
+
+    Rules:
+      - raw must be a dict.
+      - decision must be 'shortlist' or 'skip'.
+      - skip → only `reason` matters; mode and shortlist are returned as None.
+      - shortlist requires mode in {single, composite} and a list of 2-4 items,
+        each with an int alert_id (∈ valid_alert_ids) and a non-empty angle.
+    """
+    if not isinstance(raw, dict):
+        raise ShortlistValidationError(f"raw must be dict, got {type(raw).__name__}")
+
+    decision = raw.get("decision")
+    reason = raw.get("reason") or ""
+
+    if decision == "skip":
+        return ShortlistDecision(decision="skip", reason=reason, mode=None, shortlist=None)
+
+    if decision != "shortlist":
+        raise ShortlistValidationError(f"unknown decision value: {decision!r}")
+
+    mode = raw.get("mode")
+    if mode not in _VALID_MODES:
+        raise ShortlistValidationError(f"mode must be one of {_VALID_MODES}, got {mode!r}")
+
+    shortlist_raw = raw.get("shortlist")
+    if not isinstance(shortlist_raw, list) or not (2 <= len(shortlist_raw) <= 4):
+        raise ShortlistValidationError(
+            f"shortlist must be a list of 2-4 items, got {shortlist_raw!r}"
+        )
+
+    items: list[ShortlistItem] = []
+    for i, item in enumerate(shortlist_raw):
+        if not isinstance(item, dict):
+            raise ShortlistValidationError(f"shortlist[{i}] must be dict, got {item!r}")
+        try:
+            alert_id = int(item["alert_id"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ShortlistValidationError(f"shortlist[{i}].alert_id invalid: {exc}") from exc
+        if alert_id not in valid_alert_ids:
+            raise ShortlistValidationError(
+                f"shortlist[{i}].alert_id {alert_id} not in valid set {sorted(valid_alert_ids)}"
+            )
+        angle = item.get("angle")
+        if not isinstance(angle, str) or not angle.strip():
+            raise ShortlistValidationError(f"shortlist[{i}].angle must be a non-empty string")
+        items.append(ShortlistItem(alert_id=alert_id, angle=angle.strip()))
+
+    return ShortlistDecision(decision="shortlist", reason=reason, mode=mode, shortlist=items)
 
 
 # --- Envelope helpers --------------------------------------------------------
@@ -422,8 +506,6 @@ def call_gamma_api(*, path: str, params: dict | None = None, http) -> Any:
 
 
 # --- Tool registry & dispatcher ----------------------------------------------
-
-from dataclasses import dataclass
 
 
 @dataclass

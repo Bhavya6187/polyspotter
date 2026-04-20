@@ -861,3 +861,141 @@ def test_compose_tweet_user_message_includes_condition_id_and_event_slug():
     user_msg = next(m for m in captured["messages"] if m["role"] == "user")
     assert "0xcond" in user_msg["content"]
     assert "my-ev" in user_msg["content"]
+
+
+# ============================================================================
+# Stage 1 — validate_shortlist_decision
+# ============================================================================
+
+def test_validate_shortlist_skip_decision_succeeds_with_minimal_fields():
+    raw = {"decision": "skip", "reason": "all routine"}
+    result = agent.validate_shortlist_decision(raw, valid_alert_ids={1, 2, 3})
+    assert result.decision == "skip"
+    assert result.reason == "all routine"
+    assert result.mode is None
+    assert result.shortlist is None
+
+
+def test_validate_shortlist_single_mode_with_two_items_succeeds():
+    raw = {
+        "decision": "shortlist", "reason": "two strong picks",
+        "mode": "single",
+        "shortlist": [
+            {"alert_id": 1, "angle": "20-0 wallet sized up"},
+            {"alert_id": 2, "angle": "new wallet near close"},
+        ],
+    }
+    result = agent.validate_shortlist_decision(raw, valid_alert_ids={1, 2, 3})
+    assert result.decision == "shortlist"
+    assert result.mode == "single"
+    assert len(result.shortlist) == 2
+    assert result.shortlist[0].alert_id == 1
+    assert result.shortlist[0].angle == "20-0 wallet sized up"
+
+
+def test_validate_shortlist_composite_mode_with_three_items_succeeds():
+    raw = {
+        "decision": "shortlist", "reason": "shared funder cluster",
+        "mode": "composite",
+        "shortlist": [
+            {"alert_id": 1, "angle": "wallet A"},
+            {"alert_id": 2, "angle": "wallet B (same funder)"},
+            {"alert_id": 3, "angle": "wallet C (same funder)"},
+        ],
+    }
+    result = agent.validate_shortlist_decision(raw, valid_alert_ids={1, 2, 3, 4})
+    assert result.mode == "composite"
+    assert len(result.shortlist) == 3
+
+
+def test_validate_shortlist_rejects_unknown_decision_value():
+    raw = {"decision": "maybe", "reason": "x"}
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.validate_shortlist_decision(raw, valid_alert_ids={1})
+
+
+def test_validate_shortlist_rejects_missing_mode_on_shortlist():
+    raw = {
+        "decision": "shortlist", "reason": "x",
+        "shortlist": [{"alert_id": 1, "angle": "a"}, {"alert_id": 2, "angle": "b"}],
+    }
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.validate_shortlist_decision(raw, valid_alert_ids={1, 2})
+
+
+def test_validate_shortlist_rejects_invalid_mode_value():
+    raw = {
+        "decision": "shortlist", "reason": "x", "mode": "ensemble",
+        "shortlist": [{"alert_id": 1, "angle": "a"}, {"alert_id": 2, "angle": "b"}],
+    }
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.validate_shortlist_decision(raw, valid_alert_ids={1, 2})
+
+
+def test_validate_shortlist_rejects_size_one():
+    raw = {
+        "decision": "shortlist", "reason": "x", "mode": "single",
+        "shortlist": [{"alert_id": 1, "angle": "only one"}],
+    }
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.validate_shortlist_decision(raw, valid_alert_ids={1})
+
+
+def test_validate_shortlist_rejects_size_five():
+    raw = {
+        "decision": "shortlist", "reason": "x", "mode": "single",
+        "shortlist": [{"alert_id": i, "angle": f"a{i}"} for i in (1, 2, 3, 4, 5)],
+    }
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.validate_shortlist_decision(raw, valid_alert_ids={1, 2, 3, 4, 5})
+
+
+def test_validate_shortlist_rejects_alert_id_not_in_input():
+    raw = {
+        "decision": "shortlist", "reason": "x", "mode": "single",
+        "shortlist": [
+            {"alert_id": 1, "angle": "a"},
+            {"alert_id": 99, "angle": "b"},  # 99 not in input
+        ],
+    }
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.validate_shortlist_decision(raw, valid_alert_ids={1, 2})
+
+
+def test_validate_shortlist_rejects_empty_angle():
+    raw = {
+        "decision": "shortlist", "reason": "x", "mode": "single",
+        "shortlist": [
+            {"alert_id": 1, "angle": ""},
+            {"alert_id": 2, "angle": "b"},
+        ],
+    }
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.validate_shortlist_decision(raw, valid_alert_ids={1, 2})
+
+
+def test_validate_shortlist_rejects_missing_angle():
+    raw = {
+        "decision": "shortlist", "reason": "x", "mode": "single",
+        "shortlist": [{"alert_id": 1}, {"alert_id": 2, "angle": "b"}],
+    }
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.validate_shortlist_decision(raw, valid_alert_ids={1, 2})
+
+
+def test_validate_shortlist_rejects_non_dict_input():
+    with pytest.raises(agent.ShortlistValidationError):
+        agent.validate_shortlist_decision("not a dict", valid_alert_ids={1})
+
+
+def test_validate_shortlist_composite_with_two_items_succeeds():
+    """Composite needs >= 2; size 2 is the minimum and should pass."""
+    raw = {
+        "decision": "shortlist", "reason": "x", "mode": "composite",
+        "shortlist": [
+            {"alert_id": 1, "angle": "a"},
+            {"alert_id": 2, "angle": "b"},
+        ],
+    }
+    result = agent.validate_shortlist_decision(raw, valid_alert_ids={1, 2})
+    assert result.mode == "composite"
