@@ -967,3 +967,39 @@ def test_main_dry_run_prints_stage1_skip_block(monkeypatch, capsys):
 
     assert "Stage 1 skip:" in out
     assert "nothing compelling" in out
+
+
+def test_main_stage1_invalid_logs_raw_output(monkeypatch, capsys):
+    """When stage-1 LLM emits malformed JSON, stage1_invalid carries raw_output."""
+    now = datetime.now(timezone.utc)
+    api_body = {
+        "alerts": [
+            _alert(id=1, composite_score=10.0,
+                   created_at=(now - timedelta(minutes=5)).isoformat()),
+            _alert(id=2, composite_score=8.0,
+                   created_at=(now - timedelta(minutes=5)).isoformat()),
+        ],
+        "total": 2, "page": 1, "per_page": 100,
+    }
+    http = FakeHTTP(api_body)
+    bad = "{this is not valid json at all"
+    final = {
+        "decision": "post", "reason": "ok", "alert_ids": [1],
+        "tweet": "ok. link in bio", "is_composite": False,
+    }
+    llm = FakeLLMClient([bad, final])
+    twitter = FakeTwitterClient(tweet_id="42")
+
+    class CombinedCursor(RecordingCursor):
+        def fetchall(self):
+            return []
+    conn = RecordingConn()
+    conn.cur = CombinedCursor()
+
+    tb.main(http=http, llm_client=llm, twitter_client=twitter, db_conn=conn)
+    out = capsys.readouterr().out
+    invalid_lines = [line for line in out.splitlines() if '"event": "stage1_invalid"' in line]
+    assert invalid_lines, "expected a stage1_invalid log event"
+    event = json.loads(invalid_lines[-1])
+    assert "raw_output" in event
+    assert event["raw_output"] == bad  # raw_output contains the original bad content

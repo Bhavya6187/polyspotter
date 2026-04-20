@@ -165,7 +165,12 @@ def call_llm(
     try:
         shortlist_decision = select_shortlist(top_alerts, llm_client=llm_client)
     except ShortlistValidationError as exc:
-        log_event("stage1_invalid", run_id=run_id, validation_error=str(exc)[:500])
+        log_event(
+            "stage1_invalid",
+            run_id=run_id,
+            validation_error=str(exc)[:500],
+            raw_output=(getattr(exc, "raw_content", "") or "")[:500],
+        )
         shortlist_decision = _build_fallback_shortlist(top_alerts)
         log_event("stage1_fallback", run_id=run_id, error=str(exc)[:500])
         fallback = True

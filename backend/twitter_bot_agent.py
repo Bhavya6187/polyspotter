@@ -22,6 +22,7 @@ import jmespath
 MAX_TOOL_CALLS = 10
 MAX_ITERATIONS = 12  # 10 tool rounds + 1 forcing + 1 safety
 RESPONSE_CAP_BYTES = 8192
+MODEL = "gpt-5.4"
 
 
 # --- Errors ------------------------------------------------------------------
@@ -742,16 +743,16 @@ STAGE1_SYSTEM_PROMPT = (
     "OR skip the hour if nothing is compelling.\n\n"
 
     "## How to choose\n"
-    "- Pick 2-4 alerts. Never fewer than 2, never more than 4. 2 when there's one "
-    "clear story (the extra is a backup in case stage 2 finds the top pick doesn't "
-    "hold up on research), 3-4 when you're genuinely torn between several.\n"
+    "- You have two valid outputs: shortlist 2-4 alerts, or skip. Never 1.\n"
+    "- Shortlist 2 when there's one clear story and one backup (the backup "
+    "covers stage 2 finding the top pick doesn't hold up on research). "
+    "Shortlist 3-4 only when you're genuinely torn between several.\n"
     "- If only one alert is truly worth tweeting and none of the others make "
-    "plausible backups, skip the hour rather than padding the shortlist with a "
-    "weak second pick.\n"
+    "plausible backups, skip — do not pad with a weak second pick.\n"
+    "- Skip the hour if every alert feels routine or low-signal.\n"
     "- 'Most tweetable' is not the same as 'highest composite_score'. Look for "
     "specific, surprising, story-rich bets — sharp wallets, big size, unusual "
-    "timing, named themes.\n"
-    "- Skip the hour if every alert feels routine or low-signal.\n\n"
+    "timing, named themes.\n\n"
 
     "## Single vs composite\n"
     "- mode='single': you want a tweet about ONE alert. Stage 2 will pick the "
@@ -827,15 +828,20 @@ def select_shortlist(top_alerts: list[dict], *, llm_client) -> ShortlistDecision
     )
     content = response.choices[0].message.content
     if not content:
-        raise ShortlistValidationError("empty LLM response content")
+        exc = ShortlistValidationError("empty LLM response content")
+        exc.raw_content = ""
+        raise exc
     try:
         raw = json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise ShortlistValidationError(f"non-JSON content: {exc}") from exc
-    return validate_shortlist_decision(raw, valid_alert_ids=valid_alert_ids)
-
-
-MODEL = "gpt-5.4"
+    except json.JSONDecodeError as json_exc:
+        exc = ShortlistValidationError(f"non-JSON content: {json_exc}")
+        exc.raw_content = content
+        raise exc from json_exc
+    try:
+        return validate_shortlist_decision(raw, valid_alert_ids=valid_alert_ids)
+    except ShortlistValidationError as exc:
+        exc.raw_content = content
+        raise
 
 
 SYSTEM_PROMPT = (
