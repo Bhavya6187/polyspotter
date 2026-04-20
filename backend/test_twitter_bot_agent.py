@@ -898,13 +898,16 @@ def test_compose_tweet_user_message_includes_condition_id_and_event_slug():
     llm.chat.completions.create = wrapped
 
     agent.compose_tweet(
-        [_alert(id=1, condition_id="0xcond", event_slug="my-ev"), _alert(id=2)],
+        [
+            _alert(id=1, condition_id="0xunique-for-id-1", event_slug="my-ev"),
+            _alert(id=2, condition_id="0xunique-for-id-2"),
+        ],
         llm_client=llm, deps=deps,
         shortlist_decision=_shortlist(1, 2),
     )
 
     user_msg = next(m for m in captured["messages"] if m["role"] == "user")
-    assert "0xcond" in user_msg["content"]
+    assert "0xunique-for-id-1" in user_msg["content"]
     assert "my-ev" in user_msg["content"]
 
 
@@ -961,6 +964,39 @@ def test_compose_tweet_user_message_includes_selection_mode_and_angles():
     assert parsed["selection"]["mode"] == "composite"
     assert parsed["selection"]["angles"]["1"] == "wallet A"
     assert parsed["selection"]["angles"]["2"] == "wallet B same funder"
+
+
+def test_compose_tweet_raises_if_shortlist_is_none():
+    """A ShortlistDecision with shortlist=None (e.g. a skip decision) must not
+    reach compose_tweet. If it does, raise ShortlistValidationError."""
+    llm = FakeLLMWithTools([{
+        "decision": "skip", "reason": "x", "alert_ids": None,
+        "tweet": None, "is_composite": False,
+    }])
+    deps = agent.ToolDeps(http=None, api_url=None, db_conn_pg=None, db_conn_sqlite=None)
+    bad_sd = agent.ShortlistDecision(
+        decision="skip", reason="all routine", mode=None, shortlist=None,
+    )
+    with pytest.raises(agent.ShortlistValidationError, match="shortlist set"):
+        agent.compose_tweet(
+            [_alert(id=1), _alert(id=2)],
+            llm_client=llm, deps=deps, shortlist_decision=bad_sd,
+        )
+
+
+def test_compose_tweet_raises_if_shortlist_id_missing_from_top_alerts():
+    """If a shortlisted ID isn't in top_alerts, raise instead of silently dropping."""
+    llm = FakeLLMWithTools([{
+        "decision": "skip", "reason": "x", "alert_ids": None,
+        "tweet": None, "is_composite": False,
+    }])
+    deps = agent.ToolDeps(http=None, api_url=None, db_conn_pg=None, db_conn_sqlite=None)
+    with pytest.raises(agent.ShortlistValidationError, match="not present"):
+        agent.compose_tweet(
+            [_alert(id=1), _alert(id=2)],
+            llm_client=llm, deps=deps,
+            shortlist_decision=_shortlist(1, 99),  # 99 not in top_alerts
+        )
 
 
 # ============================================================================

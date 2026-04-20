@@ -956,10 +956,17 @@ def compose_tweet(
     response within MAX_ITERATIONS.
     """
     if shortlist_decision.shortlist is None:
-        raise ValueError("compose_tweet requires a shortlist_decision with shortlist set")
+        raise ShortlistValidationError(
+            "compose_tweet requires a shortlist_decision with shortlist set"
+        )
 
     shortlisted_ids = {item.alert_id for item in shortlist_decision.shortlist}
     filtered = [a for a in top_alerts if int(a["id"]) in shortlisted_ids]
+    if len(filtered) != len(shortlisted_ids):
+        missing = shortlisted_ids - {int(a["id"]) for a in top_alerts}
+        raise ShortlistValidationError(
+            f"shortlisted alert_ids not present in top_alerts: {sorted(missing)}"
+        )
     selection = {
         "mode": shortlist_decision.mode,
         "angles": {str(item.alert_id): item.angle for item in shortlist_decision.shortlist},
