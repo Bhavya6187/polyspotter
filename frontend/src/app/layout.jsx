@@ -1,6 +1,7 @@
 import Script from "next/script";
 import { JetBrains_Mono, DM_Sans } from "next/font/google";
 import "./globals.css";
+import TopBar from "../components/TopBar";
 import { themeScript } from "./theme-script";
 
 const jbMono = JetBrains_Mono({
@@ -110,6 +111,7 @@ export default function RootLayout({ children }) {
         <link rel="dns-prefetch" href="https://api.polyspotter.com" />
       </head>
       <body className="min-h-screen" style={{ background: 'var(--surface-0)', color: 'var(--text-primary)' }}>
+        <TopBar />
         {children}
         <Script
           src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
