@@ -315,3 +315,49 @@ def test_pg_fetchall_rolls_back_on_error():
 
     assert "error" in env
     assert conn.rolled_back is True
+
+
+# ----------------------------------------------------------- get_theses ---
+
+def test_get_theses_rejects_zero_filters():
+    env = agent.get_theses(http=FakeHTTP({}), api_url="https://api.example.test")
+    assert "error" in env
+    assert "exactly one" in env["error"]
+
+
+def test_get_theses_rejects_multiple_filters():
+    env = agent.get_theses(
+        wallet="0xa", event_slug="ev",
+        http=FakeHTTP({}), api_url="https://api.example.test",
+    )
+    assert "error" in env
+
+
+def test_get_theses_uses_market_endpoint_for_condition_id():
+    body = [{"thesis_id": 1, "headline": "thesis"}]
+    http = FakeHTTP({"https://api.example.test/api/market/0xcond/theses": body})
+    env = agent.get_theses(condition_id="0xcond", http=http, api_url="https://api.example.test")
+    assert env["data"] == body
+
+
+def test_get_theses_filters_client_side_by_wallet():
+    body = {"theses": [
+        {"id": 1, "wallet": "0xa", "event_slug": "e1"},
+        {"id": 2, "wallet": "0xb", "event_slug": "e1"},
+        {"id": 3, "wallet": "0xa", "event_slug": "e2"},
+    ]}
+    http = FakeHTTP({"https://api.example.test/api/theses": body})
+    env = agent.get_theses(wallet="0xa", http=http, api_url="https://api.example.test")
+    assert len(env["data"]) == 2
+    assert {t["id"] for t in env["data"]} == {1, 3}
+
+
+def test_get_theses_filters_client_side_by_event_slug():
+    body = {"theses": [
+        {"id": 1, "wallet": "0xa", "event_slug": "e1"},
+        {"id": 2, "wallet": "0xb", "event_slug": "e1"},
+        {"id": 3, "wallet": "0xa", "event_slug": "e2"},
+    ]}
+    http = FakeHTTP({"https://api.example.test/api/theses": body})
+    env = agent.get_theses(event_slug="e1", http=http, api_url="https://api.example.test")
+    assert {t["id"] for t in env["data"]} == {1, 2}

@@ -234,3 +234,33 @@ def search_alerts_by_tag(*, tag: str, hours: int = 24, limit: int = 20, db_conn_
         LIMIT %s
     """
     return _pg_fetchall(db_conn_pg, query, (tag, int(hours), int(limit)))
+
+
+# --- Hybrid tools ------------------------------------------------------------
+
+@_safe_tool
+def get_theses(
+    *,
+    wallet: str | None = None,
+    condition_id: str | None = None,
+    event_slug: str | None = None,
+    http,
+    api_url: str,
+) -> Any:
+    """Cross-market thesis groupings, filtered by exactly one of the three args."""
+    filters = [wallet, condition_id, event_slug]
+    provided = sum(1 for f in filters if f)
+    if provided != 1:
+        raise ValueError("exactly one of wallet/condition_id/event_slug required")
+
+    base = api_url.rstrip("/")
+    if condition_id:
+        return _http_get_json(f"{base}/api/market/{condition_id}/theses", http=http)
+
+    # Wallet or event_slug: fetch full list and filter client-side. The list
+    # endpoint may return either a bare list or {theses: [...]}.
+    raw = _http_get_json(f"{base}/api/theses", http=http)
+    items = raw.get("theses") if isinstance(raw, dict) else raw
+    if wallet:
+        return [t for t in items if t.get("wallet") == wallet]
+    return [t for t in items if t.get("event_slug") == event_slug]
