@@ -19,3 +19,5 @@ bot_result.txt
 *.jsonl
 polybot.log
 .worktrees/
+
+storybot/dry_runs/
