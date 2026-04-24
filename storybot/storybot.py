@@ -34,6 +34,8 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from psycopg2.extras import RealDictCursor
 
+import compressor
+
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -57,6 +59,7 @@ MODEL = "gpt-5.4"
 STORYBOT_DRY_RUN = os.environ.get("STORYBOT_DRY_RUN", "false").lower() == "true"
 
 TWEET_MAX_CHARS = 280
+TWEET_URL_CHARS = 23   # Twitter t.co wraps every URL to this length, regardless of source length
 QUERY_TIMEOUT_SECONDS = 5
 MAX_ROWS = 200
 RESPONSE_CAP_BYTES = 12288   # 12 KB per tool response
@@ -89,9 +92,11 @@ _POSTGRES_ONLY_TABLES = (
     "wallet_theses", "tweeted_alerts",
 )
 
+_SQL_COMMENT_RE = re.compile(r"--[^\n]*|/\*.*?\*/", re.DOTALL)
+
 
 def _check_sqlite_not_postgres(sql: str) -> None:
-    lower = sql.lower()
+    lower = _SQL_COMMENT_RE.sub(" ", sql).lower()
     for tbl in _POSTGRES_ONLY_TABLES:
         if re.search(r"\b" + re.escape(tbl) + r"\b", lower):
             raise ValueError(
@@ -102,7 +107,8 @@ def _check_sqlite_not_postgres(sql: str) -> None:
 def _guard_read_only(sql: str) -> None:
     """Block anything that isn't a plain SELECT / WITH CTE. Defence in depth —
     the connection is also opened read-only."""
-    stripped = sql.strip().lower().lstrip("(")
+    code = _SQL_COMMENT_RE.sub(" ", sql)
+    stripped = code.strip().lower().lstrip("(")
     if not (stripped.startswith("select") or stripped.startswith("with")):
         raise ValueError("only SELECT / WITH queries are allowed")
     tokens = set(
@@ -112,7 +118,7 @@ def _guard_read_only(sql: str) -> None:
     bad = sorted(tokens & set(_BANNED_SQL_KEYWORDS))
     if bad:
         raise ValueError(f"banned keyword(s): {bad}")
-    if ";" in sql.strip().rstrip(";"):
+    if ";" in code.strip().rstrip(";"):
         raise ValueError("multiple statements not allowed")
 
 
@@ -150,7 +156,6 @@ def query_postgres(sql: str) -> list[dict]:
 
 SEED_CANDIDATE_LIMIT = 50   # pulled from Postgres, then Gamma-filtered
 MAX_SEED_ALERTS = 20        # what the model ultimately sees
-GAME_LIVE_BUFFER_HOURS = 3  # matches backend /top3 — covers soccer/NBA/esports BO3
 SETTLED_PRICE_THRESHOLD = 0.98
 
 SEED_ALERTS_SQL = f"""
@@ -173,9 +178,8 @@ SEED_ALERTS_SQL = f"""
     ) s ON true
     WHERE a.created_at >= NOW() - INTERVAL '3 hours'
       AND (
-          -- Sports markets: pre-kickoff OR within {GAME_LIVE_BUFFER_HOURS}h of kickoff
-          (a.game_start_time IS NOT NULL
-           AND a.game_start_time + INTERVAL '{GAME_LIVE_BUFFER_HOURS} hours' > NOW())
+          -- Sports markets: pre-kickoff only (drop in-progress games)
+          (a.game_start_time IS NOT NULL AND a.game_start_time > NOW())
           -- Non-game markets: resolution deadline still in the future
           OR (a.game_start_time IS NULL
               AND COALESCE(a.event_end_estimate, a.end_date) > NOW())
@@ -255,7 +259,7 @@ def fetch_seed_alerts() -> list[dict]:
     Pipeline:
       1. Pull up to {SEED_CANDIDATE_LIMIT} candidates from Postgres, filtered by SQL
          to drop obviously-over events (non-sports past resolution deadline;
-         sports past kickoff+{GAME_LIVE_BUFFER_HOURS}h).
+         sports past kickoff).
       2. Batch-query Gamma /markets for real-time settlement status.
       3. Drop anything Gamma reports as closed, in UMA resolution, or priced
          >= {SETTLED_PRICE_THRESHOLD} (effectively decided by the market).
@@ -448,94 +452,105 @@ def _envelope(data: Any = None, *, error: str | None = None) -> dict:
     return out
 
 
-_TOOLS = {
-    "query_sqlite": lambda args: query_sqlite(args["sql"]),
-    "query_postgres": lambda args: query_postgres(args["sql"]),
-    "call_gamma": lambda args: call_gamma(args["path"], args.get("params")),
-    "call_clob": lambda args: call_clob(args["path"], args.get("params")),
+_BACKENDS = {
+    "sqlite": query_sqlite,
+    "postgres": query_postgres,
+    "gamma": call_gamma,
+    "clob": call_clob,
 }
 
 
 TOOL_SCHEMAS = [
     {"type": "function", "function": {
-        "name": "query_sqlite",
+        "name": "query",
         "description": (
-            "Run a read-only SELECT / WITH query against the scanner's local "
-            "SQLite database (polybot.db). Returns up to 200 rows. "
-            "Statements other than SELECT/WITH are rejected."
+            "Fetch data for research. Describe WHAT you want in `intent` (plain "
+            "language) — a downstream builder model picks the backend (scanner "
+            "SQLite, Railway Postgres, Gamma API, or CLOB API), writes the exact "
+            "SQL / HTTP call, runs it, and returns a compressed result. "
+            "Numeric/identifier-heavy payloads are compressed deterministically "
+            "(values preserved byte-for-byte); free-text payloads may be summarized. "
+            "Response shape: {\"data\": <payload>, \"backend\": \"...\", \"compression\": \"...\"}."
         ),
         "parameters": {
             "type": "object",
-            "required": ["sql"],
+            "required": ["intent"],
             "properties": {
-                "sql": {"type": "string", "description": "A single SELECT or WITH statement."},
-            },
-        },
-    }},
-    {"type": "function", "function": {
-        "name": "query_postgres",
-        "description": (
-            "Run a read-only SELECT / WITH query against the Railway Postgres "
-            "database (shared with the PolySpotter backend). Returns up to 200 "
-            "rows. Statements other than SELECT/WITH are rejected."
-        ),
-        "parameters": {
-            "type": "object",
-            "required": ["sql"],
-            "properties": {
-                "sql": {"type": "string", "description": "A single SELECT or WITH statement."},
-            },
-        },
-    }},
-    {"type": "function", "function": {
-        "name": "call_gamma",
-        "description": (
-            "GET against https://gamma-api.polymarket.com. "
-            "Allowed path prefixes: /markets, /events, /trades. "
-            "Use `params` for query-string filters."
-        ),
-        "parameters": {
-            "type": "object",
-            "required": ["path"],
-            "properties": {
-                "path": {"type": "string", "description": "Path starting with /markets, /events, or /trades."},
-                "params": {"type": "object", "description": "Query string parameters."},
-            },
-        },
-    }},
-    {"type": "function", "function": {
-        "name": "call_clob",
-        "description": (
-            "GET against https://clob.polymarket.com. "
-            "Allowed paths: /prices-history (historical candles) and /book (order book). "
-            "/prices-history takes `market` (a CLOB token_id, NOT a conditionId — "
-            "get token_ids from Gamma `/markets?condition_ids=...` → `clobTokenIds`), "
-            "plus `interval` (e.g. '1h', '6h', '1d', '1w', 'max') and "
-            "`fidelity` (granularity in minutes; e.g. 1 = minute candles). "
-            "Returns {\"history\": [{\"t\": <unix_seconds>, \"p\": <price>}, ...]} — "
-            "the canonical source of truth for price moves. Prefer this over the "
-            "`price_candles` tables, which may be stale or partial."
-        ),
-        "parameters": {
-            "type": "object",
-            "required": ["path"],
-            "properties": {
-                "path": {"type": "string", "description": "Either /prices-history or /book."},
-                "params": {"type": "object", "description": "Query string parameters."},
+                "intent": {
+                    "type": "string",
+                    "description": (
+                        "Natural-language description of the data you want. Name "
+                        "specific wallets, condition_ids, event_slugs, token_ids, "
+                        "time windows when they apply. Example: 'wallet_profiles row "
+                        "for 0xabc…', 'all alert_trades on alert_id=42 sorted by "
+                        "trade_timestamp desc', 'CLOB price history for token X over "
+                        "the last hour at 1-min fidelity'."
+                    ),
+                },
+                "hint": {
+                    "type": "string",
+                    "description": (
+                        "Optional extra context for the builder (e.g. which backend "
+                        "you think holds the data, or a specific column name)."
+                    ),
+                },
             },
         },
     }},
 ]
 
 
-def dispatch(name: str, args: dict) -> dict:
-    fn = _TOOLS.get(name)
-    if fn is None:
-        return _envelope(error=f"unknown tool: {name}")
-    try:
-        return _envelope(fn(args))
-    except Exception as exc:
-        return _envelope(error=f"{type(exc).__name__}: {exc}")
+def _make_dispatcher(llm_client, *, usage: dict | None):
+    def dispatch(name: str, args: dict) -> dict:
+        if name != "query":
+            return _envelope(error=f"unknown tool: {name}")
+        intent = args.get("intent")
+        if not isinstance(intent, str) or not intent.strip():
+            return _envelope(error="intent must be a non-empty string")
+        hint = args.get("hint") if isinstance(args.get("hint"), str) else None
+        try:
+            result = compressor.run_query(
+                llm_client,
+                intent=intent,
+                hint=hint,
+                model=MODEL,
+                backends=_BACKENDS,
+                usage=usage,
+            )
+        except Exception as exc:
+            return _envelope(error=f"compressor: {type(exc).__name__}: {exc}")
+
+        if result.get("error"):
+            return {"error": result["error"]}
+
+        # Final byte cap as defense in depth — compressor should already fit.
+        data = result["data"]
+        serialized = json.dumps(data, default=str)
+        truncated = False
+        if len(serialized) > RESPONSE_CAP_BYTES:
+            truncated = True
+            if isinstance(data, list):
+                trimmed = list(data)
+                while trimmed and len(json.dumps(trimmed, default=str)) > RESPONSE_CAP_BYTES:
+                    trimmed.pop()
+                data = trimmed
+            else:
+                data = serialized[: RESPONSE_CAP_BYTES - 1] + "…"
+
+        out: dict = {
+            "data": data,
+            "backend": result.get("backend"),
+            "compression": result.get("compression"),
+        }
+        if truncated:
+            out["truncated"] = True
+        if result.get("router_error"):
+            out["router_error"] = result["router_error"]
+        if result.get("compress_error"):
+            out["compress_error"] = result["compress_error"]
+        return out
+
+    return dispatch
 
 
 # --- System prompt -----------------------------------------------------------
@@ -560,11 +575,8 @@ thread that tells the whole story.
    No need to re-query for any of that. (`seo_faqs` is NOT embedded —
    query it if you need Q&A-style context.) Already-settled markets
    (closed / UMA-resolving / priced >= {SETTLED_PRICE_THRESHOLD}) have
-   been filtered out via Gamma. Sports markets may be pre-kickoff or
-   in-progress (within {GAME_LIVE_BUFFER_HOURS}h of start) — if the
-   chosen event is an in-progress game, `game_start_time <= NOW()` and
-   the thread angle should reflect that ("wallet loaded $X pre-tip and
-   is now…").
+   been filtered out via Gamma. Sports markets are pre-kickoff only —
+   in-progress games are excluded from seeding.
 2. RESEARCH. A great thread cites specific, surprising facts the raw
    alerts don't already contain. You'll need several — one per tweet.
    Research all three layers:
@@ -635,212 +647,187 @@ the group when you got multiple alerts) is usually the heart of the
 story — lead the opening tweet with what IT says, not the raw
 composite_score.
 
-## The four tools
-- query_sqlite(sql)    → scanner's local polybot.db (wallet P&L, funders, event history, etc.)
-- query_postgres(sql)  → Railway Postgres (alerts, alert_trades, alert_signals, wallet_profiles, tweeted_alerts, wallet_theses, price_candles)
-- call_gamma(path)     → https://gamma-api.polymarket.com  (allowed: /markets, /events, /trades)
-- call_clob(path)      → https://clob.polymarket.com  (allowed: /prices-history, /book)
+## The query tool
+You have ONE research tool: `query(intent, hint?)`. Describe WHAT you want in
+natural language — a downstream builder model chooses the backend (scanner
+SQLite, Railway Postgres, Gamma API, or CLOB API), writes the exact SQL / HTTP
+call, and runs it. The result is then compressed before reaching you.
 
-Queries MUST be SELECT / WITH only. Postgres and SQLite use slightly different
-SQL dialects (Postgres: `NOW() - INTERVAL '1 hour'`, jsonb ops, ILIKE; SQLite:
-no jsonb, LIKE is case-insensitive by default, `datetime('now','-1 hour')`).
-Each tool returns up to 200 rows; responses are capped at ~12 KB. Prefer
-narrow SELECT lists and LIMITs over SELECT *.
+Available data sources (reference only — you don't write SQL yourself):
+- scanner SQLite (polybot.db) — wallet P&L, clusters, funders, event history, sparklines
+- Railway Postgres            — alerts, alert_trades, alert_signals, wallet_profiles, wallet_theses, tweeted_alerts, price_candles
+- Gamma API                   — /markets, /events, /trades
+- CLOB API                    — /prices-history (canonical price series), /book
 
-## Column types you WILL get wrong if you're not careful
-Some timestamp-shaped columns are unix-epoch **doubles**, not
-TIMESTAMPTZ / TEXT. `NOW() - INTERVAL ...` will error against them. Handle
-them like this:
-  - Postgres `price_candles.t`                   → double (unix seconds).
-    Filter with `t >= EXTRACT(EPOCH FROM NOW()) - 7200` for 'last 2 hours'.
-  - SQLite `price_candles.t`                     → double (unix seconds).
-    Filter with `t >= strftime('%s','now') - 7200`.
-  - SQLite `wallet_event_history.trade_timestamp` → double (unix seconds, same pattern).
-  - SQLite `wallet_pnl.api_timestamp`             → bigint (unix seconds).
-  - SQLite `tracked_bets.trade_timestamp`         → double (unix seconds).
+Compressor behavior:
+- Numeric / identifier-heavy payloads are compressed deterministically (top_k,
+  filter, project, aggregate) — values are byte-exact.
+- Free-text payloads (descriptions, FAQs) may be summarized by an LLM.
 
-TIMESTAMPTZ / ISO-8601 text columns (use `NOW() - INTERVAL` / `datetime(...)` freely):
-  - Postgres `alerts.scanned_at`, `alerts.created_at`, `alert_trades.trade_timestamp`,
-    `tweeted_alerts.tweeted_at`, `price_candles.created_at`.
-  - SQLite `*.recorded_at`, `*.snapshot_at`, `*.discovered_at` (all ISO-8601 text).
+Each response arrives as `{{"data": <payload>, "backend": "...", "compression": "..."}}`.
+If the payload doesn't answer your intent, re-query with a more specific intent
+— don't just repeat the same one. Be specific: name the wallet, condition_id,
+event_slug, token_id, alert_id, or time window you need.
 
-## Railway Postgres schema (key tables)
-- alerts — one row per composite/cluster alert
-    id, alert_type ('composite'|'cluster'), composite_score,
-    market: market_title, condition_id, event_slug, market_url,
-            market_image, market_description, tags (TEXT JSON-array, e.g. '["Sports","NBA"]'),
-    wallet (NULL for cluster alerts),
-    aggregates: total_usd, trade_count, cluster_headline,
-    timing:  end_date, game_start_time, event_end_estimate
-             (event_end_estimate = game_start_time if set else end_date;
-              use this to rank "resolving soon"),
-    llm: llm_headline, llm_summary,
-         llm_bullets (TEXT JSON-array of strings),
-         llm_copy_action (TEXT JSON-object: {{outcome, side, entry_price, max_price}}),
-    seo: seo_title, seo_description, seo_summary,
-         seo_faqs (TEXT JSON-array of {{question, answer}}), seo_generated_at,
-    timestamps: scanned_at, created_at,
-    dedup_key (UNIQUE)
-- alert_trades — individual trades attached to an alert (FK alerts.id, cascades)
-    id, alert_id, transaction_hash, wallet, condition_id, outcome,
-    side ('BUY'|'SELL'), usd_value, size, price, trade_timestamp
-    UNIQUE(alert_id, transaction_hash)
-- alert_signals — detection signals that fired for an alert (FK alerts.id)
-    id, alert_id, strategy (e.g. 'new_wallet_large_bet'), severity, headline
-- wallet_profiles — per-wallet cached stats (PK=wallet)
-    total_positions, closed_positions, wins, losses,
-    total_pnl, total_invested, avg_win_price, win_rate,
-    times_flagged, current_streak, first_seen_at, updated_at
-- wallet_theses — cross-market thesis groupings (UNIQUE wallet+event_slug)
-    id, wallet, event_slug, thesis_headline,
-    markets (JSONB array), total_usd, composite_score, created_at, updated_at
-- tweeted_alerts — dedup log for the Twitter bot (PK=alert_id)
-    alert_id, wallet, condition_id, tweet_id, tweet_text, tweeted_at
-    (composite tweets share tweet_id/tweet_text across multiple rows)
-- price_candles — sparkline data, mirrored from SQLite
-    id, condition_id, token_id, outcome, t (unix secs, DOUBLE), p, created_at
-    UNIQUE(token_id, t)
+The schemas below are for framing good intents. You can reference a specific
+column or table name in your intent when useful ("from alert_trades join
+alerts, the trades backing alert_id=42 sorted by usd_value desc").
 
-JSON-in-TEXT columns: alerts.tags, alerts.llm_bullets, alerts.llm_copy_action,
-alerts.seo_faqs. Parse with `(col)::jsonb` in Postgres to use `->`, `->>`,
-`jsonb_array_elements`, etc. wallet_theses.markets is already JSONB.
-
-## polybot.db (SQLite) schema (key tables)
-Wallet P&L and track record (written by win_rate_tracking):
-- wallet_pnl — one row per closed position (UNIQUE wallet+condition_id+asset+position_type)
-    wallet, condition_id, asset, outcome, avg_price, total_bought,
-    realized_pnl, cur_price, event_slug, end_date (TEXT),
-    position_type, recorded_at, api_timestamp (BIGINT unix secs)
-- tracked_bets — raw tracked trades for win/loss attribution
-    (UNIQUE wallet+condition_id+outcome+side+trade_timestamp)
-    wallet, condition_id, outcome, side, usd_value,
-    trade_timestamp (REAL unix secs), recorded_at,
-    resolved (0/1), won (0/1/NULL)
-
-Wallet clustering & flags:
-- wallet_funders — shared-funder cluster detection (PK=wallet)
-    wallet, funder, discovered_at
-- wallet_event_history — cross-run event history per wallet
-    (UNIQUE wallet+condition_id+trade_timestamp)
-    wallet, event_slug, condition_id, outcome, side, usd_value,
-    trade_timestamp (REAL unix secs), recorded_at, price, market_title
-- flagged_wallets — per-wallet rollup of large-bet flags (PK=wallet)
-    wallet, times_flagged, total_usd_flagged,
-    first_flagged_at, last_flagged_at
-- flagged_trade_events — per-trade dedup behind flagged_wallets
-    (UNIQUE wallet+condition_id+trade_timestamp)
-    wallet, condition_id, trade_timestamp (REAL), usd_value, recorded_at
-- timing_flags — bets placed close to resolution
-    (UNIQUE wallet+condition_id+trade_timestamp)
-    wallet, condition_id, minutes_to_resolution, usd_value,
-    trade_timestamp (REAL), recorded_at, market_duration_hours
-
-Market price/volume/orderbook state:
-- market_volume_snapshots — 24h volume samples
-    condition_id, volume_24h, snapshot_at
-- price_history — per-trade price observations for price_impact
-    (UNIQUE condition_id+outcome+trade_timestamp)
-    condition_id, outcome, price, trade_timestamp (REAL), recorded_at
-- price_candles — CLOB historical price time-series for sparklines
-    (UNIQUE token_id+t)
-    condition_id, token_id, outcome,
-    t (REAL unix secs), p, recorded_at
-- orderbook_snapshots — CLOB order book depth samples
-    condition_id, token_id, outcome, best_bid, best_ask, spread,
-    bid_depth, ask_depth, mid_price, snapshot_at
-
-## Gamma API (https://gamma-api.polymarket.com)
-Useful paths (all GET; allowlist = /markets, /events, /trades):
-  /markets?condition_ids=...             market(s) by conditionId (comma-sep for many)
-  /markets?slug=...                      market by slug
-  /markets?tag_id=...&active=true        filter by tag + state (active/closed/archived)
-  /markets?volume_num_min=...&order=...  filter/sort by volume, liquidity, end_date
-  /markets/{{id}}                          single market by numeric id
-  /markets/slug/{{slug}}                   single market by slug
-  /markets/{{id}}/tags                     tags on a market
-  /events?slug=...                       event(s) by slug (nested markets[])
-  /events?tag_id=...&closed=false        filter events by tag + state
-  /events/{{id}}                           single event by id
-  /events/slug/{{slug}}                    single event by slug
-  /events/{{id}}/tags                      tags on an event
-  /trades?market=...&limit=...           recent trades on a market (by conditionId)
-  /trades?user=...&limit=...             recent trades by a wallet
-
-Common query params:
-  limit, offset                 pagination (default limit ~100, cap 500)
-  active, closed, archived      boolean state filters
-  order, ascending              sort field + direction (e.g. order=volume)
-  end_date_min, end_date_max    ISO-8601 bounds on resolution time
-  volume_num_min, liquidity_num_min  numeric floors
-
-Notable response fields:
-  market: conditionId, slug, question, endDate, outcomes, outcomePrices,
-          volume, volumeNum, volume24hr, liquidity, active, closed, negRisk,
-          clobTokenIds, bestBid, bestAsk, lastTradePrice, events[{{id,slug}}]
-  event:  id, slug, title, endDate, negRisk, volume, liquidity,
-          markets[] (nested, same shape as above), tags[{{id,label,slug}}]
-  tag:    id, label, slug   (e.g. id="1" = Sports, "3" = Politics, "4" = Crypto)
-
-## CLOB API (https://clob.polymarket.com)
-The canonical source for price history and order book state. Prefer this over
-`price_candles` / `orderbook_snapshots` for any claim that ends up in the tweet —
-those tables are sampled, can be stale, and may be truncated.
-
-/prices-history — historical price time-series for one outcome token
-  Required: market=<CLOB token_id>                 (NOT conditionId!)
-  Pick ONE windowing form:
-    interval=1h|6h|1d|1w|max            relative window ending now
-    startTs=<unix>&endTs=<unix>         explicit window (both required together)
-  Optional: fidelity=<minutes>                     granularity (1 = minute candles)
-  Response: {{"history": [{{"t": <unix_seconds>, "p": <price>}}, ...]}}  — full series,
-  no 200-row cap, no LIMIT truncation risk.
-
-  To get a token_id:
-    1. call_gamma("/markets", {{"condition_ids": "<conditionId>"}})
-    2. response[0]["clobTokenIds"] is a JSON string of [yes_token, no_token]
-       (or [token_for_outcome_0, token_for_outcome_1] — match by index to
-       market["outcomes"]).
-
-  For a "price moved from X to Y in the last hour" claim: use interval=1h +
-  fidelity=1, then read `history[0].p` (earliest) and `history[-1].p` (latest)
-  — and/or min/max across the full array. Do NOT trust price_candles for this.
-
-/book — current order book for a token
-  Required: token_id=<CLOB token_id>
-  Response: {{"bids": [...], "asks": [...], "timestamp": ...}}
+{compressor.SCHEMA_DOCS}
 
 ## Thread style (3-5 tweets — this is the engaging part, do not skip)
 Build a micro-story across 3-5 tweets posted as a reply chain. Each tweet
 must stand on its own AND advance the narrative.
 
-Structure:
-- Tweet 1 (HOOK): Lead with the single most striking specific fact — the
-  number or pattern that makes someone stop scrolling. Numbers over
-  adjectives. Not "alert: wallet X bet $Y on Z".
-  Good hook examples:
+Shape — think setup → turn → payoff, not hook/beat/beat/beat/close.
+The single most common failure mode is writing a parallel list of facts
+("side A did X, side B did Y, the price moved") and calling it a
+thread. That reads like a report. A thread needs a TURN.
+
+- HOOK (tweet 1): One sentence that makes someone stop scrolling.
+  Stakes baked in: the track record, the timing asymmetry, the weird
+  thing. A hook is NOT a summary of the whole event — don't cram three
+  beats into it just because they're all true.
+  GOOD hooks (stakes baked in, story in one line):
     "A wallet that's hit 14 of its last 15 bets just loaded $82k on the No"
     "Three wallets funded by the same address quietly piled into UNDER 2.5 in the last 40 minutes"
     "Volume on this market 9x'd in 2 hours — and 73% of it is one wallet taking YES at 0.31"
-- Tweets 2-4 (BODY): Each tweet advances ONE concrete beat — the track
-  record, the timing, the price move, the shared funder, the cross-market
-  thesis, the orderbook context, what makes this surprising vs. consensus.
-  Don't restate the hook. Don't stuff two beats into one tweet — give each
-  its own room.
-- Final tweet (CLOSE): One last specific detail or "what to watch for" —
-  e.g. resolution timing, next catalyst, price level to watch. End with a
-  soft CTA to bio: "→ full breakdown in bio", "full thesis in bio 👀".
+  BAD hooks (read like SQL output, no stakes for the reader):
+    "Over 64m26s pre-tip, 14 wallets pushed $94,199.97 through 15 Sixers-Celtics trades"
+    "16 wallets bought $78,131.61 of Spurs from 00:57 to 01:47 UTC"
+
+- BODY (tweets 2 through N-1): Build a narrative turn. Setup → twist →
+  consequence. A setup is a picture the reader buys into ("retail
+  piled in on the Yankees"). A twist flips it ("then a +$2M lifetime
+  wallet showed up on the other side"). A consequence shows what
+  happened next ("the price round-tripped 20 cents in 30 minutes").
+  If you can reorder your body tweets without losing meaning, they're
+  parallel beats, not a story — rewrite.
+  If the strongest story you have is "coordinated buys + volume spike"
+  with no real turn, that's usually not a thread. Consider skip.
+
+- PAYOFF (final tweet): Give the reader something they can do or
+  watch. A price level that's now the line. A wallet to track. The
+  next catalyst. A question the market has to answer. Not just the
+  current orderbook state. Followed by 1-2 polyspotter.com deep links
+  (see "Links" below). The URL is MANDATORY — if no market/wallet/
+  alert/tag page adds anything for the reader, the thread isn't ready;
+  return skip. NEVER close with "in bio", "full breakdown", "more at",
+  "link below", or equivalent — instant credibility tax.
+
+Characters, not aggregates. When one wallet carries the story, give
+them a one-line persona in the tweet that introduces them ("a wallet
+that's up $2.4M lifetime", "a 2-day-old account that's already been
+flagged 28 times"), then refer back to them across the thread ("that
+same guy", "the new wallet"). Don't introduce a third character in the
+last tweet — the reader is still mapping the first two.
 
 Hard style rules (apply to EVERY tweet in the thread):
-- Each tweet <= {TWEET_MAX_CHARS} characters. Count yourself.
+- Each tweet <= {TWEET_MAX_CHARS} characters. URLs count as {TWEET_URL_CHARS}
+  chars each regardless of their actual length (Twitter wraps every link
+  via t.co). Everything else counts as its literal length.
+- Number budget: max 3 numbers per tweet. Target ≤10 numbers across
+  the whole thread. Every extra stat dilutes the one that matters.
+  If a tweet has 5+ numbers, you're writing a database row, not a
+  sentence — cut the least load-bearing ones.
 - NO thread numbering ("1/", "2/5", "🧵"). The reply chain IS the numbering.
-- NO URLs. NO @mentions.
+- NO URLs in tweets 1..N-1. URLs allowed ONLY in the FINAL tweet (1-2 max).
+  NO @mentions anywhere.
 - 0-2 relevant emojis per tweet, only if they add something.
 - 0-2 topic-specific hashtags across the thread (not #Polymarket). Most
   tweets should have zero.
-- Voice: sharp trading desk analyst. Punchy. Confident. A little playful
-  when warranted. Same voice across every tweet.
-- Someone landing on tweet 3 by itself should still get value — each
-  tweet needs its own concrete detail, not connective tissue.
+- Voice: crypto-twitter / betting-twitter — the way a sharp trader
+  would text a friend about what they just saw. Confident, punchy, a
+  little playful when warranted. NOT Wall Street research, NOT a press
+  release, NOT an internal analyst log line. Same voice across every tweet.
+- Refer to wallets by what makes them notable ("a 178-20 wallet", "a
+  $1M+ P&L account", "the sharpest account on this market"), not by
+  pasting 0x addresses. Name a full address only when there's a specific
+  reason a reader should track it.
+- Tweet continuity is GOOD. Earlier rules said "each tweet must stand
+  alone" — that was pushing output toward self-contained recap-shaped
+  tweets. Instead: any tweet read cold should feel interesting, but
+  the thread should reward reading in order. Pronouns ("that same
+  guy", "the Boston side"), callbacks, and setups that pay off two
+  tweets later are all fine — encouraged, even.
+- NO internal-tool jargon. These phrases (and close variants) are
+  BANNED from tweets — they're strategy / API / scanner names readers
+  don't know:
+    "funding tree"            → "wallets sharing one funder"
+    "scan window"             → just say "in the last hour"
+    "CLOB print(s)"           → "the price went from X to Y"
+    "Gamma snapshot"          → "24h volume"
+    "alerted flow"            → (omit)
+    "composite score"         → (omit — describe the signal instead)
+    "near-resolution flag(s)" → "bought minutes before resolution"
+    "deployed capital"        → "spent" / "bought" / "stacked"
+- Analyst-speak is also BANNED. These phrases sound like a research
+  note, not a trader texting a friend:
+    "real size" / "meaningful size"     → just say the dollar amount
+    "coordinated burst" / "pile-in"     → "all bought at once" / "stacked in"
+    "conviction flow" / "high-conviction" → show the conviction via a fact
+    "price picked a winner"             → "the price just flipped"
+    "counterpunch" / "counterflow"      → "the other side" / "then X showed up"
+    "looked cleaner" / "looked sharper" → name what made it sharper
+    "priced in"                         → (usually omit; or "the market knows")
+    "positioning"                       → "betting" / "buying"
+- Rewrite table — internalize the voice shift:
+    ❌ "12 buys from 8 wallets for $33.9k, mostly at 54-59¢"
+    ✅ "8 wallets stacked $34k on Yankees in the first 18 min — mostly around 55¢"
+
+    ❌ "Price picked a winner fast. Boston was 40.5¢ 1 min after first
+        pitch and 61.5¢ by minute 35."
+    ✅ "Then it just flipped. Boston went from the low-40s to the low-60s
+        in half an hour."
+
+    ❌ "A coordinated 8-wallet push bought $33.9k of Yankees into a
+        major pregame volume spike."
+    ✅ "Before first pitch, 8 different wallets all hit BUY on the
+        Yankees. $34k in, nobody on the other side."
+
+    ❌ "That wallet's lifetime record is just 597-513 and down $5.8k."
+    ✅ "And that wallet? Barely above .500 lifetime, down $5.8k."
+
+## Links (final tweet only)
+Build URLs against `https://polyspotter.com`. Prefer the market page —
+it's the richest landing surface. Use a wallet link when the story is
+primarily about one specific wallet. Use alert / tag only when clearly
+more relevant. 1-2 links max in the final tweet.
+
+- market: https://polyspotter.com/market/<slug>
+    <slug> = kebab-cased `market_title` (lowercase, non-alnum → single
+    dash, trim leading/trailing dashes, max 80 chars) + "-" + first 7
+    chars of `condition_id` (i.e. "0x" + 5 hex chars).
+    Example: market_title "Will Trump win 2024?" +
+    condition_id "0xc5300759dc..." → "will-trump-win-2024-0xc53007"
+- wallet: https://polyspotter.com/wallet/<wallet_address>
+    (use the full 0x-prefixed address from the alert)
+- alert:  https://polyspotter.com/alert/<alert_id>
+- tag:    https://polyspotter.com/tag/<tag-slug>
+    <tag-slug> = lowercase, whitespace → single dash
+
+All URLs wrap to {TWEET_URL_CHARS} chars regardless of length — don't
+shorten them yourself, just paste the full URL.
+
+## How to present numbers (readability, not fabrication)
+Round for human reading. These rules tighten readability; they are NOT
+loopholes around fact fidelity below. Rounded values must stay within
+~5% of source.
+- Dollars > $1,000  → nearest $1k: "$78k", not "$78,131.61"
+- Dollars > $1M     → one decimal:  "$2.8M", not "$2,789,285.20"
+- Win-rate records  → keep as-is:   "178-20" (that precision IS the point)
+- Prices            → tenths-of-cent ONLY when a specific fill price is
+                       the point (one wallet's entry, a level someone
+                       defended). For price MOVES, use round figures or
+                       ranges: "from the low-40s to the low-60s", "ripped
+                       20 cents", "42¢ → 61¢". NOT "40.5¢ → 61.5¢" — that
+                       reads like a Bloomberg feed. Penny precision
+                       matters when it IS the story; otherwise round.
+- Counts            → keep exact:    "14 wallets", "4 markets"
+- Times             → human phrasing: "in the hour after tip-off",
+                       "with 2 minutes to resolution", "over ~40 minutes".
+                       NOT raw UTC timestamps — readers shouldn't have to
+                       convert time zones.
 
 ## Fact fidelity (hard rule — this is where threads go wrong)
 Every number, count, percentage, dollar figure, and timeframe — in ANY
@@ -1105,6 +1092,7 @@ def run_agent(llm_client, *, chosen_alerts: list[dict],
     calls_used = 0
     forcing_final = False
     final_json_retries = 0
+    dispatch = _make_dispatcher(llm_client, usage=usage)
 
     for iter_idx in range(MAX_ITERATIONS):
         remaining = MAX_TOOL_CALLS - calls_used
@@ -1207,6 +1195,17 @@ def run_agent(llm_client, *, chosen_alerts: list[dict],
 
 # --- Validation --------------------------------------------------------------
 
+_URL_RE = re.compile(r"https?://\S+")
+_POLYSPOTTER_URL_RE = re.compile(r"https://polyspotter\.com/(?:market|wallet|alert|tag)/")
+_BANNED_TWEET_PHRASES = ("in bio", "full breakdown", "link below", "link in bio")
+
+
+def _tweet_length(t: str) -> int:
+    """Twitter-counted length: every URL counts as TWEET_URL_CHARS regardless of actual length."""
+    urls = _URL_RE.findall(t)
+    return len(t) - sum(len(u) for u in urls) + TWEET_URL_CHARS * len(urls)
+
+
 def validate_decision(decision: dict) -> tuple[bool, str]:
     d = decision.get("decision")
     if d == "skip":
@@ -1221,8 +1220,17 @@ def validate_decision(decision: dict) -> tuple[bool, str]:
     for i, t in enumerate(tweets):
         if not isinstance(t, str) or not t.strip():
             return False, f"tweets[{i}] must be a non-empty string"
-        if len(t) > TWEET_MAX_CHARS:
-            return False, f"tweets[{i}] length {len(t)} exceeds {TWEET_MAX_CHARS}"
+        tlen = _tweet_length(t)
+        if tlen > TWEET_MAX_CHARS:
+            return False, f"tweets[{i}] length {tlen} exceeds {TWEET_MAX_CHARS}"
+        if i != len(tweets) - 1 and _URL_RE.search(t):
+            return False, f"tweets[{i}] contains a URL; URLs only allowed in the last tweet"
+        lower = t.lower()
+        for phrase in _BANNED_TWEET_PHRASES:
+            if phrase in lower:
+                return False, f"tweets[{i}] contains banned CTA phrase {phrase!r}"
+    if not _POLYSPOTTER_URL_RE.search(tweets[-1]):
+        return False, "final tweet must contain a polyspotter.com deep link (/market, /wallet, /alert, or /tag)"
     ids = decision.get("alert_ids") or []
     if not isinstance(ids, list) or not ids:
         return False, "alert_ids must be a non-empty list when posting"
@@ -1343,15 +1351,24 @@ def main() -> int:
     llm_client = OpenAI(base_url=AZURE_OPENAI_ENDPOINT, api_key=AZURE_OPENAI_API_KEY)
 
     def _on_tool(name: str, args: dict, env: dict, elapsed_ms: int) -> None:
+        preview_source = args.get("intent") or args.get("sql") or args.get("path") or ""
         if STORYBOT_DRY_RUN:
-            preview = args.get("sql") or args.get("path") or json.dumps(args)[:200]
+            preview = preview_source or json.dumps(args)[:200]
+            meta = []
+            if env.get("backend"):
+                meta.append(f"backend={env['backend']}")
+            if env.get("compression"):
+                meta.append(f"compression={env['compression']}")
+            meta_s = f" [{', '.join(meta)}]" if meta else ""
             status = f"ERROR: {env['error']}" if env.get("error") else \
                      ("ok (truncated)" if env.get("truncated") else "ok")
-            print(f"  tool  {name}  ({elapsed_ms} ms)\n    {preview}\n    → {status}",
+            print(f"  tool  {name}  ({elapsed_ms} ms){meta_s}\n    {preview}\n    → {status}",
                   flush=True)
         else:
             log("tool_call", run_id=run_id, name=name,
-                args_preview=(args.get("sql") or args.get("path") or "")[:200],
+                args_preview=preview_source[:200],
+                backend=env.get("backend"),
+                compression=env.get("compression"),
                 error=env.get("error"), truncated=env.get("truncated", False),
                 elapsed_ms=elapsed_ms)
 
