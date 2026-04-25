@@ -108,17 +108,41 @@ def _positions_to_bets(positions: list[dict]) -> list[WalletBet]:
     """Convert raw API positions to WalletBet models."""
     bets = []
     for pos in positions:
+        avg_price = pos.get("avgPrice")
         cur_price = pos.get("curPrice")
-        won = cur_price == 1.0 if cur_price is not None else None
+        realized_pnl = pos.get("realizedPnl")
+        total_bought = pos.get("totalBought")
+
+        # Three-state, aligned with wallet stats: only mark won True/False when
+        # the market actually resolved (curPrice ∈ {0, 1}); None means the
+        # wallet exited mid-market — pnl_usd communicates the trade outcome.
+        if cur_price == 1.0:
+            won = True
+        elif cur_price == 0.0:
+            won = False
+        else:
+            won = None
+
+        # For resolved positions the second-leg price is the resolution price;
+        # for exited positions it's the effective sell price implied by the
+        # realized P&L (curPrice is the live mid, not the wallet's exit).
+        if cur_price in (0.0, 1.0):
+            exit_price = cur_price
+        elif (avg_price is not None and realized_pnl is not None
+              and total_bought is not None and total_bought > 0):
+            exit_price = avg_price * (1 + realized_pnl / total_bought)
+        else:
+            exit_price = None
+
         bets.append(WalletBet(
             market_title=pos.get("title"),
             condition_id=pos.get("conditionId"),
             won=won,
             outcome=pos.get("outcome"),
-            entry_price=pos.get("avgPrice"),
-            resolution_price=cur_price,
-            pnl_usd=pos.get("realizedPnl"),
-            total_usd=pos.get("totalBought"),
+            entry_price=avg_price,
+            resolution_price=exit_price,
+            pnl_usd=realized_pnl,
+            total_usd=total_bought,
             resolved_at=None,
         ))
     return bets

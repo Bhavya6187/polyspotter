@@ -44,13 +44,18 @@ export default function WalletPageClient({ wallet, address }) {
           </h3>
           <div className="flex flex-col gap-2">
             {wallet.bet_history.map((b, i) => {
-              const resolved = b.won != null;
-              const badgeStyle = !resolved
+              const exited = b.won == null;
+              const badgeStyle = exited
                 ? { background: "rgba(156,163,175,0.15)", color: "var(--text-muted)" }
                 : b.won
                   ? { background: "rgba(34,197,94,0.15)", color: "var(--bullish)" }
                   : { background: "rgba(239,68,68,0.15)", color: "var(--bearish)" };
-              const badgeLabel = !resolved ? "OPEN" : b.won ? "WIN" : "LOSS";
+              const badgeLabel = exited ? "EXITED" : b.won ? "WIN" : "LOSS";
+              const pnlColor = b.pnl_usd > 0
+                ? "var(--bullish)"
+                : b.pnl_usd < 0
+                  ? "var(--bearish)"
+                  : "var(--text-muted)";
 
               return (
                 <div key={i}
@@ -65,7 +70,7 @@ export default function WalletPageClient({ wallet, address }) {
                       <p className="text-xs" style={{ color: "var(--text-muted)" }}>
                         {b.outcome && <span>{b.outcome} · </span>}
                         {b.entry_price != null && `Entry ${Math.round(b.entry_price * 100)}¢`}
-                        {resolved && b.resolution_price != null && ` → ${Math.round(b.resolution_price * 100)}¢`}
+                        {b.resolution_price != null && ` → ${Math.round(b.resolution_price * 100)}¢`}
                       </p>
                     </div>
                   </div>
@@ -76,7 +81,7 @@ export default function WalletPageClient({ wallet, address }) {
                       </p>
                     )}
                     {b.pnl_usd != null && (
-                      <p className="text-[10px]" style={{ color: resolved ? (b.won ? "var(--bullish)" : "var(--bearish)") : "var(--text-muted)" }}>
+                      <p className="text-[10px]" style={{ color: pnlColor }}>
                         {b.pnl_usd >= 0 ? "+" : ""}{usdFmt.format(b.pnl_usd)}
                       </p>
                     )}
