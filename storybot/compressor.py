@@ -24,7 +24,8 @@ from typing import Any, Callable
 
 
 PASSTHROUGH_BYTES = 2048
-MAX_SAMPLE_BYTES = 2000
+PREVIEW_BYTES = 600
+SHAPE_DEPTH = 3
 
 
 def _log(event: str, **fields: Any) -> None:
@@ -360,6 +361,24 @@ Postgres: `NOW() - INTERVAL '1 hour'`, jsonb ops (`->`, `->>`, `jsonb_array_elem
 SQLite:   no jsonb, LIKE is case-insensitive by default, `datetime('now','-1 hour')`.
 Queries MUST be a single SELECT or WITH. Prefer narrow SELECT lists + LIMITs over SELECT *.
 
+## Scope (mandatory when present)
+The user message may include a `scope:` block — these are session constants the
+orchestrator is researching (the picked event, alerts, wallets). Apply them as
+hard filters on every query that touches a matching column / endpoint:
+
+- `scope.event_slug`     → WHERE event_slug = '<slug>' on any table with that column.
+                           Gamma: prefer /events?slug=<slug> or /markets?event_slug=…
+- `scope.condition_ids`  → WHERE condition_id = ANY(...) similarly.
+                           Gamma: /markets?condition_ids=<comma-sep>.
+- `scope.wallets`        → WHERE wallet = ANY(...) on tables with a wallet column.
+                           Gamma: /trades?user=… (one wallet at a time).
+- `scope.alert_ids`      → WHERE id = ANY(...) on alerts; WHERE alert_id = ANY(...)
+                           on alert_trades / alert_signals.
+
+Exception: when the intent EXPLICITLY asks for cross-scope data (e.g. "what
+OTHER events did these wallets bet on"), drop only the scope field the intent
+overrides — keep the rest.
+
 {SCHEMA_DOCS}
 
 ## Output
@@ -394,12 +413,15 @@ Previous plan:
 
 
 def build_query(llm_client, *, intent: str, hint: str | None, model: str,
+                scope: dict | None = None,
                 prior_plan: dict | None = None,
                 prior_error: str | None = None,
                 usage: dict | None = None) -> dict:
     parts = [f"intent: {intent}"]
     if hint:
         parts.append(f"hint: {hint}")
+    if scope:
+        parts.append(f"scope: {json.dumps(scope, default=str)}")
     if prior_error and prior_plan:
         parts.append(REPAIR_INSTRUCTION.format(
             error=prior_error,
@@ -466,7 +488,13 @@ ROUTER_SYSTEM_PROMPT = """You pick a compression method for one tool response.
 
 Inputs:
   intent     — what the upstream agent wanted.
-  sample     — one example row (or preview of the payload).
+  sample     — {"shape": <structural fingerprint>, "preview": <truncated JSON>}.
+               `shape` shows types and nesting with no content; a non-empty list
+               appears as `[<shape-of-first-element>]`; strings carry length as
+               `str[N]` so you can spot prose fields. Use `shape` as the source
+               of truth for what fields exist (especially nested ones). The
+               `preview` is only a flavor sample — don't assume fields absent
+               from it don't exist.
   row_count  — number of rows/records.
   byte_size  — serialized JSON size.
 
@@ -475,16 +503,35 @@ Pick ONE of:
   "python"      — deterministic DSL op. DEFAULT. Preserves every value byte-for-byte.
                   Use for anything involving numbers, IDs, timestamps, prices — any
                   field a downstream tweet might quote.
-  "llm"         — LLM summarization. ONLY when the intent explicitly wants free-text
-                  fields compressed (market descriptions, FAQs, long prose). Never
-                  for numeric or identifier-heavy payloads.
+  "llm"         — LLM summarization. Allowed when the payload is dominated by
+                  prose (long `str[N]` fields like descriptions, FAQs, HTML).
+                  The summarizer is instructed to preserve every number, ID,
+                  timestamp, and address verbatim, so mixed prose+numeric
+                  payloads are fine. Prefer "python" when the payload is mostly
+                  numeric/identifier data — it costs no extra tokens and
+                  guarantees byte-for-byte fidelity.
 
 ## Python DSL — pick ONE op, fill the named keys. `cols` names must match keys in sample.
 
 {"op": "top_k",     "k": <int>, "sort_by": "<col>", "direction": "desc"|"asc", "cols": ["<col>", ...] | null}
-{"op": "project",   "cols": ["<col>", ...]}
+{"op": "project",   "cols": ["<col>", ...], "nested": {"<col>": ["<subcol>", ...], ...} | null}
 {"op": "aggregate", "group_by": ["<col>", ...] | null, "metrics": [{"op": "sum"|"count"|"avg"|"min"|"max", "col": "<col>", "as": "<alias>"}]}
 {"op": "filter",    "where": [{"col": "<col>", "op": "eq"|"ne"|"gt"|"lt"|"gte"|"lte"|"contains", "value": <any>}]}
+
+### Nested projection (project.nested)
+When a column holds a dict or a list of dicts and you only need some of its
+sub-fields, put the column in `nested` with the sub-fields to keep. Nested keys
+are implicitly kept, so you don't need to repeat them in `cols`. Example for a
+Gamma event with a heavy nested `markets[]` array:
+
+{"op": "project",
+ "cols": ["title", "endDate", "volume", "liquidity"],
+ "nested": {"markets": ["question", "conditionId", "clobTokenIds",
+                        "bestBid", "bestAsk", "lastTradePrice", "volume24hr"],
+            "tags":    ["label", "slug"]}}
+
+This is the right tool for any payload whose `shape` shows a big
+`list-of-dicts` value — use it instead of falling back to passthrough.
 
 ## Output
 Return exactly one JSON object and nothing else:
@@ -495,18 +542,46 @@ Return exactly one JSON object and nothing else:
 """
 
 
+def _shape(obj: Any, depth: int = SHAPE_DEPTH) -> Any:
+    """Structural fingerprint: types and nesting, no content. Non-empty lists
+    collapse to `[<shape-of-first-element>]`. Strings carry their length so the
+    router can spot prose-heavy fields (e.g. `str[1840]` vs `str[12]`)."""
+    if obj is None:
+        return "null"
+    if isinstance(obj, bool):
+        return "bool"
+    if isinstance(obj, int):
+        return "int"
+    if isinstance(obj, float):
+        return "float"
+    if isinstance(obj, str):
+        return f"str[{len(obj)}]"
+    if isinstance(obj, list):
+        if not obj:
+            return []
+        if depth <= 0:
+            return ["..."]
+        return [_shape(obj[0], depth - 1)]
+    if isinstance(obj, dict):
+        if depth <= 0:
+            return "{...}"
+        return {k: _shape(v, depth - 1) for k, v in obj.items()}
+    return type(obj).__name__
+
+
 def _sample_and_size(data: Any) -> tuple[Any, int, int]:
     serialized = json.dumps(data, default=str)
     size = len(serialized)
     if isinstance(data, list):
         count = len(data)
-        sample = data[0] if data else None
+        first = data[0] if data else None
     else:
         count = 1 if data is not None else 0
-        sample = data
-    sample_s = json.dumps(sample, default=str)
-    if len(sample_s) > MAX_SAMPLE_BYTES:
-        sample = sample_s[:MAX_SAMPLE_BYTES] + "…"
+        first = data
+    shape = _shape(first)
+    preview_s = json.dumps(first, default=str)
+    preview = preview_s if len(preview_s) <= PREVIEW_BYTES else preview_s[:PREVIEW_BYTES] + "…"
+    sample = {"shape": shape, "preview": preview}
     return sample, count, size
 
 
@@ -568,11 +643,36 @@ def _as_rows(data: Any) -> list[dict]:
     return []
 
 
+def _project_row(row: dict, cols: list[str], nested: dict | None) -> dict:
+    """Project a single dict. `cols` lists top-level keys to keep; `nested` maps
+    a key → list of sub-columns to keep when that key holds a dict or a list of
+    dicts. Keys that appear only in `nested` are implicitly kept."""
+    nested = nested or {}
+    order = list(cols) + [k for k in nested if k not in cols]
+    out: dict = {}
+    for k in order:
+        if k not in row:
+            continue
+        v = row[k]
+        if k in nested:
+            sub = nested[k]
+            if isinstance(v, list):
+                out[k] = [_project_row(item, sub, None) for item in v if isinstance(item, dict)]
+            elif isinstance(v, dict):
+                out[k] = _project_row(v, sub, None)
+            else:
+                out[k] = v
+        else:
+            out[k] = v
+    return out
+
+
 def _apply_project(data: Any, spec: dict) -> Any:
     cols = spec["cols"]
+    nested = spec.get("nested")
     if isinstance(data, dict) and not (len(data) == 1 and isinstance(next(iter(data.values())), list)):
-        return {k: data[k] for k in cols if k in data}
-    return [{k: r[k] for k in cols if k in r} for r in _as_rows(data)]
+        return _project_row(data, cols, nested)
+    return [_project_row(r, cols, nested) for r in _as_rows(data)]
 
 
 def _apply_top_k(data: Any, spec: dict) -> Any:
@@ -726,8 +826,14 @@ def compress(llm_client, *, intent: str, data: Any, route: dict,
 
 def run_query(llm_client, *, intent: str, hint: str | None, model: str,
               backends: dict[str, Callable],
+              scope: dict | None = None,
               usage: dict | None = None) -> dict:
     """Run the full compressor pipeline for one orchestrator tool call.
+
+    `scope` (optional) is a dict of session-level constants the orchestrator is
+    researching — typically {event_slug, condition_ids[], alert_ids[], wallets[]}.
+    Set once by the caller from the picker's output; threaded through to the
+    builder as a hard-filter rule so every query is auto-scoped.
 
     Returns an envelope:
         {"data": <compressed>, "backend": "...", "compression": "...",
@@ -737,7 +843,8 @@ def run_query(llm_client, *, intent: str, hint: str | None, model: str,
     """
     t_start = time.monotonic()
     call_usage: dict = {}
-    _log("compressor_start", intent=intent[:160], hint=(hint or None))
+    _log("compressor_start", intent=intent[:160], hint=(hint or None),
+         scope=(scope or None))
 
     def _finish_error(stage: str, err: str) -> dict:
         _log("compressor_done",
@@ -752,7 +859,7 @@ def run_query(llm_client, *, intent: str, hint: str | None, model: str,
 
     try:
         plan = build_query(llm_client, intent=intent, hint=hint,
-                           model=model, usage=call_usage)
+                           model=model, scope=scope, usage=call_usage)
     except Exception as exc:
         return _finish_error("builder", f"{type(exc).__name__}: {exc}")
 
@@ -775,7 +882,7 @@ def run_query(llm_client, *, intent: str, hint: str | None, model: str,
              ms=int((time.monotonic() - t_exec) * 1000))
         try:
             plan = build_query(llm_client, intent=intent, hint=hint,
-                               model=model, usage=call_usage,
+                               model=model, scope=scope, usage=call_usage,
                                prior_plan=plan, prior_error=repair_err)
             t_exec = time.monotonic()
             raw = execute_query(plan, backends)

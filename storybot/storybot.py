@@ -500,7 +500,128 @@ TOOL_SCHEMAS = [
 ]
 
 
-def _make_dispatcher(llm_client, *, usage: dict | None):
+def _derive_scope(chosen_alerts: list[dict]) -> dict:
+    """Build the session scope dict from the picked alerts.
+
+    The picker contract guarantees all chosen_alerts share one event_slug.
+    Cluster alerts have wallet=None — those are skipped from the wallets list
+    (the full cluster membership only appears once research pulls alert_trades).
+    """
+    event_slug = chosen_alerts[0].get("event_slug")
+    condition_ids = sorted({a["condition_id"] for a in chosen_alerts if a.get("condition_id")})
+    alert_ids = [a["id"] for a in chosen_alerts if a.get("id") is not None]
+    wallets = sorted({a["wallet"] for a in chosen_alerts if a.get("wallet")})
+    scope: dict = {}
+    if event_slug:
+        scope["event_slug"] = event_slug
+    if condition_ids:
+        scope["condition_ids"] = condition_ids
+    if alert_ids:
+        scope["alert_ids"] = alert_ids
+    if wallets:
+        scope["wallets"] = wallets
+    return scope
+
+
+_HEX_ID_RE = re.compile(r"\A0x[0-9a-fA-F]+\Z")
+
+
+def _hex_in_clause(values: list[str]) -> str | None:
+    """SQL `IN (...)` literal for hex-id values, with strict hex validation.
+    Returns None when no value is valid (caller should skip the query)."""
+    safe = [f"'{v}'" for v in values if isinstance(v, str) and _HEX_ID_RE.fullmatch(v)]
+    return "(" + ",".join(safe) + ")" if safe else None
+
+
+def prefetch_bundle(scope: dict) -> dict:
+    """Fan out the predictable bundle of queries derivable from `scope`, in
+    parallel. Returns {item: {"ok": bool, "data"|"error", "ms": int}}.
+
+    These are queries the orchestrator would otherwise have to ask for over
+    several research iterations. Pre-fetching them once skips a builder-LLM
+    call per query and makes the kickoff message richer.
+    """
+    import concurrent.futures
+
+    if not scope:
+        return {}
+
+    alert_ids = scope.get("alert_ids") or []
+    wallets = scope.get("wallets") or []
+    cids = scope.get("condition_ids") or []
+    ev_slug = scope.get("event_slug")
+
+    tasks: dict[str, tuple] = {}
+
+    if alert_ids:
+        ids_csv = ",".join(str(int(x)) for x in alert_ids)
+        tasks["alert_trades"] = ("postgres", f"""
+            SELECT a.id AS alert_id, a.alert_type, a.total_usd, a.trade_count,
+                   a.market_title, a.cluster_headline,
+                   t.transaction_hash, t.wallet, t.outcome, t.side,
+                   t.usd_value, t.size, t.price, t.trade_timestamp
+            FROM alerts a JOIN alert_trades t ON t.alert_id = a.id
+            WHERE a.id IN ({ids_csv})
+            ORDER BY t.trade_timestamp ASC
+        """)
+        tasks["tweeted_dedup"] = ("postgres", f"""
+            SELECT alert_id, tweet_id, tweeted_at FROM tweeted_alerts
+            WHERE alert_id IN ({ids_csv})
+        """)
+
+    wlist = _hex_in_clause(wallets) if wallets else None
+    if wlist:
+        tasks["wallet_profiles"] = ("postgres", f"""
+            SELECT wallet, total_positions, closed_positions, wins, losses,
+                   total_pnl, total_invested, win_rate, times_flagged,
+                   current_streak, first_seen_at, updated_at
+            FROM wallet_profiles WHERE wallet IN {wlist}
+        """)
+        tasks["wallet_funders"] = ("sqlite", f"""
+            SELECT wallet, funder, discovered_at
+            FROM wallet_funders WHERE wallet IN {wlist}
+        """)
+
+    cid_csv = ",".join(c for c in cids if isinstance(c, str) and _HEX_ID_RE.fullmatch(c))
+    if cid_csv:
+        tasks["market_meta"] = ("gamma", "/markets", {"condition_ids": cid_csv})
+
+    if ev_slug:
+        tasks["event_meta"] = ("gamma", "/events", {"slug": ev_slug})
+
+    def _run(name: str, spec: tuple) -> tuple:
+        t0 = time.monotonic()
+        try:
+            backend = spec[0]
+            if backend in ("postgres", "sqlite"):
+                data = _BACKENDS[backend](spec[1])
+            else:
+                data = _BACKENDS[backend](spec[1], spec[2] if len(spec) > 2 else None)
+            return name, {"ok": True, "data": data,
+                          "ms": int((time.monotonic() - t0) * 1000)}
+        except Exception as exc:
+            return name, {"ok": False, "error": f"{type(exc).__name__}: {exc}",
+                          "ms": int((time.monotonic() - t0) * 1000)}
+
+    results: dict = {}
+    if not tasks:
+        return results
+    t_start = time.monotonic()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(tasks)) as ex:
+        for fut in concurrent.futures.as_completed(
+                [ex.submit(_run, n, s) for n, s in tasks.items()]):
+            name, result = fut.result()
+            results[name] = result
+    total_ms = int((time.monotonic() - t_start) * 1000)
+    log("prefetch_bundle",
+        items=list(results.keys()),
+        ok=[n for n, r in results.items() if r["ok"]],
+        errors={n: r["error"] for n, r in results.items() if not r["ok"]},
+        total_ms=total_ms)
+    return results
+
+
+def _make_dispatcher(llm_client, *, usage: dict | None, scope: dict | None = None):
     def dispatch(name: str, args: dict) -> dict:
         if name != "query":
             return _envelope(error=f"unknown tool: {name}")
@@ -515,6 +636,7 @@ def _make_dispatcher(llm_client, *, usage: dict | None):
                 hint=hint,
                 model=MODEL,
                 backends=_BACKENDS,
+                scope=scope,
                 usage=usage,
             )
         except Exception as exc:
@@ -871,15 +993,52 @@ thread with what you have — do not keep digging.
 """
 
 
-def build_kickoff_message(chosen_alerts: list[dict]) -> str:
+_BUNDLE_DESCRIPTIONS = {
+    "alert_trades":    "Postgres alerts ⨯ alert_trades for the picked alert_ids.",
+    "tweeted_dedup":   "Postgres tweeted_alerts rows for the picked alert_ids (empty = none tweeted).",
+    "wallet_profiles": "Postgres wallet_profiles for the named alert wallets (cluster wallets show up under alert_trades).",
+    "wallet_funders":  "SQLite wallet_funders for the named alert wallets.",
+    "market_meta":     "Gamma /markets?condition_ids=… (current prices, volume, clobTokenIds).",
+    "event_meta":      "Gamma /events?slug=… (sibling markets on this event).",
+}
+
+
+def _format_prefetched_block(prefetched: dict) -> str:
+    """Render the prefetch_bundle results into a `<prefetched>` block for
+    the kickoff message. Failed items are silently dropped — orchestrator
+    can fetch on demand."""
+    ok_items = {n: r["data"] for n, r in prefetched.items() if r.get("ok")}
+    if not ok_items:
+        return ""
+    lines = [
+        "<prefetched>",
+        "These queries have already been run for the picked event/alerts/wallets.",
+        "Use these values directly — do NOT call `query` to re-fetch them. ",
+        "Each item below is keyed by name, with a one-line description.",
+        "",
+    ]
+    for name, data in ok_items.items():
+        desc = _BUNDLE_DESCRIPTIONS.get(name, "")
+        lines.append(f"## {name} — {desc}")
+        lines.append(json.dumps(data, default=str, indent=2))
+        lines.append("")
+    lines.append("</prefetched>")
+    return "\n".join(lines) + "\n\n"
+
+
+def build_kickoff_message(chosen_alerts: list[dict],
+                          prefetched: dict | None = None) -> str:
     """Kickoff user message for stage 2: the alert(s) picked upstream.
 
     `chosen_alerts` is 1+ alerts (all sharing the same `event_slug` when >1).
+    `prefetched` (optional) is the output of `prefetch_bundle(scope)` — its
+    successful items are embedded as a `<prefetched>` block at the top.
     """
     assert chosen_alerts, "chosen_alerts must be non-empty"
+    prefix = _format_prefetched_block(prefetched) if prefetched else ""
     if len(chosen_alerts) == 1:
         payload = json.dumps(chosen_alerts[0], default=str, indent=2)
-        return (
+        return prefix + (
             "A preceding triage pass picked this alert as the best story "
             "for the hour. Research it with the four tools, then write the "
             "thread — or skip if research reveals it's not actually "
@@ -889,7 +1048,7 @@ def build_kickoff_message(chosen_alerts: list[dict]) -> str:
         )
     slug = chosen_alerts[0].get("event_slug") or "(unknown event)"
     payload = json.dumps(chosen_alerts, default=str, indent=2)
-    return (
+    return prefix + (
         f"A preceding triage pass picked these {len(chosen_alerts)} alerts "
         f"— all on event '{slug}' — as the best story for the hour. Treat "
         "them as ONE story: look for signal overlap and what they "
@@ -1086,13 +1245,16 @@ def run_agent(llm_client, *, chosen_alerts: list[dict],
     `on_tool_call` is called with (name, args, env, elapsed_ms) after each
     tool dispatches.
     """
+    scope = _derive_scope(chosen_alerts)
+    prefetched = prefetch_bundle(scope)
     messages: list[dict] = transcript if transcript is not None else []
     messages.append({"role": "system", "content": SYSTEM_PROMPT})
-    messages.append({"role": "user", "content": build_kickoff_message(chosen_alerts)})
+    messages.append({"role": "user", "content": build_kickoff_message(
+        chosen_alerts, prefetched=prefetched)})
     calls_used = 0
     forcing_final = False
     final_json_retries = 0
-    dispatch = _make_dispatcher(llm_client, usage=usage)
+    dispatch = _make_dispatcher(llm_client, usage=usage, scope=scope)
 
     for iter_idx in range(MAX_ITERATIONS):
         remaining = MAX_TOOL_CALLS - calls_used
