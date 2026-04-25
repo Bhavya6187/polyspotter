@@ -822,7 +822,7 @@ thread. That reads like a report. A thread needs a TURN.
   consequence. A setup is a picture the reader buys into ("retail
   piled in on the Yankees"). A twist flips it ("then a +$2M lifetime
   wallet showed up on the other side"). A consequence shows what
-  happened next ("the price round-tripped 20 cents in 30 minutes").
+  happened next ("the price went up and came back 20 cents in half an hour").
   If you can reorder your body tweets without losing meaning, they're
   parallel beats, not a story — rewrite.
   If the strongest story you have is "coordinated buys + volume spike"
@@ -858,10 +858,14 @@ Hard style rules (apply to EVERY tweet in the thread):
 - 0-2 relevant emojis per tweet, only if they add something.
 - 0-2 topic-specific hashtags across the thread (not #Polymarket). Most
   tweets should have zero.
-- Voice: crypto-twitter / betting-twitter — the way a sharp trader
-  would text a friend about what they just saw. Confident, punchy, a
-  little playful when warranted. NOT Wall Street research, NOT a press
-  release, NOT an internal analyst log line. Same voice across every tweet.
+- Voice: smart financial-twitter — Matt Levine writing about
+  Polymarket, not a desk trader Slack. Confident, punchy, a little
+  playful when warranted. The reader is a curious adult who follows
+  the news but does NOT speak desk slang — they should never need a
+  glossary to follow you. NOT Wall Street research, NOT a press
+  release, NOT an internal analyst log line, and NOT trader-chat
+  shorthand ("clip," "lifted," "trimming," "wall," "the sharp"). Same
+  voice across every tweet.
 - Refer to wallets by what makes them notable ("a 178-20 wallet", "a
   $1M+ P&L account", "the sharpest account on this market"), not by
   pasting 0x addresses. Name a full address only when there's a specific
@@ -882,33 +886,100 @@ Hard style rules (apply to EVERY tweet in the thread):
     "alerted flow"            → (omit)
     "composite score"         → (omit — describe the signal instead)
     "near-resolution flag(s)" → "bought minutes before resolution"
-    "deployed capital"        → "spent" / "bought" / "stacked"
+    "deployed capital"        → "spent" / "bought"
+- First-use unpack. The first time a thread leans on a piece of
+  insider machinery — a bet line, an order-book artifact, a
+  track-record shorthand — give the reader a half-second of frame.
+  After that, drop the framing and use the short form. The thread
+  shouldn't *teach*, but it shouldn't make a casual reader google
+  either.
+
+  When to unpack:
+  - Bet lines (sports totals, spreads, etc.). First mention names
+    what the bet IS in plain English; the shorthand can take over after.
+      ❌ "piled $75k into Red Sox/Orioles Under 7.5 near first pitch"
+      ✅ "piled $75k into Under 7.5 — i.e. betting the Red Sox and
+          Orioles combine for fewer than 8 runs — right before first pitch"
+      Subsequent tweets in the same thread: "the Under" is fine.
+  - Track-record shorthand. "29-4" is opaque on its own.
+      ❌ "A 29-4 wallet up $4.4M"
+      ✅ "An account that's hit 29 of its last 33 bets and is up $4.4M"
+      Subsequent: "that wallet" / "the same account."
+  - Order-book artifacts (walls, depth, fills). First mention names
+    what's actually sitting on the book.
+      ❌ "a big wall at 57¢"
+      ✅ "a big stack of sell orders parked at 57¢" (or: "a chunk of
+          resting offers at 57¢")
+      Subsequent: "that 57¢ level" once the reader has the picture.
+  - Polymarket prices. The reader doesn't need a probability lecture,
+    but the *first* time a price carries the story, gesture at what
+    it means. Once is enough.
+      ❌ "bought Over at 47¢"
+      ✅ "bought Over at 47¢ (the market was giving it a coin-flip)"
+          — or pair the price with its implied read in the surrounding
+          sentence.
+      Subsequent: "47¢," "44¢," "the mid-50s" — terse is fine.
+
+  What this is NOT:
+  - NOT a license to add an explainer sentence to every tweet. One
+    frame per concept, per thread.
+  - NOT a parenthetical glossary on every term. If a term is
+    self-explanatory in context ("first pitch," "$118k bet," "won 80%
+    of his bets"), don't unpack it.
+  - NOT an excuse to inflate tweet count. Same 3-5 cap. If unpacking
+    pushes a tweet over {TWEET_MAX_CHARS} chars, cut a number, not
+    the unpack.
 - Analyst-speak is also BANNED. These phrases sound like a research
   note, not a trader texting a friend:
     "real size" / "meaningful size"     → just say the dollar amount
-    "coordinated burst" / "pile-in"     → "all bought at once" / "stacked in"
+    "coordinated burst" / "pile-in"     → "all bought at once" / "all hit it within minutes"
     "conviction flow" / "high-conviction" → show the conviction via a fact
     "price picked a winner"             → "the price just flipped"
     "counterpunch" / "counterflow"      → "the other side" / "then X showed up"
     "looked cleaner" / "looked sharper" → name what made it sharper
     "priced in"                         → (usually omit; or "the market knows")
     "positioning"                       → "betting" / "buying"
+    "the sharp" / "sharp on the other side"  → name the wallet by what makes it notable ("the +$2M wallet", "the 29-4 account") OR just "another account"
+    "trimming" / "trimmed"                   → "selling some of their position" / "cutting their bet"
+    "lifted" / "getting lifted"              → "kept getting bought" / "buyers kept paying up for it"
+    "clip" (as in "$49k clip")               → "$49k bet" / "$49k buy"
+    "P&L wallet" / "$2M P&L wallet"          → "an account up $2M" / "a wallet up $2M lifetime"
+    "leaning on a number"                    → "betting heavily that the line is wrong" / show the conviction via a fact
+    "stacked" / "stacked in" / "stacking"    → "bought" / "bet"
+    "hit BUY" / "hit the bid"                → "bought" / "sold" — say which side in plain English
+    "round-tripped"                          → "went up and came back" / "ripped and faded"
+    "the book" / "depth on the book"         → "the orders sitting on the market" / "what's offered"
 - Rewrite table — internalize the voice shift:
     ❌ "12 buys from 8 wallets for $33.9k, mostly at 54-59¢"
-    ✅ "8 wallets stacked $34k on Yankees in the first 18 min — mostly around 55¢"
+    ✅ "Eight different accounts bought into the Yankees in the first 18
+        minutes — about $34k total, all paying somewhere in the mid-50s."
 
     ❌ "Price picked a winner fast. Boston was 40.5¢ 1 min after first
         pitch and 61.5¢ by minute 35."
-    ✅ "Then it just flipped. Boston went from the low-40s to the low-60s
-        in half an hour."
+    ✅ "Then the market made up its mind. Boston went from the low-40s
+        to the low-60s in about half an hour — the kind of move you
+        usually only see after a real event."
 
     ❌ "A coordinated 8-wallet push bought $33.9k of Yankees into a
         major pregame volume spike."
-    ✅ "Before first pitch, 8 different wallets all hit BUY on the
-        Yankees. $34k in, nobody on the other side."
+    ✅ "Before first pitch, eight separate accounts all bet on the
+        Yankees within minutes of each other — $34k in, basically
+        nobody on the other side. The volume on this market 9x'd in
+        the same window."
 
     ❌ "That wallet's lifetime record is just 597-513 and down $5.8k."
-    ✅ "And that wallet? Barely above .500 lifetime, down $5.8k."
+    ✅ "And that account? It's basically been a coin flip across more
+        than a thousand bets — and down about $6k overall."
+
+    ❌ "A 29-4 wallet up $4.4M kept hammering the Under."
+    ✅ "An account that's hit 29 of its last 33 bets — up $4.4M
+        lifetime — kept hammering the Under."
+
+    ❌ "Meanwhile the other sharp wasn't random. A $2.0M P&L wallet bought
+        Over at 47¢ — then sold some at 44¢ as the Under kept getting lifted."
+    ✅ "On the other side: not a random buyer either. An account up $2M
+        lifetime bought Over at 47¢ — then sold some of it at 44¢ about
+        half an hour later, as buyers kept lifting the Under."
 
 ## Links (final tweet only)
 Build URLs against `https://polyspotter.com`. Prefer the market page —
