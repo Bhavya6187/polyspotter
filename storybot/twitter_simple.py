@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 import uuid
@@ -43,6 +44,15 @@ from storybot import (
 load_dotenv()
 
 DRY_RUN = os.environ.get("TWITTER_SIMPLE_DRY_RUN", "false").lower() == "true"
+
+_POLYSPOTTER_URL_STRIP_RE = re.compile(
+    r"\s*https://polyspotter\.com/(?:market|wallet|alert|tag)/\S+"
+)
+
+
+def _strip_polyspotter_url(tweet: str) -> str:
+    """Remove polyspotter.com deep links (and any leading whitespace) before posting."""
+    return _POLYSPOTTER_URL_STRIP_RE.sub("", tweet).rstrip()
 
 
 SYSTEM_PROMPT = f"""You are the social media voice for PolySpotter — a service \
@@ -316,7 +326,7 @@ def main() -> int:
             elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
         return 0
 
-    tweet = decision["tweet"]
+    tweet = _strip_polyspotter_url(decision["tweet"])
     alert_ids = [int(i) for i in decision["alert_ids"]]
 
     try:
