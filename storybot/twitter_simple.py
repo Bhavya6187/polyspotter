@@ -19,6 +19,7 @@ import sys
 import time
 import uuid
 
+import psycopg2
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -27,6 +28,7 @@ from storybot import (
     AZURE_OPENAI_ENDPOINT,
     DATABASE_URL,
     MODEL,
+    QUERY_TIMEOUT_SECONDS,
     TWEET_MAX_CHARS,
     TWEET_URL_CHARS,
     _BANNED_TWEET_PHRASES,
@@ -53,6 +55,34 @@ _POLYSPOTTER_URL_STRIP_RE = re.compile(
 def _strip_polyspotter_url(tweet: str) -> str:
     """Remove polyspotter.com deep links (and any leading whitespace) before posting."""
     return _POLYSPOTTER_URL_STRIP_RE.sub("", tweet).rstrip()
+
+
+def _already_tweeted_ids(alert_ids: list[int]) -> set[int]:
+    """Return the subset of alert_ids that already have a row in tweeted_alerts."""
+    if not alert_ids:
+        return set()
+    conn = psycopg2.connect(DATABASE_URL, connect_timeout=QUERY_TIMEOUT_SECONDS)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT alert_id FROM tweeted_alerts WHERE alert_id = ANY(%s)",
+            ([int(i) for i in alert_ids],),
+        )
+        rows = cur.fetchall()
+        cur.close()
+        return {int(r[0]) for r in rows}
+    finally:
+        conn.close()
+
+
+def filter_posted_alerts(seed_alerts: list[dict]) -> list[dict]:
+    """Drop seed alerts that have already been tweeted (by any bot).
+
+    Scoped to twitter_simple — storybot intentionally re-evaluates the same
+    alerts and lets the LLM judge dedup via the tweeted_dedup tool."""
+    ids = [int(a["id"]) for a in seed_alerts if a.get("id") is not None]
+    posted = _already_tweeted_ids(ids)
+    return [a for a in seed_alerts if int(a.get("id") or 0) not in posted]
 
 
 SYSTEM_PROMPT = f"""You are the social media voice for PolySpotter — a service \
@@ -297,6 +327,22 @@ def main() -> int:
 
     if not seed_alerts:
         log("skip", run_id=run_id, reason="no alerts in the last 3 hours")
+        log("run_end", run_id=run_id, posted=False,
+            elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
+        return 0
+
+    pre_dedup_count = len(seed_alerts)
+    try:
+        seed_alerts = filter_posted_alerts(seed_alerts)
+    except Exception as exc:
+        log("dedup_error", run_id=run_id, error=f"{type(exc).__name__}: {exc}")
+        return 1
+    log("dedup_filtered", run_id=run_id,
+        before=pre_dedup_count, after=len(seed_alerts),
+        dropped=pre_dedup_count - len(seed_alerts))
+
+    if not seed_alerts:
+        log("skip", run_id=run_id, reason="all seed alerts already tweeted")
         log("run_end", run_id=run_id, posted=False,
             elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
         return 0
