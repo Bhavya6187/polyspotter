@@ -341,11 +341,30 @@ def prepare_chart(decision: dict, seed_alerts: list[dict]) -> bytes | None:
         return None
 
 
-def post_tweet(text: str, *, twitter_client, dry_run: bool) -> str:
-    """Post a single tweet. Returns the tweet id."""
+def post_tweet(
+    text: str,
+    *,
+    twitter_client,
+    twitter_api_v1=None,
+    media_png: bytes | None = None,
+    dry_run: bool,
+) -> str:
+    """Post a single tweet, optionally with one PNG attached. Returns the tweet id."""
     if dry_run:
         return f"dryrun-{uuid.uuid4().hex[:12]}"
-    resp = twitter_client.create_tweet(text=text)
+
+    media_ids = None
+    if media_png is not None and twitter_api_v1 is not None:
+        from io import BytesIO
+        media = twitter_api_v1.media_upload(filename="chart.png", file=BytesIO(media_png))
+        media_id = getattr(media, "media_id", None) or getattr(media, "media_id_string", None)
+        if media_id:
+            media_ids = [media_id]
+
+    if media_ids:
+        resp = twitter_client.create_tweet(text=text, media_ids=media_ids)
+    else:
+        resp = twitter_client.create_tweet(text=text)
     data = getattr(resp, "data", None) or {}
     tweet_id = str(data.get("id") or "")
     if not tweet_id:

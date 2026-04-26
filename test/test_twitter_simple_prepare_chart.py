@@ -38,3 +38,39 @@ def test_prepare_chart_swallows_exceptions():
                side_effect=RuntimeError("boom")):
         result = twitter_simple.prepare_chart(decision, seed)
     assert result is None
+
+
+def test_post_tweet_uploads_media_when_provided():
+    fake_v1 = type("FakeAPI", (), {})()
+    fake_v1.media_upload = lambda filename, file: type("M", (), {"media_id": 1234567})()
+    fake_v2 = type("FakeClient", (), {})()
+    captured = {}
+    def create_tweet(text, media_ids=None):
+        captured["text"] = text
+        captured["media_ids"] = media_ids
+        return type("R", (), {"data": {"id": "555"}})()
+    fake_v2.create_tweet = create_tweet
+
+    tweet_id = twitter_simple.post_tweet(
+        "Hello", twitter_client=fake_v2, twitter_api_v1=fake_v1,
+        media_png=b"\x89PNG\x00fakepng", dry_run=False,
+    )
+    assert tweet_id == "555"
+    assert captured["media_ids"] == [1234567]
+    assert captured["text"] == "Hello"
+
+
+def test_post_tweet_skips_media_when_none():
+    fake_v2 = type("FakeClient", (), {})()
+    captured = {}
+    def create_tweet(text, media_ids=None):
+        captured["media_ids"] = media_ids
+        return type("R", (), {"data": {"id": "777"}})()
+    fake_v2.create_tweet = create_tweet
+
+    tweet_id = twitter_simple.post_tweet(
+        "Hello", twitter_client=fake_v2, twitter_api_v1=None,
+        media_png=None, dry_run=False,
+    )
+    assert tweet_id == "777"
+    assert captured["media_ids"] is None
