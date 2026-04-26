@@ -16,8 +16,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 AZURE_OPENAI_API_KEY = os.environ.get("AZURE_OPENAI_API_KEY", "")
-AZURE_OPENAI_ENDPOINT = "https://gpt-5-mati-labs.cognitiveservices.azure.com/openai/v1/"
-MODEL = "gpt-5.4"
+AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+MODEL = os.environ.get("AZURE_OPENAI_MODEL", "")
 
 SYSTEM_PROMPT = (
     "You are an SEO content specialist for PolySpotter, a Polymarket smart money tracker. "

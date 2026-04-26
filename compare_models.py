@@ -120,7 +120,7 @@ def main():
         print("Error: AZURE_OPENAI_API_KEY not set.")
         sys.exit(1)
 
-    endpoint = "https://gpt-5-mati-labs.cognitiveservices.azure.com/openai/v1/"
+    endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
     client = OpenAI(base_url=endpoint, api_key=api_key)
     prompts = load_prompts(args.prompts)
     print(f"Loaded {len(prompts)} prompts from {args.prompts}")

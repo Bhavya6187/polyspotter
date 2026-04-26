@@ -13,7 +13,7 @@ from db import get_llm_evaluation, save_llm_evaluation
 load_dotenv()
 
 AZURE_OPENAI_API_KEY = os.environ.get("AZURE_OPENAI_API_KEY", "")
-AZURE_OPENAI_ENDPOINT = "https://gpt-5-mati-labs.cognitiveservices.azure.com/openai/v1/"
+AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
 if not AZURE_OPENAI_API_KEY:
     print("ERROR: AZURE_OPENAI_API_KEY not set")
     sys.exit(1)

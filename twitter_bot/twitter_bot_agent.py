@@ -11,10 +11,15 @@ All tools are read-only. No schema changes. No new endpoints. No langchain.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from typing import Any
 
 import jmespath
+from dotenv import load_dotenv
+
+
+load_dotenv()
 
 
 # --- Constants ---------------------------------------------------------------
@@ -22,7 +27,7 @@ import jmespath
 MAX_TOOL_CALLS = 10
 MAX_ITERATIONS = 12  # 10 tool rounds + 1 forcing + 1 safety
 RESPONSE_CAP_BYTES = 8192
-MODEL = "gpt-5.4"
+MODEL = os.environ.get("AZURE_OPENAI_MODEL", "")
 
 
 # --- Errors ------------------------------------------------------------------

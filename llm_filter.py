@@ -25,8 +25,8 @@ from gamma_cache import get_market_by_condition, invalidate_market
 load_dotenv()
 
 AZURE_OPENAI_API_KEY = os.environ.get("AZURE_OPENAI_API_KEY", "")
-AZURE_OPENAI_ENDPOINT = "https://gpt-5-mati-labs.cognitiveservices.azure.com/openai/v1/"
-MODEL = "gpt-5.4"
+AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+MODEL = os.environ.get("AZURE_OPENAI_MODEL", "")
 PROMPT_LOG_FILE = Path(__file__).parent / "llm_prompts.jsonl"
 
 
