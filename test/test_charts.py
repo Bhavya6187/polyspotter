@@ -58,7 +58,7 @@ from unittest.mock import patch
 def test_fetch_wallet_record_card_returns_none_for_unknown_wallet():
     with patch("charts.psycopg2.connect") as mock_connect:
         mock_cur = mock_connect.return_value.cursor.return_value
-        mock_cur.fetchone.return_value = None
+        mock_cur.fetchall.return_value = []
         result = charts.fetch_wallet_record_card_data({"wallet": "0xabc"})
     assert result is None
 
@@ -66,8 +66,8 @@ def test_fetch_wallet_record_card_returns_none_for_unknown_wallet():
 def test_fetch_wallet_record_card_returns_none_for_too_few_bets():
     with patch("charts.psycopg2.connect") as mock_connect:
         mock_cur = mock_connect.return_value.cursor.return_value
-        # (wins, losses, win_rate, first_seen_at) — wins+losses=5+1=6 < 10
-        mock_cur.fetchone.return_value = (5, 1, 0.833, None)
+        # (wallet, wins, losses, win_rate, first_seen_at) — 5+1=6 < 10
+        mock_cur.fetchall.return_value = [("0xabc", 5, 1, 0.833, None)]
         result = charts.fetch_wallet_record_card_data({"wallet": "0xabc"})
     assert result is None
 
@@ -81,13 +81,69 @@ def test_fetch_wallet_record_card_returns_data_when_eligible():
     }
     with patch("charts.psycopg2.connect") as mock_connect:
         mock_cur = mock_connect.return_value.cursor.return_value
-        # (wins, losses, win_rate, first_seen_at) — 29+4=33 >= 10
-        mock_cur.fetchone.return_value = (29, 4, 0.879, None)
+        # (wallet, wins, losses, win_rate, first_seen_at) — 29+4=33 >= 10
+        mock_cur.fetchall.return_value = [("0xabc", 29, 4, 0.879, None)]
         result = charts.fetch_wallet_record_card_data(alert)
     assert result is not None
     assert result["record_str"] == "29-4"
     assert result["bet_count"] == 33
     assert result["wallet_age_days"] is None
+
+
+def test_fetch_wallet_record_card_picks_strongest_wallet_in_cluster():
+    """Cluster alert (alert['wallet'] is null): scan trades, pick the wallet
+    with the highest win_rate among those meeting WALLET_RECORD_MIN_BETS.
+    The footer shows that wallet's individual contribution to the cluster,
+    not the cluster's total."""
+    alert = {
+        "wallet": None,
+        "market_title": "Cavaliers vs Raptors",
+        "total_usd": 13_000,
+        "llm_copy_action": '{"outcome": "Cavaliers"}',
+        "trades": [
+            {"wallet": "0xsharp", "usdcSize": 5_000},
+            {"wallet": "0xjourney", "usdcSize": 4_000},
+            {"wallet": "0xnoob", "usdcSize": 4_000},
+        ],
+    }
+    with patch("charts.psycopg2.connect") as mock_connect:
+        mock_cur = mock_connect.return_value.cursor.return_value
+        mock_cur.fetchall.return_value = [
+            ("0xsharp", 352, 49, 0.878, None),    # 401 bets, 87.8% — strongest
+            ("0xjourney", 25, 25, 0.500, None),   # 50 bets, 50%
+            ("0xnoob", 5, 1, 0.833, None),        # 6 bets — below threshold
+        ]
+        result = charts.fetch_wallet_record_card_data(alert)
+    assert result is not None
+    assert result["record_str"] == "352-49"
+    assert result["bet_count"] == 401
+    assert result["bet_size_usd"] == 5_000
+    assert result["outcome_side"] == "Cavaliers"
+
+
+def test_fetch_wallet_record_card_returns_none_when_cluster_has_no_qualifying_wallet():
+    alert = {
+        "wallet": None,
+        "trades": [
+            {"wallet": "0xa", "usdcSize": 1_000},
+            {"wallet": "0xb", "usdcSize": 1_000},
+        ],
+    }
+    with patch("charts.psycopg2.connect") as mock_connect:
+        mock_cur = mock_connect.return_value.cursor.return_value
+        # Both below WALLET_RECORD_MIN_BETS
+        mock_cur.fetchall.return_value = [
+            ("0xa", 3, 2, 0.6, None),
+            ("0xb", 4, 1, 0.8, None),
+        ]
+        result = charts.fetch_wallet_record_card_data(alert)
+    assert result is None
+
+
+def test_fetch_wallet_record_card_returns_none_when_cluster_has_no_trades():
+    alert = {"wallet": None, "trades": []}
+    result = charts.fetch_wallet_record_card_data(alert)
+    assert result is None
 
 
 # --------- volume_bar ---------

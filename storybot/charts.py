@@ -136,49 +136,85 @@ QUERY_TIMEOUT_SECONDS = 10
 WALLET_RECORD_MIN_BETS = 10  # below this, the record isn't a story
 
 
-def fetch_wallet_record_card_data(alert: dict) -> WalletRecordCardData | None:
-    """Build WalletRecordCardData from an alert dict and Postgres wallet_profiles.
-
-    Queries `wallet_profiles` in Railway Postgres (the authoritative win/loss
-    store pushed by polybot). Returns None when the wallet is unknown or has
-    fewer than WALLET_RECORD_MIN_BETS resolved bets.
-
-    alert dict fields used:
-        wallet          — Polymarket proxy wallet address
-        market_title    — market question string
-        total_usd       — size of the bet in USD
-        llm_copy_action — JSON string (or dict) with outcome/side fields
-    """
-    wallet = alert.get("wallet")
-    if not wallet:
-        return None
-
+def _fetch_wallet_profiles(wallets: list[str]) -> dict[str, dict]:
+    """Batch-fetch wallet_profiles. Returns {wallet: profile} only for wallets
+    that exist in the table AND have >= WALLET_RECORD_MIN_BETS resolved bets."""
+    if not wallets:
+        return {}
+    placeholders = ",".join(["%s"] * len(wallets))
     conn = psycopg2.connect(DATABASE_URL, connect_timeout=QUERY_TIMEOUT_SECONDS)
     try:
         cur = conn.cursor()
         cur.execute(
-            """
-            SELECT wins, losses, win_rate, first_seen_at
-            FROM wallet_profiles
-            WHERE wallet = %s
-            """,
-            (wallet,),
+            f"SELECT wallet, wins, losses, win_rate, first_seen_at "
+            f"FROM wallet_profiles WHERE wallet IN ({placeholders})",
+            wallets,
         )
-        row = cur.fetchone()
+        rows = cur.fetchall()
         cur.close()
     finally:
         conn.close()
+    out: dict[str, dict] = {}
+    for wallet, wins, losses, win_rate, first_seen_at in rows:
+        wins = wins or 0
+        losses = losses or 0
+        total_bets = wins + losses
+        if total_bets < WALLET_RECORD_MIN_BETS:
+            continue
+        out[wallet] = {
+            "wins": wins,
+            "losses": losses,
+            "win_rate": float(win_rate or (wins / total_bets if total_bets else 0)),
+            "first_seen_at": first_seen_at,
+        }
+    return out
 
-    if not row:
-        return None
-    wins, losses, win_rate, first_seen_at = row
-    wins = wins or 0
-    losses = losses or 0
+
+def fetch_wallet_record_card_data(alert: dict) -> WalletRecordCardData | None:
+    """Build WalletRecordCardData for either a single-wallet or cluster alert.
+
+    Single-wallet (alert['wallet'] set): use that wallet's wallet_profiles row,
+    and the alert's total_usd as the bet size in the footer.
+
+    Cluster (alert['wallet'] empty): scan alert['trades'] — the cluster has no
+    primary wallet, but the picker may have led with a sharp wallet *inside*
+    the cluster. Pick the wallet with the highest win_rate among those meeting
+    WALLET_RECORD_MIN_BETS, and show its individual contribution in the footer.
+
+    Returns None when the wallet is unknown / not in the cluster, or has fewer
+    than WALLET_RECORD_MIN_BETS resolved bets.
+
+    alert dict fields used:
+        wallet          — Polymarket proxy wallet (single-wallet alerts only)
+        trades          — list of trade dicts (cluster alerts; required there)
+        market_title    — market question string
+        total_usd       — bet size for single-wallet alerts
+        llm_copy_action — JSON string (or dict) with outcome/side fields
+    """
+    wallet = alert.get("wallet")
+    if wallet:
+        profiles = _fetch_wallet_profiles([wallet])
+        profile = profiles.get(wallet)
+        if profile is None:
+            return None
+        bet_size = float(alert.get("total_usd", 0))
+    else:
+        wallet_sizes = _wallets_in_alert(alert)
+        if not wallet_sizes:
+            return None
+        size_by_wallet = dict(wallet_sizes)
+        profiles = _fetch_wallet_profiles(list(size_by_wallet.keys()))
+        if not profiles:
+            return None
+        wallet = max(profiles, key=lambda w: profiles[w]["win_rate"])
+        profile = profiles[wallet]
+        bet_size = size_by_wallet.get(wallet, 0.0)
+
+    wins = profile["wins"]
+    losses = profile["losses"]
     total_bets = wins + losses
-    if total_bets < WALLET_RECORD_MIN_BETS:
-        return None
+    first_seen_at = profile["first_seen_at"]
 
-    # Derive wallet age from first_seen_at if available
     wallet_age_days: int | None = None
     if first_seen_at is not None:
         try:
@@ -190,7 +226,6 @@ def fetch_wallet_record_card_data(alert: dict) -> WalletRecordCardData | None:
         except (ValueError, TypeError, AttributeError):
             wallet_age_days = None
 
-    # Parse llm_copy_action (may arrive as JSON string or dict)
     copy = alert.get("llm_copy_action") or {}
     if isinstance(copy, str):
         try:
@@ -202,10 +237,10 @@ def fetch_wallet_record_card_data(alert: dict) -> WalletRecordCardData | None:
     return {
         "market_title": alert.get("market_title", ""),
         "record_str": f"{wins}-{losses}",
-        "win_pct": float(win_rate or (wins / total_bets if total_bets else 0)),
+        "win_pct": profile["win_rate"],
         "bet_count": int(total_bets),
         "wallet_age_days": wallet_age_days,
-        "bet_size_usd": float(alert.get("total_usd", 0)),
+        "bet_size_usd": float(bet_size),
         "outcome_side": outcome_side,
     }
 

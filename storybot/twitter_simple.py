@@ -273,7 +273,7 @@ def write_tweet(llm_client, seed_alerts: list[dict], *,
             {"role": "user", "content": user_msg},
         ],
         temperature=1,
-        max_completion_tokens=10000,
+        max_completion_tokens=20000,
         reasoning_effort="high",
         response_format={"type": "json_object"},
     )
