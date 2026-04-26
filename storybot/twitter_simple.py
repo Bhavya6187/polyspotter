@@ -42,6 +42,8 @@ from storybot import (
     record_tweet,
 )
 
+import charts
+
 
 load_dotenv()
 
@@ -313,6 +315,30 @@ def validate_decision(decision: dict) -> tuple[bool, str]:
     if chart_type not in valid_chart_types:
         return False, f"unknown chart_type: {chart_type!r}"
     return True, ""
+
+
+def prepare_chart(decision: dict, seed_alerts: list[dict]) -> bytes | None:
+    """Resolve the alert and render the requested chart, with fallback to
+    wallet_record_card. Returns PNG bytes or None. Never raises."""
+    if decision.get("decision") != "post":
+        return None
+    alert_ids = decision.get("alert_ids") or []
+    if not alert_ids:
+        return None
+    try:
+        target_id = int(alert_ids[0])
+    except (TypeError, ValueError):
+        return None
+    alert = next((a for a in seed_alerts if int(a.get("id") or 0) == target_id), None)
+    if alert is None:
+        return None
+    chart_type = decision.get("chart_type") or "none"
+    try:
+        return charts.render_chart_for_alert(chart_type, alert)
+    except Exception as exc:
+        log("chart_render_error", error=f"{type(exc).__name__}: {exc}",
+            chart_type=chart_type, alert_id=target_id)
+        return None
 
 
 def post_tweet(text: str, *, twitter_client, dry_run: bool) -> str:
