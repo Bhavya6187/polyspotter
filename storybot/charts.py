@@ -262,67 +262,83 @@ def render_volume_bar(data: VolumeBarData) -> bytes:
 
 # ----------------------- volume_bar fetcher -----------------------
 
-POLYMARKET_DATA_API = "https://data-api.polymarket.com"
+GAMMA_API = "https://gamma-api.polymarket.com"
 VOLUME_BAR_MIN_TODAY_USD = 1_000
 VOLUME_BAR_MIN_MULTIPLIER = 5.0
 
 
-def _fetch_market_volume_window(condition_id: str, start_ts: int, end_ts: int) -> float:
-    """Sum trade $ on a market between two unix timestamps. Paginated."""
-    total = 0.0
-    cursor = ""
-    page_size = 500
-    while True:
-        params = {
-            "market": condition_id,
-            "startTime": start_ts,
-            "endTime": end_ts,
-            "limit": page_size,
-        }
-        if cursor:
-            params["cursor"] = cursor
-        r = requests.get(f"{POLYMARKET_DATA_API}/trades", params=params, timeout=15)
+def _fetch_gamma_volume24hr(condition_id: str) -> float:
+    """Live Gamma fetch for `volume24hr`. Returns 0.0 on any failure."""
+    if not condition_id:
+        return 0.0
+    try:
+        r = requests.get(
+            f"{GAMMA_API}/markets",
+            params=[("condition_ids", condition_id)],
+            timeout=QUERY_TIMEOUT_SECONDS * 2,
+        )
         r.raise_for_status()
-        body = r.json()
-        rows = body if isinstance(body, list) else body.get("data", [])
-        for row in rows:
-            size = row.get("usdcSize") or row.get("size") or 0
-            try:
-                total += float(size)
-            except (TypeError, ValueError):
-                continue
-        next_cursor = body.get("nextCursor", "") if isinstance(body, dict) else ""
-        if not next_cursor or len(rows) < page_size:
-            break
-        cursor = next_cursor
-    return total
+        markets = r.json()
+        if not markets:
+            return 0.0
+        return float(markets[0].get("volume24hr") or 0)
+    except Exception as exc:
+        print(
+            f"[storybot.charts] _fetch_gamma_volume24hr failed for {condition_id}: "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return 0.0
+
+
+def _fetch_baseline_avg_volume(condition_id: str) -> float | None:
+    """Read average daily volume baseline from local SQLite market_volume_snapshots.
+
+    Returns None if the DB or table is missing, or if there are no snapshots
+    for this market. Cron hosts without polybot.db must not crash."""
+    if not condition_id:
+        return None
+    uri = f"file:{POLYBOT_DB_PATH}?mode=ro"
+    conn = None
+    try:
+        conn = sqlite3.connect(uri, uri=True, timeout=QUERY_TIMEOUT_SECONDS)
+        row = conn.execute(
+            "SELECT AVG(volume_24h), COUNT(*) FROM market_volume_snapshots "
+            "WHERE condition_id = ?",
+            (condition_id,),
+        ).fetchone()
+    except (sqlite3.OperationalError, sqlite3.DatabaseError) as e:
+        print(
+            f"[storybot.charts] _fetch_baseline_avg_volume: SQLite unavailable "
+            f"({type(e).__name__}: {e}); returning None",
+            file=sys.stderr,
+        )
+        return None
+    finally:
+        if conn is not None:
+            conn.close()
+    if not row or row[1] == 0 or row[0] is None:
+        return None
+    return float(row[0])
 
 
 def fetch_volume_bar_data(alert: dict) -> VolumeBarData | None:
     cid = alert.get("condition_id")
     if not cid:
         return None
-
-    now = int(time.time())
-    today_start = now - 86_400
-    week_start = now - 86_400 * 8
-    week_end = now - 86_400
-
-    today = _fetch_market_volume_window(cid, today_start, now)
+    today = _fetch_gamma_volume24hr(cid)
     if today < VOLUME_BAR_MIN_TODAY_USD:
         return None
-    baseline_total = _fetch_market_volume_window(cid, week_start, week_end)
-    baseline_avg = baseline_total / 7.0
-    if baseline_avg <= 0:
+    baseline = _fetch_baseline_avg_volume(cid)
+    if baseline is None or baseline <= 0:
         return None
-    mult = today / baseline_avg
+    mult = today / baseline
     if mult < VOLUME_BAR_MIN_MULTIPLIER:
         return None
-
     return {
         "market_title": alert.get("market_title", ""),
         "today_volume_usd": today,
-        "baseline_avg_usd": baseline_avg,
+        "baseline_avg_usd": baseline,
         "multiplier": mult,
     }
 
@@ -615,6 +631,10 @@ def _yes_token_id(alert: dict) -> str | None:
     """The CLOB price for a market is keyed by the outcome token. Pull the YES token id
     from the alert's stored market metadata (typically alert['tokens'] or
     alert['llm_copy_action']['token_id'])."""
+    # Prefer enriched top-level token_id (set by twitter_simple.enrich_alert_for_charts).
+    direct = alert.get("token_id")
+    if direct:
+        return direct
     copy = alert.get("llm_copy_action") or {}
     if isinstance(copy, str):
         try:

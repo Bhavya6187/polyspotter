@@ -74,3 +74,37 @@ def test_post_tweet_skips_media_when_none():
     )
     assert tweet_id == "777"
     assert captured["media_ids"] is None
+
+
+def test_enrich_alert_attaches_trades_from_postgres():
+    alert = {"id": 42, "condition_id": "0xabc", "llm_copy_action": {"outcome": "Yes"}}
+    fake_trades = [
+        {"wallet": "0xfoo", "outcome": "Yes", "side": "BUY",
+         "usdcSize": 1000.0, "size": 2000.0, "price": 0.5,
+         "timestamp": 1730000000.0, "transaction_hash": "0xabc1"},
+    ]
+    with patch("twitter_simple._fetch_alert_trades", return_value=fake_trades), \
+         patch("twitter_simple._fetch_market_tokens", return_value={"Yes": "tok_yes", "No": "tok_no"}):
+        twitter_simple.enrich_alert_for_charts(alert)
+    assert alert["trades"] == fake_trades
+    assert alert["token_id"] == "tok_yes"
+
+
+def test_enrich_alert_handles_missing_token_for_outcome():
+    """If the LLM-picked outcome doesn't match any token, token_id stays unset."""
+    alert = {"id": 42, "condition_id": "0xabc", "llm_copy_action": {"outcome": "Tie"}}
+    with patch("twitter_simple._fetch_alert_trades", return_value=[]), \
+         patch("twitter_simple._fetch_market_tokens", return_value={"Win": "tok1", "Lose": "tok2"}):
+        twitter_simple.enrich_alert_for_charts(alert)
+    assert alert.get("token_id") is None or alert.get("token_id") == ""
+
+
+def test_prepare_chart_calls_enrich_before_dispatcher():
+    """prepare_chart should enrich the alert before passing to render_chart_for_alert."""
+    decision = {"decision": "post", "alert_ids": [1], "chart_type": "cluster_card"}
+    seed = [{"id": 1, "condition_id": "0xabc", "llm_copy_action": {"outcome": "Yes"}}]
+    with patch("twitter_simple.enrich_alert_for_charts") as enrich_mock, \
+         patch("twitter_simple.charts.render_chart_for_alert", return_value=b"png") as render_mock:
+        twitter_simple.prepare_chart(decision, seed)
+    enrich_mock.assert_called_once_with(seed[0])
+    render_mock.assert_called_once_with("cluster_card", seed[0])

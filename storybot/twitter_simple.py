@@ -20,6 +20,7 @@ import time
 import uuid
 
 import psycopg2
+import requests
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -333,6 +334,7 @@ def prepare_chart(decision: dict, seed_alerts: list[dict]) -> bytes | None:
     alert = next((a for a in seed_alerts if int(a.get("id") or 0) == target_id), None)
     if alert is None:
         return None
+    enrich_alert_for_charts(alert)
     chart_type = decision.get("chart_type") or "none"
     try:
         return charts.render_chart_for_alert(chart_type, alert)
@@ -340,6 +342,108 @@ def prepare_chart(decision: dict, seed_alerts: list[dict]) -> bytes | None:
         log("chart_render_error", error=f"{type(exc).__name__}: {exc}",
             chart_type=chart_type, alert_id=target_id)
         return None
+
+
+def _fetch_alert_trades(alert_id: int) -> list[dict]:
+    """Fetch all trades for a given alert from Postgres alert_trades table.
+
+    Returns dicts shaped to mirror Polymarket Data API conventions
+    (`usdcSize`, `timestamp`) so the chart fetchers can stay consistent
+    with patterns used elsewhere in the codebase."""
+    conn = psycopg2.connect(DATABASE_URL, connect_timeout=QUERY_TIMEOUT_SECONDS)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT wallet, outcome, side, usd_value, size, price,
+                   EXTRACT(EPOCH FROM trade_timestamp) AS ts,
+                   transaction_hash
+            FROM alert_trades WHERE alert_id = %s
+            """,
+            (alert_id,),
+        )
+        rows = cur.fetchall()
+        cur.close()
+    finally:
+        conn.close()
+    out = []
+    for w, oc, sd, usd, sz, pr, ts, txh in rows:
+        out.append({
+            "wallet": w,
+            "outcome": oc,
+            "side": sd,
+            "usdcSize": float(usd) if usd is not None else 0.0,
+            "size": float(sz) if sz is not None else 0.0,
+            "price": float(pr) if pr is not None else 0.0,
+            "timestamp": float(ts) if ts is not None else 0.0,
+            "transaction_hash": txh,
+        })
+    return out
+
+
+def _fetch_market_tokens(condition_id: str) -> dict[str, str]:
+    """Live Gamma fetch: return {outcome_name: token_id}.
+
+    Returns empty dict on any failure — caller treats missing tokens as None."""
+    if not condition_id:
+        return {}
+    try:
+        r = requests.get(
+            "https://gamma-api.polymarket.com/markets",
+            params=[("condition_ids", condition_id)],
+            timeout=QUERY_TIMEOUT_SECONDS * 2,
+        )
+        r.raise_for_status()
+        markets = r.json()
+        if not markets:
+            return {}
+        m = markets[0]
+        outcomes = m.get("outcomes")
+        token_ids = m.get("clobTokenIds")
+        if isinstance(outcomes, str):
+            outcomes = json.loads(outcomes)
+        if isinstance(token_ids, str):
+            token_ids = json.loads(token_ids)
+        if not (isinstance(outcomes, list) and isinstance(token_ids, list)):
+            return {}
+        return {o: t for o, t in zip(outcomes, token_ids) if o and t}
+    except Exception as exc:
+        log("market_tokens_fetch_error",
+            condition_id=condition_id,
+            error=f"{type(exc).__name__}: {exc}")
+        return {}
+
+
+def enrich_alert_for_charts(alert: dict) -> None:
+    """Populate alert['trades'] and alert['token_id'] in-place from Postgres + Gamma.
+
+    The chart fetchers (cluster_card, price_sparkline) read these fields.
+    Failures are silent — the dispatcher's fallback ladder absorbs them."""
+    alert_id = alert.get("id")
+    if alert_id is None:
+        return
+    try:
+        alert["trades"] = _fetch_alert_trades(int(alert_id))
+    except Exception as exc:
+        log("alert_trades_fetch_error",
+            alert_id=alert_id, error=f"{type(exc).__name__}: {exc}")
+        alert["trades"] = []
+
+    cid = alert.get("condition_id")
+    if not cid:
+        return
+    copy = alert.get("llm_copy_action") or {}
+    if isinstance(copy, str):
+        try:
+            copy = json.loads(copy)
+        except json.JSONDecodeError:
+            copy = {}
+    side = copy.get("outcome") or copy.get("side")
+    if not side:
+        return
+    tokens = _fetch_market_tokens(cid)
+    if side in tokens:
+        alert["token_id"] = tokens[side]
 
 
 def post_tweet(
