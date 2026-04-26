@@ -215,3 +215,57 @@ def test_fetch_cluster_card_returns_none_when_sqlite_db_missing(monkeypatch):
     }
     result = charts.fetch_cluster_card_data(alert)
     assert result is None
+
+
+# --------- price_sparkline ---------
+
+def test_price_sparkline_renders_png_at_canvas_size():
+    import time
+    now = time.time()
+    times = [now - 86_400 + i * 3600 for i in range(24)]
+    prices = [0.32 + 0.001 * i + (0.05 if i > 18 else 0) for i in range(24)]
+    data: charts.PriceSparklineData = {
+        "market_title": "Will Trump win 2024?",
+        "outcome_side": "Yes",
+        "times": times,
+        "prices": prices,
+        "trade_times": [now - 7200, now - 3600],
+        "trade_prices": [0.36, 0.41],
+        "trade_sizes_usd": [25_000, 80_000],
+    }
+    png = charts.render_price_sparkline(data)
+    assert _png_dimensions(png) == (charts.CANVAS_W_PX, charts.CANVAS_H_PX)
+
+
+def test_fetch_price_sparkline_returns_none_when_no_token():
+    result = charts.fetch_price_sparkline_data({"trades": []})
+    assert result is None
+
+
+def test_fetch_price_sparkline_returns_none_when_history_empty():
+    alert = {"llm_copy_action": {"token_id": "tok1"}, "trades": []}
+    with patch("charts._fetch_clob_prices_history", return_value=[]):
+        result = charts.fetch_price_sparkline_data(alert)
+    assert result is None
+
+
+def test_fetch_price_sparkline_returns_none_when_price_flat():
+    alert = {"llm_copy_action": {"token_id": "tok1"}, "trades": []}
+    history = [(1000.0 + i, 0.50) for i in range(24)]
+    with patch("charts._fetch_clob_prices_history", return_value=history):
+        result = charts.fetch_price_sparkline_data(alert)
+    assert result is None
+
+
+def test_fetch_price_sparkline_returns_data_when_move_present():
+    alert = {
+        "llm_copy_action": {"token_id": "tok1", "outcome": "Yes"},
+        "market_title": "Will X happen?",
+        "trades": [{"timestamp": 1000.0, "price": 0.45, "usdcSize": 50_000}],
+    }
+    history = [(0.0 + i, 0.30 + 0.001 * i) for i in range(24)]
+    with patch("charts._fetch_clob_prices_history", return_value=history):
+        result = charts.fetch_price_sparkline_data(alert)
+    assert result is not None
+    assert len(result["times"]) == 24
+    assert result["trade_times"] == [1000.0]

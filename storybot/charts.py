@@ -529,3 +529,176 @@ def fetch_cluster_card_data(alert: dict) -> ClusterCardData | None:
         "total_usd": float(alert.get("total_usd", 0)),
         "shared_funder": funder,
     }
+
+
+# ----------------------- price_sparkline -----------------------
+
+class PriceSparklineData(TypedDict):
+    market_title: str
+    outcome_side: str
+    times: Sequence[float]            # unix timestamps, ascending
+    prices: Sequence[float]           # 0..1, same length as times
+    trade_times: Sequence[float]
+    trade_prices: Sequence[float]
+    trade_sizes_usd: Sequence[float]
+
+
+def render_price_sparkline(data: PriceSparklineData) -> bytes:
+    fig, ax = _new_figure()
+    times = list(data["times"])
+    prices = list(data["prices"])
+    if len(times) < 2 or len(times) != len(prices):
+        # Defensive — fetcher should have rejected this case.
+        return _figure_to_png_bytes(fig)
+
+    # Title
+    title = f"{data['market_title']} — {data['outcome_side']}"
+    fig.suptitle(title, color=MUTED, fontsize=18, y=0.95)
+
+    ax.plot(times, prices, color=ACCENT, linewidth=3)
+    # Trade markers
+    if data["trade_times"]:
+        sizes = list(data["trade_sizes_usd"]) or [10_000] * len(data["trade_times"])
+        # Marker size scaled by $: $10k -> 60, $100k -> 200, capped.
+        scaled = [min(60 + s / 800, 240) for s in sizes]
+        ax.scatter(list(data["trade_times"]), list(data["trade_prices"]),
+                   s=scaled, color=FG, edgecolor=ACCENT, linewidth=2, zorder=5)
+
+    # Y-axis: pin to actual price range with small padding
+    pmin, pmax = min(prices), max(prices)
+    pad = max((pmax - pmin) * 0.15, 0.01)
+    ax.set_ylim(max(0, pmin - pad), min(1, pmax + pad))
+
+    # Show only the start/end price labels, no other ticks
+    ax.set_yticks([prices[0], prices[-1]])
+    ax.set_yticklabels(
+        [f"{int(prices[0]*100)}c", f"{int(prices[-1]*100)}c"],
+        color=FG, fontsize=14,
+    )
+    ax.set_xticks([times[0], times[-1]])
+    ax.set_xticklabels(
+        ["24h ago", "now"], color=MUTED, fontsize=12,
+    )
+
+    return _figure_to_png_bytes(fig)
+
+
+# ----------------------- price_sparkline fetcher -----------------------
+
+CLOB_API = "https://clob.polymarket.com"
+SPARKLINE_MIN_POINTS = 2
+SPARKLINE_MIN_MOVE = 0.01  # 1 cent
+
+
+def _fetch_clob_prices_history(token_id: str, hours: int = 24) -> list[tuple[float, float]]:
+    """Return [(unix_ts, price), ...] for the last `hours` hours from CLOB."""
+    end_ts = int(time.time())
+    start_ts = end_ts - hours * 3600
+    params = {"market": token_id, "startTs": start_ts, "endTs": end_ts, "fidelity": 60}
+    r = requests.get(f"{CLOB_API}/prices-history", params=params, timeout=15)
+    r.raise_for_status()
+    body = r.json()
+    points = body.get("history") if isinstance(body, dict) else body
+    if not isinstance(points, list):
+        return []
+    out: list[tuple[float, float]] = []
+    for p in points:
+        try:
+            out.append((float(p["t"]), float(p["p"])))
+        except (KeyError, TypeError, ValueError):
+            continue
+    out.sort(key=lambda kv: kv[0])
+    return out
+
+
+def _yes_token_id(alert: dict) -> str | None:
+    """The CLOB price for a market is keyed by the outcome token. Pull the YES token id
+    from the alert's stored market metadata (typically alert['tokens'] or
+    alert['llm_copy_action']['token_id'])."""
+    copy = alert.get("llm_copy_action") or {}
+    if isinstance(copy, str):
+        try:
+            copy = json.loads(copy)
+        except json.JSONDecodeError:
+            copy = {}
+    if copy.get("token_id"):
+        return copy["token_id"]
+    tokens = alert.get("tokens")
+    if isinstance(tokens, str):
+        try:
+            tokens = json.loads(tokens)
+        except json.JSONDecodeError:
+            tokens = None
+    if isinstance(tokens, list) and tokens:
+        # Prefer the token matching the outcome side; otherwise first.
+        side = (copy.get("outcome") or copy.get("side") or "").lower()
+        for t in tokens:
+            if isinstance(t, dict) and (t.get("outcome") or "").lower() == side:
+                return t.get("token_id") or t.get("id")
+        first = tokens[0]
+        if isinstance(first, dict):
+            return first.get("token_id") or first.get("id")
+    return None
+
+
+def fetch_price_sparkline_data(alert: dict) -> PriceSparklineData | None:
+    token_id = _yes_token_id(alert)
+    if not token_id:
+        return None
+    try:
+        history = _fetch_clob_prices_history(token_id, hours=24)
+    except requests.RequestException:
+        return None
+    if len(history) < SPARKLINE_MIN_POINTS:
+        return None
+    prices = [p for _, p in history]
+    if max(prices) - min(prices) < SPARKLINE_MIN_MOVE:
+        return None  # nothing visually interesting
+
+    times = [t for t, _ in history]
+
+    trades = alert.get("trades")
+    if isinstance(trades, str):
+        try:
+            trades = json.loads(trades)
+        except json.JSONDecodeError:
+            trades = []
+    if not isinstance(trades, list):
+        trades = []
+
+    window_start = times[0]
+    trade_times: list[float] = []
+    trade_prices: list[float] = []
+    trade_sizes: list[float] = []
+    for t in trades:
+        ts = t.get("timestamp") or t.get("ts") or 0
+        try:
+            ts_f = float(ts)
+        except (TypeError, ValueError):
+            continue
+        if ts_f < window_start:
+            continue
+        try:
+            tp = float(t.get("price", 0))
+            tsize = float(t.get("usdcSize") or t.get("size") or 0)
+        except (TypeError, ValueError):
+            continue
+        trade_times.append(ts_f)
+        trade_prices.append(tp)
+        trade_sizes.append(tsize)
+
+    copy = alert.get("llm_copy_action") or {}
+    if isinstance(copy, str):
+        try:
+            copy = json.loads(copy)
+        except json.JSONDecodeError:
+            copy = {}
+    return {
+        "market_title": alert.get("market_title", ""),
+        "outcome_side": copy.get("outcome") or copy.get("side") or "",
+        "times": times,
+        "prices": prices,
+        "trade_times": trade_times,
+        "trade_prices": trade_prices,
+        "trade_sizes_usd": trade_sizes,
+    }
