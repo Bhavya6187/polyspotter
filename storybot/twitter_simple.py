@@ -34,6 +34,7 @@ from storybot import (
     _BANNED_TWEET_PHRASES,
     _POLYSPOTTER_URL_RE,
     _accumulate_usage,
+    _build_twitter_api_v1,
     _build_twitter_client,
     _compact_alert_for_picker,
     _tweet_length,
@@ -446,9 +447,31 @@ def main() -> int:
     tweet = _strip_polyspotter_url(decision["tweet"])
     alert_ids = [int(i) for i in decision["alert_ids"]]
 
+    chart_png = prepare_chart(decision, seed_alerts)
+    log("chart_selected", run_id=run_id,
+        chart_type=decision.get("chart_type"),
+        rendered=chart_png is not None,
+        bytes_len=(len(chart_png) if chart_png else 0))
+
+    if DRY_RUN and chart_png is not None:
+        out_path = f"storybot/dry_runs/twitter_simple_{run_id}.png"
+        try:
+            with open(out_path, "wb") as f:
+                f.write(chart_png)
+            log("chart_saved_dryrun", run_id=run_id, path=out_path)
+        except OSError as exc:
+            log("chart_save_error", run_id=run_id, error=str(exc))
+
     try:
         twitter_client = _build_twitter_client()
-        tweet_id = post_tweet(tweet, twitter_client=twitter_client, dry_run=DRY_RUN)
+        twitter_api_v1 = _build_twitter_api_v1() if chart_png is not None else None
+        tweet_id = post_tweet(
+            tweet,
+            twitter_client=twitter_client,
+            twitter_api_v1=twitter_api_v1,
+            media_png=chart_png,
+            dry_run=DRY_RUN,
+        )
     except Exception as exc:
         log("post_error", run_id=run_id, error=f"{type(exc).__name__}: {exc}")
         return 1
