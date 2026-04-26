@@ -304,6 +304,14 @@ def validate_decision(decision: dict) -> tuple[bool, str]:
         [int(i) for i in ids]
     except (TypeError, ValueError):
         return False, f"alert_ids must be integers, got {ids!r}"
+    # chart_type validation (post-only)
+    chart_type = decision.get("chart_type", "none")
+    if chart_type is None:
+        chart_type = "none"
+    valid_chart_types = {"price_sparkline", "volume_bar", "wallet_record_card",
+                         "cluster_card", "none"}
+    if chart_type not in valid_chart_types:
+        return False, f"unknown chart_type: {chart_type!r}"
     return True, ""
 
 
