@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import time
 from datetime import datetime, timezone
 from io import BytesIO
@@ -322,4 +323,197 @@ def fetch_volume_bar_data(alert: dict) -> VolumeBarData | None:
         "today_volume_usd": today,
         "baseline_avg_usd": baseline_avg,
         "multiplier": mult,
+    }
+
+
+# ----------------------- cluster_card -----------------------
+
+class ClusterCardData(TypedDict):
+    market_title: str
+    outcome_side: str
+    wallet_sizes: list[tuple[str, float]]   # (pseudonym, $)
+    total_usd: float
+    shared_funder: str | None
+
+
+# Pseudonym helper.
+#
+# This is a byte-for-byte port of frontend/src/lib/pseudonym.js so the
+# Twitter cards show the same wallet name a reader would see on the
+# corresponding polyspotter.com page. The JS reference:
+#
+#   export function walletPseudonym(address, tier) {
+#     if (!address) return "Unknown";
+#     const prefix = tier?.prefix || "Wallet";
+#     const short = address.startsWith("0x")
+#       ? address.slice(2, 7) : address.slice(0, 5);
+#     return `${prefix}_0x${short}`;
+#   }
+#
+# Tier prefixes (from frontend/src/lib/tiers.js): "Whale", "Sharp",
+# "Trader", "Wallet". The bot may not have tier info handy, so the
+# default ("Wallet") is the safe choice — it matches what the JS
+# returns when no tier is computed.
+def wallet_pseudonym(wallet: str | None, tier: dict | None = None) -> str:
+    """Stable pseudonym for a wallet address. Mirrors frontend/src/lib/pseudonym.js."""
+    if not wallet:
+        return "Unknown"
+    prefix = (tier or {}).get("prefix") or "Wallet"
+    short = wallet[2:7] if wallet.startswith("0x") else wallet[:5]
+    return f"{prefix}_0x{short}"
+
+
+def render_cluster_card(data: ClusterCardData) -> bytes:
+    fig, ax = _new_figure()
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    # Title
+    ax.text(0.5, 0.93, data["market_title"], color=MUTED, fontsize=18,
+            ha="center", va="top", wrap=True)
+
+    # Bars: one per wallet, sized proportionally
+    wallets = data["wallet_sizes"][:8]  # cap at 8 to keep readable
+    if not wallets:
+        # Defensive: shouldn't happen because the fetcher rejects 0-wallet clusters.
+        return _figure_to_png_bytes(fig)
+    max_size = max(w[1] for w in wallets) or 1.0
+    bar_top = 0.78
+    bar_h = 0.06
+    spacing = 0.02
+    for i, (name, size_usd) in enumerate(wallets):
+        y = bar_top - i * (bar_h + spacing)
+        w = 0.6 * (size_usd / max_size)
+        ax.add_patch(plt.Rectangle((0.1, y), w, bar_h, color=ACCENT,
+                                   transform=ax.transAxes))
+        ax.text(0.09, y + bar_h / 2, name, color=FG, fontsize=14,
+                ha="right", va="center")
+        ax.text(0.1 + w + 0.01, y + bar_h / 2, _format_usd(size_usd),
+                color=FG, fontsize=14, ha="left", va="center")
+
+    # Total + shared funder
+    total_str = f"{_format_usd(data['total_usd'])} on {data['outcome_side']}"
+    ax.text(0.5, 0.16, total_str, color=ACCENT, fontsize=28, ha="center", va="center",
+            fontweight="bold")
+    if data["shared_funder"]:
+        funder = data["shared_funder"]
+        funder_disp = funder[:6] + "…" + funder[-4:] if len(funder) > 12 else funder
+        ax.text(0.5, 0.08, f"Shared funder: {funder_disp}", color=MUTED, fontsize=14,
+                ha="center", va="center")
+
+    return _figure_to_png_bytes(fig)
+
+
+# ----------------------- cluster_card fetcher -----------------------
+
+CLUSTER_CARD_MIN_WALLETS = 2
+
+# wallet_funders lives in the local SQLite (polybot.db), not in Postgres
+# — see db.py and storybot/storybot.py:580. The bot is expected to run
+# from the repo root, where polybot.db sits. The path is overridable
+# via the POLYBOT_DB_PATH env var (helpful in tests).
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+POLYBOT_DB_PATH = os.environ.get(
+    "POLYBOT_DB_PATH", os.path.join(_REPO_ROOT, "polybot.db")
+)
+
+
+def _wallets_in_alert(alert: dict) -> list[tuple[str, float]]:
+    """Return [(wallet_address, $size), ...] from the alert's trades JSON, summed per wallet."""
+    trades = alert.get("trades")
+    if isinstance(trades, str):
+        try:
+            trades = json.loads(trades)
+        except json.JSONDecodeError:
+            trades = []
+    if not isinstance(trades, list):
+        return []
+    sums: dict[str, float] = {}
+    for t in trades:
+        if not isinstance(t, dict):
+            continue
+        w = t.get("proxyWallet") or t.get("wallet")
+        if not w:
+            continue
+        try:
+            size = float(t.get("usdcSize") or t.get("size") or 0)
+        except (TypeError, ValueError):
+            size = 0.0
+        sums[w] = sums.get(w, 0.0) + size
+    return sorted(sums.items(), key=lambda kv: kv[1], reverse=True)
+
+
+def _shared_funder_for_wallets(wallets: list[str]) -> str | None:
+    """Look up the most common shared funder across the given wallets in wallet_funders.
+
+    Reads the local SQLite cache (polybot.db). Stored wallets/funders are
+    lowercased (see db.py:save_funder), so we lowercase inputs to match.
+    Returns the funder address only when at least 2 of the input wallets
+    share it (otherwise there's no real "cluster" story).
+    """
+    if len(wallets) < 2:
+        return None
+    lower_wallets = [w.lower() for w in wallets]
+    placeholders = ",".join("?" * len(lower_wallets))
+    uri = f"file:{POLYBOT_DB_PATH}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True, timeout=QUERY_TIMEOUT_SECONDS)
+    try:
+        cur = conn.execute(
+            f"""
+            SELECT funder, COUNT(*) AS n
+            FROM wallet_funders
+            WHERE wallet IN ({placeholders}) AND funder IS NOT NULL
+            GROUP BY funder
+            ORDER BY n DESC
+            LIMIT 1
+            """,
+            lower_wallets,
+        )
+        row = cur.fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    funder, n = row
+    return funder if n >= 2 else None
+
+
+def fetch_cluster_card_data(alert: dict) -> ClusterCardData | None:
+    """Build ClusterCardData from an alert dict.
+
+    alert dict fields used:
+        trades          — list of trade dicts (or JSON string)
+        market_title    — market question string
+        total_usd       — total $ across all trades in the cluster
+        llm_copy_action — JSON string (or dict) with outcome/side fields
+
+    Returns None when the alert has fewer than CLUSTER_CARD_MIN_WALLETS
+    distinct wallets, or when no shared funder is found in wallet_funders.
+    """
+    wallet_sizes_raw = _wallets_in_alert(alert)
+    if len(wallet_sizes_raw) < CLUSTER_CARD_MIN_WALLETS:
+        return None
+    addresses = [w for w, _ in wallet_sizes_raw]
+    funder = _shared_funder_for_wallets(addresses)
+    if not funder:
+        return None  # no shared funder = no real "cluster" story
+
+    wallet_sizes = [(wallet_pseudonym(w), s) for w, s in wallet_sizes_raw]
+
+    copy = alert.get("llm_copy_action") or {}
+    if isinstance(copy, str):
+        try:
+            copy = json.loads(copy)
+        except (json.JSONDecodeError, ValueError):
+            copy = {}
+    outcome_side = copy.get("outcome") or copy.get("side") or ""
+
+    return {
+        "market_title": alert.get("market_title", ""),
+        "outcome_side": outcome_side,
+        "wallet_sizes": wallet_sizes,
+        "total_usd": float(alert.get("total_usd", 0)),
+        "shared_funder": funder,
     }

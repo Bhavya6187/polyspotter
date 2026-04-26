@@ -127,3 +127,77 @@ def test_fetch_volume_bar_returns_data_for_real_spike():
         })
     assert result is not None
     assert result["multiplier"] > 800
+
+
+# --------- cluster_card ---------
+
+def test_cluster_card_renders_png_at_canvas_size():
+    data: charts.ClusterCardData = {
+        "market_title": "Arsenal vs Newcastle — Arsenal wins",
+        "outcome_side": "Arsenal",
+        "wallet_sizes": [
+            ("Wallet_0xabcde", 180_000),
+            ("Sharp_0x12345", 120_000),
+            ("Trader_0x99887", 50_000),
+            ("Whale_0xdeadb", 30_000),
+            ("Wallet_0xfeedf", 14_000),
+        ],
+        "total_usd": 394_000,
+        "shared_funder": "0xabc1234567890",
+    }
+    png = charts.render_cluster_card(data)
+    assert _png_dimensions(png) == (charts.CANVAS_W_PX, charts.CANVAS_H_PX)
+
+
+def test_wallet_pseudonym_format():
+    # Mirrors frontend/src/lib/pseudonym.js:
+    #   prefix = tier?.prefix || "Wallet"
+    #   short  = address.startsWith("0x") ? address.slice(2, 7) : address.slice(0, 5)
+    #   return `${prefix}_0x${short}`
+    assert charts.wallet_pseudonym("0xabcdef1234567890") == "Wallet_0xabcde"
+    # With explicit tier prefix
+    assert charts.wallet_pseudonym("0xabcdef1234567890", {"prefix": "Sharp"}) == "Sharp_0xabcde"
+    # No 0x prefix — uses first 5 chars
+    assert charts.wallet_pseudonym("deadbeef1234") == "Wallet_0xdeadb"
+    # Empty input
+    assert charts.wallet_pseudonym("") == "Unknown"
+    assert charts.wallet_pseudonym(None) == "Unknown"
+
+
+def test_fetch_cluster_card_returns_none_for_single_wallet():
+    alert = {"trades": [{"proxyWallet": "0xabc", "usdcSize": 1000}]}
+    result = charts.fetch_cluster_card_data(alert)
+    assert result is None
+
+
+def test_fetch_cluster_card_returns_none_when_no_shared_funder():
+    alert = {
+        "trades": [
+            {"proxyWallet": "0xabc", "usdcSize": 1000},
+            {"proxyWallet": "0xdef", "usdcSize": 2000},
+        ],
+    }
+    with patch("charts._shared_funder_for_wallets", return_value=None):
+        result = charts.fetch_cluster_card_data(alert)
+    assert result is None
+
+
+def test_fetch_cluster_card_returns_data_when_shared_funder_present():
+    alert = {
+        "market_title": "Arsenal vs Newcastle — Arsenal wins",
+        "total_usd": 3000,
+        "llm_copy_action": {"outcome": "Arsenal"},
+        "trades": [
+            {"proxyWallet": "0xabcdef1234567890", "usdcSize": 1000},
+            {"proxyWallet": "0xdeadbeef99887766", "usdcSize": 2000},
+        ],
+    }
+    with patch("charts._shared_funder_for_wallets", return_value="0xfunder"):
+        result = charts.fetch_cluster_card_data(alert)
+    assert result is not None
+    assert len(result["wallet_sizes"]) == 2
+    assert result["shared_funder"] == "0xfunder"
+    assert result["outcome_side"] == "Arsenal"
+    # Pseudonyms applied — names should not equal raw addresses
+    for name, _ in result["wallet_sizes"]:
+        assert name.startswith("Wallet_0x")
