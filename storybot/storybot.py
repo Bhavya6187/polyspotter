@@ -2,14 +2,15 @@
 Hourly "story" bot for PolySpotter.
 
 Fetches the last 3 hours of alerts from Railway Postgres, researches them using
-four tools (SQLite / Postgres / Gamma API / CLOB API), and writes an engaging
-3-5 tweet thread — not an alert recap but a short, specific story about what
-a sharp bettor is doing and why it matters.
+five tools (SQLite / Postgres / Gamma API / Data API / CLOB API), and writes an
+engaging 3-5 tweet thread — not an alert recap but a short, specific story about
+what a sharp bettor is doing and why it matters.
 
-Four agent tools:
+Five agent tools:
     - query_sqlite(sql)             — read-only SELECT against polybot.db
     - query_postgres(sql)           — read-only SELECT against Railway Postgres
-    - call_gamma(path, params)      — GET against gamma-api.polymarket.com
+    - call_gamma(path, params)      — GET against gamma-api.polymarket.com (markets, events)
+    - call_data_api(path, params)   — GET against data-api.polymarket.com (trades)
     - call_clob(path, params)       — GET against clob.polymarket.com (price history + book)
 
 Run via cron (once per hour):
@@ -64,13 +65,16 @@ RESPONSE_CAP_BYTES = 12288   # 12 KB per tool response
 MAX_TOOL_CALLS = 22
 MAX_ITERATIONS = 20
 
-GAMMA_PATH_ALLOWLIST = ("/markets", "/events", "/trades")
+GAMMA_PATH_ALLOWLIST = ("/markets", "/events")
+
+DATA_API_BASE_URL = "https://data-api.polymarket.com"
+DATA_API_PATH_ALLOWLIST = ("/trades",)
 
 CLOB_BASE_URL = "https://clob.polymarket.com"
 CLOB_PATH_ALLOWLIST = ("/prices-history", "/book")
 
 
-# --- Gamma / CLOB tools ------------------------------------------------------
+# --- Gamma / Data API / CLOB tools ------------------------------------------
 
 _MARKET_FIELDS_KEEP = (
     "id", "conditionId", "slug", "question",
@@ -123,7 +127,7 @@ def _slim_gamma_response(path: str, data: Any) -> Any:
     """Strip verbose fields (descriptions, series, clobRewards, eventMetadata
     prose, etc.) from Gamma /markets and /events responses. Keeps the
     tradeable fields the storybot actually uses."""
-    if "/tags" in path or path.startswith("/trades"):
+    if "/tags" in path:
         return data
     if path.startswith("/markets"):
         if isinstance(data, list):
@@ -182,7 +186,7 @@ def _summarize_prices_history(data: Any) -> Any:
 
 
 def call_gamma(path: str, params: dict | None = None) -> Any:
-    """Generic GET to gamma-api.polymarket.com. Allowlist: /markets, /events, /trades."""
+    """Generic GET to gamma-api.polymarket.com. Allowlist: /markets, /events."""
     if not path.startswith("/") or ".." in path or "//" in path:
         raise ValueError("path not allowed")
     if not any(path == p or path.startswith(p + "/") or path.startswith(p + "?")
@@ -192,6 +196,18 @@ def call_gamma(path: str, params: dict | None = None) -> Any:
                         timeout=QUERY_TIMEOUT_SECONDS)
     resp.raise_for_status()
     return _slim_gamma_response(path, resp.json())
+
+
+def call_data_api(path: str, params: dict | None = None) -> Any:
+    """Generic GET to data-api.polymarket.com. Allowlist: /trades."""
+    if not path.startswith("/") or ".." in path or "//" in path:
+        raise ValueError("path not allowed")
+    if not any(path == p or path.startswith(p + "?") for p in DATA_API_PATH_ALLOWLIST):
+        raise ValueError(f"path must be one of {DATA_API_PATH_ALLOWLIST}")
+    resp = requests.get(f"{DATA_API_BASE_URL}{path}", params=params or None,
+                        timeout=QUERY_TIMEOUT_SECONDS)
+    resp.raise_for_status()
+    return resp.json()
 
 
 def call_clob(path: str, params: dict | None = None) -> Any:
@@ -238,6 +254,7 @@ _BACKENDS = {
     "sqlite": query_sqlite,
     "postgres": query_postgres,
     "gamma": call_gamma,
+    "data_api": call_data_api,
     "clob": call_clob,
 }
 
@@ -495,7 +512,7 @@ thread that tells the whole story.
      - wallet_profiles / wallet_pnl  → track record, edge, streaks, avg buy price
      - wallet_funders                → part of a shared-funder cluster?
      - wallet_event_history          → broader thesis across markets?
-     - Gamma /trades?user=<wallet>   → their recent activity across Polymarket
+     - Data API /trades?user=<wallet> → their recent activity across Polymarket
 
    The tag / event context:
      - Gamma /events?slug=<event>    → sibling markets, event metadata
@@ -560,7 +577,8 @@ call, and runs it. The result is then compressed before reaching you.
 Available data sources (reference only — you don't write SQL yourself):
 - scanner SQLite (polybot.db) — wallet P&L, clusters, funders, event history, sparklines
 - Railway Postgres            — alerts, alert_trades, alert_signals, wallet_profiles, wallet_theses, tweeted_alerts, price_candles
-- Gamma API                   — /markets, /events, /trades
+- Gamma API                   — /markets, /events
+- Data API                    — /trades (recent trades by wallet or by market)
 - CLOB API                    — /prices-history (canonical price series), /book
 
 Compressor behavior:

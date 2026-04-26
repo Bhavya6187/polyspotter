@@ -7,7 +7,7 @@ the result before it reaches the orchestrator.
 
 Pipeline
     1. build    — GPT turns `intent` into {backend, query}.
-    2. execute  — dispatches to the existing backend (sqlite / postgres / gamma / clob).
+    2. execute  — dispatches to the existing backend (sqlite / postgres / gamma / data_api / clob).
     3. route    — GPT picks a compression method (passthrough / python / llm).
     4. compress — runs the chosen method.
 
@@ -284,7 +284,7 @@ Market price/volume/orderbook state:
     bid_depth, ask_depth, mid_price, snapshot_at
 
 ## Gamma API (https://gamma-api.polymarket.com)
-Useful paths (all GET; allowlist = /markets, /events, /trades):
+Useful paths (all GET; allowlist = /markets, /events):
   /markets?condition_ids=...             market(s) by conditionId (comma-sep for many)
   /markets?slug=...                      market by slug
   /markets?tag_id=...&active=true        filter by tag + state (active/closed/archived)
@@ -297,8 +297,13 @@ Useful paths (all GET; allowlist = /markets, /events, /trades):
   /events/{id}                           single event by id
   /events/slug/{slug}                    single event by slug
   /events/{id}/tags                      tags on an event
-  /trades?market=...&limit=...           recent trades on a market (by conditionId)
-  /trades?user=...&limit=...             recent trades by a wallet
+
+## Data API (https://data-api.polymarket.com)
+Trade data lives here, NOT on Gamma. Allowlist = /trades.
+  /trades?market=<conditionId>&limit=...  recent trades on a market
+  /trades?user=<wallet>&limit=...         recent trades by a wallet
+Response: list of trade objects with fields like proxyWallet, side, outcome,
+size, price, timestamp, conditionId, asset (token_id), title, slug, eventSlug.
 
 Common query params:
   limit, offset                 pagination (default limit ~100, cap 500)
@@ -353,7 +358,9 @@ four backends. A downstream executor runs what you emit.
 ## Backends
 - "sqlite"   → scanner's local polybot.db. Read-only SELECT/WITH only.
 - "postgres" → Railway Postgres. Read-only SELECT/WITH only.
-- "gamma"    → https://gamma-api.polymarket.com (allowlist: /markets, /events, /trades).
+- "gamma"    → https://gamma-api.polymarket.com (allowlist: /markets, /events).
+- "data_api" → https://data-api.polymarket.com (allowlist: /trades). Use this for
+               recent trades by wallet or by market — Gamma does NOT serve trades.
 - "clob"     → https://clob.polymarket.com (allowlist: /prices-history, /book).
 
 ## SQL dialect notes
@@ -371,7 +378,7 @@ hard filters on every query that touches a matching column / endpoint:
 - `scope.condition_ids`  → WHERE condition_id = ANY(...) similarly.
                            Gamma: /markets?condition_ids=<comma-sep>.
 - `scope.wallets`        → WHERE wallet = ANY(...) on tables with a wallet column.
-                           Gamma: /trades?user=… (one wallet at a time).
+                           Data API: /trades?user=… (one wallet at a time).
 - `scope.alert_ids`      → WHERE id = ANY(...) on alerts; WHERE alert_id = ANY(...)
                            on alert_trades / alert_signals.
 
@@ -385,12 +392,12 @@ overrides — keep the rest.
 Return exactly one JSON object and nothing else:
 
 {{
-  "backend": "sqlite" | "postgres" | "gamma" | "clob",
+  "backend": "sqlite" | "postgres" | "gamma" | "data_api" | "clob",
   "query": <backend-specific>
 }}
 
-For sqlite/postgres: query = {{"sql": "SELECT ..."}}
-For gamma/clob:      query = {{"path": "/markets", "params": {{...}} | null}}
+For sqlite/postgres:        query = {{"sql": "SELECT ..."}}
+For gamma/data_api/clob:    query = {{"path": "/markets", "params": {{...}} | null}}
 
 If the intent names a specific wallet / condition_id / event_slug / token_id /
 alert_id, use it verbatim. Default to `LIMIT 200` on list queries. Pick the
@@ -454,7 +461,7 @@ def build_query(llm_client, *, intent: str, hint: str | None, model: str,
              error=f"invalid JSON: {exc}", ms=ms, **delta)
         raise
 
-    valid = (plan.get("backend") in ("sqlite", "postgres", "gamma", "clob")
+    valid = (plan.get("backend") in ("sqlite", "postgres", "gamma", "data_api", "clob")
              and isinstance(plan.get("query"), dict))
     _log("compressor_build",
          ok=valid,
@@ -462,7 +469,7 @@ def build_query(llm_client, *, intent: str, hint: str | None, model: str,
          repair=prior_error is not None,
          ms=ms,
          **delta)
-    if plan.get("backend") not in ("sqlite", "postgres", "gamma", "clob"):
+    if plan.get("backend") not in ("sqlite", "postgres", "gamma", "data_api", "clob"):
         raise ValueError(f"builder returned invalid backend: {plan.get('backend')!r}")
     if not isinstance(plan.get("query"), dict):
         raise ValueError(f"builder returned invalid query: {plan.get('query')!r}")
@@ -477,7 +484,7 @@ def execute_query(plan: dict, backends: dict[str, Callable]) -> Any:
     fn = backends[backend]
     if backend in ("sqlite", "postgres"):
         return fn(q["sql"])
-    if backend in ("gamma", "clob"):
+    if backend in ("gamma", "data_api", "clob"):
         return fn(q["path"], q.get("params"))
     raise ValueError(f"unknown backend: {backend!r}")
 
