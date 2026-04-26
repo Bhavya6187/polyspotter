@@ -702,3 +702,44 @@ def fetch_price_sparkline_data(alert: dict) -> PriceSparklineData | None:
         "trade_prices": trade_prices,
         "trade_sizes_usd": trade_sizes,
     }
+
+
+# ----------------------- Dispatcher -----------------------
+
+_CHART_REGISTRY: dict[str, tuple] = {
+    "wallet_record_card": (fetch_wallet_record_card_data, render_wallet_record_card),
+    "volume_bar":         (fetch_volume_bar_data,         render_volume_bar),
+    "cluster_card":       (fetch_cluster_card_data,       render_cluster_card),
+    "price_sparkline":    (fetch_price_sparkline_data,    render_price_sparkline),
+}
+
+
+def _try_render(chart_type: str, alert: dict) -> bytes | None:
+    """Try the chart for `chart_type`. Returns bytes or None. Never raises."""
+    pair = _CHART_REGISTRY.get(chart_type)
+    if not pair:
+        return None
+    fetcher, renderer = pair
+    try:
+        data = fetcher(alert)
+    except Exception:
+        return None
+    if data is None:
+        return None
+    try:
+        return renderer(data)
+    except Exception:
+        return None
+
+
+def render_chart_for_alert(chart_type: str, alert: dict) -> bytes | None:
+    """Try the requested chart. If it fails, fall back to wallet_record_card.
+    Returns PNG bytes or None. Never raises."""
+    if chart_type in ("none", "", None):
+        return None
+    primary = _try_render(chart_type, alert)
+    if primary is not None:
+        return primary
+    if chart_type == "wallet_record_card":
+        return None  # already tried; no further fallback
+    return _try_render("wallet_record_card", alert)
