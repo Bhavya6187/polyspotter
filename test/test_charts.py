@@ -104,29 +104,49 @@ def test_volume_bar_renders_png_at_canvas_size():
     assert _png_dimensions(png) == (charts.CANVAS_W_PX, charts.CANVAS_H_PX)
 
 
-def test_fetch_volume_bar_returns_none_when_today_too_small():
-    with patch("charts._fetch_market_volume_window", return_value=500.0):
+def test_fetch_volume_bar_returns_none_when_no_condition_id():
+    result = charts.fetch_volume_bar_data({})
+    assert result is None
+
+
+def test_fetch_volume_bar_returns_none_when_no_today_volume():
+    with patch("charts._fetch_gamma_volume24hr", return_value=0.0):
+        result = charts.fetch_volume_bar_data({"condition_id": "0xabc"})
+    assert result is None
+
+
+def test_fetch_volume_bar_returns_none_when_no_baseline():
+    with patch("charts._fetch_gamma_volume24hr", return_value=50_000.0), \
+         patch("charts._fetch_baseline_avg_volume", return_value=None):
         result = charts.fetch_volume_bar_data({"condition_id": "0xabc"})
     assert result is None
 
 
 def test_fetch_volume_bar_returns_none_when_multiplier_below_threshold():
-    # 10000 / (14300 / 7) = 10000 / ~2042.86 = ~4.9x, below 5.0 threshold
-    calls = iter([10_000.0, 14_300.0])
-    with patch("charts._fetch_market_volume_window", side_effect=lambda *a, **k: next(calls)):
+    with patch("charts._fetch_gamma_volume24hr", return_value=10_000.0), \
+         patch("charts._fetch_baseline_avg_volume", return_value=2_500.0):  # 4x — below 5x
         result = charts.fetch_volume_bar_data({"condition_id": "0xabc"})
     assert result is None
 
 
 def test_fetch_volume_bar_returns_data_for_real_spike():
-    calls = iter([906_000.0, 7_000.0])  # today, baseline_total
-    with patch("charts._fetch_market_volume_window", side_effect=lambda *a, **k: next(calls)):
+    with patch("charts._fetch_gamma_volume24hr", return_value=906_000.0), \
+         patch("charts._fetch_baseline_avg_volume", return_value=1_000.0):
         result = charts.fetch_volume_bar_data({
             "condition_id": "0xabc",
             "market_title": "Arsenal vs Newcastle",
         })
     assert result is not None
     assert result["multiplier"] > 800
+    assert result["today_volume_usd"] == 906_000.0
+    assert result["baseline_avg_usd"] == 1_000.0
+
+
+def test_fetch_baseline_avg_volume_returns_none_when_sqlite_db_missing(monkeypatch):
+    """Production cron may not have polybot.db on disk — fetcher must not crash."""
+    monkeypatch.setattr(charts, "POLYBOT_DB_PATH", "/tmp/definitely-missing-vol.db")
+    result = charts._fetch_baseline_avg_volume("0xabc")
+    assert result is None
 
 
 # --------- cluster_card ---------
