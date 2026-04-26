@@ -1,0 +1,110 @@
+"""Tests for prepare_chart in twitter_simple.py."""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "storybot"))
+import twitter_simple  # noqa: E402
+
+
+def test_prepare_chart_returns_none_for_skip_decision():
+    decision = {"decision": "skip", "alert_ids": [], "chart_type": "none"}
+    result = twitter_simple.prepare_chart(decision, [])
+    assert result is None
+
+
+def test_prepare_chart_returns_none_when_alert_id_not_in_seed():
+    decision = {"decision": "post", "alert_ids": [99], "chart_type": "wallet_record_card"}
+    seed = [{"id": 1, "wallet": "0xabc"}]
+    result = twitter_simple.prepare_chart(decision, seed)
+    assert result is None
+
+
+def test_prepare_chart_calls_dispatcher_with_correct_alert():
+    decision = {"decision": "post", "alert_ids": [1], "chart_type": "wallet_record_card"}
+    seed = [{"id": 1, "wallet": "0xabc"}, {"id": 2, "wallet": "0xdef"}]
+    with patch("twitter_simple.charts.render_chart_for_alert", return_value=b"fakepng") as m:
+        result = twitter_simple.prepare_chart(decision, seed)
+    assert result == b"fakepng"
+    m.assert_called_once_with("wallet_record_card", seed[0])
+
+
+def test_prepare_chart_swallows_exceptions():
+    decision = {"decision": "post", "alert_ids": [1], "chart_type": "wallet_record_card"}
+    seed = [{"id": 1, "wallet": "0xabc"}]
+    with patch("twitter_simple.charts.render_chart_for_alert",
+               side_effect=RuntimeError("boom")):
+        result = twitter_simple.prepare_chart(decision, seed)
+    assert result is None
+
+
+def test_post_tweet_uploads_media_when_provided():
+    fake_v1 = type("FakeAPI", (), {})()
+    fake_v1.media_upload = lambda filename, file: type("M", (), {"media_id": 1234567})()
+    fake_v2 = type("FakeClient", (), {})()
+    captured = {}
+    def create_tweet(text, media_ids=None):
+        captured["text"] = text
+        captured["media_ids"] = media_ids
+        return type("R", (), {"data": {"id": "555"}})()
+    fake_v2.create_tweet = create_tweet
+
+    tweet_id = twitter_simple.post_tweet(
+        "Hello", twitter_client=fake_v2, twitter_api_v1=fake_v1,
+        media_png=b"\x89PNG\x00fakepng", dry_run=False,
+    )
+    assert tweet_id == "555"
+    assert captured["media_ids"] == [1234567]
+    assert captured["text"] == "Hello"
+
+
+def test_post_tweet_skips_media_when_none():
+    fake_v2 = type("FakeClient", (), {})()
+    captured = {}
+    def create_tweet(text, media_ids=None):
+        captured["media_ids"] = media_ids
+        return type("R", (), {"data": {"id": "777"}})()
+    fake_v2.create_tweet = create_tweet
+
+    tweet_id = twitter_simple.post_tweet(
+        "Hello", twitter_client=fake_v2, twitter_api_v1=None,
+        media_png=None, dry_run=False,
+    )
+    assert tweet_id == "777"
+    assert captured["media_ids"] is None
+
+
+def test_enrich_alert_attaches_trades_from_postgres():
+    alert = {"id": 42, "condition_id": "0xabc", "llm_copy_action": {"outcome": "Yes"}}
+    fake_trades = [
+        {"wallet": "0xfoo", "outcome": "Yes", "side": "BUY",
+         "usdcSize": 1000.0, "size": 2000.0, "price": 0.5,
+         "timestamp": 1730000000.0, "transaction_hash": "0xabc1"},
+    ]
+    with patch("twitter_simple._fetch_alert_trades", return_value=fake_trades), \
+         patch("twitter_simple._fetch_market_tokens", return_value={"Yes": "tok_yes", "No": "tok_no"}):
+        twitter_simple.enrich_alert_for_charts(alert)
+    assert alert["trades"] == fake_trades
+    assert alert["token_id"] == "tok_yes"
+
+
+def test_enrich_alert_handles_missing_token_for_outcome():
+    """If the LLM-picked outcome doesn't match any token, token_id stays unset."""
+    alert = {"id": 42, "condition_id": "0xabc", "llm_copy_action": {"outcome": "Tie"}}
+    with patch("twitter_simple._fetch_alert_trades", return_value=[]), \
+         patch("twitter_simple._fetch_market_tokens", return_value={"Win": "tok1", "Lose": "tok2"}):
+        twitter_simple.enrich_alert_for_charts(alert)
+    assert alert.get("token_id") is None or alert.get("token_id") == ""
+
+
+def test_prepare_chart_calls_enrich_before_dispatcher():
+    """prepare_chart should enrich the alert before passing to render_chart_for_alert."""
+    decision = {"decision": "post", "alert_ids": [1], "chart_type": "cluster_card"}
+    seed = [{"id": 1, "condition_id": "0xabc", "llm_copy_action": {"outcome": "Yes"}}]
+    with patch("twitter_simple.enrich_alert_for_charts") as enrich_mock, \
+         patch("twitter_simple.charts.render_chart_for_alert", return_value=b"png") as render_mock:
+        twitter_simple.prepare_chart(decision, seed)
+    enrich_mock.assert_called_once_with(seed[0])
+    render_mock.assert_called_once_with("cluster_card", seed[0])

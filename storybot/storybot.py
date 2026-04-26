@@ -1494,13 +1494,26 @@ def validate_decision(decision: dict) -> tuple[bool, str]:
 
 # --- Twitter + recording -----------------------------------------------------
 
+def _x_credentials() -> tuple[str, str, str, str]:
+    """The four X/Twitter OAuth1 user creds — single source of truth for both v1 and v2 clients."""
+    return X_CONSUMER_KEY, X_CONSUMER_KEY_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET
+
+
 def _build_twitter_client() -> tweepy.Client:
+    consumer_key, consumer_secret, access_token, access_token_secret = _x_credentials()
     return tweepy.Client(
-        consumer_key=X_CONSUMER_KEY,
-        consumer_secret=X_CONSUMER_KEY_SECRET,
-        access_token=X_ACCESS_TOKEN,
-        access_token_secret=X_ACCESS_TOKEN_SECRET,
+        consumer_key=consumer_key,
+        consumer_secret=consumer_secret,
+        access_token=access_token,
+        access_token_secret=access_token_secret,
     )
+
+
+def _build_twitter_api_v1() -> tweepy.API:
+    """v1.1 client for media upload. The v2 Client used by `_build_twitter_client`
+    cannot upload media; v1.1 still owns that endpoint as of this writing."""
+    auth = tweepy.OAuth1UserHandler(*_x_credentials())
+    return tweepy.API(auth)
 
 
 def post_thread(tweets: list[str], *, twitter_client, dry_run: bool) -> list[str]:

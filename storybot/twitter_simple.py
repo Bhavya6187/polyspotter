@@ -20,6 +20,7 @@ import time
 import uuid
 
 import psycopg2
+import requests
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -34,6 +35,7 @@ from storybot import (
     _BANNED_TWEET_PHRASES,
     _POLYSPOTTER_URL_RE,
     _accumulate_usage,
+    _build_twitter_api_v1,
     _build_twitter_client,
     _compact_alert_for_picker,
     _tweet_length,
@@ -42,10 +44,14 @@ from storybot import (
     record_tweet,
 )
 
+import charts
+
 
 load_dotenv()
 
 DRY_RUN = os.environ.get("TWITTER_SIMPLE_DRY_RUN", "false").lower() == "true"
+
+_DRY_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dry_runs")
 
 _POLYSPOTTER_URL_STRIP_RE = re.compile(
     r"\s*https://polyspotter\.com/(?:market|wallet|alert|tag)/\S+"
@@ -214,6 +220,21 @@ use a wallet link only when the story is about one specific wallet.
 - alert:  https://polyspotter.com/alert/<alert_id>
 - tag:    https://polyspotter.com/tag/<tag-slug>
 
+## Chart selection
+You also pick the chart image that ships with the tweet. The chart should
+prove the surprise the tweet's hook leads with. Pick the chart_type whose
+visual carries the lead clause:
+
+- Tweet leads with a price move ("flipped from 32c to 41c") → "price_sparkline"
+- Tweet leads with a volume multiplier ("906× normal volume") → "volume_bar"
+- Tweet leads with a wallet record ("178-20", "29-4") or wallet age ("12-day-old") → "wallet_record_card"
+- Tweet leads with coordinated flow ("five accounts sharing a funder") AND no single wallet record dominates → "cluster_card"
+- If nothing supports a chart cleanly → "none"
+
+The chart fails silently if the underlying data isn't available — your job
+is just to pick the visual that best matches the lead clause. Don't second-
+guess data availability; the system handles fallbacks.
+
 ## When to skip
 If all alerts are small, generic, or lack a clear story, skip the run.
 Don't force a tweet.
@@ -223,12 +244,15 @@ Don't force a tweet.
   "decision": "post" | "skip",
   "reason": "<one short sentence>",
   "tweet": "<tweet text>" | null,
-  "alert_ids": [<int>, ...] | null
+  "alert_ids": [<int>, ...] | null,
+  "chart_type": "price_sparkline" | "volume_bar" | "wallet_record_card" | "cluster_card" | "none"
 }}
 
 When decision=post, `tweet` must be present and ≤{TWEET_MAX_CHARS} chars
 (URLs counted as {TWEET_URL_CHARS}). `alert_ids` must be 1+ real IDs from
 the list shown to you — multiple is fine when they share an event.
+When decision=post, `chart_type` must be one of the five enum values.
+When decision=skip, `chart_type` is ignored (set to "none" or omit).
 """
 
 
@@ -286,14 +310,168 @@ def validate_decision(decision: dict) -> tuple[bool, str]:
         [int(i) for i in ids]
     except (TypeError, ValueError):
         return False, f"alert_ids must be integers, got {ids!r}"
+    # chart_type validation (post-only)
+    chart_type = decision.get("chart_type", "none")
+    if chart_type is None:
+        chart_type = "none"
+    valid_chart_types = {"price_sparkline", "volume_bar", "wallet_record_card",
+                         "cluster_card", "none"}
+    if chart_type not in valid_chart_types:
+        return False, f"unknown chart_type: {chart_type!r}"
     return True, ""
 
 
-def post_tweet(text: str, *, twitter_client, dry_run: bool) -> str:
-    """Post a single tweet. Returns the tweet id."""
+def prepare_chart(decision: dict, seed_alerts: list[dict]) -> bytes | None:
+    """Resolve the alert and render the requested chart, with fallback to
+    wallet_record_card. Returns PNG bytes or None. Never raises."""
+    if decision.get("decision") != "post":
+        return None
+    alert_ids = decision.get("alert_ids") or []
+    if not alert_ids:
+        return None
+    try:
+        target_id = int(alert_ids[0])
+    except (TypeError, ValueError):
+        return None
+    alert = next((a for a in seed_alerts if int(a.get("id") or 0) == target_id), None)
+    if alert is None:
+        return None
+    enrich_alert_for_charts(alert)
+    chart_type = decision.get("chart_type") or "none"
+    try:
+        return charts.render_chart_for_alert(chart_type, alert)
+    except Exception as exc:
+        log("chart_render_error", error=f"{type(exc).__name__}: {exc}",
+            chart_type=chart_type, alert_id=target_id)
+        return None
+
+
+def _fetch_alert_trades(alert_id: int) -> list[dict]:
+    """Fetch all trades for a given alert from Postgres alert_trades table.
+
+    Returns dicts shaped to mirror Polymarket Data API conventions
+    (`usdcSize`, `timestamp`) so the chart fetchers can stay consistent
+    with patterns used elsewhere in the codebase."""
+    conn = psycopg2.connect(DATABASE_URL, connect_timeout=QUERY_TIMEOUT_SECONDS)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT wallet, outcome, side, usd_value, size, price,
+                   EXTRACT(EPOCH FROM trade_timestamp) AS ts,
+                   transaction_hash
+            FROM alert_trades WHERE alert_id = %s
+            """,
+            (alert_id,),
+        )
+        rows = cur.fetchall()
+        cur.close()
+    finally:
+        conn.close()
+    out = []
+    for w, oc, sd, usd, sz, pr, ts, txh in rows:
+        out.append({
+            "wallet": w,
+            "outcome": oc,
+            "side": sd,
+            "usdcSize": float(usd) if usd is not None else 0.0,
+            "size": float(sz) if sz is not None else 0.0,
+            "price": float(pr) if pr is not None else 0.0,
+            "timestamp": float(ts) if ts is not None else 0.0,
+            "transaction_hash": txh,
+        })
+    return out
+
+
+def _fetch_market_tokens(condition_id: str) -> dict[str, str]:
+    """Live Gamma fetch: return {outcome_name: token_id}.
+
+    Returns empty dict on any failure — caller treats missing tokens as None."""
+    if not condition_id:
+        return {}
+    try:
+        r = requests.get(
+            "https://gamma-api.polymarket.com/markets",
+            params=[("condition_ids", condition_id)],
+            timeout=QUERY_TIMEOUT_SECONDS * 2,
+        )
+        r.raise_for_status()
+        markets = r.json()
+        if not markets:
+            return {}
+        m = markets[0]
+        outcomes = m.get("outcomes")
+        token_ids = m.get("clobTokenIds")
+        if isinstance(outcomes, str):
+            outcomes = json.loads(outcomes)
+        if isinstance(token_ids, str):
+            token_ids = json.loads(token_ids)
+        if not (isinstance(outcomes, list) and isinstance(token_ids, list)):
+            return {}
+        return {o: t for o, t in zip(outcomes, token_ids) if o and t}
+    except Exception as exc:
+        log("market_tokens_fetch_error",
+            condition_id=condition_id,
+            error=f"{type(exc).__name__}: {exc}")
+        return {}
+
+
+def enrich_alert_for_charts(alert: dict) -> None:
+    """Populate alert['trades'] and alert['token_id'] in-place from Postgres + Gamma.
+
+    The chart fetchers (cluster_card, price_sparkline) read these fields.
+    Failures are silent — the dispatcher's fallback ladder absorbs them."""
+    alert_id = alert.get("id")
+    if alert_id is None:
+        return
+    try:
+        alert["trades"] = _fetch_alert_trades(int(alert_id))
+    except Exception as exc:
+        log("alert_trades_fetch_error",
+            alert_id=alert_id, error=f"{type(exc).__name__}: {exc}")
+        alert["trades"] = []
+
+    cid = alert.get("condition_id")
+    if not cid:
+        return
+    copy = alert.get("llm_copy_action") or {}
+    if isinstance(copy, str):
+        try:
+            copy = json.loads(copy)
+        except json.JSONDecodeError:
+            copy = {}
+    side = copy.get("outcome") or copy.get("side")
+    if not side:
+        return
+    tokens = _fetch_market_tokens(cid)
+    if side in tokens:
+        alert["token_id"] = tokens[side]
+
+
+def post_tweet(
+    text: str,
+    *,
+    twitter_client,
+    twitter_api_v1=None,
+    media_png: bytes | None = None,
+    dry_run: bool,
+) -> str:
+    """Post a single tweet, optionally with one PNG attached. Returns the tweet id."""
     if dry_run:
         return f"dryrun-{uuid.uuid4().hex[:12]}"
-    resp = twitter_client.create_tweet(text=text)
+
+    media_ids = None
+    if media_png is not None and twitter_api_v1 is not None:
+        from io import BytesIO
+        media = twitter_api_v1.media_upload(filename="chart.png", file=BytesIO(media_png))
+        media_id = getattr(media, "media_id", None) or getattr(media, "media_id_string", None)
+        if media_id:
+            media_ids = [media_id]
+
+    if media_ids:
+        resp = twitter_client.create_tweet(text=text, media_ids=media_ids)
+    else:
+        resp = twitter_client.create_tweet(text=text)
     data = getattr(resp, "data", None) or {}
     tweet_id = str(data.get("id") or "")
     if not tweet_id:
@@ -375,9 +553,31 @@ def main() -> int:
     tweet = _strip_polyspotter_url(decision["tweet"])
     alert_ids = [int(i) for i in decision["alert_ids"]]
 
+    chart_png = prepare_chart(decision, seed_alerts)
+    log("chart_selected", run_id=run_id,
+        chart_type=decision.get("chart_type"),
+        rendered=chart_png is not None,
+        bytes_len=(len(chart_png) if chart_png else 0))
+
+    if DRY_RUN and chart_png is not None:
+        out_path = os.path.join(_DRY_RUN_DIR, f"twitter_simple_{run_id}.png")
+        try:
+            with open(out_path, "wb") as f:
+                f.write(chart_png)
+            log("chart_saved_dryrun", run_id=run_id, path=out_path)
+        except OSError as exc:
+            log("chart_save_error", run_id=run_id, error=str(exc))
+
     try:
         twitter_client = _build_twitter_client()
-        tweet_id = post_tweet(tweet, twitter_client=twitter_client, dry_run=DRY_RUN)
+        twitter_api_v1 = _build_twitter_api_v1() if chart_png is not None else None
+        tweet_id = post_tweet(
+            tweet,
+            twitter_client=twitter_client,
+            twitter_api_v1=twitter_api_v1,
+            media_png=chart_png,
+            dry_run=DRY_RUN,
+        )
     except Exception as exc:
         log("post_error", run_id=run_id, error=f"{type(exc).__name__}: {exc}")
         return 1
