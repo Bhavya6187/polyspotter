@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 load_dotenv()
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import charts  # noqa: E402
+import twitter_simple  # noqa: E402  — for enrich_alert_for_charts
 
 OUTPUT_DIR = Path(__file__).resolve().parent / "dry_runs"
 
@@ -50,6 +51,10 @@ def main() -> int:
         print(f"No alert found (id={alert_id})", file=sys.stderr)
         return 1
     print(f"Using alert id={alert['id']} market='{alert.get('market_title')}'")
+
+    twitter_simple.enrich_alert_for_charts(alert)
+    print(f"  enriched: trades={len(alert.get('trades') or [])}, "
+          f"token_id={'set' if alert.get('token_id') else 'unset'}")
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     for chart_type in ("wallet_record_card", "volume_bar", "cluster_card", "price_sparkline"):
