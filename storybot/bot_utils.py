@@ -1,12 +1,13 @@
 """
 Shared utilities for storybot and twitter_simple.
 
-Holds the cross-bot surface: env config, logging, read-only DB access,
-the Gamma-filtered seed-alert pipeline, picker compaction, tweet
-helpers, Twitter client builders, the LLM usage accumulator, and the
-`tweeted_alerts` recording.
+Holds the cross-bot non-Twitter surface: env config, logging, read-only
+DB access, the Gamma-filtered seed-alert pipeline, picker compaction,
+and the LLM usage accumulator.
 
-Bot-specific machinery (storybot's research agent loop, twitter_simple's
+Twitter-specific machinery (OAuth creds, tweet-length math, client
+builders, `tweeted_alerts` recording) lives in `tweet_utils`. Bot-
+specific machinery (storybot's research agent loop, twitter_simple's
 chart selection, distinct system prompts and validators) lives in the
 respective bot modules.
 """
@@ -21,7 +22,6 @@ from typing import Any
 
 import psycopg2
 import requests
-import tweepy
 from dotenv import load_dotenv
 from psycopg2.extras import RealDictCursor
 
@@ -36,17 +36,10 @@ load_dotenv()
 POLYBOT_DB_PATH = os.path.join(_REPO_ROOT, "polybot.db")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
-X_CONSUMER_KEY = os.environ.get("X_CONSUMER_KEY", "")
-X_CONSUMER_KEY_SECRET = os.environ.get("X_CONSUMER_KEY_SECRET", "")
-X_ACCESS_TOKEN = os.environ.get("X_ACCESS_TOKEN", "")
-X_ACCESS_TOKEN_SECRET = os.environ.get("X_ACCESS_TOKEN_SECRET", "")
-
 AZURE_OPENAI_API_KEY = os.environ.get("AZURE_OPENAI_API_KEY", "")
 AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
 MODEL = os.environ.get("AZURE_OPENAI_MODEL", "")
 
-TWEET_MAX_CHARS = 280
-TWEET_URL_CHARS = 23   # Twitter t.co wraps every URL to this length, regardless of source length
 QUERY_TIMEOUT_SECONDS = 5
 MAX_ROWS = 200
 
@@ -293,74 +286,6 @@ def _compact_alert_for_picker(alert: dict) -> dict:
             for s in signals if isinstance(s, dict)
         ]
     return out
-
-
-# --- Tweet text helpers ------------------------------------------------------
-
-_URL_RE = re.compile(r"https?://\S+")
-_POLYSPOTTER_URL_RE = re.compile(r"https://polyspotter\.com/(?:market|wallet|alert|tag)/")
-_BANNED_TWEET_PHRASES = ("in bio", "full breakdown", "link below", "link in bio")
-
-
-def _tweet_length(t: str) -> int:
-    """Twitter-counted length: every URL counts as TWEET_URL_CHARS regardless of actual length."""
-    urls = _URL_RE.findall(t)
-    return len(t) - sum(len(u) for u in urls) + TWEET_URL_CHARS * len(urls)
-
-
-# --- Twitter clients ---------------------------------------------------------
-
-def _x_credentials() -> tuple[str, str, str, str]:
-    """The four X/Twitter OAuth1 user creds — single source of truth for both v1 and v2 clients."""
-    return X_CONSUMER_KEY, X_CONSUMER_KEY_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET
-
-
-def _build_twitter_client() -> tweepy.Client:
-    consumer_key, consumer_secret, access_token, access_token_secret = _x_credentials()
-    return tweepy.Client(
-        consumer_key=consumer_key,
-        consumer_secret=consumer_secret,
-        access_token=access_token,
-        access_token_secret=access_token_secret,
-    )
-
-
-def _build_twitter_api_v1() -> tweepy.API:
-    """v1.1 client for media upload. The v2 Client used by `_build_twitter_client`
-    cannot upload media; v1.1 still owns that endpoint as of this writing."""
-    auth = tweepy.OAuth1UserHandler(*_x_credentials())
-    return tweepy.API(auth)
-
-
-# --- Recording ---------------------------------------------------------------
-
-def record_tweet(alert_ids: list[int], tweet_id: str, tweet_text: str) -> None:
-    """Insert one tweeted_alerts row per alert. Re-uses the table the existing
-    twitter_bot writes to, so both bots share dedup state."""
-    conn = psycopg2.connect(DATABASE_URL, connect_timeout=QUERY_TIMEOUT_SECONDS)
-    try:
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute(
-            "SELECT id, wallet, condition_id FROM alerts WHERE id = ANY(%s)",
-            ([int(i) for i in alert_ids],),
-        )
-        meta = {r["id"]: (r["wallet"] or "", r["condition_id"] or "") for r in cur.fetchall()}
-        rows = [
-            (int(i), meta.get(int(i), ("", ""))[0], meta.get(int(i), ("", ""))[1], tweet_id, tweet_text)
-            for i in alert_ids
-        ]
-        cur.executemany(
-            """
-            INSERT INTO tweeted_alerts (alert_id, wallet, condition_id, tweet_id, tweet_text)
-            VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT (alert_id) DO NOTHING
-            """,
-            rows,
-        )
-        conn.commit()
-        cur.close()
-    finally:
-        conn.close()
 
 
 # --- LLM usage accumulator ---------------------------------------------------

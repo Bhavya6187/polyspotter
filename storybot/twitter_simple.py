@@ -30,17 +30,19 @@ from bot_utils import (
     DATABASE_URL,
     MODEL,
     QUERY_TIMEOUT_SECONDS,
+    _accumulate_usage,
+    _compact_alert_for_picker,
+    fetch_seed_alerts,
+    log,
+)
+from tweet_utils import (
     TWEET_MAX_CHARS,
     TWEET_URL_CHARS,
     _BANNED_TWEET_PHRASES,
     _POLYSPOTTER_URL_RE,
-    _accumulate_usage,
     _build_twitter_api_v1,
     _build_twitter_client,
-    _compact_alert_for_picker,
     _tweet_length,
-    fetch_seed_alerts,
-    log,
     record_tweet,
 )
 

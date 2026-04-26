@@ -39,19 +39,21 @@ from bot_utils import (
     MODEL,
     QUERY_TIMEOUT_SECONDS,
     SETTLED_PRICE_THRESHOLD,
-    TWEET_MAX_CHARS,
-    TWEET_URL_CHARS,
     _accumulate_usage,
-    _BANNED_TWEET_PHRASES,
-    _build_twitter_client,
     _compact_alert_for_picker,
-    _POLYSPOTTER_URL_RE,
-    _tweet_length,
-    _URL_RE,
     fetch_seed_alerts,
     log,
     query_postgres,
     query_sqlite,
+)
+from tweet_utils import (
+    TWEET_MAX_CHARS,
+    TWEET_URL_CHARS,
+    _BANNED_TWEET_PHRASES,
+    _POLYSPOTTER_URL_RE,
+    _URL_RE,
+    _build_twitter_client,
+    _tweet_length,
     record_tweet,
 )
 
