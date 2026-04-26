@@ -214,6 +214,21 @@ use a wallet link only when the story is about one specific wallet.
 - alert:  https://polyspotter.com/alert/<alert_id>
 - tag:    https://polyspotter.com/tag/<tag-slug>
 
+## Chart selection
+You also pick the chart image that ships with the tweet. The chart should
+prove the surprise the tweet's hook leads with. Pick the chart_type whose
+visual carries the lead clause:
+
+- Tweet leads with a price move ("flipped from 32c to 41c") → "price_sparkline"
+- Tweet leads with a volume multiplier ("906× normal volume") → "volume_bar"
+- Tweet leads with a wallet record ("178-20", "29-4") or wallet age ("12-day-old") → "wallet_record_card"
+- Tweet leads with coordinated flow ("five accounts sharing a funder") AND no single wallet record dominates → "cluster_card"
+- If nothing supports a chart cleanly → "none"
+
+The chart fails silently if the underlying data isn't available — your job
+is just to pick the visual that best matches the lead clause. Don't second-
+guess data availability; the system handles fallbacks.
+
 ## When to skip
 If all alerts are small, generic, or lack a clear story, skip the run.
 Don't force a tweet.
@@ -223,12 +238,15 @@ Don't force a tweet.
   "decision": "post" | "skip",
   "reason": "<one short sentence>",
   "tweet": "<tweet text>" | null,
-  "alert_ids": [<int>, ...] | null
+  "alert_ids": [<int>, ...] | null,
+  "chart_type": "price_sparkline" | "volume_bar" | "wallet_record_card" | "cluster_card" | "none"
 }}
 
 When decision=post, `tweet` must be present and ≤{TWEET_MAX_CHARS} chars
 (URLs counted as {TWEET_URL_CHARS}). `alert_ids` must be 1+ real IDs from
 the list shown to you — multiple is fine when they share an event.
+When decision=post, `chart_type` must be one of the five enum values.
+When decision=skip, `chart_type` is ignored (set to "none" or omit).
 """
 
 
