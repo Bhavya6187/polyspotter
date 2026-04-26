@@ -895,6 +895,15 @@ Hard style rules (apply to EVERY tweet in the thread):
   either.
 
   When to unpack:
+  - "Wallet". On Polymarket, "wallet" just means one user/account on
+    the platform — but a casual reader hears "wallet" and pictures
+    crypto. First mention in a thread: pair the term with "account"
+    or "buyer." After that, "wallet" alone is fine.
+      ❌ "Four wallets spent $153k on the Pistons"
+      ✅ "Four different accounts spent $153k on the Pistons" (or:
+          "Four buyers spent $153k between them on the Pistons")
+      Subsequent: "that wallet" / "those wallets" / "another wallet"
+      are all fine.
   - Bet lines (sports totals, spreads, etc.). First mention names
     what the bet IS in plain English; the shorthand can take over after.
       ❌ "piled $75k into Red Sox/Orioles Under 7.5 near first pitch"
@@ -911,9 +920,18 @@ Hard style rules (apply to EVERY tweet in the thread):
       ✅ "a big stack of sell orders parked at 57¢" (or: "a chunk of
           resting offers at 57¢")
       Subsequent: "that 57¢ level" once the reader has the picture.
-  - Polymarket prices. The reader doesn't need a probability lecture,
-    but the *first* time a price carries the story, gesture at what
-    it means. Once is enough.
+  - Polymarket prices. On Polymarket, every price IS a probability —
+    50¢ means the market thinks 50/50, 75¢ means it thinks 75%
+    likely. The FIRST price that appears anywhere in a thread MUST
+    be framed in plain English (a probability, a coin-flip, "barely
+    better than even", etc.) — non-negotiable. Doesn't matter
+    whether the price "carries the story" or is just incidental: a
+    casual reader has no way to read 54¢ without one explicit
+    gesture. Once you've framed one price, subsequent prices can be
+    terse.
+      ❌ "the price still sat at 54.5¢"
+      ✅ "the price still sat at 54.5¢ — the market giving Detroit a
+          coin-flip, basically"
       ❌ "bought Over at 47¢"
       ✅ "bought Over at 47¢ (the market was giving it a coin-flip)"
           — or pair the price with its implied read in the surrounding
@@ -1476,24 +1494,25 @@ def validate_decision(decision: dict) -> tuple[bool, str]:
 
 # --- Twitter + recording -----------------------------------------------------
 
+def _x_credentials() -> tuple[str, str, str, str]:
+    """The four X/Twitter OAuth1 user creds — single source of truth for both v1 and v2 clients."""
+    return X_CONSUMER_KEY, X_CONSUMER_KEY_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET
+
+
 def _build_twitter_client() -> tweepy.Client:
+    consumer_key, consumer_secret, access_token, access_token_secret = _x_credentials()
     return tweepy.Client(
-        consumer_key=X_CONSUMER_KEY,
-        consumer_secret=X_CONSUMER_KEY_SECRET,
-        access_token=X_ACCESS_TOKEN,
-        access_token_secret=X_ACCESS_TOKEN_SECRET,
+        consumer_key=consumer_key,
+        consumer_secret=consumer_secret,
+        access_token=access_token,
+        access_token_secret=access_token_secret,
     )
 
 
 def _build_twitter_api_v1() -> tweepy.API:
     """v1.1 client for media upload. The v2 Client used by `_build_twitter_client`
     cannot upload media; v1.1 still owns that endpoint as of this writing."""
-    auth = tweepy.OAuth1UserHandler(
-        X_CONSUMER_KEY,
-        X_CONSUMER_KEY_SECRET,
-        X_ACCESS_TOKEN,
-        X_ACCESS_TOKEN_SECRET,
-    )
+    auth = tweepy.OAuth1UserHandler(*_x_credentials())
     return tweepy.API(auth)
 
 

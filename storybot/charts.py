@@ -25,6 +25,7 @@ import matplotlib.pyplot as plt
 import psycopg2
 import requests
 from matplotlib.figure import Figure
+from matplotlib.patches import Rectangle
 
 
 # ----------------------- House style -----------------------
@@ -61,10 +62,9 @@ def _new_figure() -> tuple[Figure, "plt.Axes"]:
 
 
 def _figure_to_png_bytes(fig: Figure) -> bytes:
-    """Serialize a Figure to PNG bytes and close it."""
+    """Serialize a Figure to PNG bytes."""
     buf = BytesIO()
     fig.savefig(buf, format="png", facecolor=BG, dpi=DPI)
-    plt.close(fig)
     return buf.getvalue()
 
 
@@ -115,11 +115,11 @@ def render_wallet_record_card(data: WalletRecordCardData) -> bytes:
 
     # Record bar: green for wins, red for losses, sized by win_pct
     bar_y, bar_h = 0.22, 0.06
-    ax.add_patch(plt.Rectangle((0.1, bar_y), 0.8 * data["win_pct"], bar_h,
-                               color=ACCENT, transform=ax.transAxes))
-    ax.add_patch(plt.Rectangle((0.1 + 0.8 * data["win_pct"], bar_y),
-                               0.8 * (1 - data["win_pct"]), bar_h,
-                               color=LOSS, transform=ax.transAxes))
+    ax.add_patch(Rectangle((0.1, bar_y), 0.8 * data["win_pct"], bar_h,
+                           color=ACCENT, transform=ax.transAxes))
+    ax.add_patch(Rectangle((0.1 + 0.8 * data["win_pct"], bar_y),
+                           0.8 * (1 - data["win_pct"]), bar_h,
+                           color=LOSS, transform=ax.transAxes))
 
     # Footer: bet size + outcome side
     footer = f"{_format_usd(data['bet_size_usd'])} on {data['outcome_side']}"
@@ -245,14 +245,14 @@ def render_volume_bar(data: VolumeBarData) -> bytes:
     today_w = 0.8
     baseline_w = max(0.04, today_w * (baseline / today))
 
-    ax.add_patch(plt.Rectangle((0.1, 0.32), baseline_w, 0.04, color=MUTED,
-                               transform=ax.transAxes))
+    ax.add_patch(Rectangle((0.1, 0.32), baseline_w, 0.04, color=MUTED,
+                           transform=ax.transAxes))
     ax.text(0.1 + baseline_w + 0.02, 0.34,
             f"7-day daily avg: {_format_usd(baseline)}",
             color=MUTED, fontsize=14, ha="left", va="center")
 
-    ax.add_patch(plt.Rectangle((0.1, 0.20), today_w, 0.06, color=ACCENT,
-                               transform=ax.transAxes))
+    ax.add_patch(Rectangle((0.1, 0.20), today_w, 0.06, color=ACCENT,
+                           transform=ax.transAxes))
     ax.text(0.1 + today_w + 0.02, 0.23,
             f"today: {_format_usd(today)}",
             color=FG, fontsize=16, ha="left", va="center", fontweight="bold")
@@ -403,8 +403,8 @@ def render_cluster_card(data: ClusterCardData) -> bytes:
     for i, (name, size_usd) in enumerate(wallets):
         y = bar_top - i * (bar_h + spacing)
         w = 0.6 * (size_usd / max_size)
-        ax.add_patch(plt.Rectangle((0.1, y), w, bar_h, color=ACCENT,
-                                   transform=ax.transAxes))
+        ax.add_patch(Rectangle((0.1, y), w, bar_h, color=ACCENT,
+                               transform=ax.transAxes))
         ax.text(0.09, y + bar_h / 2, name, color=FG, fontsize=14,
                 ha="right", va="center")
         ax.text(0.1 + w + 0.01, y + bar_h / 2, _format_usd(size_usd),

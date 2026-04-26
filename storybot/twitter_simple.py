@@ -51,6 +51,8 @@ load_dotenv()
 
 DRY_RUN = os.environ.get("TWITTER_SIMPLE_DRY_RUN", "false").lower() == "true"
 
+_DRY_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dry_runs")
+
 _POLYSPOTTER_URL_STRIP_RE = re.compile(
     r"\s*https://polyspotter\.com/(?:market|wallet|alert|tag)/\S+"
 )
@@ -558,7 +560,7 @@ def main() -> int:
         bytes_len=(len(chart_png) if chart_png else 0))
 
     if DRY_RUN and chart_png is not None:
-        out_path = f"storybot/dry_runs/twitter_simple_{run_id}.png"
+        out_path = os.path.join(_DRY_RUN_DIR, f"twitter_simple_{run_id}.png")
         try:
             with open(out_path, "wb") as f:
                 f.write(chart_png)
