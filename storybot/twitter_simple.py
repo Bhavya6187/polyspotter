@@ -24,7 +24,7 @@ import requests
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from storybot import (
+from bot_utils import (
     AZURE_OPENAI_API_KEY,
     AZURE_OPENAI_ENDPOINT,
     DATABASE_URL,
