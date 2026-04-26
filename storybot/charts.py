@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import sys
 import time
 from datetime import datetime, timezone
 from io import BytesIO
@@ -458,8 +459,9 @@ def _shared_funder_for_wallets(wallets: list[str]) -> str | None:
     lower_wallets = [w.lower() for w in wallets]
     placeholders = ",".join("?" * len(lower_wallets))
     uri = f"file:{POLYBOT_DB_PATH}?mode=ro"
-    conn = sqlite3.connect(uri, uri=True, timeout=QUERY_TIMEOUT_SECONDS)
+    conn = None
     try:
+        conn = sqlite3.connect(uri, uri=True, timeout=QUERY_TIMEOUT_SECONDS)
         cur = conn.execute(
             f"""
             SELECT funder, COUNT(*) AS n
@@ -472,8 +474,18 @@ def _shared_funder_for_wallets(wallets: list[str]) -> str | None:
             lower_wallets,
         )
         row = cur.fetchone()
+    except (sqlite3.OperationalError, sqlite3.DatabaseError) as e:
+        # Missing db file or missing wallet_funders table: treat as
+        # "no shared funder known" rather than crashing the tweet pipeline.
+        print(
+            f"[storybot.charts] _shared_funder_for_wallets: SQLite unavailable "
+            f"({type(e).__name__}: {e}); returning None",
+            file=sys.stderr,
+        )
+        return None
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
     if not row:
         return None
     funder, n = row

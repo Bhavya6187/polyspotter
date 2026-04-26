@@ -201,3 +201,17 @@ def test_fetch_cluster_card_returns_data_when_shared_funder_present():
     # Pseudonyms applied — names should not equal raw addresses
     for name, _ in result["wallet_sizes"]:
         assert name.startswith("Wallet_0x")
+
+
+def test_fetch_cluster_card_returns_none_when_sqlite_db_missing(monkeypatch):
+    """When polybot.db doesn't exist on the host (production cron), the fetcher
+    must return None gracefully rather than crashing the tweet pipeline."""
+    monkeypatch.setattr(charts, "POLYBOT_DB_PATH", "/tmp/definitely-does-not-exist-zzz.db")
+    alert = {
+        "trades": [
+            {"proxyWallet": "0xabc", "usdcSize": 1000},
+            {"proxyWallet": "0xdef", "usdcSize": 2000},
+        ],
+    }
+    result = charts.fetch_cluster_card_data(alert)
+    assert result is None
