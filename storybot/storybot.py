@@ -1485,6 +1485,18 @@ def _build_twitter_client() -> tweepy.Client:
     )
 
 
+def _build_twitter_api_v1() -> tweepy.API:
+    """v1.1 client for media upload. The v2 Client used by `_build_twitter_client`
+    cannot upload media; v1.1 still owns that endpoint as of this writing."""
+    auth = tweepy.OAuth1UserHandler(
+        X_CONSUMER_KEY,
+        X_CONSUMER_KEY_SECRET,
+        X_ACCESS_TOKEN,
+        X_ACCESS_TOKEN_SECRET,
+    )
+    return tweepy.API(auth)
+
+
 def post_thread(tweets: list[str], *, twitter_client, dry_run: bool) -> list[str]:
     """Post a reply-chain thread. Returns the list of tweet ids (root first)."""
     if dry_run:
