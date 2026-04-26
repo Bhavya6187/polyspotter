@@ -35,7 +35,7 @@ def test_prepare_chart_calls_dispatcher_with_correct_alert():
 def test_prepare_chart_swallows_exceptions():
     decision = {"decision": "post", "alert_ids": [1], "chart_type": "wallet_record_card"}
     seed = [{"id": 1, "wallet": "0xabc"}]
-    with patch("twitter_simple._render_alert_chart",
+    with patch("charts.render_chart_for_alert",
                side_effect=RuntimeError("boom")):
         result = twitter_simple.prepare_chart(decision, seed)
     assert result is None
@@ -105,10 +105,7 @@ def test_prepare_chart_calls_enrich_before_dispatcher():
     decision = {"decision": "post", "alert_ids": [1], "chart_type": "cluster_card"}
     seed = [{"id": 1, "condition_id": "0xabc", "llm_copy_action": {"outcome": "Yes"}}]
     with patch("tweet_utils.enrich_alert_for_charts") as enrich_mock, \
-         patch("twitter_simple._render_alert_chart", return_value=b"png") as render_mock:
+         patch("charts.render_chart_for_alert", return_value=b"png") as render_mock:
         twitter_simple.prepare_chart(decision, seed)
+    enrich_mock.assert_called_once_with(seed[0])
     render_mock.assert_called_once_with("cluster_card", seed[0])
-    # enrich is called inside _render_alert_chart (tweet_utils.prepare_chart)
-    # but since we patched _render_alert_chart entirely, enrich won't actually be called —
-    # we verify the delegation to _render_alert_chart is correct instead.
-    assert render_mock.call_count == 1

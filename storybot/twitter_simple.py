@@ -301,12 +301,7 @@ def prepare_chart(decision: dict, seed_alerts: list[dict]) -> bytes | None:
     if alert is None:
         return None
     chart_type = decision.get("chart_type") or "none"
-    try:
-        return _render_alert_chart(chart_type, alert)
-    except Exception as exc:
-        log("chart_render_error", error=f"{type(exc).__name__}: {exc}",
-            chart_type=chart_type, alert_id=target_id)
-        return None
+    return _render_alert_chart(chart_type, alert)
 
 
 def main() -> int:
