@@ -88,3 +88,42 @@ def test_fetch_wallet_record_card_returns_data_when_eligible():
     assert result["record_str"] == "29-4"
     assert result["bet_count"] == 33
     assert result["wallet_age_days"] is None
+
+
+# --------- volume_bar ---------
+
+def test_volume_bar_renders_png_at_canvas_size():
+    data: charts.VolumeBarData = {
+        "market_title": "Arsenal vs Newcastle",
+        "today_volume_usd": 906_000,
+        "baseline_avg_usd": 1_000,
+        "multiplier": 906.0,
+    }
+    png = charts.render_volume_bar(data)
+    assert isinstance(png, bytes)
+    assert _png_dimensions(png) == (charts.CANVAS_W_PX, charts.CANVAS_H_PX)
+
+
+def test_fetch_volume_bar_returns_none_when_today_too_small():
+    with patch("charts._fetch_market_volume_window", return_value=500.0):
+        result = charts.fetch_volume_bar_data({"condition_id": "0xabc"})
+    assert result is None
+
+
+def test_fetch_volume_bar_returns_none_when_multiplier_below_threshold():
+    # 10000 / (14300 / 7) = 10000 / ~2042.86 = ~4.9x, below 5.0 threshold
+    calls = iter([10_000.0, 14_300.0])
+    with patch("charts._fetch_market_volume_window", side_effect=lambda *a, **k: next(calls)):
+        result = charts.fetch_volume_bar_data({"condition_id": "0xabc"})
+    assert result is None
+
+
+def test_fetch_volume_bar_returns_data_for_real_spike():
+    calls = iter([906_000.0, 7_000.0])  # today, baseline_total
+    with patch("charts._fetch_market_volume_window", side_effect=lambda *a, **k: next(calls)):
+        result = charts.fetch_volume_bar_data({
+            "condition_id": "0xabc",
+            "market_title": "Arsenal vs Newcastle",
+        })
+    assert result is not None
+    assert result["multiplier"] > 800

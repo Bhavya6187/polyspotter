@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from datetime import datetime, timezone
 from io import BytesIO
 from typing import TypedDict, Sequence
@@ -20,6 +21,7 @@ import matplotlib
 matplotlib.use("Agg")  # headless, no display required
 import matplotlib.pyplot as plt
 import psycopg2
+import requests
 from matplotlib.figure import Figure
 
 
@@ -203,4 +205,121 @@ def fetch_wallet_record_card_data(alert: dict) -> WalletRecordCardData | None:
         "wallet_age_days": wallet_age_days,
         "bet_size_usd": float(alert.get("total_usd", 0)),
         "outcome_side": outcome_side,
+    }
+
+
+# ----------------------- volume_bar -----------------------
+
+class VolumeBarData(TypedDict):
+    market_title: str
+    today_volume_usd: float
+    baseline_avg_usd: float
+    multiplier: float
+
+
+def render_volume_bar(data: VolumeBarData) -> bytes:
+    fig, ax = _new_figure()
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    # Title
+    ax.text(0.5, 0.92, data["market_title"], color=MUTED, fontsize=18,
+            ha="center", va="top", wrap=True)
+
+    # Hero multiplier
+    mult = data["multiplier"]
+    mult_label = f"{mult:.0f}×" if mult >= 10 else f"{mult:.1f}×"
+    ax.text(0.5, 0.72, mult_label, color=ACCENT, fontsize=120, ha="center", va="center",
+            fontweight="bold")
+    ax.text(0.5, 0.55, "today's volume vs. 7-day average", color=FG, fontsize=20,
+            ha="center", va="center")
+
+    # Two horizontal bars — baseline tiny, today full-width
+    # Map widths to a log-friendly visual: baseline always >= 4% of bar area for visibility.
+    today = max(data["today_volume_usd"], 1.0)
+    baseline = max(data["baseline_avg_usd"], 1.0)
+    today_w = 0.8
+    baseline_w = max(0.04, today_w * (baseline / today))
+
+    ax.add_patch(plt.Rectangle((0.1, 0.32), baseline_w, 0.04, color=MUTED,
+                               transform=ax.transAxes))
+    ax.text(0.1 + baseline_w + 0.02, 0.34,
+            f"7-day daily avg: {_format_usd(baseline)}",
+            color=MUTED, fontsize=14, ha="left", va="center")
+
+    ax.add_patch(plt.Rectangle((0.1, 0.20), today_w, 0.06, color=ACCENT,
+                               transform=ax.transAxes))
+    ax.text(0.1 + today_w + 0.02, 0.23,
+            f"today: {_format_usd(today)}",
+            color=FG, fontsize=16, ha="left", va="center", fontweight="bold")
+
+    return _figure_to_png_bytes(fig)
+
+
+# ----------------------- volume_bar fetcher -----------------------
+
+POLYMARKET_DATA_API = "https://data-api.polymarket.com"
+VOLUME_BAR_MIN_TODAY_USD = 1_000
+VOLUME_BAR_MIN_MULTIPLIER = 5.0
+
+
+def _fetch_market_volume_window(condition_id: str, start_ts: int, end_ts: int) -> float:
+    """Sum trade $ on a market between two unix timestamps. Paginated."""
+    total = 0.0
+    cursor = ""
+    page_size = 500
+    while True:
+        params = {
+            "market": condition_id,
+            "startTime": start_ts,
+            "endTime": end_ts,
+            "limit": page_size,
+        }
+        if cursor:
+            params["cursor"] = cursor
+        r = requests.get(f"{POLYMARKET_DATA_API}/trades", params=params, timeout=15)
+        r.raise_for_status()
+        body = r.json()
+        rows = body if isinstance(body, list) else body.get("data", [])
+        for row in rows:
+            size = row.get("usdcSize") or row.get("size") or 0
+            try:
+                total += float(size)
+            except (TypeError, ValueError):
+                continue
+        next_cursor = body.get("nextCursor", "") if isinstance(body, dict) else ""
+        if not next_cursor or len(rows) < page_size:
+            break
+        cursor = next_cursor
+    return total
+
+
+def fetch_volume_bar_data(alert: dict) -> VolumeBarData | None:
+    cid = alert.get("condition_id")
+    if not cid:
+        return None
+
+    now = int(time.time())
+    today_start = now - 86_400
+    week_start = now - 86_400 * 8
+    week_end = now - 86_400
+
+    today = _fetch_market_volume_window(cid, today_start, now)
+    if today < VOLUME_BAR_MIN_TODAY_USD:
+        return None
+    baseline_total = _fetch_market_volume_window(cid, week_start, week_end)
+    baseline_avg = baseline_total / 7.0
+    if baseline_avg <= 0:
+        return None
+    mult = today / baseline_avg
+    if mult < VOLUME_BAR_MIN_MULTIPLIER:
+        return None
+
+    return {
+        "market_title": alert.get("market_title", ""),
+        "today_volume_usd": today,
+        "baseline_avg_usd": baseline_avg,
+        "multiplier": mult,
     }
