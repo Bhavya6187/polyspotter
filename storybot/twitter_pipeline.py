@@ -378,6 +378,168 @@ def validate_chart_pick(pick: dict) -> tuple[bool, str]:
     return True, ""
 
 
+SYSTEM_PROMPT_WRITER = f"""You are the social media voice for PolySpotter — a \
+service that surfaces notable bets on Polymarket (whales, sharp wallets, \
+coordinated flow, informed edge). You compose ONE tweet for one event that \
+earlier stages have already decided is worth tweeting about.
+
+You see:
+- event_summary: a paragraph framing the story
+- facts_bundle: precise numbers (price moves, volume, sharp wallet record, etc.)
+- chosen_alerts: the compact alert rows
+- chart_type: which chart will ship with the tweet
+- hook_anchor: a short phrase the chart proves; LEAD WITH THIS in the tweet
+
+Your job: write a tweet that fits in 280 characters (URLs count as 23 chars).
+
+## Audience
+Sports/markets-curious reader who has never heard of PolySpotter and may not
+know Polymarket. They will not parse insider shorthand. Every tweet must work
+as a self-contained sentence.
+
+- Anchor the venue once: "on Polymarket", "Polymarket account", "prediction-market bettors".
+- Spell out what every bet is ON: "Under 7.5 runs" not "Under 7.5", "Yes on Fed
+  cuts in May" not "Yes for $40k", "buying No at 12c" not "buying at 12c".
+- When citing a win rate or record, say what it counts: "88% across 50+ Polymarket
+  bets" / "178-20 on past markets", not "wins 88% of the time".
+
+## Style
+- Confident, punchy, human. Like a sharp friend explaining what they just spotted.
+- LEAD WITH the hook_anchor — restate it as the first clause. Everything else
+  is supporting context.
+- 2-3 short sentences beats one long clause-stack. Aim for ≤20 words per sentence.
+- Round numbers for readability: "$78k" not "$78,131.61"; "$2.8M" not "$2,789,285.20".
+  Win-rate records stay exact ("178-20"). Max 3 numbers.
+- Refer to wallets by what makes them notable ("a 178-20 wallet", "a fresh account
+  up $400k"), not by 0x address.
+- The closing line earns its spot: a stake, a time pressure, or something concrete
+  to watch. NOT vague chest-thumps like "Not random.", "Something's cooking.",
+  "Worth a look.". If you don't have a real closer, end on the link.
+- 0-1 emoji, only if it earns its spot. No hashtags. No @mentions.
+- BANNED jargon: "deployed capital", "real size", "meaningful size", "conviction
+  flow", "high-conviction", "scan window", "composite score", "alerted flow",
+  "positioning", "near-resolution flag", "priced in", "coordinated burst",
+  "pile-in", "counterpunch", "looked cleaner", "linked wallet(s)", "wallet trio",
+  "wallet duo", "wallet squad", "informed flow", "smart money flow".
+- Banned CTAs: "in bio", "full breakdown", "link below", "more at", "link in bio".
+
+## Link (mandatory)
+Include exactly one polyspotter.com deep link. Prefer the market page; use a
+wallet link only when the story is about one specific wallet.
+- market: https://polyspotter.com/market/<slug>
+    <slug> = kebab-cased market_title (lowercase, non-alnum → single dash,
+    trim leading/trailing dashes, max 80 chars) + "-" + first 7 chars of
+    condition_id (i.e. "0x" + 5 hex chars).
+- wallet: https://polyspotter.com/wallet/<wallet_address>
+- alert:  https://polyspotter.com/alert/<alert_id>
+- tag:    https://polyspotter.com/tag/<tag-slug>
+
+## Output (strict JSON only)
+{{
+  "tweet": "<text with one polyspotter.com link>"
+}}
+"""
+
+
+def validate_tweet(text: str) -> tuple[bool, str]:
+    """Length / banned-phrase / link presence checks. No JSON parsing."""
+    from tweet_utils import (
+        TWEET_MAX_CHARS, _BANNED_TWEET_PHRASES, _POLYSPOTTER_URL_RE, _tweet_length,
+    )
+    if not isinstance(text, str) or not text.strip():
+        return False, "tweet must be a non-empty string"
+    tlen = _tweet_length(text)
+    if tlen > TWEET_MAX_CHARS:
+        return False, f"tweet length {tlen} exceeds {TWEET_MAX_CHARS}"
+    lower = text.lower()
+    for phrase in _BANNED_TWEET_PHRASES:
+        if phrase in lower:
+            return False, f"tweet contains banned CTA phrase {phrase!r}"
+    if not _POLYSPOTTER_URL_RE.search(text):
+        return False, "tweet must contain a polyspotter.com deep link"
+    return True, ""
+
+
+def _writer_user_message(chosen_alerts: list[dict], event_summary: str,
+                         bundle: dict, chart_pick: dict) -> str:
+    from bot_utils import _compact_alert_for_picker
+    compact = [_compact_alert_for_picker(a) for a in chosen_alerts]
+    payload = {
+        "event_summary": event_summary,
+        "facts_bundle": bundle,
+        "chosen_alerts": compact,
+        "chart_type": chart_pick.get("chart_type"),
+        "hook_anchor": chart_pick.get("hook_anchor"),
+    }
+    return json.dumps(payload, default=str, indent=2)
+
+
+def write_tweet(llm_client, chosen_alerts: list[dict], event_summary: str,
+                bundle: dict, chart_pick: dict, *,
+                usage: dict | None = None,
+                prior_error: str | None = None) -> dict:
+    """Stage 4: compose the tweet. Caller invokes this twice if validation fails."""
+    from bot_utils import MODEL, _accumulate_usage
+    messages = [{"role": "system", "content": SYSTEM_PROMPT_WRITER}]
+    if prior_error:
+        messages.append({
+            "role": "system",
+            "content": f"Your previous tweet failed validation: {prior_error}. Regenerate.",
+        })
+    messages.append({
+        "role": "user",
+        "content": _writer_user_message(chosen_alerts, event_summary, bundle, chart_pick),
+    })
+    response = llm_client.chat.completions.create(
+        model=MODEL,
+        messages=messages,
+        temperature=1,
+        max_completion_tokens=8000,
+        reasoning_effort="medium",
+        response_format={"type": "json_object"},
+    )
+    if usage is not None:
+        _accumulate_usage(usage, response)
+    content = response.choices[0].message.content or "{}"
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError as exc:
+        return {"tweet": "", "_parse_error": f"invalid JSON: {exc}"}
+
+
+def write_tweet_with_retry(llm_client, chosen_alerts, event_summary, bundle,
+                           chart_pick, *, usage=None) -> tuple[dict, str | None, int]:
+    """Run stage 4 once; on validation failure, retry once with the error fed back.
+
+    Returns (final_decision_dict, error_or_None, attempts).
+    """
+    from bot_utils import log
+    attempt = 1
+    out = write_tweet(llm_client, chosen_alerts, event_summary, bundle, chart_pick,
+                      usage=usage)
+    if out.get("_parse_error"):
+        log("validation_retry", error=out["_parse_error"])
+        attempt = 2
+        out = write_tweet(llm_client, chosen_alerts, event_summary, bundle, chart_pick,
+                          usage=usage, prior_error=out["_parse_error"])
+        if out.get("_parse_error"):
+            return out, out["_parse_error"], attempt
+        ok, err = validate_tweet(out.get("tweet", ""))
+        return (out, None, attempt) if ok else (out, err, attempt)
+
+    ok, err = validate_tweet(out.get("tweet", ""))
+    if ok:
+        return out, None, attempt
+    log("validation_retry", error=err)
+    attempt = 2
+    out = write_tweet(llm_client, chosen_alerts, event_summary, bundle, chart_pick,
+                      usage=usage, prior_error=err)
+    if out.get("_parse_error"):
+        return out, out["_parse_error"], attempt
+    ok, err = validate_tweet(out.get("tweet", ""))
+    return (out, None, attempt) if ok else (out, err, attempt)
+
+
 def _select_chosen_alerts(alert_ids: list[int], seed_alerts: list[dict]) -> list[dict]:
     """Filter seed_alerts down to those whose id is in alert_ids.
 
