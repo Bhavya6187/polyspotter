@@ -34,6 +34,7 @@ def init_db():
             _migrate_add_seo_fields(cur)
             _migrate_add_event_timing(cur)
             _migrate_add_tweeted_alerts(cur)
+            _migrate_add_articles(cur)
         conn.commit()
     finally:
         conn.close()
@@ -149,3 +150,34 @@ def _migrate_add_seo_fields(cur):
         """, (col,))
         if not cur.fetchone():
             cur.execute(f"ALTER TABLE alerts ADD COLUMN {col} TEXT DEFAULT {default}")
+
+
+def _migrate_add_articles(cur):
+    """Create the articles table for articlebot drafts (idempotent)."""
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS articles (
+            id              SERIAL PRIMARY KEY,
+            run_id          TEXT NOT NULL UNIQUE,
+            event_slug      TEXT NOT NULL,
+            alert_ids       INTEGER[] NOT NULL,
+            headline        TEXT NOT NULL,
+            subhead         TEXT NOT NULL,
+            body_markdown   TEXT NOT NULL,
+            cover_alt_text  TEXT,
+            cover_path      TEXT,
+            md_path         TEXT NOT NULL,
+            word_count      INTEGER NOT NULL,
+            status          TEXT NOT NULL DEFAULT 'draft',
+            posted_url      TEXT,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            posted_at       TIMESTAMPTZ
+        )
+    """)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_articles_event_slug
+            ON articles (event_slug, created_at DESC)
+    """)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_articles_status
+            ON articles (status, created_at DESC)
+    """)
