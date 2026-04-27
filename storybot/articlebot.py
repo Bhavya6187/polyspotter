@@ -12,6 +12,7 @@ Run via cron:
 from __future__ import annotations
 
 import json
+import re
 
 from bot_utils import (
     MODEL,
@@ -21,6 +22,7 @@ from bot_utils import (
     log,
     query_postgres,
 )
+from tweet_utils import _BANNED_TWEET_PHRASES, _POLYSPOTTER_URL_RE
 
 
 # 24h SQL: alerts grouped by event_slug, with rich JSON_AGG for downstream
@@ -378,3 +380,83 @@ def pick_article_story(llm_client, *, usage: dict | None = None) -> dict:
         decision["chosen_alerts"] = chosen_alerts
 
     return decision
+
+
+# ---------------------------------------------------------------------------
+# Article output validator
+# ---------------------------------------------------------------------------
+
+HEADLINE_MAX_CHARS = 90
+SUBHEAD_MAX_CHARS = 160
+COVER_ALT_MAX_CHARS = 200
+BODY_WORD_MIN = 450
+BODY_WORD_MAX = 800
+BODY_H2_MIN = 3
+BODY_H2_MAX = 4
+
+_H2_LINE_RE = re.compile(r"(?m)^## \S")
+_WORD_RE = re.compile(r"\w+")
+
+
+def _word_count(text: str) -> int:
+    return len(_WORD_RE.findall(text))
+
+
+def validate_article_decision(decision: dict) -> tuple[bool, str]:
+    """Returns (ok, error_message). Mirrors the contract of
+    storybot.validate_decision but for article output shape."""
+    d = decision.get("decision")
+    if d == "skip":
+        return True, ""
+    if d != "post":
+        return False, f"unknown decision: {d!r}"
+
+    article = decision.get("article")
+    if not isinstance(article, dict):
+        return False, "article must be an object when decision=post"
+
+    headline = article.get("headline") or ""
+    if not isinstance(headline, str) or not headline.strip():
+        return False, "article.headline must be a non-empty string"
+    if len(headline) > HEADLINE_MAX_CHARS:
+        return False, f"article.headline length {len(headline)} exceeds {HEADLINE_MAX_CHARS}"
+
+    subhead = article.get("subhead") or ""
+    if not isinstance(subhead, str) or not subhead.strip():
+        return False, "article.subhead must be a non-empty string"
+    if len(subhead) > SUBHEAD_MAX_CHARS:
+        return False, f"article.subhead length {len(subhead)} exceeds {SUBHEAD_MAX_CHARS}"
+
+    cover_alt = article.get("cover_alt_text") or ""
+    if cover_alt and len(cover_alt) > COVER_ALT_MAX_CHARS:
+        return False, f"article.cover_alt_text length {len(cover_alt)} exceeds {COVER_ALT_MAX_CHARS}"
+
+    body = article.get("body_markdown") or ""
+    if not isinstance(body, str) or not body.strip():
+        return False, "article.body_markdown must be a non-empty string"
+
+    wc = _word_count(body)
+    if not (BODY_WORD_MIN <= wc <= BODY_WORD_MAX):
+        return False, f"body word count {wc} outside [{BODY_WORD_MIN}, {BODY_WORD_MAX}]"
+
+    h2_count = len(_H2_LINE_RE.findall(body))
+    if not (BODY_H2_MIN <= h2_count <= BODY_H2_MAX):
+        return False, f"body has {h2_count} H2 sections, expected {BODY_H2_MIN}-{BODY_H2_MAX}"
+
+    if not _POLYSPOTTER_URL_RE.search(body):
+        return False, "body must contain at least one polyspotter.com link"
+
+    body_lower = body.lower()
+    for phrase in _BANNED_TWEET_PHRASES:
+        if phrase in body_lower:
+            return False, f"body contains banned phrase {phrase!r}"
+
+    alert_ids = decision.get("alert_ids") or []
+    if not isinstance(alert_ids, list) or not alert_ids:
+        return False, "alert_ids must be a non-empty list when decision=post"
+    try:
+        [int(i) for i in alert_ids]
+    except (TypeError, ValueError):
+        return False, f"alert_ids must be integers, got {alert_ids!r}"
+
+    return True, ""
