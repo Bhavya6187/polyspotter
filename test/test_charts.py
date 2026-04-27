@@ -146,6 +146,60 @@ def test_fetch_wallet_record_card_returns_none_when_cluster_has_no_trades():
     assert result is None
 
 
+# --------- fresh_wallet_card ---------
+
+def test_fetch_fresh_wallet_card_picks_youngest_wallet_in_cluster(monkeypatch):
+    """Cluster alert (alert['wallet'] is null): scan trades, pick the youngest
+    wallet within FRESH_WALLET_MAX_DAYS, and show only that wallet's individual
+    contribution to the cluster."""
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    alert = {
+        "wallet": None,
+        "market_title": "Will BTC hit $150k by 2027?",
+        "llm_copy_action": '{"outcome": "No"}',
+        "trades": [
+            {"proxyWallet": "0xold",   "usdcSize": 5_000},
+            {"proxyWallet": "0xyoung", "usdcSize": 8_000},
+            {"proxyWallet": "0xnewer", "usdcSize": 1_000},
+        ],
+    }
+    ages = {
+        "0xold":   now - timedelta(days=200),  # too old
+        "0xyoung": now - timedelta(days=12),
+        "0xnewer": now - timedelta(days=4),    # youngest qualifying
+    }
+    monkeypatch.setattr(charts, "_fetch_wallet_created_at",
+                        lambda w: ages.get(w))
+    data = charts.fetch_fresh_wallet_card_data(alert)
+    assert data is not None
+    assert data["wallet_age_days"] == 4
+    assert data["bet_size_usd"] == 1_000
+    assert data["outcome_side"] == "No"
+
+
+def test_fetch_fresh_wallet_card_returns_none_for_cluster_with_no_fresh_wallet(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    alert = {
+        "wallet": None,
+        "market_title": "Some market",
+        "llm_copy_action": '{"outcome": "Yes"}',
+        "trades": [
+            {"proxyWallet": "0xa", "usdcSize": 1_000},
+            {"proxyWallet": "0xb", "usdcSize": 2_000},
+        ],
+    }
+    monkeypatch.setattr(charts, "_fetch_wallet_created_at",
+                        lambda w: now - timedelta(days=200))
+    assert charts.fetch_fresh_wallet_card_data(alert) is None
+
+
+def test_fetch_fresh_wallet_card_returns_none_for_cluster_with_no_trades():
+    alert = {"wallet": None, "trades": []}
+    assert charts.fetch_fresh_wallet_card_data(alert) is None
+
+
 # --------- volume_bar ---------
 
 def test_volume_bar_renders_png_at_canvas_size():

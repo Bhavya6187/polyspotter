@@ -94,36 +94,185 @@ def test_cluster_size_lifted_from_wallet_clustering_severity():
 
 def test_sharp_wallet_from_llm_copy_action():
     alerts = [{
+        "id": 4242,
         "wallet": "0xfeed",
         "llm_copy_action": {"wallet_record": "29-4", "win_pct": 0.88},
         "signals": [],
     }]
     b = twitter_pipeline.build_facts_bundle(alerts, [])
     assert b["has_sharp_wallet"] == {
-        "wallet": "0xfeed", "record": "29-4", "win_pct": 0.88,
+        "wallet": "0xfeed", "record": "29-4", "win_pct": 0.88, "alert_id": 4242,
     }
 
 
-def test_sharp_wallet_falls_back_to_wallet_pnl(monkeypatch):
+def test_sharp_wallet_falls_back_to_wallet_pnl_summary(monkeypatch):
     # No record in llm_copy_action; signals indicate win_rate_tracking;
-    # query_sqlite returns a real row.
+    # db.get_wallet_pnl_summary returns aggregated stats for the wallet.
     alerts = [{
+        "id": 4242,
         "wallet": "0xfeed",
         "llm_copy_action": {},
         "signals": [{"strategy": "win_rate_tracking", "severity": 8}],
     }]
     captured = {}
-    def fake_query(sql, params=()):
-        captured["sql"] = sql
-        captured["params"] = params
-        return [{"wins": 178, "losses": 20, "win_rate": 0.899}]
-    import bot_utils
-    monkeypatch.setattr(bot_utils, "query_sqlite", fake_query)
+    def fake_summary(wallet):
+        captured["wallet"] = wallet
+        return {"closed_positions": 198, "wins": 178, "losses": 20}
+    import db
+    monkeypatch.setattr(db, "get_wallet_pnl_summary", fake_summary)
     b = twitter_pipeline.build_facts_bundle(alerts, [])
     assert b["has_sharp_wallet"]["record"] == "178-20"
     assert b["has_sharp_wallet"]["wallet"] == "0xfeed"
-    assert b["has_sharp_wallet"]["win_pct"] == 0.899
-    assert captured["params"] == ("0xfeed",)
+    assert abs(b["has_sharp_wallet"]["win_pct"] - 178 / 198) < 1e-6
+    assert b["has_sharp_wallet"]["alert_id"] == 4242
+    assert captured["wallet"] == "0xfeed"
+
+
+def test_sharp_wallet_finds_best_wallet_in_cluster(monkeypatch):
+    # Cluster alert (alert.wallet is None) with 3 wallets in trades. Only
+    # one of them clears MIN_RESOLVED_BETS and has the best win rate. The
+    # extractor must scan trades, look each wallet up via
+    # get_wallet_pnl_summary, and return that best wallet.
+    trades = [
+        _trade(wallet="0xaaa", usd=1000),
+        _trade(wallet="0xbbb", usd=2000),
+        _trade(wallet="0xccc", usd=500),
+    ]
+    alerts = [{
+        "id": 121743,
+        "wallet": None,
+        "llm_copy_action": {"outcome": "No"},
+        "signals": [{"strategy": "win_rate_tracking", "severity": 4}],
+        "trades": trades,
+    }]
+    summaries = {
+        "0xaaa": {"closed_positions": 50, "wins": 30, "losses": 20},   # 60%
+        "0xbbb": {"closed_positions": 226, "wins": 215, "losses": 11}, # 95%
+        "0xccc": {"closed_positions": 5, "wins": 5, "losses": 0},      # below min
+    }
+    import db
+    monkeypatch.setattr(db, "get_wallet_pnl_summary",
+                        lambda w: summaries.get(w, {"closed_positions": 0, "wins": 0, "losses": 0}))
+    b = twitter_pipeline.build_facts_bundle(alerts, trades)
+    sharp = b["has_sharp_wallet"]
+    assert sharp is not None
+    assert sharp["wallet"] == "0xbbb"
+    assert sharp["record"] == "215-11"
+    assert abs(sharp["win_pct"] - 215 / 226) < 1e-6
+    assert sharp["alert_id"] == 121743
+
+
+def test_sharp_wallet_returns_none_when_cluster_has_no_qualifying_wallet(monkeypatch):
+    # Cluster wallets all have too few resolved positions — no story.
+    trades = [_trade(wallet="0xaaa", usd=100), _trade(wallet="0xbbb", usd=200)]
+    alerts = [{
+        "id": 99,
+        "wallet": None,
+        "llm_copy_action": {},
+        "signals": [{"strategy": "win_rate_tracking", "severity": 4}],
+        "trades": trades,
+    }]
+    import db
+    monkeypatch.setattr(db, "get_wallet_pnl_summary",
+                        lambda w: {"closed_positions": 5, "wins": 5, "losses": 0})
+    b = twitter_pipeline.build_facts_bundle(alerts, trades)
+    assert b["has_sharp_wallet"] is None
+
+
+def test_fresh_wallet_returns_wallet_for_single_wallet_alert():
+    # Single-wallet alert with new_wallet_large_bet signal: existing
+    # behavior — surface the wallet/alert_id without an age check (the
+    # chart fetcher does the age validation).
+    alerts = [{
+        "id": 999,
+        "wallet": "0xfeed",
+        "signals": [{"strategy": "new_wallet_large_bet", "severity": 4}],
+    }]
+    b = twitter_pipeline.build_facts_bundle(alerts, [])
+    assert b["has_fresh_wallet"] == {"wallet": "0xfeed", "alert_id": 999}
+
+
+def test_fresh_wallet_finds_youngest_in_cluster(monkeypatch):
+    # Cluster alert: scan trade wallets, pick the youngest within
+    # FRESH_WALLET_MAX_DAYS based on Gamma createdAt.
+    trades = [
+        _trade(wallet="0xaaa", usd=1000),
+        _trade(wallet="0xbbb", usd=2000),
+        _trade(wallet="0xccc", usd=500),
+    ]
+    alerts = [{
+        "id": 121967,
+        "wallet": None,
+        "signals": [{"strategy": "new_wallet_large_bet", "severity": 5}],
+    }]
+    now = datetime.now(timezone.utc)
+    ages = {
+        "0xaaa": now - timedelta(days=200),  # too old
+        "0xbbb": now - timedelta(days=12),   # qualifying
+        "0xccc": now - timedelta(days=3),    # youngest qualifying
+    }
+    import charts
+    monkeypatch.setattr(charts, "_fetch_wallet_created_at",
+                        lambda w: ages.get(w))
+    b = twitter_pipeline.build_facts_bundle(alerts, trades)
+    assert b["has_fresh_wallet"] == {"wallet": "0xccc", "alert_id": 121967}
+
+
+def test_fresh_wallet_returns_none_when_cluster_has_no_fresh_wallet(monkeypatch):
+    trades = [_trade(wallet="0xaaa"), _trade(wallet="0xbbb")]
+    alerts = [{
+        "id": 99,
+        "wallet": None,
+        "signals": [{"strategy": "new_wallet_large_bet", "severity": 4}],
+    }]
+    now = datetime.now(timezone.utc)
+    import charts
+    monkeypatch.setattr(charts, "_fetch_wallet_created_at",
+                        lambda w: now - timedelta(days=200))
+    b = twitter_pipeline.build_facts_bundle(alerts, trades)
+    assert b["has_fresh_wallet"] is None
+
+
+def test_fresh_wallet_requires_signal_for_cluster(monkeypatch):
+    # Cluster has a fresh wallet but no new_wallet_large_bet signal —
+    # don't surface a story we weren't told about and don't even hit Gamma.
+    trades = [_trade(wallet="0xaaa")]
+    alerts = [{
+        "id": 99,
+        "wallet": None,
+        "signals": [{"strategy": "concentrated_one_sided", "severity": 5}],
+    }]
+    import charts
+    called = {"n": 0}
+    def fake(w):
+        called["n"] += 1
+        return datetime.now(timezone.utc) - timedelta(days=2)
+    monkeypatch.setattr(charts, "_fetch_wallet_created_at", fake)
+    b = twitter_pipeline.build_facts_bundle(alerts, trades)
+    assert b["has_fresh_wallet"] is None
+    assert called["n"] == 0
+
+
+def test_sharp_wallet_requires_win_rate_signal_for_cluster(monkeypatch):
+    # Cluster has sharp wallets in trades, but no win_rate_tracking signal.
+    # Don't surface a record we weren't told to surface.
+    trades = [_trade(wallet="0xaaa", usd=100)]
+    alerts = [{
+        "id": 99,
+        "wallet": None,
+        "llm_copy_action": {},
+        "signals": [{"strategy": "concentrated_one_sided", "severity": 5}],
+        "trades": trades,
+    }]
+    import db
+    called = {"n": 0}
+    def fake_summary(_w):
+        called["n"] += 1
+        return {"closed_positions": 226, "wins": 215, "losses": 11}
+    monkeypatch.setattr(db, "get_wallet_pnl_summary", fake_summary)
+    b = twitter_pipeline.build_facts_bundle(alerts, trades)
+    assert b["has_sharp_wallet"] is None
+    assert called["n"] == 0  # don't even hit the DB without the gating signal
 
 
 def test_minutes_to_resolution_uses_nearest_future_time():
@@ -165,3 +314,52 @@ def test_fetch_data_bundle_collects_trades_per_alert(monkeypatch):
     assert "Yes" in bundle["token_map"]
     assert "facts_bundle" in bundle
     assert bundle["facts_bundle"]["distinct_wallets"] == 3
+
+
+def test_chart_target_alert_id_uses_fresh_wallet_alert():
+    # primary alert is the sharp/serial wallet; fresh wallet is on a secondary
+    # alert in the cluster — fresh_wallet_card must route to that one.
+    facts_bundle = {
+        "has_fresh_wallet": {"wallet": "0xnew", "alert_id": 120672},
+        "has_sharp_wallet": None,
+    }
+    target = twitter_pipeline._chart_target_alert_id(
+        "fresh_wallet_card", [120845, 120672], facts_bundle)
+    assert target == 120672
+
+
+def test_chart_target_alert_id_uses_sharp_wallet_alert():
+    facts_bundle = {
+        "has_fresh_wallet": None,
+        "has_sharp_wallet": {"wallet": "0xpro", "record": "71-0",
+                             "win_pct": 1.0, "alert_id": 999},
+    }
+    target = twitter_pipeline._chart_target_alert_id(
+        "wallet_record_card", [120, 999], facts_bundle)
+    assert target == 999
+
+
+def test_chart_target_alert_id_falls_back_to_primary_for_other_charts():
+    # price_sparkline / volume_bar / cluster_card aren't bound to a specific
+    # wallet — they render against the primary alert in the cluster.
+    facts_bundle = {
+        "has_fresh_wallet": {"wallet": "0xnew", "alert_id": 999},
+        "has_sharp_wallet": None,
+    }
+    for chart_type in ("price_sparkline", "volume_bar", "cluster_card", "none"):
+        target = twitter_pipeline._chart_target_alert_id(
+            chart_type, [120845, 999], facts_bundle)
+        assert target == 120845, chart_type
+
+
+def test_chart_target_alert_id_falls_back_when_bundle_missing_alert():
+    # Defensive: if the bundle's wallet entry is missing alert_id (older
+    # transcripts or partial data), fall back to the primary alert rather
+    # than crashing or pointing nowhere.
+    facts_bundle = {
+        "has_fresh_wallet": {"wallet": "0xnew"},  # no alert_id
+        "has_sharp_wallet": None,
+    }
+    target = twitter_pipeline._chart_target_alert_id(
+        "fresh_wallet_card", [120845, 120672], facts_bundle)
+    assert target == 120845

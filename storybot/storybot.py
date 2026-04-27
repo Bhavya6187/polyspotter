@@ -1183,7 +1183,6 @@ def run_agent(llm_client, *, chosen_alerts: list[dict],
             "tools": TOOL_SCHEMAS,
             "temperature": 1,
             "max_completion_tokens": 12000,
-            "reasoning_effort": "high",
         }
         if remaining > 0 and not forcing_final:
             kwargs["tool_choice"] = "auto"

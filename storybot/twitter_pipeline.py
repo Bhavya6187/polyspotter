@@ -41,9 +41,59 @@ def _parse_iso(value) -> datetime | None:
     return None
 
 
-def _extract_sharp_wallet(chosen_alerts: list[dict]) -> dict | None:
-    """Try llm_copy_action first; fall back to wallet_pnl SQLite lookup if a
-    win_rate_tracking signal exists but no record string is in the payload."""
+# Min resolved P&L positions for a wallet's record to be a "story".
+# Mirrors detection_strategies.win_rate_tracking.MIN_RESOLVED_BETS and
+# storybot.charts.WALLET_RECORD_MIN_BETS so the bundle, the chart picker,
+# and the chart fetcher all agree on what counts.
+_SHARP_WALLET_MIN_BETS = 10
+
+
+def _distinct_trade_wallets(trades: list[dict]) -> list[str]:
+    """Distinct wallets across the trades, in first-seen order. Handles both
+    'proxyWallet' (Polymarket Data API) and 'wallet' (internal/test) keys."""
+    if not isinstance(trades, list):
+        return []
+    seen: dict[str, None] = {}
+    for t in trades:
+        if not isinstance(t, dict):
+            continue
+        w = t.get("proxyWallet") or t.get("wallet")
+        if w and w not in seen:
+            seen[w] = None
+    return list(seen)
+
+
+def _best_sharp_wallet_via_pnl(wallets: list[str]) -> tuple[str, int, int] | None:
+    """Pick the wallet with the highest win_rate among those clearing
+    _SHARP_WALLET_MIN_BETS resolved P&L positions. Returns (wallet, wins, losses)
+    or None. Failures (missing db, bad row) degrade silently to None."""
+    import db
+    best: tuple[str, int, int] | None = None
+    best_rate = -1.0
+    for w in wallets:
+        try:
+            summary = db.get_wallet_pnl_summary(w)
+        except Exception:
+            continue
+        closed = int(summary.get("closed_positions") or 0)
+        if closed < _SHARP_WALLET_MIN_BETS:
+            continue
+        wins = int(summary.get("wins") or 0)
+        losses = int(summary.get("losses") or 0)
+        rate = wins / closed if closed > 0 else 0.0
+        if rate > best_rate:
+            best = (w, wins, losses)
+            best_rate = rate
+    return best
+
+
+def _extract_sharp_wallet(chosen_alerts: list[dict],
+                          trades: list[dict]) -> dict | None:
+    """Try llm_copy_action first; fall back to wallet_pnl summary if a
+    win_rate_tracking signal exists. For cluster alerts (no top-level wallet),
+    scan the cluster's trades and pick the highest-win-rate wallet meeting the
+    min resolved-positions threshold — matching the chart fetcher's cluster
+    path in storybot.charts.fetch_wallet_record_card_data."""
     for a in chosen_alerts:
         copy = a.get("llm_copy_action") or {}
         if isinstance(copy, str):
@@ -58,51 +108,54 @@ def _extract_sharp_wallet(chosen_alerts: list[dict]) -> dict | None:
                 "wallet": a["wallet"],
                 "record": str(record),
                 "win_pct": float(win_pct) if win_pct is not None else None,
+                "alert_id": int(a.get("id") or 0),
             }
 
-    # Fallback: any alert has a win_rate_tracking signal? Ask wallet_pnl.
     for a in chosen_alerts:
         signals = a.get("signals") or []
-        if not any((s.get("strategy") == "win_rate_tracking") for s in signals):
+        if not any(s.get("strategy") == "win_rate_tracking" for s in signals):
             continue
-        wallet = a.get("wallet")
-        if not wallet:
+        candidates = [a["wallet"]] if a.get("wallet") else _distinct_trade_wallets(trades)
+        if not candidates:
             continue
-        try:
-            from bot_utils import query_sqlite
-            rows = query_sqlite(
-                "SELECT wins, losses, win_rate FROM wallet_pnl "
-                "WHERE wallet = ? LIMIT 1",
-                (wallet,),
-            )
-        except Exception:
-            rows = []
-        if rows:
-            r = rows[0]
-            wins, losses = r.get("wins"), r.get("losses")
-            wr = r.get("win_rate")
-            if wins is not None and losses is not None:
-                return {
-                    "wallet": wallet,
-                    "record": f"{wins}-{losses}",
-                    "win_pct": float(wr) if wr is not None else None,
-                }
+        best = _best_sharp_wallet_via_pnl(candidates)
+        if best is None:
+            continue
+        wallet, wins, losses = best
+        closed = wins + losses
+        return {
+            "wallet": wallet,
+            "record": f"{wins}-{losses}",
+            "win_pct": (wins / closed) if closed > 0 else None,
+            "alert_id": int(a.get("id") or 0),
+        }
     return None
 
 
-def _extract_fresh_wallet(chosen_alerts: list[dict]) -> dict | None:
+def _extract_fresh_wallet(chosen_alerts: list[dict],
+                          trades: list[dict]) -> dict | None:
     """Surface a fresh-account bet if the cluster contains a new_wallet_large_bet
     signal. Returns {wallet, alert_id} for the first match, else None.
 
-    The actual wallet age is fetched live by the chart fetcher (Gamma
-    /public-profile) — the picker only needs to know one exists."""
+    Single-wallet alerts: trust the signal and skip the age check (the chart
+    fetcher does it). Cluster alerts (no top-level wallet): scan the cluster's
+    trades and pick the youngest wallet within FRESH_WALLET_MAX_DAYS — matching
+    the chart fetcher's cluster path in storybot.charts.fetch_fresh_wallet_card_data.
+    """
     for a in chosen_alerts:
         signals = a.get("signals") or []
         if not any(s.get("strategy") == "new_wallet_large_bet" for s in signals):
             continue
-        wallet = a.get("wallet")
-        if not wallet:
+        if a.get("wallet"):
+            return {"wallet": a["wallet"], "alert_id": int(a.get("id") or 0)}
+        candidates = _distinct_trade_wallets(trades)
+        if not candidates:
             continue
+        import charts
+        best = charts.youngest_fresh_wallet(candidates)
+        if best is None:
+            continue
+        wallet, _age_days = best
         return {"wallet": wallet, "alert_id": int(a.get("id") or 0)}
     return None
 
@@ -218,8 +271,8 @@ def build_facts_bundle(chosen_alerts: list[dict], trades: list[dict]) -> dict:
         "time_span_minutes": _time_span_minutes(trades),
         "biggest_price_move": _biggest_price_move(trades),
         "peak_hour_volume_usd": _peak_hour_volume_usd(trades),
-        "has_sharp_wallet": _extract_sharp_wallet(chosen_alerts),
-        "has_fresh_wallet": _extract_fresh_wallet(chosen_alerts),
+        "has_sharp_wallet": _extract_sharp_wallet(chosen_alerts, trades),
+        "has_fresh_wallet": _extract_fresh_wallet(chosen_alerts, trades),
         "cluster_size": _cluster_size(chosen_alerts),
         "has_volume_spike": _has_volume_spike(chosen_alerts),
         "minutes_to_resolution": _minutes_to_resolution(chosen_alerts),
@@ -424,7 +477,10 @@ You see:
 - facts_bundle: precise numbers (price moves, volume, sharp wallet record, etc.)
 - chosen_alerts: the compact alert rows
 - chart_type: which chart will ship with the tweet
-- hook_anchor: a short phrase the chart proves; LEAD WITH THIS in the tweet
+- hook_anchor: a short phrase describing what the chart visualizes. This is a
+  CHART LABEL, not a tweet opener. Do NOT echo it verbatim. Treat it as a hint
+  about which fact the chart will reinforce; you still write the tweet's lede
+  in your own plain-English voice.
 
 Your job: write a tweet that fits in 280 characters (URLs count as 23 chars).
 
@@ -438,12 +494,40 @@ as a self-contained sentence.
   cuts in May" not "Yes for $40k", "buying No at 12c" not "buying at 12c".
 - When citing a win rate or record, say what it counts: "88% across 50+ Polymarket
   bets" / "178-20 on past markets", not "wins 88% of the time".
+- Translate the strategy concept into plain behavior, not the label:
+  - wallet_clustering / concentrated_one_sided →
+    "three accounts sharing one funder", "a group of accounts moving in
+    lockstep on the same side"
+  - timing_relative_resolution → "buying with X minutes left",
+    "an account that keeps showing up minutes before resolution"
+  - new_wallet_large_bet → "a 12-day-old account dropping $80k"
+  - win_rate_tracking → "an account hitting 88% of prior bets"
+  - pre_event_volume_spike → "10x the usual flow into this market"
+  - price_impact → "a single buy that pushed the line from 32c to 41c"
 
 ## Style
-- Confident, punchy, human. Like a sharp friend explaining what they just spotted.
-- LEAD WITH the hook_anchor — restate it as the first clause. Everything else
-  is supporting context.
-- 2-3 short sentences beats one long clause-stack. Aim for ≤20 words per sentence.
+- Confident, punchy, human. Like a sharp friend explaining what they just spotted —
+  NOT analyst-speak, NOT a press release, NOT scanner output.
+- Lead with the SINGLE most surprising fact in the story — not the structural
+  setup, not a chart label. Identify the one thing that makes a reader stop
+  scrolling, and put it in the first clause as natural English. The hook_anchor
+  tells you which fact the chart proves; your job is to express that fact in
+  human voice. The lede shape depends on what's actually surprising:
+  - win_rate / sharp wallet → record-led: "An account that's gone 29-4 on
+    Polymarket just…"
+  - new_wallet_large_bet → age-led: "A 12-day-old account just dropped $80k…"
+  - timing_relative_resolution → timing-led: "With 4 minutes left, someone bought…"
+  - price_impact → impact-led: "One buy just flipped this market from 32c to 41c…"
+  - low_activity_large_bet → size-led: "$50k just landed on a market that's
+    seen $4k all week…"
+  - wallet_clustering / concentrated_one_sided → cluster-led only if the
+    cluster IS the surprising thing; if one of the cluster wallets has a
+    strong record, lead with the record and bring in the cluster as
+    supporting context. Even when cluster-led, write it as behavior
+    ("Eight Polymarket accounts just bought…") not as a tile name
+    ("8-wallet NO cluster…").
+- Pacing: 2-3 short sentences beats one long clause-stack. Aim for ≤20 words
+  per sentence. Punchy rhythm > polished prose.
 - Round numbers for readability: "$78k" not "$78,131.61"; "$2.8M" not "$2,789,285.20".
   Win-rate records stay exact ("178-20"). Max 3 numbers.
 - Refer to wallets by what makes them notable ("a 178-20 wallet", "a fresh account
@@ -457,7 +541,42 @@ as a self-contained sentence.
   "positioning", "near-resolution flag", "priced in", "coordinated burst",
   "pile-in", "counterpunch", "looked cleaner", "linked wallet(s)", "wallet trio",
   "wallet duo", "wallet squad", "informed flow", "smart money flow".
+- Banned tile-talk lede shapes: "<N>-wallet <SIDE> cluster", "<N>x volume spike",
+  "<wallet> sharp record" used as a noun-phrase opener. Restate as behavior.
 - Banned CTAs: "in bio", "full breakdown", "link below", "more at", "link in bio".
+
+## Worked example
+BAD (jargon-heavy, no context, vague closer):
+  "A linked wallet trio just slammed Red Sox/Orioles Under 7.5 for $32k.
+  One buyer wins 88% of the time. Not random baseball action."
+Why it's bad: "linked wallet trio" is insider lingo, "Under 7.5" omits the
+unit (runs), "wins 88%" omits what (Polymarket bets), nothing tells the
+reader this is a prediction market, and the closer adds no information.
+
+OK (clear but buries the lede in a long opening clause):
+  "Three Polymarket accounts sharing one funder just stacked $32k on
+  Red Sox/Orioles staying under 7.5 runs tonight. One of them is 88%
+  across 50+ prior bets on the site."
+Why it's only OK: the strongest fact (the 88% record) shows up second,
+and the opening sentence runs ~25 words.
+
+GOOD (lead with the record, short sentences):
+  "A Polymarket account with a 29-4 record just helped pile $65k on
+  Red Sox/Orioles staying under 7.5 runs tonight. Two more accounts
+  on the same funder rode along.
+  https://polyspotter.com/alert/114781"
+
+Tile-label trap (avoid):
+  "7-wallet NO cluster against Finland winning Eurovision 2026: bettors
+  bought about $20k of No on Polymarket. Volume hit 130x the market's
+  usual pace."
+Why it's bad: "7-wallet NO cluster against …" is a chart caption, not a
+tweet opener. Restate as behavior.
+
+Better:
+  "Eight Polymarket accounts just bought $23k of No on Finland winning
+  Eurovision 2026. The market's usual volume got blown out by an 82x
+  surge, months before the final."
 
 ## Link (mandatory)
 Include exactly one polyspotter.com deep link. Prefer the market page; use a
@@ -582,6 +701,29 @@ def _select_chosen_alerts(alert_ids: list[int], seed_alerts: list[dict]) -> list
     """
     by_id = {int(a.get("id") or 0): a for a in seed_alerts}
     return [by_id[int(i)] for i in alert_ids if int(i) in by_id]
+
+
+def _chart_target_alert_id(chart_type: str, alert_ids: list[int],
+                           facts_bundle: dict) -> int:
+    """Pick which chosen alert the chart should render against.
+
+    fresh_wallet_card and wallet_record_card are wallet-bound — they must
+    render against the alert whose wallet matches the chart's subject, which
+    isn't always the cluster's primary alert. Other chart types fall back to
+    the primary alert.
+
+    The has_fresh_wallet / has_sharp_wallet entries always reference an
+    alert in `chosen_alerts` (they're built from the same list), so the
+    resolved id is guaranteed to be a member of `alert_ids`.
+    """
+    primary = int(alert_ids[0])
+    if chart_type == "fresh_wallet_card":
+        info = facts_bundle.get("has_fresh_wallet") or {}
+        return int(info.get("alert_id") or primary)
+    if chart_type == "wallet_record_card":
+        info = facts_bundle.get("has_sharp_wallet") or {}
+        return int(info.get("alert_id") or primary)
+    return primary
 
 
 def fetch_data_bundle(alert_ids: list[int], seed_alerts: list[dict]) -> dict:
@@ -786,10 +928,15 @@ def main() -> int:
     log("tweet_drafted", run_id=run_id, attempts=attempts, length=len(tweet))
     log("llm_usage", run_id=run_id, **usage_totals)
 
-    # Resolve chart png
+    # Resolve chart png. Wallet-shaped charts must target the specific alert
+    # whose wallet is the chart's subject (the fresh wallet for fresh_wallet_card,
+    # the sharp wallet for wallet_record_card) — that alert isn't always the
+    # primary one in the cluster. Other chart types use the primary alert.
+    target_alert_id = _chart_target_alert_id(
+        chart_pick["chart_type"], pick["alert_ids"], bundle["facts_bundle"])
     target_alert = next(
         (a for a in bundle["chosen_alerts"]
-         if int(a.get("id") or 0) == int(pick["alert_ids"][0])),
+         if int(a.get("id") or 0) == target_alert_id),
         None,
     )
     chart_png = (prepare_chart(chart_pick["chart_type"], target_alert)

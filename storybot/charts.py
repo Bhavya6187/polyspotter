@@ -259,6 +259,7 @@ class FreshWalletCardData(TypedDict):
 # with a small buffer so an alert generated near the cutoff still renders.
 FRESH_WALLET_MAX_DAYS = 60
 GAMMA_PUBLIC_PROFILE_URL = "https://gamma-api.polymarket.com/public-profile"
+POLYMARKET_DATA_API = "https://data-api.polymarket.com"
 
 
 def render_fresh_wallet_card(data: FreshWalletCardData) -> bytes:
@@ -292,10 +293,62 @@ def render_fresh_wallet_card(data: FreshWalletCardData) -> bytes:
     return _figure_to_png_bytes(fig)
 
 
+def _fetch_wallet_first_trade_at(wallet: str) -> datetime | None:
+    """Earliest trade timestamp for a wallet from the Polymarket Data API.
+
+    Used as a fallback for wallet age when Gamma has no public profile —
+    a wallet that traded but never went through profile setup has no
+    `/public-profile` row, but the Data API still has its trades. The
+    detection layer treats those wallets as "very new"; this gives the
+    chart a real number to render.
+
+    Data API `/trades` returns desc by timestamp and ignores sort params,
+    so we page until we hit a partial/empty page and take the last item.
+    Capped at MAX_PAGES because a wallet active enough to need more isn't
+    plausibly fresh anyway."""
+    if not wallet:
+        return None
+    PAGE = 500
+    MAX_PAGES = 5
+    earliest_ts: int | None = None
+    offset = 0
+    try:
+        for _ in range(MAX_PAGES):
+            r = requests.get(
+                f"{POLYMARKET_DATA_API}/trades",
+                params={"user": wallet, "limit": PAGE, "offset": offset},
+                timeout=QUERY_TIMEOUT_SECONDS * 2,
+            )
+            r.raise_for_status()
+            chunk = r.json()
+            if not chunk:
+                break
+            last_ts = int(chunk[-1].get("timestamp") or 0)
+            if last_ts > 0 and (earliest_ts is None or last_ts < earliest_ts):
+                earliest_ts = last_ts
+            if len(chunk) < PAGE:
+                break
+            offset += PAGE
+    except (requests.RequestException, ValueError) as exc:
+        print(
+            f"[storybot.charts] _fetch_wallet_first_trade_at failed for {wallet}: "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return None
+    if earliest_ts is None:
+        return None
+    return datetime.fromtimestamp(earliest_ts, tz=timezone.utc)
+
+
 def _fetch_wallet_created_at(wallet: str) -> datetime | None:
-    """Live Gamma /public-profile fetch for a wallet's `createdAt`. Returns
-    None on 404 / network failure / missing field. Mirrors the lookup used
-    by detection_strategies/new_wallet_large_bet.py."""
+    """Live Gamma /public-profile fetch for a wallet's `createdAt`. Falls
+    back to the earliest trade timestamp from the Data API when Gamma has
+    no profile row (the user never set up a public profile) or returns no
+    usable createdAt. Returns None only on network failure or a wallet
+    with neither profile nor trades. Mirrors the freshness logic in
+    detection_strategies/new_wallet_large_bet.py, which also treats a 404
+    as "very new wallet"."""
     if not wallet:
         return None
     try:
@@ -305,7 +358,7 @@ def _fetch_wallet_created_at(wallet: str) -> datetime | None:
             timeout=QUERY_TIMEOUT_SECONDS * 2,
         )
         if r.status_code == 404:
-            return None
+            return _fetch_wallet_first_trade_at(wallet)
         r.raise_for_status()
         profile = r.json()
     except (requests.RequestException, ValueError) as exc:
@@ -317,37 +370,76 @@ def _fetch_wallet_created_at(wallet: str) -> datetime | None:
         return None
     created_str = profile.get("createdAt") if isinstance(profile, dict) else None
     if not created_str:
-        return None
+        return _fetch_wallet_first_trade_at(wallet)
     try:
         return datetime.fromisoformat(created_str.replace("Z", "+00:00"))
     except (ValueError, AttributeError):
-        return None
+        return _fetch_wallet_first_trade_at(wallet)
+
+
+def youngest_fresh_wallet(wallets: list[str]) -> tuple[str, int] | None:
+    """Pick the wallet with the smallest age (in days) within
+    FRESH_WALLET_MAX_DAYS, by Gamma `createdAt`. Returns (wallet, age_days)
+    or None when no wallet qualifies. Network failures degrade silently."""
+    now = datetime.now(timezone.utc)
+    best: tuple[str, int] | None = None
+    for w in wallets:
+        try:
+            ca = _fetch_wallet_created_at(w)
+        except Exception:
+            continue
+        if ca is None:
+            continue
+        if ca.tzinfo is None:
+            ca = ca.replace(tzinfo=timezone.utc)
+        age_days = (now - ca).days
+        if age_days < 0 or age_days > FRESH_WALLET_MAX_DAYS:
+            continue
+        if best is None or age_days < best[1]:
+            best = (w, age_days)
+    return best
 
 
 def fetch_fresh_wallet_card_data(alert: dict) -> FreshWalletCardData | None:
-    """Build FreshWalletCardData for a single-wallet new-account bet.
+    """Build FreshWalletCardData for either a single-wallet or cluster alert.
 
-    Returns None when the wallet is missing, has no Gamma profile, or is
-    older than FRESH_WALLET_MAX_DAYS — those aren't fresh-wallet stories.
+    Single-wallet (alert['wallet'] set): use that wallet's age, with the
+    alert's total_usd as the bet size in the footer.
+
+    Cluster (alert['wallet'] empty): scan alert['trades'], pick the youngest
+    wallet within FRESH_WALLET_MAX_DAYS, and show that wallet's individual
+    contribution to the cluster (mirrors the wallet_record_card cluster path).
+
+    Returns None when no wallet qualifies (missing profile, too old, no trades).
 
     alert dict fields used:
-        wallet          — Polymarket proxy wallet
+        wallet          — Polymarket proxy wallet (single-wallet alerts only)
+        trades          — list of trade dicts (cluster alerts; required there)
         market_title    — market question string
-        total_usd       — bet size on this market
+        total_usd       — bet size for single-wallet alerts
         llm_copy_action — JSON string (or dict) with outcome/side fields
     """
     wallet = alert.get("wallet")
-    if not wallet:
-        return None
-    created_at = _fetch_wallet_created_at(wallet)
-    if created_at is None:
-        return None
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=timezone.utc)
-    age_days = (datetime.now(timezone.utc) - created_at).days
-    if age_days < 0 or age_days > FRESH_WALLET_MAX_DAYS:
-        return None
-    bet_size = float(alert.get("total_usd") or 0)
+    if wallet:
+        created_at = _fetch_wallet_created_at(wallet)
+        if created_at is None:
+            return None
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        age_days = (datetime.now(timezone.utc) - created_at).days
+        if age_days < 0 or age_days > FRESH_WALLET_MAX_DAYS:
+            return None
+        bet_size = float(alert.get("total_usd") or 0)
+    else:
+        wallet_sizes = _wallets_in_alert(alert)
+        if not wallet_sizes:
+            return None
+        best = youngest_fresh_wallet([w for w, _ in wallet_sizes])
+        if best is None:
+            return None
+        wallet, age_days = best
+        bet_size = dict(wallet_sizes).get(wallet, 0.0)
+
     if bet_size <= 0:
         return None
     copy = alert.get("llm_copy_action") or {}
