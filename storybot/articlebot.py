@@ -306,3 +306,75 @@ def pick_final_event(llm_client, finalists: list[dict],
         "alert_ids": parsed.get("alert_ids"),
         "reason": parsed.get("reason") or "",
     }
+
+
+PICKER_CHUNK_SIZE = 40
+RECENT_ARTICLES_WINDOW_DAYS = 7
+
+
+def fetch_recent_article_slugs() -> list[str]:
+    """event_slugs we've published in the last RECENT_ARTICLES_WINDOW_DAYS
+    days (skipped rows excluded — see spec § Decisions)."""
+    sql = f"""
+        SELECT DISTINCT event_slug
+        FROM articles
+        WHERE created_at >= NOW() - INTERVAL '{RECENT_ARTICLES_WINDOW_DAYS} days'
+          AND status != 'skipped'
+    """
+    try:
+        rows = query_postgres(sql)
+    except Exception as exc:
+        log("articlebot_recent_slugs_error", error=f"{type(exc).__name__}: {exc}")
+        return []
+    return [r["event_slug"] for r in rows if r.get("event_slug")]
+
+
+def pick_article_story(llm_client, *, usage: dict | None = None) -> dict:
+    """Tournament picker. Returns a dict shaped like pick_final_event's output
+    plus the chosen event's full alerts list (so caller can resolve alert_ids
+    to alert dicts without a second query)."""
+    events = fetch_24h_event_summaries()
+    if not events:
+        return {"decision": "skip", "event_slug": None, "alert_ids": None,
+                "reason": "no events in the last 24h"}
+
+    # Stage 1: chunked finalist picker
+    finalist_slugs: list[str] = []
+    for i in range(0, len(events), PICKER_CHUNK_SIZE):
+        chunk = events[i:i + PICKER_CHUNK_SIZE]
+        finalist_slugs.extend(pick_finalists_chunk(llm_client, chunk, usage=usage))
+
+    # Dedup while preserving order
+    seen: dict[str, None] = {}
+    for s in finalist_slugs:
+        seen.setdefault(s, None)
+    finalist_slugs = list(seen)
+
+    finalists = [e for e in events if e["event_slug"] in seen]
+    log("articlebot_stage1_done",
+        chunk_count=(len(events) + PICKER_CHUNK_SIZE - 1) // PICKER_CHUNK_SIZE,
+        finalists=len(finalists))
+
+    if not finalists:
+        return {"decision": "skip", "event_slug": None, "alert_ids": None,
+                "reason": "stage 1 produced no finalists"}
+
+    # Stage 2: final picker
+    recent = fetch_recent_article_slugs()
+    decision = pick_final_event(llm_client, finalists,
+                                recent_event_slugs=recent, usage=usage)
+
+    # Attach the chosen event's alerts so downstream can resolve alert_ids → alert dicts
+    if decision["decision"] == "post":
+        chosen = next((e for e in finalists if e["event_slug"] == decision["event_slug"]), None)
+        if chosen is None:
+            return {"decision": "skip", "event_slug": None, "alert_ids": None,
+                    "reason": "stage-2 chose an event not in finalists (post-validation)"}
+        wanted_ids = set(decision["alert_ids"] or [])
+        chosen_alerts = [a for a in (chosen.get("alerts") or []) if a.get("id") in wanted_ids]
+        if not chosen_alerts:
+            return {"decision": "skip", "event_slug": None, "alert_ids": None,
+                    "reason": f"stage-2 returned alert_ids not in chosen event"}
+        decision["chosen_alerts"] = chosen_alerts
+
+    return decision

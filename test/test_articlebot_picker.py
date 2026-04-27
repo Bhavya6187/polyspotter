@@ -215,3 +215,56 @@ def test_pick_final_event_drops_unknown_slug():
     out = articlebot.pick_final_event(client, finalists, recent_event_slugs=[])
 
     assert out["decision"] == "skip"
+
+
+def test_pick_article_story_orchestrates_stages():
+    """Stage 0 returns 60 events → 2 stage-1 chunks → 6 finalists → stage 2
+    picks one. Verifies the orchestrator threads inputs/outputs correctly."""
+    import articlebot
+
+    events = [_ev(f"slug-{i}", score=10 - i) for i in range(60)]
+
+    # Stage-1 chunk responses: each chunk picks 3 finalists.
+    stage1_responses = [
+        '{"finalists":["slug-0","slug-1","slug-2"],"reasoning":"r"}',
+        '{"finalists":["slug-40","slug-41","slug-42"],"reasoning":"r"}',
+    ]
+    # Stage-2 picks slug-0 with its alert_id.
+    stage2_response = (
+        '{"decision":"post","event_slug":"slug-0",'
+        '"alert_ids":[1],"reason":"sharp"}'
+    )
+    client = _FakeClient(stage1_responses + [stage2_response])
+
+    with patch.object(articlebot, "fetch_24h_event_summaries", return_value=events), \
+         patch.object(articlebot, "fetch_recent_article_slugs", return_value=[]):
+        out = articlebot.pick_article_story(client)
+
+    assert out["decision"] == "post"
+    assert out["event_slug"] == "slug-0"
+    assert out["alert_ids"] == [1]
+    # 2 stage-1 calls + 1 stage-2 call = 3
+    assert client.completions.calls == 3
+
+
+def test_pick_article_story_skips_when_no_events():
+    import articlebot
+    client = _FakeClient([])
+    with patch.object(articlebot, "fetch_24h_event_summaries", return_value=[]):
+        out = articlebot.pick_article_story(client)
+    assert out["decision"] == "skip"
+    assert "no events" in out["reason"]
+
+
+def test_fetch_recent_article_slugs_excludes_skipped_and_old():
+    import articlebot
+    rows = [
+        {"event_slug": "covered-1"},
+        {"event_slug": "covered-2"},
+    ]
+    with patch.object(articlebot, "query_postgres", return_value=rows) as q:
+        out = articlebot.fetch_recent_article_slugs()
+    assert out == ["covered-1", "covered-2"]
+    sql = q.call_args.args[0]
+    assert "status != 'skipped'" in sql
+    assert "INTERVAL '7 days'" in sql
