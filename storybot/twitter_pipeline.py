@@ -481,15 +481,13 @@ def write_tweet(llm_client, chosen_alerts: list[dict], event_summary: str,
     """Stage 4: compose the tweet. Caller invokes this twice if validation fails."""
     from bot_utils import MODEL, _accumulate_usage
     messages = [{"role": "system", "content": SYSTEM_PROMPT_WRITER}]
+    user_payload = _writer_user_message(chosen_alerts, event_summary, bundle, chart_pick)
     if prior_error:
-        messages.append({
-            "role": "system",
-            "content": f"Your previous tweet failed validation: {prior_error}. Regenerate.",
-        })
-    messages.append({
-        "role": "user",
-        "content": _writer_user_message(chosen_alerts, event_summary, bundle, chart_pick),
-    })
+        user_payload = (
+            f"Your previous tweet failed validation: {prior_error}. Regenerate.\n\n"
+            + user_payload
+        )
+    messages.append({"role": "user", "content": user_payload})
     response = llm_client.chat.completions.create(
         model=MODEL,
         messages=messages,
