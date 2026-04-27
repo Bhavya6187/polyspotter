@@ -194,6 +194,48 @@ def build_facts_bundle(chosen_alerts: list[dict], trades: list[dict]) -> dict:
     }
 
 
+def _select_chosen_alerts(alert_ids: list[int], seed_alerts: list[dict]) -> list[dict]:
+    """Filter seed_alerts down to those whose id is in alert_ids."""
+    wanted = {int(i) for i in alert_ids}
+    return [a for a in seed_alerts if int(a.get("id") or 0) in wanted]
+
+
+def fetch_data_bundle(alert_ids: list[int], seed_alerts: list[dict]) -> dict:
+    """Stage 2: fetch trades + Gamma tokens for chosen alerts, build facts_bundle.
+
+    Returns: {chosen_alerts, trades, token_map, facts_bundle}.
+    Failures are absorbed — missing trades become [], missing tokens become {}.
+    """
+    from tweet_utils import fetch_alert_trades, fetch_market_tokens
+    from bot_utils import log
+
+    chosen = _select_chosen_alerts(alert_ids, seed_alerts)
+
+    trades: list[dict] = []
+    for aid in alert_ids:
+        try:
+            trades.extend(fetch_alert_trades(int(aid)))
+        except Exception as exc:
+            log("alert_trades_fetch_error",
+                alert_id=aid, error=f"{type(exc).__name__}: {exc}")
+
+    token_map: dict[str, str] = {}
+    seen_cids: set[str] = set()
+    for a in chosen:
+        cid = a.get("condition_id")
+        if not cid or cid in seen_cids:
+            continue
+        seen_cids.add(cid)
+        token_map.update(fetch_market_tokens(cid))
+
+    return {
+        "chosen_alerts": chosen,
+        "trades": trades,
+        "token_map": token_map,
+        "facts_bundle": build_facts_bundle(chosen, trades),
+    }
+
+
 if __name__ == "__main__":
     import sys
     print("twitter_pipeline.py: main() not implemented yet", file=sys.stderr)

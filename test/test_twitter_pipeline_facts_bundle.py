@@ -135,3 +135,33 @@ def test_minutes_to_resolution_uses_nearest_future_time():
     ]
     b = twitter_pipeline.build_facts_bundle(alerts, [])
     assert 28 <= b["minutes_to_resolution"] <= 31
+
+
+def test_fetch_data_bundle_collects_trades_per_alert(monkeypatch):
+    seed = [
+        {"id": 1, "condition_id": "0xabc"},
+        {"id": 2, "condition_id": "0xabc"},  # same market — token fetch should dedup
+        {"id": 3, "condition_id": "0xdef"},
+    ]
+    calls_trades = []
+    calls_tokens = []
+    def fake_trades(aid):
+        calls_trades.append(int(aid))
+        return [_trade(wallet=f"0x{aid:02x}", usd=100)]
+    def fake_tokens(cid):
+        calls_tokens.append(cid)
+        return {"Yes": f"tok-{cid}-yes"}
+
+    import tweet_utils
+    monkeypatch.setattr(tweet_utils, "fetch_alert_trades", fake_trades)
+    monkeypatch.setattr(tweet_utils, "fetch_market_tokens", fake_tokens)
+
+    bundle = twitter_pipeline.fetch_data_bundle([1, 2, 3], seed)
+
+    assert calls_trades == [1, 2, 3]
+    assert sorted(calls_tokens) == sorted(["0xabc", "0xdef"])  # deduped
+    assert len(bundle["chosen_alerts"]) == 3
+    assert len(bundle["trades"]) == 3
+    assert "Yes" in bundle["token_map"]
+    assert "facts_bundle" in bundle
+    assert bundle["facts_bundle"]["distinct_wallets"] == 3
