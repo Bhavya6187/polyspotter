@@ -48,3 +48,29 @@ def test_storybot_system_prompt_still_contains_voice_rules():
     assert '"funding tree"' in storybot.SYSTEM_PROMPT
     assert "## How to present numbers" in storybot.SYSTEM_PROMPT
     assert "## Fact fidelity" in storybot.SYSTEM_PROMPT
+
+
+def test_run_agent_accepts_system_prompt_and_kickoff_message_kwargs():
+    """run_agent must accept explicit `system_prompt` and `kickoff_message`
+    keyword arguments so articlebot can supply its own."""
+    import inspect
+    import storybot
+
+    sig = inspect.signature(storybot.run_agent)
+    assert "system_prompt" in sig.parameters
+    assert "kickoff_message" in sig.parameters
+    # Defaults so existing thread-bot callers don't break:
+    assert sig.parameters["system_prompt"].default is not inspect.Parameter.empty
+    assert sig.parameters["kickoff_message"].default is None or \
+           sig.parameters["kickoff_message"].default is inspect.Parameter.empty
+
+
+def test_run_agent_accepts_max_tool_calls_and_max_iterations_kwargs():
+    """run_agent must accept budget overrides so articlebot can use its
+    higher budgets (40/35) without changing the module-level defaults."""
+    import inspect
+    import storybot
+
+    sig = inspect.signature(storybot.run_agent)
+    assert "max_tool_calls" in sig.parameters
+    assert "max_iterations" in sig.parameters

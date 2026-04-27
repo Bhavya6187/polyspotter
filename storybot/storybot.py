@@ -960,7 +960,11 @@ def _assistant_tool_message(msg) -> dict:
 def run_agent(llm_client, *, chosen_alerts: list[dict],
               on_tool_call=None, transcript: list[dict] | None = None,
               usage: dict | None = None,
-              timings: list[dict] | None = None) -> dict:
+              timings: list[dict] | None = None,
+              system_prompt: str = SYSTEM_PROMPT,
+              kickoff_message: str | None = None,
+              max_tool_calls: int = MAX_TOOL_CALLS,
+              max_iterations: int = MAX_ITERATIONS) -> dict:
     """Drive the function-calling loop until the LLM emits final JSON.
 
     `chosen_alerts` is the 1+ alerts already picked by `pick_story()` (all
@@ -980,16 +984,17 @@ def run_agent(llm_client, *, chosen_alerts: list[dict],
     scope = _derive_scope(chosen_alerts)
     prefetched = prefetch_bundle(scope)
     messages: list[dict] = transcript if transcript is not None else []
-    messages.append({"role": "system", "content": SYSTEM_PROMPT})
-    messages.append({"role": "user", "content": build_kickoff_message(
-        chosen_alerts, prefetched=prefetched)})
+    messages.append({"role": "system", "content": system_prompt})
+    if kickoff_message is None:
+        kickoff_message = build_kickoff_message(chosen_alerts, prefetched=prefetched)
+    messages.append({"role": "user", "content": kickoff_message})
     calls_used = 0
     forcing_final = False
     final_json_retries = 0
     dispatch = _make_dispatcher(llm_client, usage=usage, scope=scope)
 
-    for iter_idx in range(MAX_ITERATIONS):
-        remaining = MAX_TOOL_CALLS - calls_used
+    for iter_idx in range(max_iterations):
+        remaining = max_tool_calls - calls_used
         kwargs = {
             "model": MODEL,
             "messages": messages,
@@ -1050,7 +1055,7 @@ def run_agent(llm_client, *, chosen_alerts: list[dict],
                     "content": json.dumps(env, default=str),
                 })
             calls_used += dispatched
-            if calls_used >= MAX_TOOL_CALLS and not forcing_final:
+            if calls_used >= max_tool_calls and not forcing_final:
                 forcing_final = True
                 messages.append({
                     "role": "user",
