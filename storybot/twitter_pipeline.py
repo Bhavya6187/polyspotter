@@ -12,6 +12,19 @@ from collections import Counter
 from datetime import datetime, timezone
 from charts import CHART_TYPES as _CHART_TYPES_TUPLE
 
+import os
+import sys
+import time
+import uuid
+
+from dotenv import load_dotenv
+from openai import OpenAI
+
+load_dotenv()
+
+DRY_RUN = os.environ.get("TWITTER_PIPELINE_DRY_RUN", "false").lower() == "true"
+_DRY_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dry_runs")
+
 
 def _parse_iso(value) -> datetime | None:
     """Parse a Postgres-shaped timestamp into an aware datetime, or return None."""
@@ -587,7 +600,220 @@ def fetch_data_bundle(alert_ids: list[int], seed_alerts: list[dict]) -> dict:
     }
 
 
+def _dump_dry_run(run_id: str, transcript: dict) -> None:
+    """Write the full stage transcript to dry_runs/twitter_pipeline_<run_id>.json."""
+    from bot_utils import log
+    os.makedirs(_DRY_RUN_DIR, exist_ok=True)
+    path = os.path.join(_DRY_RUN_DIR, f"twitter_pipeline_{run_id}.json")
+    try:
+        with open(path, "w") as f:
+            json.dump(transcript, f, default=str, indent=2)
+        log("transcript_saved", path=path)
+    except OSError as exc:
+        log("transcript_save_error", error=str(exc))
+
+
+def main() -> int:
+    from bot_utils import (
+        AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, DATABASE_URL, log,
+        fetch_seed_alerts,
+    )
+    from tweet_utils import (
+        _build_twitter_api_v1, _build_twitter_client,
+        filter_posted_alerts, post_tweet, prepare_chart, record_tweet,
+        strip_polyspotter_url,
+    )
+
+    run_id = uuid.uuid4().hex[:8]
+    log("run_start", run_id=run_id, dry_run=DRY_RUN, bot="twitter_pipeline")
+
+    if not DATABASE_URL:
+        log("config_error", run_id=run_id, error="DATABASE_URL not set")
+        return 1
+    if not AZURE_OPENAI_API_KEY:
+        log("config_error", run_id=run_id, error="AZURE_OPENAI_API_KEY not set")
+        return 1
+
+    llm_client = OpenAI(base_url=AZURE_OPENAI_ENDPOINT, api_key=AZURE_OPENAI_API_KEY)
+    usage_totals: dict = {}
+    run_start_t = time.monotonic()
+    transcript: dict = {"run_id": run_id, "stages": {}}
+
+    # Seed
+    t = time.monotonic()
+    try:
+        seed_alerts = fetch_seed_alerts()
+    except Exception as exc:
+        log("seed_fetch_error", run_id=run_id, error=f"{type(exc).__name__}: {exc}")
+        return 1
+    log("seed_fetched", run_id=run_id, count=len(seed_alerts),
+        elapsed_ms=int((time.monotonic() - t) * 1000))
+    if not seed_alerts:
+        log("skip", run_id=run_id, reason="no alerts in last 3 hours")
+        log("run_end", run_id=run_id, posted=False,
+            elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
+        return 0
+
+    pre = len(seed_alerts)
+    try:
+        seed_alerts = filter_posted_alerts(seed_alerts)
+    except Exception as exc:
+        log("dedup_error", run_id=run_id, error=f"{type(exc).__name__}: {exc}")
+        return 1
+    log("dedup_filtered", run_id=run_id, before=pre, after=len(seed_alerts),
+        dropped=pre - len(seed_alerts))
+    if not seed_alerts:
+        log("skip", run_id=run_id, reason="all seed alerts already tweeted")
+        log("run_end", run_id=run_id, posted=False,
+            elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
+        return 0
+
+    # Stage 1
+    t = time.monotonic()
+    log("stage_start", run_id=run_id, stage=1)
+    try:
+        pick = pick_event(llm_client, seed_alerts, usage=usage_totals)
+    except Exception as exc:
+        log("llm_error", run_id=run_id, stage=1,
+            error=f"{type(exc).__name__}: {exc}")
+        return 1
+    log("stage_end", run_id=run_id, stage=1,
+        elapsed_ms=int((time.monotonic() - t) * 1000))
+    transcript["stages"]["1_event_picker"] = pick
+    ok, err = validate_event_pick(pick, seed_alerts)
+    if not ok:
+        log("validation_error", run_id=run_id, stage=1, error=err, pick=pick)
+        return 1
+    if pick["decision"] == "skip":
+        log("skip", run_id=run_id, reason=pick.get("reason"))
+        if DRY_RUN:
+            _dump_dry_run(run_id, transcript)
+        log("run_end", run_id=run_id, posted=False,
+            elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
+        return 0
+    log("event_picked", run_id=run_id, alert_ids=pick["alert_ids"],
+        event_summary=pick["event_summary"])
+
+    # Stage 2
+    t = time.monotonic()
+    log("stage_start", run_id=run_id, stage=2)
+    bundle = fetch_data_bundle(pick["alert_ids"], seed_alerts)
+    log("stage_end", run_id=run_id, stage=2,
+        elapsed_ms=int((time.monotonic() - t) * 1000))
+    log("data_fetched", run_id=run_id,
+        trade_count=len(bundle["trades"]),
+        token_keys=list(bundle["token_map"].keys()),
+        facts_bundle_keys=list(bundle["facts_bundle"].keys()))
+    transcript["stages"]["2_data_fetcher"] = {
+        "trade_count": len(bundle["trades"]),
+        "token_map": bundle["token_map"],
+        "facts_bundle": bundle["facts_bundle"],
+    }
+
+    # Stage 3
+    t = time.monotonic()
+    log("stage_start", run_id=run_id, stage=3)
+    try:
+        chart_pick = pick_chart(llm_client, bundle["chosen_alerts"],
+                                pick["event_summary"], bundle["facts_bundle"],
+                                usage=usage_totals)
+    except Exception as exc:
+        log("llm_error", run_id=run_id, stage=3,
+            error=f"{type(exc).__name__}: {exc}")
+        return 1
+    log("stage_end", run_id=run_id, stage=3,
+        elapsed_ms=int((time.monotonic() - t) * 1000))
+    transcript["stages"]["3_chart_picker"] = chart_pick
+    ok, err = validate_chart_pick(chart_pick)
+    if not ok:
+        log("validation_error", run_id=run_id, stage=3, error=err, pick=chart_pick)
+        return 1
+    log("chart_picked", run_id=run_id, chart_type=chart_pick["chart_type"],
+        hook_anchor=chart_pick["hook_anchor"])
+
+    # Stage 4
+    t = time.monotonic()
+    log("stage_start", run_id=run_id, stage=4)
+    try:
+        decision, err, attempts = write_tweet_with_retry(
+            llm_client, bundle["chosen_alerts"], pick["event_summary"],
+            bundle["facts_bundle"], chart_pick, usage=usage_totals)
+    except Exception as exc:
+        log("llm_error", run_id=run_id, stage=4,
+            error=f"{type(exc).__name__}: {exc}")
+        return 1
+    log("stage_end", run_id=run_id, stage=4, attempts=attempts,
+        elapsed_ms=int((time.monotonic() - t) * 1000))
+    transcript["stages"]["4_writer"] = {"decision": decision, "attempts": attempts}
+    if err:
+        log("validation_error", run_id=run_id, stage=4, attempts=attempts,
+            error=err, decision=decision)
+        if DRY_RUN:
+            _dump_dry_run(run_id, transcript)
+        return 1
+
+    tweet = strip_polyspotter_url(decision["tweet"])
+    log("tweet_drafted", run_id=run_id, attempts=attempts, length=len(tweet))
+    log("llm_usage", run_id=run_id, **usage_totals)
+
+    # Resolve chart png
+    target_alert = next(
+        (a for a in bundle["chosen_alerts"]
+         if int(a.get("id") or 0) == int(pick["alert_ids"][0])),
+        None,
+    )
+    chart_png = (prepare_chart(chart_pick["chart_type"], target_alert)
+                 if target_alert else None)
+    log("chart_selected", run_id=run_id, chart_type=chart_pick["chart_type"],
+        rendered=chart_png is not None,
+        bytes_len=(len(chart_png) if chart_png else 0))
+
+    if DRY_RUN and chart_png is not None:
+        os.makedirs(_DRY_RUN_DIR, exist_ok=True)
+        out_path = os.path.join(_DRY_RUN_DIR, f"twitter_pipeline_{run_id}.png")
+        try:
+            with open(out_path, "wb") as f:
+                f.write(chart_png)
+            log("chart_saved_dryrun", run_id=run_id, path=out_path)
+        except OSError as exc:
+            log("chart_save_error", run_id=run_id, error=str(exc))
+
+    if DRY_RUN:
+        _dump_dry_run(run_id, transcript)
+
+    # Post
+    try:
+        twitter_client = _build_twitter_client()
+        twitter_api_v1 = _build_twitter_api_v1() if chart_png is not None else None
+        tweet_id = post_tweet(
+            tweet, twitter_client=twitter_client, twitter_api_v1=twitter_api_v1,
+            media_png=chart_png, dry_run=DRY_RUN,
+        )
+    except Exception as exc:
+        log("post_error", run_id=run_id, error=f"{type(exc).__name__}: {exc}")
+        return 1
+
+    log("posted", run_id=run_id, tweet_id=tweet_id, alert_ids=pick["alert_ids"],
+        tweet_length=len(tweet))
+    print(f"\n--- Tweet ({len(tweet)} chars) ---\n{tweet}\n", flush=True)
+
+    if DRY_RUN:
+        log("run_end", run_id=run_id, posted=True, dry_run=True, tweet_id=tweet_id,
+            elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
+        return 0
+
+    try:
+        record_tweet([int(i) for i in pick["alert_ids"]], tweet_id, tweet)
+    except Exception as exc:
+        log("record_error", run_id=run_id, error=f"{type(exc).__name__}: {exc}")
+        log("run_end", run_id=run_id, posted=True, tweet_id=tweet_id, recorded=False,
+            elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
+        return 0
+
+    log("run_end", run_id=run_id, posted=True, tweet_id=tweet_id, recorded=True,
+        elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
+    return 0
+
+
 if __name__ == "__main__":
-    import sys
-    print("twitter_pipeline.py: main() not implemented yet", file=sys.stderr)
-    sys.exit(1)
+    sys.exit(main())
