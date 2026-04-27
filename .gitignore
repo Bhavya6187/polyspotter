@@ -21,3 +21,9 @@ polybot.log
 .worktrees/
 
 storybot/dry_runs/
+
+# Articlebot drafts (Postgres is the source of truth; files are paste-ready copies)
+storybot/articles/*.md
+storybot/articles/*.png
+storybot/articles/*.json
+!storybot/articles/.gitkeep
