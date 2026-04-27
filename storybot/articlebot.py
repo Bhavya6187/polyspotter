@@ -28,8 +28,13 @@ EVENT_SUMMARIES_SQL = """
         MAX(a.composite_score)        AS top_composite,
         SUM(a.total_usd)              AS event_usd,
         COUNT(*)                      AS alert_count,
-        ARRAY_AGG(DISTINCT s.strategy)
-            FILTER (WHERE s.strategy IS NOT NULL) AS strategies_fired,
+        (
+            SELECT array_agg(DISTINCT s.strategy)
+            FROM alert_signals s
+            JOIN alerts a2 ON a2.id = s.alert_id
+            WHERE a2.event_slug = a.event_slug
+              AND s.strategy IS NOT NULL
+        ) AS strategies_fired,
         JSONB_AGG(jsonb_build_object(
             'id', a.id,
             'composite_score', a.composite_score,
@@ -44,13 +49,23 @@ EVENT_SUMMARIES_SQL = """
             'game_start_time', a.game_start_time,
             'event_end_estimate', a.event_end_estimate,
             'end_date', a.end_date,
-            'created_at', a.created_at
+            'created_at', a.created_at,
+            'signals', COALESCE(sig.signals, '[]'::jsonb)
         ) ORDER BY a.composite_score DESC) AS alerts,
         (ARRAY_AGG(a.condition_id ORDER BY a.composite_score DESC))[1] AS top_condition_id,
         MIN(a.created_at)             AS first_alert_at,
         MAX(a.created_at)             AS last_alert_at
     FROM alerts a
-    LEFT JOIN alert_signals s ON s.alert_id = a.id
+    LEFT JOIN LATERAL (
+        SELECT jsonb_agg(
+            jsonb_build_object(
+                'strategy', strategy,
+                'severity', severity,
+                'headline', headline
+            ) ORDER BY severity DESC
+        ) AS signals
+        FROM alert_signals WHERE alert_id = a.id
+    ) sig ON true
     WHERE a.created_at >= NOW() - INTERVAL '24 hours'
       AND (
           (a.game_start_time IS NOT NULL AND a.game_start_time > NOW())
