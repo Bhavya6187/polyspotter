@@ -39,7 +39,7 @@ TWEET_URL_CHARS = 23   # Twitter t.co wraps every URL to this length, regardless
 
 _URL_RE = re.compile(r"https?://\S+")
 _POLYSPOTTER_URL_RE = re.compile(r"https://polyspotter\.com/(?:market|wallet|alert|tag)/")
-_BANNED_TWEET_PHRASES = ("in bio", "full breakdown", "link below", "link in bio")
+_BANNED_TWEET_PHRASES = ("in bio", "full breakdown", "link below", "more at", "link in bio")
 
 
 def _tweet_length(t: str) -> int:

@@ -96,3 +96,15 @@ def test_writer_gives_up_after_two_failures():
     assert "deep link" in err
     assert attempts == 2
     assert client.completions.calls == 2
+
+
+def test_writer_retries_once_on_parse_error_then_succeeds():
+    """First attempt returns malformed JSON; retry returns valid tweet."""
+    bad_json = "not even close to JSON"
+    good = json.dumps({"tweet": "Recovered. https://polyspotter.com/alert/1"})
+    client = FakeClient([bad_json, good])
+    decision, err, attempts = twitter_pipeline.write_tweet_with_retry(
+        client, [], "summary", {}, {"chart_type": "none", "hook_anchor": "x"})
+    assert err is None
+    assert attempts == 2
+    assert client.completions.calls == 2
