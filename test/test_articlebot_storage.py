@@ -102,3 +102,50 @@ def test_record_skipped_run_inserts_minimal_row(tmp_path, monkeypatch):
     # status is set in SQL (`'skipped'` literal) or in params — accept either
     assert "'skipped'" in sql or "skipped" in str(params)
     assert params[0] == "def67890"
+
+
+def test_mark_published_validates_url(monkeypatch, capsys):
+    import mark_published
+
+    fake_conn = MagicMock()
+    fake_cur = MagicMock()
+    fake_conn.cursor.return_value.__enter__.return_value = fake_cur
+    monkeypatch.setattr(mark_published, "_get_conn", lambda: fake_conn)
+
+    rc = mark_published.main(["abc12345", "https://example.com/foo"])
+    assert rc != 0
+    captured = capsys.readouterr()
+    assert "x.com" in captured.err.lower() or "twitter.com" in captured.err.lower()
+
+
+def test_mark_published_updates_row(monkeypatch, capsys):
+    import mark_published
+
+    fake_conn = MagicMock()
+    fake_cur = MagicMock()
+    fake_cur.rowcount = 1
+    fake_conn.cursor.return_value.__enter__.return_value = fake_cur
+    monkeypatch.setattr(mark_published, "_get_conn", lambda: fake_conn)
+
+    rc = mark_published.main(["abc12345", "https://x.com/PolySpotter/status/1"])
+    assert rc == 0
+
+    sql, params = fake_cur.execute.call_args.args
+    assert "UPDATE articles" in sql
+    assert "status = 'published'" in sql
+    assert params == ("https://x.com/PolySpotter/status/1", "abc12345")
+
+
+def test_mark_published_unknown_run_id(monkeypatch, capsys):
+    import mark_published
+
+    fake_conn = MagicMock()
+    fake_cur = MagicMock()
+    fake_cur.rowcount = 0
+    fake_conn.cursor.return_value.__enter__.return_value = fake_cur
+    monkeypatch.setattr(mark_published, "_get_conn", lambda: fake_conn)
+
+    rc = mark_published.main(["unknown", "https://x.com/PolySpotter/status/1"])
+    assert rc != 0
+    captured = capsys.readouterr()
+    assert "no article" in captured.err.lower() or "not found" in captured.err.lower()
