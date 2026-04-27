@@ -195,9 +195,13 @@ def build_facts_bundle(chosen_alerts: list[dict], trades: list[dict]) -> dict:
 
 
 def _select_chosen_alerts(alert_ids: list[int], seed_alerts: list[dict]) -> list[dict]:
-    """Filter seed_alerts down to those whose id is in alert_ids."""
-    wanted = {int(i) for i in alert_ids}
-    return [a for a in seed_alerts if int(a.get("id") or 0) in wanted]
+    """Filter seed_alerts down to those whose id is in alert_ids.
+
+    Preserves alert_ids order so chosen_alerts[i] corresponds to alert_ids[i]
+    (matching the trades-loop ordering in fetch_data_bundle).
+    """
+    by_id = {int(a.get("id") or 0): a for a in seed_alerts}
+    return [by_id[int(i)] for i in alert_ids if int(i) in by_id]
 
 
 def fetch_data_bundle(alert_ids: list[int], seed_alerts: list[dict]) -> dict:
@@ -219,6 +223,9 @@ def fetch_data_bundle(alert_ids: list[int], seed_alerts: list[dict]) -> dict:
             log("alert_trades_fetch_error",
                 alert_id=aid, error=f"{type(exc).__name__}: {exc}")
 
+    # token_map is flat {outcome_name -> token_id}. Multi-market clusters
+    # would collide on shared outcome names (e.g. two markets each with a
+    # "Yes") — the current pipeline assumes one cid per event-cluster.
     token_map: dict[str, str] = {}
     seen_cids: set[str] = set()
     for a in chosen:
