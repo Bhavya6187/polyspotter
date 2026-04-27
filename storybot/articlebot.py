@@ -570,3 +570,49 @@ def validate_article_decision(decision: dict) -> tuple[bool, str]:
         return False, f"alert_ids must be integers, got {alert_ids!r}"
 
     return True, ""
+
+
+# ---------------------------------------------------------------------------
+# Cover chart renderer
+# ---------------------------------------------------------------------------
+
+def _dispatch_chart_render(chart_type: str, alert: dict) -> bytes | None:
+    """Thin wrapper around storybot/charts.render_chart_for_alert. Tested
+    separately via monkeypatch. May raise; caller catches."""
+    import charts
+    return charts.render_chart_for_alert(chart_type, alert)
+
+
+def render_cover_chart(spec: dict | None, chosen_alerts: list[dict],
+                       out_path: str) -> str | None:
+    """Render the cover chart specified by `cover_chart_spec`. Returns the
+    output path on success, None on any failure (soft fault). When spec is
+    null, returns None without touching the filesystem."""
+    if not spec:
+        return None
+    chart_type = spec.get("chart_type")
+    alert_id = spec.get("alert_id")
+    if not chart_type:
+        return None
+    alert = next((a for a in chosen_alerts if a.get("id") == alert_id), None)
+    if alert is None:
+        log("articlebot_chart_skip", reason=f"alert_id {alert_id} not in chosen_alerts")
+        return None
+    try:
+        png_bytes = _dispatch_chart_render(chart_type, alert)
+    except Exception as exc:
+        log("articlebot_chart_error",
+            chart_type=chart_type, alert_id=alert_id,
+            error=f"{type(exc).__name__}: {exc}")
+        return None
+    if not png_bytes:
+        log("articlebot_chart_empty", chart_type=chart_type, alert_id=alert_id)
+        return None
+    try:
+        with open(out_path, "wb") as f:
+            f.write(png_bytes)
+    except OSError as exc:
+        log("articlebot_chart_write_error",
+            out_path=out_path, error=f"{type(exc).__name__}: {exc}")
+        return None
+    return out_path

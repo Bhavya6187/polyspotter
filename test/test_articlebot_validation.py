@@ -146,3 +146,68 @@ def test_article_system_prompt_contains_style_rules_and_article_specifics():
     assert '"cover_chart_spec"' in p
     # Mandatory polyspotter link
     assert "polyspotter.com" in p
+
+
+def test_render_cover_chart_writes_png_and_returns_path(tmp_path, monkeypatch):
+    import articlebot
+
+    spec = {"chart_type": "wallet_record_card", "alert_id": 42, "params": {}}
+    chosen_alerts = [{"id": 42, "wallet": "0xabc", "market_title": "M",
+                      "condition_id": "0xc1"}]
+
+    def _fake_render(chart_type, alert):
+        return b"\x89PNG\r\n\x1a\n"
+
+    monkeypatch.setattr(articlebot, "_dispatch_chart_render", _fake_render)
+
+    out = articlebot.render_cover_chart(spec, chosen_alerts, str(tmp_path / "cover.png"))
+    assert out == str(tmp_path / "cover.png")
+    assert (tmp_path / "cover.png").exists()
+    assert (tmp_path / "cover.png").read_bytes().startswith(b"\x89PNG")
+
+
+def test_render_cover_chart_returns_none_when_spec_is_null():
+    import articlebot
+    assert articlebot.render_cover_chart(None, [], "/tmp/x.png") is None
+
+
+def test_render_cover_chart_returns_none_when_renderer_returns_none(tmp_path, monkeypatch):
+    import articlebot
+    monkeypatch.setattr(articlebot, "_dispatch_chart_render", lambda chart_type, alert: None)
+
+    out = articlebot.render_cover_chart(
+        {"chart_type": "price_sparkline", "alert_id": 1, "params": {}},
+        [{"id": 1, "wallet": "0xa", "market_title": "M", "condition_id": "0xc"}],
+        str(tmp_path / "cover.png"),
+    )
+    assert out is None
+    assert not (tmp_path / "cover.png").exists()
+
+
+def test_render_cover_chart_soft_faults_on_render_error(tmp_path, monkeypatch):
+    import articlebot
+
+    def _boom(chart_type, alert):
+        raise RuntimeError("render busted")
+    monkeypatch.setattr(articlebot, "_dispatch_chart_render", _boom)
+
+    out = articlebot.render_cover_chart(
+        {"chart_type": "price_sparkline", "alert_id": 1, "params": {}},
+        [{"id": 1, "wallet": "0xa", "market_title": "M", "condition_id": "0xc"}],
+        str(tmp_path / "cover.png"),
+    )
+    assert out is None
+    assert not (tmp_path / "cover.png").exists()
+
+
+def test_render_cover_chart_returns_none_when_alert_id_not_found(tmp_path, monkeypatch):
+    import articlebot
+    # Even if the dispatcher is OK, missing alert means we don't render.
+    monkeypatch.setattr(articlebot, "_dispatch_chart_render",
+                         lambda c, a: b"\x89PNG\r\n\x1a\n")
+    out = articlebot.render_cover_chart(
+        {"chart_type": "wallet_record_card", "alert_id": 999, "params": {}},
+        [{"id": 1}],
+        str(tmp_path / "cover.png"),
+    )
+    assert out is None
