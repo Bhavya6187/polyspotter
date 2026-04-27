@@ -124,3 +124,25 @@ def test_missing_alert_ids_on_post_fails():
     d["alert_ids"] = []
     ok, err = articlebot.validate_article_decision(d)
     assert not ok and "alert_ids" in err.lower()
+
+
+def test_article_system_prompt_contains_style_rules_and_article_specifics():
+    import articlebot
+
+    p = articlebot.SYSTEM_PROMPT
+
+    # Inherits voice rules
+    assert "Hard style rules" in p
+    assert "Analyst-speak" in p or "analyst-speak" in p.lower()
+    # Article-specific framing
+    assert "X article" in p or "X Article" in p
+    assert "general audience" in p.lower()
+    # Length and structure rules surfaced to the model
+    assert "500-700" in p or "600 words" in p or "450" in p
+    assert "## H2" in p or "H2" in p
+    # Output schema
+    assert '"decision"' in p and '"article"' in p
+    assert '"body_markdown"' in p
+    assert '"cover_chart_spec"' in p
+    # Mandatory polyspotter link
+    assert "polyspotter.com" in p
