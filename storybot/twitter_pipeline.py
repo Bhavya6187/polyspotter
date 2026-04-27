@@ -285,6 +285,97 @@ def validate_event_pick(pick: dict, seed_alerts: list[dict]) -> tuple[bool, str]
     return True, ""
 
 
+SYSTEM_PROMPT_CHART_PICKER = """You pick a chart that proves the surprise the \
+upcoming tweet will lead with. You also write the hook_anchor — one short \
+phrase naming the surprising fact the chart visualizes.
+
+You see:
+- event_summary: a paragraph framing the story
+- facts_bundle: precise numbers about the chosen event
+- chosen_alerts: the compact alert rows that make up the cluster
+
+## Available chart types
+- "wallet_record_card" — one wallet's win record + their bet on this market.
+  Pick this iff facts_bundle.has_sharp_wallet is non-null.
+- "price_sparkline" — price over time on the dominant outcome.
+  Pick this iff facts_bundle.biggest_price_move is non-null AND the move is
+  meaningful (≥3 cents or ≥10% relative change).
+- "volume_bar" — volume bars showing a spike.
+  Pick this iff facts_bundle.has_volume_spike is true OR
+  peak_hour_volume_usd dwarfs other windows.
+- "cluster_card" — multi-wallet cluster card.
+  Pick this iff facts_bundle.cluster_size >= 3 AND no sharp_wallet record
+  dominates (otherwise prefer wallet_record_card and mention the cluster
+  in the tweet text).
+- "none" — if nothing supports a chart cleanly.
+
+## Hook anchor
+A 2-5 word phrase the writer will lead with. Examples:
+- "29-4 sharp record"
+- "32c → 41c flip"
+- "12× normal volume"
+- "five accounts, one funder"
+
+If chart_type is "none", hook_anchor is still required and should name the
+surprising thing in the story (the writer leads with it regardless).
+
+## Output (strict JSON only)
+{
+  "chart_type": "wallet_record_card" | "price_sparkline" | "volume_bar" | "cluster_card" | "none",
+  "hook_anchor": "<phrase>"
+}
+"""
+
+
+def pick_chart(llm_client, chosen_alerts: list[dict], event_summary: str,
+               bundle: dict, *, usage: dict | None = None) -> dict:
+    """Stage 3: pick a chart_type and hook_anchor."""
+    from bot_utils import MODEL, _accumulate_usage, _compact_alert_for_picker
+    compact = [_compact_alert_for_picker(a) for a in chosen_alerts]
+    payload = {
+        "event_summary": event_summary,
+        "facts_bundle": bundle,
+        "chosen_alerts": compact,
+    }
+    response = llm_client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT_CHART_PICKER},
+            {"role": "user", "content": json.dumps(payload, default=str, indent=2)},
+        ],
+        temperature=1,
+        max_completion_tokens=4000,
+        reasoning_effort="low",
+        response_format={"type": "json_object"},
+    )
+    if usage is not None:
+        _accumulate_usage(usage, response)
+    content = response.choices[0].message.content or "{}"
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError as exc:
+        return {"chart_type": "none", "hook_anchor": "",
+                "_parse_error": f"invalid JSON: {exc}"}
+
+
+_VALID_CHART_TYPES = {"price_sparkline", "volume_bar", "wallet_record_card",
+                      "cluster_card", "none"}
+
+
+def validate_chart_pick(pick: dict) -> tuple[bool, str]:
+    if pick.get("_parse_error"):
+        return False, pick["_parse_error"]
+    ct = pick.get("chart_type")
+    if ct not in _VALID_CHART_TYPES:
+        return False, f"unknown chart_type: {ct!r}"
+    anchor = pick.get("hook_anchor")
+    if not isinstance(anchor, str) or not anchor.strip():
+        return False, "hook_anchor must be a non-empty string"
+    if len(anchor) > 80:
+        return False, f"hook_anchor too long ({len(anchor)} > 80 chars)"
+    return True, ""
+
+
 def _select_chosen_alerts(alert_ids: list[int], seed_alerts: list[dict]) -> list[dict]:
     """Filter seed_alerts down to those whose id is in alert_ids.
 
