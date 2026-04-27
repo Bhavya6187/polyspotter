@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from datetime import datetime, timezone
+from charts import CHART_TYPES as _CHART_TYPES_TUPLE
 
 
 def _parse_iso(value) -> datetime | None:
@@ -299,7 +300,9 @@ You see:
   Pick this iff facts_bundle.has_sharp_wallet is non-null.
 - "price_sparkline" — price over time on the dominant outcome.
   Pick this iff facts_bundle.biggest_price_move is non-null AND the move is
-  meaningful (≥3 cents or ≥10% relative change).
+  meaningful. Polymarket prices are 0.0-1.0 probabilities; "3 cents" means a
+  delta of 0.03. Threshold: |to - from| >= 0.03 OR
+  |to - from| / max(from, to, 0.01) >= 0.10.
 - "volume_bar" — volume bars showing a spike.
   Pick this iff facts_bundle.has_volume_spike is true OR
   peak_hour_volume_usd dwarfs other windows.
@@ -358,8 +361,7 @@ def pick_chart(llm_client, chosen_alerts: list[dict], event_summary: str,
                 "_parse_error": f"invalid JSON: {exc}"}
 
 
-_VALID_CHART_TYPES = {"price_sparkline", "volume_bar", "wallet_record_card",
-                      "cluster_card", "none"}
+_VALID_CHART_TYPES = frozenset(_CHART_TYPES_TUPLE)
 
 
 def validate_chart_pick(pick: dict) -> tuple[bool, str]:
