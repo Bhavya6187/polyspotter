@@ -98,6 +98,14 @@ _EVENT_FIELDS_KEEP = (
 )
 
 
+_SIBLING_MARKET_FIELDS = (
+    "conditionId", "slug", "question",
+    "groupItemTitle", "line", "sportsMarketType",
+    "volume24hr", "lastTradePrice", "bestBid", "bestAsk",
+    "active", "closed",
+)
+
+
 def _slim_market(m: dict) -> dict:
     out = {k: m[k] for k in _MARKET_FIELDS_KEEP if k in m}
     evts = m.get("events")
@@ -107,6 +115,12 @@ def _slim_market(m: dict) -> dict:
             for e in evts if isinstance(e, dict)
         ]
     return out
+
+
+def _slim_market_sibling(m: dict) -> dict:
+    """Tighter shape for markets nested inside an event response. Caller can
+    fetch full detail with /markets?condition_ids=… for any market that matters."""
+    return {k: m[k] for k in _SIBLING_MARKET_FIELDS if k in m}
 
 
 def _slim_event(e: dict) -> dict:
@@ -119,7 +133,7 @@ def _slim_event(e: dict) -> dict:
         ]
     markets = e.get("markets")
     if isinstance(markets, list):
-        out["markets"] = [_slim_market(m) for m in markets if isinstance(m, dict)]
+        out["markets"] = [_slim_market_sibling(m) for m in markets if isinstance(m, dict)]
     return out
 
 
@@ -332,13 +346,58 @@ def _hex_in_clause(values: list[str]) -> str | None:
     return "(" + ",".join(safe) + ")" if safe else None
 
 
-def prefetch_bundle(scope: dict) -> dict:
-    """Fan out the predictable bundle of queries derivable from `scope`, in
-    parallel. Returns {item: {"ok": bool, "data"|"error", "ms": int}}.
+PREFETCH_WALLET_CAP = 50           # cap distinct wallets fed to phase-2 IN-clauses
+PREFETCH_EVENT_HISTORY_CAP = 200   # cap rows in wallet_event_history
 
-    These are queries the orchestrator would otherwise have to ask for over
-    several research iterations. Pre-fetching them once skips a builder-LLM
-    call per query and makes the kickoff message richer.
+
+def _run_task(name: str, spec: tuple) -> tuple:
+    t0 = time.monotonic()
+    try:
+        backend = spec[0]
+        if backend in ("postgres", "sqlite"):
+            data = _BACKENDS[backend](spec[1])
+        else:
+            data = _BACKENDS[backend](spec[1], spec[2] if len(spec) > 2 else None)
+        return name, {"ok": True, "data": data,
+                      "ms": int((time.monotonic() - t0) * 1000)}
+    except Exception as exc:
+        return name, {"ok": False, "error": f"{type(exc).__name__}: {exc}",
+                      "ms": int((time.monotonic() - t0) * 1000)}
+
+
+def _wallets_from_alert_trades(scope_wallets: list[str], alert_trades_data: Any) -> list[str]:
+    """Union scope.wallets with distinct wallets in alert_trades, capped to
+    PREFETCH_WALLET_CAP by total usd_value across the trades (so we keep the
+    wallets most worth profiling)."""
+    by_wallet_usd: dict[str, float] = {w: float("inf") for w in scope_wallets or []}
+    if isinstance(alert_trades_data, list):
+        for t in alert_trades_data:
+            if not isinstance(t, dict):
+                continue
+            w = t.get("wallet")
+            if not isinstance(w, str) or not _HEX_ID_RE.fullmatch(w):
+                continue
+            usd = t.get("usd_value") or 0
+            try:
+                by_wallet_usd[w] = by_wallet_usd.get(w, 0) + float(usd)
+            except (TypeError, ValueError):
+                by_wallet_usd.setdefault(w, 0)
+    ranked = sorted(by_wallet_usd.items(), key=lambda kv: kv[1], reverse=True)
+    return [w for w, _ in ranked[:PREFETCH_WALLET_CAP]]
+
+
+def prefetch_bundle(scope: dict) -> dict:
+    """Two-phase parallel prefetch of the predictable queries derivable from
+    `scope`. Returns {item: {"ok": bool, "data"|"error", "ms": int}}.
+
+    Phase 1 (parallel): alert-id-keyed and event/condition-keyed queries.
+    Phase 2 (parallel, kicked off the moment alert_trades returns): wallet-keyed
+        queries spanning ALL wallets in the picked alerts (named + cluster
+        members surfaced by alert_trades).
+
+    Pre-fetching skips one builder-LLM call per query and avoids the
+    scope-vs-cluster gap where cluster wallets were previously unknown until
+    the orchestrator did its own research.
     """
     import concurrent.futures
 
@@ -346,15 +405,14 @@ def prefetch_bundle(scope: dict) -> dict:
         return {}
 
     alert_ids = scope.get("alert_ids") or []
-    wallets = scope.get("wallets") or []
+    scope_wallets = scope.get("wallets") or []
     cids = scope.get("condition_ids") or []
     ev_slug = scope.get("event_slug")
 
-    tasks: dict[str, tuple] = {}
-
+    phase1: dict[str, tuple] = {}
     if alert_ids:
         ids_csv = ",".join(str(int(x)) for x in alert_ids)
-        tasks["alert_trades"] = ("postgres", f"""
+        phase1["alert_trades"] = ("postgres", f"""
             SELECT a.id AS alert_id, a.alert_type, a.total_usd, a.trade_count,
                    a.market_title, a.cluster_headline,
                    t.transaction_hash, t.wallet, t.outcome, t.side,
@@ -363,54 +421,68 @@ def prefetch_bundle(scope: dict) -> dict:
             WHERE a.id IN ({ids_csv})
             ORDER BY t.trade_timestamp ASC
         """)
-        tasks["tweeted_dedup"] = ("postgres", f"""
+        phase1["tweeted_dedup"] = ("postgres", f"""
             SELECT alert_id, tweet_id, tweeted_at FROM tweeted_alerts
             WHERE alert_id IN ({ids_csv})
         """)
-
-    wlist = _hex_in_clause(wallets) if wallets else None
-    if wlist:
-        tasks["wallet_profiles"] = ("postgres", f"""
-            SELECT wallet, total_positions, closed_positions, wins, losses,
-                   total_pnl, total_invested, win_rate, times_flagged,
-                   current_streak, first_seen_at, updated_at
-            FROM wallet_profiles WHERE wallet IN {wlist}
-        """)
-        tasks["wallet_funders"] = ("sqlite", f"""
-            SELECT wallet, funder, discovered_at
-            FROM wallet_funders WHERE wallet IN {wlist}
-        """)
-
     cid_csv = ",".join(c for c in cids if isinstance(c, str) and _HEX_ID_RE.fullmatch(c))
     if cid_csv:
-        tasks["market_meta"] = ("gamma", "/markets", {"condition_ids": cid_csv})
-
+        phase1["market_meta"] = ("gamma", "/markets", {"condition_ids": cid_csv})
     if ev_slug:
-        tasks["event_meta"] = ("gamma", "/events", {"slug": ev_slug})
+        phase1["event_meta"] = ("gamma", "/events", {"slug": ev_slug})
 
-    def _run(name: str, spec: tuple) -> tuple:
-        t0 = time.monotonic()
-        try:
-            backend = spec[0]
-            if backend in ("postgres", "sqlite"):
-                data = _BACKENDS[backend](spec[1])
-            else:
-                data = _BACKENDS[backend](spec[1], spec[2] if len(spec) > 2 else None)
-            return name, {"ok": True, "data": data,
-                          "ms": int((time.monotonic() - t0) * 1000)}
-        except Exception as exc:
-            return name, {"ok": False, "error": f"{type(exc).__name__}: {exc}",
-                          "ms": int((time.monotonic() - t0) * 1000)}
+    if not phase1 and not scope_wallets:
+        return {}
 
     results: dict = {}
-    if not tasks:
-        return results
     t_start = time.monotonic()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(tasks)) as ex:
-        for fut in concurrent.futures.as_completed(
-                [ex.submit(_run, n, s) for n, s in tasks.items()]):
-            name, result = fut.result()
-            results[name] = result
+    max_workers = max(len(phase1), 1) + 4   # headroom for phase 2 to share the pool
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futs = {n: ex.submit(_run_task, n, s) for n, s in phase1.items()}
+
+        # Phase 2 depends on alert_trades (for cluster wallet discovery). If
+        # alert_trades isn't queued (no alert_ids) we still run phase 2 against
+        # scope.wallets only.
+        alert_trades_data: Any = None
+        if "alert_trades" in futs:
+            _, r = futs["alert_trades"].result()
+            results["alert_trades"] = r
+            if r.get("ok"):
+                alert_trades_data = r["data"]
+        all_wallets = _wallets_from_alert_trades(scope_wallets, alert_trades_data)
+
+        if all_wallets:
+            wlist = _hex_in_clause(all_wallets)
+            phase2: dict[str, tuple] = {
+                "wallet_profiles": ("postgres", f"""
+                    SELECT wallet, total_positions, closed_positions, wins, losses,
+                           total_pnl, total_invested, win_rate, times_flagged,
+                           current_streak, first_seen_at, updated_at
+                    FROM wallet_profiles WHERE wallet IN {wlist}
+                """),
+                "wallet_funders": ("sqlite", f"""
+                    SELECT wallet, funder, discovered_at
+                    FROM wallet_funders WHERE wallet IN {wlist}
+                """),
+            }
+            if ev_slug:
+                phase2["wallet_event_history"] = ("sqlite", f"""
+                    SELECT wallet, market_title, condition_id, outcome, side,
+                           usd_value, price, trade_timestamp
+                    FROM wallet_event_history
+                    WHERE wallet IN {wlist} AND event_slug = '{ev_slug}'
+                    ORDER BY usd_value DESC
+                    LIMIT {PREFETCH_EVENT_HISTORY_CAP}
+                """)
+            for n, s in phase2.items():
+                futs[n] = ex.submit(_run_task, n, s)
+
+        # Drain everything still pending (phase 1 leftovers + all of phase 2)
+        for name, fut in futs.items():
+            if name in results:
+                continue
+            _, results[name] = fut.result()
+
     total_ms = int((time.monotonic() - t_start) * 1000)
     log("prefetch_bundle",
         items=list(results.keys()),
@@ -509,10 +581,10 @@ thread that tells the whole story.
      - alert_trades            → individual trades backing the alert(s)
 
    The wallet(s) (usually the richest source of surprise):
-     - wallet_profiles / wallet_pnl  → track record, edge, streaks, avg buy price
-     - wallet_funders                → part of a shared-funder cluster?
-     - wallet_event_history          → broader thesis across markets?
-     - Data API /trades?user=<wallet> → their recent activity across Polymarket
+     - wallet_profiles               → track record, edge, streaks (rollup; PREFETCHED for all wallets)
+     - wallet_funders                → part of a shared-funder cluster? (PREFETCHED for all wallets)
+     - wallet_event_history          → broader thesis on this event (PREFETCHED for all wallets, top by usd)
+     - Data API /trades?user=<wallet> → their recent activity across Polymarket (NOT prefetched)
 
    The tag / event context:
      - Gamma /events?slug=<event>    → sibling markets, event metadata
@@ -883,12 +955,14 @@ thread with what you have — do not keep digging.
 
 
 _BUNDLE_DESCRIPTIONS = {
-    "alert_trades":    "Postgres alerts ⨯ alert_trades for the picked alert_ids.",
-    "tweeted_dedup":   "Postgres tweeted_alerts rows for the picked alert_ids (empty = none tweeted).",
-    "wallet_profiles": "Postgres wallet_profiles for the named alert wallets (cluster wallets show up under alert_trades).",
-    "wallet_funders":  "SQLite wallet_funders for the named alert wallets.",
-    "market_meta":     "Gamma /markets?condition_ids=… (current prices, volume, clobTokenIds).",
-    "event_meta":      "Gamma /events?slug=… (sibling markets on this event).",
+    "alert_trades":         "Postgres alerts ⨯ alert_trades for the picked alert_ids.",
+    "tweeted_dedup":        "Postgres tweeted_alerts rows for the picked alert_ids (empty = none tweeted).",
+    "wallet_profiles":      "Postgres wallet_profiles for ALL wallets in alert_trades (named + cluster).",
+    "wallet_funders":       "SQLite wallet_funders for ALL wallets in alert_trades.",
+    "wallet_event_history": ("SQLite wallet_event_history for ALL wallets in alert_trades, scoped to "
+                             f"the picked event_slug; top {PREFETCH_EVENT_HISTORY_CAP} rows by usd_value."),
+    "market_meta":          "Gamma /markets?condition_ids=… (current prices, volume, clobTokenIds).",
+    "event_meta":           "Gamma /events?slug=… (sibling markets, summary fields only — call /markets for full detail).",
 }
 
 
@@ -909,7 +983,7 @@ def _format_prefetched_block(prefetched: dict) -> str:
     for name, data in ok_items.items():
         desc = _BUNDLE_DESCRIPTIONS.get(name, "")
         lines.append(f"## {name} — {desc}")
-        lines.append(json.dumps(data, default=str, indent=2))
+        lines.append(json.dumps(data, default=str, separators=(",", ":")))
         lines.append("")
     lines.append("</prefetched>")
     return "\n".join(lines) + "\n\n"
