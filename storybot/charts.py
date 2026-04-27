@@ -34,6 +34,7 @@ CHART_TYPES = (
     "price_sparkline",
     "volume_bar",
     "wallet_record_card",
+    "fresh_wallet_card",
     "cluster_card",
     "none",
 )
@@ -241,6 +242,125 @@ def fetch_wallet_record_card_data(alert: dict) -> WalletRecordCardData | None:
         "bet_count": int(total_bets),
         "wallet_age_days": wallet_age_days,
         "bet_size_usd": float(bet_size),
+        "outcome_side": outcome_side,
+    }
+
+
+# ----------------------- fresh_wallet_card -----------------------
+
+class FreshWalletCardData(TypedDict):
+    market_title: str
+    wallet_age_days: int
+    bet_size_usd: float
+    outcome_side: str
+
+
+# Mirror of new_wallet_large_bet's freshness threshold (WALLET_AGE_DAYS=30)
+# with a small buffer so an alert generated near the cutoff still renders.
+FRESH_WALLET_MAX_DAYS = 60
+GAMMA_PUBLIC_PROFILE_URL = "https://gamma-api.polymarket.com/public-profile"
+
+
+def render_fresh_wallet_card(data: FreshWalletCardData) -> bytes:
+    fig, ax = _new_figure()
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    # Top: market title in muted grey
+    ax.text(0.5, 0.92, data["market_title"], color=MUTED, fontsize=18,
+            ha="center", va="top", wrap=True)
+
+    # Hero number: wallet age in days, big green
+    days = data["wallet_age_days"]
+    ax.text(0.5, 0.62, f"{days}", color=ACCENT, fontsize=140, ha="center", va="center",
+            fontweight="bold")
+
+    # Subtitle: "DAY OLD ACCOUNT" / "DAYS OLD ACCOUNT"
+    label = "DAY OLD ACCOUNT" if days == 1 else "DAYS OLD ACCOUNT"
+    ax.text(0.5, 0.38, label, color=FG, fontsize=24, ha="center", va="center",
+            fontweight="bold")
+    ax.text(0.5, 0.30, "on Polymarket", color=MUTED, fontsize=16,
+            ha="center", va="center")
+
+    # Footer: bet size + outcome side
+    footer = f"{_format_usd(data['bet_size_usd'])} on {data['outcome_side']}"
+    ax.text(0.5, 0.12, footer, color=FG, fontsize=24, ha="center", va="center",
+            fontweight="bold")
+
+    return _figure_to_png_bytes(fig)
+
+
+def _fetch_wallet_created_at(wallet: str) -> datetime | None:
+    """Live Gamma /public-profile fetch for a wallet's `createdAt`. Returns
+    None on 404 / network failure / missing field. Mirrors the lookup used
+    by detection_strategies/new_wallet_large_bet.py."""
+    if not wallet:
+        return None
+    try:
+        r = requests.get(
+            GAMMA_PUBLIC_PROFILE_URL,
+            params={"address": wallet},
+            timeout=QUERY_TIMEOUT_SECONDS * 2,
+        )
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        profile = r.json()
+    except (requests.RequestException, ValueError) as exc:
+        print(
+            f"[storybot.charts] _fetch_wallet_created_at failed for {wallet}: "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return None
+    created_str = profile.get("createdAt") if isinstance(profile, dict) else None
+    if not created_str:
+        return None
+    try:
+        return datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+
+
+def fetch_fresh_wallet_card_data(alert: dict) -> FreshWalletCardData | None:
+    """Build FreshWalletCardData for a single-wallet new-account bet.
+
+    Returns None when the wallet is missing, has no Gamma profile, or is
+    older than FRESH_WALLET_MAX_DAYS — those aren't fresh-wallet stories.
+
+    alert dict fields used:
+        wallet          — Polymarket proxy wallet
+        market_title    — market question string
+        total_usd       — bet size on this market
+        llm_copy_action — JSON string (or dict) with outcome/side fields
+    """
+    wallet = alert.get("wallet")
+    if not wallet:
+        return None
+    created_at = _fetch_wallet_created_at(wallet)
+    if created_at is None:
+        return None
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    age_days = (datetime.now(timezone.utc) - created_at).days
+    if age_days < 0 or age_days > FRESH_WALLET_MAX_DAYS:
+        return None
+    bet_size = float(alert.get("total_usd") or 0)
+    if bet_size <= 0:
+        return None
+    copy = alert.get("llm_copy_action") or {}
+    if isinstance(copy, str):
+        try:
+            copy = json.loads(copy)
+        except (json.JSONDecodeError, ValueError):
+            copy = {}
+    outcome_side = copy.get("outcome") or copy.get("side") or ""
+    return {
+        "market_title": alert.get("market_title", ""),
+        "wallet_age_days": int(age_days),
+        "bet_size_usd": bet_size,
         "outcome_side": outcome_side,
     }
 
@@ -763,6 +883,7 @@ def fetch_price_sparkline_data(alert: dict) -> PriceSparklineData | None:
 
 _CHART_REGISTRY: dict[str, tuple] = {
     "wallet_record_card": (fetch_wallet_record_card_data, render_wallet_record_card),
+    "fresh_wallet_card":  (fetch_fresh_wallet_card_data,  render_fresh_wallet_card),
     "volume_bar":         (fetch_volume_bar_data,         render_volume_bar),
     "cluster_card":       (fetch_cluster_card_data,       render_cluster_card),
     "price_sparkline":    (fetch_price_sparkline_data,    render_price_sparkline),
@@ -788,13 +909,15 @@ def _try_render(chart_type: str, alert: dict) -> bytes | None:
 
 
 def render_chart_for_alert(chart_type: str, alert: dict) -> bytes | None:
-    """Try the requested chart. If it fails, fall back to wallet_record_card.
-    Returns PNG bytes or None. Never raises."""
+    """Try the requested chart. If it fails, fall back to wallet_record_card
+    (except for the wallet-shaped charts, which are mutually exclusive with
+    a record card — a fresh wallet has no record, and vice versa). Returns
+    PNG bytes or None. Never raises."""
     if chart_type in ("none", "", None):
         return None
     primary = _try_render(chart_type, alert)
     if primary is not None:
         return primary
-    if chart_type == "wallet_record_card":
-        return None  # already tried; no further fallback
+    if chart_type in ("wallet_record_card", "fresh_wallet_card"):
+        return None
     return _try_render("wallet_record_card", alert)

@@ -90,6 +90,23 @@ def _extract_sharp_wallet(chosen_alerts: list[dict]) -> dict | None:
     return None
 
 
+def _extract_fresh_wallet(chosen_alerts: list[dict]) -> dict | None:
+    """Surface a fresh-account bet if the cluster contains a new_wallet_large_bet
+    signal. Returns {wallet, alert_id} for the first match, else None.
+
+    The actual wallet age is fetched live by the chart fetcher (Gamma
+    /public-profile) — the picker only needs to know one exists."""
+    for a in chosen_alerts:
+        signals = a.get("signals") or []
+        if not any(s.get("strategy") == "new_wallet_large_bet" for s in signals):
+            continue
+        wallet = a.get("wallet")
+        if not wallet:
+            continue
+        return {"wallet": wallet, "alert_id": int(a.get("id") or 0)}
+    return None
+
+
 def _cluster_size(chosen_alerts: list[dict]) -> int | None:
     """Largest cluster_size implied by wallet_clustering or concentrated_one_sided signals."""
     sizes = []
@@ -202,6 +219,7 @@ def build_facts_bundle(chosen_alerts: list[dict], trades: list[dict]) -> dict:
         "biggest_price_move": _biggest_price_move(trades),
         "peak_hour_volume_usd": _peak_hour_volume_usd(trades),
         "has_sharp_wallet": _extract_sharp_wallet(chosen_alerts),
+        "has_fresh_wallet": _extract_fresh_wallet(chosen_alerts),
         "cluster_size": _cluster_size(chosen_alerts),
         "has_volume_spike": _has_volume_spike(chosen_alerts),
         "minutes_to_resolution": _minutes_to_resolution(chosen_alerts),
@@ -311,6 +329,10 @@ You see:
 ## Available chart types
 - "wallet_record_card" — one wallet's win record + their bet on this market.
   Pick this iff facts_bundle.has_sharp_wallet is non-null.
+- "fresh_wallet_card" — one wallet's age + their bet on this market.
+  Pick this iff facts_bundle.has_fresh_wallet is non-null AND
+  facts_bundle.has_sharp_wallet is null. (A record beats an age when both
+  apply — wallet_record_card wins the tiebreak.)
 - "price_sparkline" — price over time on the dominant outcome.
   Pick this iff facts_bundle.biggest_price_move is non-null AND the move is
   meaningful. Polymarket prices are 0.0-1.0 probabilities; "3 cents" means a
@@ -328,6 +350,7 @@ You see:
 ## Hook anchor
 A 2-5 word phrase the writer will lead with. Examples:
 - "29-4 sharp record"
+- "6-day-old account"
 - "32c → 41c flip"
 - "12× normal volume"
 - "five accounts, one funder"
@@ -337,7 +360,7 @@ surprising thing in the story (the writer leads with it regardless).
 
 ## Output (strict JSON only)
 {
-  "chart_type": "wallet_record_card" | "price_sparkline" | "volume_bar" | "cluster_card" | "none",
+  "chart_type": "wallet_record_card" | "fresh_wallet_card" | "price_sparkline" | "volume_bar" | "cluster_card" | "none",
   "hook_anchor": "<phrase>"
 }
 """
