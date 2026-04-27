@@ -194,6 +194,97 @@ def build_facts_bundle(chosen_alerts: list[dict], trades: list[dict]) -> dict:
     }
 
 
+SYSTEM_PROMPT_EVENT_PICKER = """You pick the single best event-cluster from \
+the last ~3 hours of Polymarket alerts to tweet about, or skip if nothing \
+stands out. You DO NOT write the tweet — that's a later stage.
+
+You see up to 20 compact alerts, sorted by composite_score, each with its
+top signals (strategy + severity + headline), market, wallet, $ size, event,
+tags, and timing.
+
+## Your job
+1. Find the strongest *story*. A story = one event with one or more alerts
+   that share a thesis. Multiple alerts on the same event_slug or
+   condition_id usually belong together. A single alert is also fine if
+   the signal is strong enough on its own.
+2. Decide skip vs post:
+   - skip if all alerts are small, generic, or lack a clear narrative
+   - post if there's a real surprise: a sharp wallet, coordinated flow,
+     a price/volume move, late-game timing, etc.
+3. If posting, return the alert_ids that belong to that one event-cluster
+   and a one-paragraph event_summary that frames what's surprising.
+
+## Output (strict JSON only)
+{
+  "decision": "post" | "skip",
+  "reason": "<one short sentence>",
+  "alert_ids": [<int>, ...] | null,
+  "event_summary": "<paragraph>" | null
+}
+
+When decision=post:
+- alert_ids must be 1+ real IDs from the list shown to you, all sharing one event.
+- event_summary must be a short paragraph (2-4 sentences) describing the event,
+  the cluster, and the single most surprising fact. Plain English. No tweet
+  voice yet. Downstream stages use this as framing.
+
+When decision=skip, alert_ids and event_summary should be null.
+"""
+
+
+def pick_event(llm_client, seed_alerts: list[dict], *, usage: dict | None = None) -> dict:
+    """Stage 1: pick an event-cluster to tweet about, or skip."""
+    from bot_utils import MODEL, _accumulate_usage, _compact_alert_for_picker
+    compact = [_compact_alert_for_picker(a) for a in seed_alerts]
+    user_msg = (
+        f"Alerts from the last ~3 hours ({len(compact)} rows), sorted by "
+        f"composite_score:\n\n{json.dumps(compact, default=str, indent=2)}"
+    )
+    response = llm_client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT_EVENT_PICKER},
+            {"role": "user", "content": user_msg},
+        ],
+        temperature=1,
+        max_completion_tokens=8000,
+        reasoning_effort="medium",
+        response_format={"type": "json_object"},
+    )
+    if usage is not None:
+        _accumulate_usage(usage, response)
+    content = response.choices[0].message.content or "{}"
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError as exc:
+        return {"decision": "skip", "reason": f"invalid JSON: {exc}",
+                "alert_ids": None, "event_summary": None}
+
+
+def validate_event_pick(pick: dict, seed_alerts: list[dict]) -> tuple[bool, str]:
+    """Sanity-check stage 1 output. Returns (ok, error_message)."""
+    d = pick.get("decision")
+    if d == "skip":
+        return True, ""
+    if d != "post":
+        return False, f"unknown decision: {d!r}"
+    ids = pick.get("alert_ids") or []
+    if not isinstance(ids, list) or not ids:
+        return False, "alert_ids must be a non-empty list when posting"
+    try:
+        wanted = {int(i) for i in ids}
+    except (TypeError, ValueError):
+        return False, f"alert_ids must be integers, got {ids!r}"
+    seed_ids = {int(a.get("id") or 0) for a in seed_alerts}
+    missing = wanted - seed_ids
+    if missing:
+        return False, f"alert_ids not in seed: {sorted(missing)}"
+    summary = pick.get("event_summary")
+    if not isinstance(summary, str) or not summary.strip():
+        return False, "event_summary must be a non-empty string when posting"
+    return True, ""
+
+
 def _select_chosen_alerts(alert_ids: list[int], seed_alerts: list[dict]) -> list[dict]:
     """Filter seed_alerts down to those whose id is in alert_ids.
 
