@@ -143,3 +143,75 @@ def test_pick_finalists_chunk_returns_empty_on_invalid_json():
 
     out = articlebot.pick_finalists_chunk(client, chunk)
     assert out == []
+
+
+def test_pick_final_event_returns_chosen_event_and_alert_ids():
+    import articlebot
+    finalists = [_ev("slug-a"), _ev("slug-b")]
+    finalists[0]["alerts"] = [
+        {"id": 11, "composite_score": 9.0, "market_title": "M", "wallet": "0x1",
+         "total_usd": 5000.0, "llm_headline": "hi"},
+        {"id": 12, "composite_score": 8.0, "market_title": "M", "wallet": "0x2",
+         "total_usd": 2000.0, "llm_headline": "hey"},
+    ]
+    finalists[1]["alerts"] = [
+        {"id": 21, "composite_score": 7.0, "market_title": "N", "wallet": "0x3",
+         "total_usd": 1000.0, "llm_headline": "ho"},
+    ]
+    client = _FakeClient([
+        '{"decision":"post","event_slug":"slug-a","alert_ids":[11,12],"reason":"r"}'
+    ])
+
+    out = articlebot.pick_final_event(client, finalists, recent_event_slugs=[])
+
+    assert out["decision"] == "post"
+    assert out["event_slug"] == "slug-a"
+    assert out["alert_ids"] == [11, 12]
+
+
+def test_pick_final_event_returns_skip():
+    import articlebot
+    finalists = [_ev("slug-a")]
+    client = _FakeClient(['{"decision":"skip","event_slug":null,"alert_ids":null,"reason":"weak"}'])
+
+    out = articlebot.pick_final_event(client, finalists, recent_event_slugs=[])
+
+    assert out["decision"] == "skip"
+    assert out["alert_ids"] is None
+
+
+def test_pick_final_event_passes_recent_slugs_to_prompt():
+    import articlebot
+    finalists = [_ev("slug-a")]
+    client = _FakeClient(['{"decision":"skip","event_slug":null,"alert_ids":null,"reason":"r"}'])
+
+    articlebot.pick_final_event(client, finalists,
+                                recent_event_slugs=["already-covered"])
+
+    user_msg = client.completions.last_kwargs["messages"][1]["content"]
+    assert "already-covered" in user_msg
+
+
+def test_pick_final_event_invalid_json_returns_skip():
+    import articlebot
+    finalists = [_ev("slug-a")]
+    client = _FakeClient(["not json"])
+
+    out = articlebot.pick_final_event(client, finalists, recent_event_slugs=[])
+
+    assert out["decision"] == "skip"
+    assert "invalid JSON" in out["reason"]
+
+
+def test_pick_final_event_drops_unknown_slug():
+    """Defense in depth: if the model returns a slug not in the finalists,
+    treat as skip."""
+    import articlebot
+    finalists = [_ev("slug-a")]
+    client = _FakeClient([
+        '{"decision":"post","event_slug":"ghost","alert_ids":[1],"reason":"r"}'
+    ])
+
+    out = articlebot.pick_final_event(client, finalists, recent_event_slugs=[])
+
+    assert out["decision"] == "skip"

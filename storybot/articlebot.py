@@ -206,3 +206,103 @@ def pick_finalists_chunk(llm_client, chunk: list[dict],
 
     valid_slugs = {e["event_slug"] for e in chunk}
     return [s for s in finalists if isinstance(s, str) and s in valid_slugs][:3]
+
+
+PICKER_STAGE2_SYSTEM_PROMPT = """You pick the SINGLE BEST story for today's
+Polymarket article — or skip if nothing on this list is good enough to write
+about for a general audience.
+
+Constraints:
+- The article will be ~600 words. It will quote specific numbers. It is the
+  ONLY thing we publish today.
+- The audience is curious news readers, not pros. The story should be
+  comprehensible without trader jargon — pick a story that has a real human
+  hook (a sharp wallet, a coordinated squad, a surprising market, late timing).
+- Avoid generic "big bet" stories with no character.
+- Recently-covered events MUST BE SKIPPED unless something materially new
+  has happened (a new sharper wallet, a meaningful price move, a resolution).
+
+If you pick an event, return the alert_ids that belong to that event from
+the data shown to you (NOT alert_ids from elsewhere — only the alerts already
+listed on your chosen event_slug).
+
+Voice context: smart financial Twitter that a curious news-following adult
+who doesn't speak desk slang can read. Same publication as the existing
+PolySpotter thread bot.
+
+Return strict JSON:
+{
+  "decision": "post" | "skip",
+  "event_slug": "<slug>" | null,
+  "alert_ids": [<int>, ...] | null,
+  "reason": "<one short sentence>"
+}
+"""
+
+
+def pick_final_event(llm_client, finalists: list[dict],
+                     *, recent_event_slugs: list[str],
+                     usage: dict | None = None) -> dict:
+    """Run the stage-2 final picker. Returns a decision dict (the same shape
+    storybot.pick_story produces today, plus an explicit `event_slug`).
+
+    On any LLM error or invalid JSON, returns decision=skip with the error
+    message in `reason`. Defense-in-depth: if the model returns an
+    `event_slug` not in the finalists, also returns skip.
+    """
+    if not finalists:
+        return {"decision": "skip", "event_slug": None, "alert_ids": None,
+                "reason": "no finalists from stage 1"}
+
+    compact = [_compact_event_for_picker(e) for e in finalists]
+    # Re-attach the full alerts (not just top_alerts) so the model can pick
+    # specific alert_ids belonging to the chosen event.
+    for c, src in zip(compact, finalists):
+        c["alerts"] = src.get("alerts") or []
+
+    user_msg = (
+        f"Stage-2 finalists ({len(compact)} events):\n"
+        f"{json.dumps(compact, default=str, indent=2)}\n\n"
+        f"recent_event_slugs (already covered in last 7 days, skip unless "
+        f"materially new): {json.dumps(recent_event_slugs)}"
+    )
+
+    try:
+        response = llm_client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": PICKER_STAGE2_SYSTEM_PROMPT},
+                {"role": "user", "content": user_msg},
+            ],
+            temperature=1,
+            max_completion_tokens=8000,
+            reasoning_effort="high",
+            response_format={"type": "json_object"},
+        )
+    except Exception as exc:
+        return {"decision": "skip", "event_slug": None, "alert_ids": None,
+                "reason": f"stage-2 LLM error: {type(exc).__name__}: {exc}"}
+
+    if usage is not None:
+        _accumulate_usage(usage, response)
+
+    content = response.choices[0].message.content or "{}"
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError as exc:
+        return {"decision": "skip", "event_slug": None, "alert_ids": None,
+                "reason": f"stage-2 returned invalid JSON: {exc}"}
+
+    if parsed.get("decision") == "post":
+        chosen_slug = parsed.get("event_slug")
+        valid_slugs = {e["event_slug"] for e in finalists}
+        if chosen_slug not in valid_slugs:
+            return {"decision": "skip", "event_slug": None, "alert_ids": None,
+                    "reason": f"stage-2 returned unknown event_slug: {chosen_slug!r}"}
+
+    return {
+        "decision": parsed.get("decision", "skip"),
+        "event_slug": parsed.get("event_slug"),
+        "alert_ids": parsed.get("alert_ids"),
+        "reason": parsed.get("reason") or "",
+    }
