@@ -113,8 +113,9 @@ def test_sharp_wallet_falls_back_to_wallet_pnl(monkeypatch):
         "signals": [{"strategy": "win_rate_tracking", "severity": 8}],
     }]
     captured = {}
-    def fake_query(sql):
+    def fake_query(sql, params=()):
         captured["sql"] = sql
+        captured["params"] = params
         return [{"wins": 178, "losses": 20, "win_rate": 0.899}]
     import bot_utils
     monkeypatch.setattr(bot_utils, "query_sqlite", fake_query)
@@ -122,7 +123,7 @@ def test_sharp_wallet_falls_back_to_wallet_pnl(monkeypatch):
     assert b["has_sharp_wallet"]["record"] == "178-20"
     assert b["has_sharp_wallet"]["wallet"] == "0xfeed"
     assert b["has_sharp_wallet"]["win_pct"] == 0.899
-    assert "0xfeed" in captured["sql"]
+    assert captured["params"] == ("0xfeed",)
 
 
 def test_minutes_to_resolution_uses_nearest_future_time():

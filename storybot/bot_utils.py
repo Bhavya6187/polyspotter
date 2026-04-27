@@ -99,7 +99,7 @@ def _guard_read_only(sql: str) -> None:
         raise ValueError("multiple statements not allowed")
 
 
-def query_sqlite(sql: str) -> list[dict]:
+def query_sqlite(sql: str, params: tuple = ()) -> list[dict]:
     """Read-only SELECT against polybot.db. Returns up to MAX_ROWS rows as dicts."""
     _guard_read_only(sql)
     _check_sqlite_not_postgres(sql)
@@ -107,7 +107,7 @@ def query_sqlite(sql: str) -> list[dict]:
     conn = sqlite3.connect(uri, uri=True, timeout=QUERY_TIMEOUT_SECONDS)
     try:
         conn.row_factory = sqlite3.Row
-        cur = conn.execute(sql)
+        cur = conn.execute(sql, params)
         rows = cur.fetchmany(MAX_ROWS)
         return [dict(r) for r in rows]
     finally:

@@ -57,8 +57,9 @@ def _extract_sharp_wallet(chosen_alerts: list[dict]) -> dict | None:
         try:
             from bot_utils import query_sqlite
             rows = query_sqlite(
-                f"SELECT wins, losses, win_rate FROM wallet_pnl "
-                f"WHERE wallet = '{wallet}' LIMIT 1"
+                "SELECT wins, losses, win_rate FROM wallet_pnl "
+                "WHERE wallet = ? LIMIT 1",
+                (wallet,),
             )
         except Exception:
             rows = []
@@ -143,14 +144,17 @@ def _peak_hour_volume_usd(trades: list[dict]) -> float | None:
     if not trades:
         return None
     sorted_t = sorted(trades, key=lambda t: float(t.get("timestamp") or 0.0))
+    # Window sum is correct under the precondition that usdcSize >= 0,
+    # which holds for Polymarket trades. Clamping below makes the
+    # algorithm robust if the precondition is ever broken upstream.
     best = 0.0
     left = 0
     running = 0.0
     for right in range(len(sorted_t)):
-        running += float(sorted_t[right].get("usdcSize") or 0.0)
+        running += max(0.0, float(sorted_t[right].get("usdcSize") or 0.0))
         while (float(sorted_t[right].get("timestamp") or 0.0)
                - float(sorted_t[left].get("timestamp") or 0.0)) > 3600:
-            running -= float(sorted_t[left].get("usdcSize") or 0.0)
+            running -= max(0.0, float(sorted_t[left].get("usdcSize") or 0.0))
             left += 1
         if running > best:
             best = running
