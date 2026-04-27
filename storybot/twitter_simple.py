@@ -14,13 +14,10 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 import time
 import uuid
 
-import psycopg2
-import requests
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -29,7 +26,6 @@ from bot_utils import (
     AZURE_OPENAI_ENDPOINT,
     DATABASE_URL,
     MODEL,
-    QUERY_TIMEOUT_SECONDS,
     _accumulate_usage,
     _compact_alert_for_picker,
     fetch_seed_alerts,
@@ -43,10 +39,15 @@ from tweet_utils import (
     _build_twitter_api_v1,
     _build_twitter_client,
     _tweet_length,
+    enrich_alert_for_charts,
+    fetch_alert_trades,
+    fetch_market_tokens,
+    filter_posted_alerts,
+    post_tweet,
+    prepare_chart as _render_alert_chart,
     record_tweet,
+    strip_polyspotter_url,
 )
-
-import charts
 
 
 load_dotenv()
@@ -54,44 +55,6 @@ load_dotenv()
 DRY_RUN = os.environ.get("TWITTER_SIMPLE_DRY_RUN", "false").lower() == "true"
 
 _DRY_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dry_runs")
-
-_POLYSPOTTER_URL_STRIP_RE = re.compile(
-    r"\s*https://polyspotter\.com/(?:market|wallet|alert|tag)/\S+"
-)
-
-
-def _strip_polyspotter_url(tweet: str) -> str:
-    """Remove polyspotter.com deep links (and any leading whitespace) before posting."""
-    return _POLYSPOTTER_URL_STRIP_RE.sub("", tweet).rstrip()
-
-
-def _already_tweeted_ids(alert_ids: list[int]) -> set[int]:
-    """Return the subset of alert_ids that already have a row in tweeted_alerts."""
-    if not alert_ids:
-        return set()
-    conn = psycopg2.connect(DATABASE_URL, connect_timeout=QUERY_TIMEOUT_SECONDS)
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT alert_id FROM tweeted_alerts WHERE alert_id = ANY(%s)",
-            ([int(i) for i in alert_ids],),
-        )
-        rows = cur.fetchall()
-        cur.close()
-        return {int(r[0]) for r in rows}
-    finally:
-        conn.close()
-
-
-def filter_posted_alerts(seed_alerts: list[dict]) -> list[dict]:
-    """Drop seed alerts that have already been tweeted (by any bot).
-
-    Scoped to twitter_simple — storybot intentionally re-evaluates the same
-    alerts and lets the LLM judge dedup via the tweeted_dedup tool."""
-    ids = [int(a["id"]) for a in seed_alerts if a.get("id") is not None]
-    posted = _already_tweeted_ids(ids)
-    return [a for a in seed_alerts if int(a.get("id") or 0) not in posted]
-
 
 SYSTEM_PROMPT = f"""You are the social media voice for PolySpotter — a service \
 that surfaces notable bets on Polymarket (whales, sharp wallets, coordinated \
@@ -185,7 +148,7 @@ shorthand. Every tweet must work as a self-contained sentence.
   "near-resolution flag", "priced in", "coordinated burst", "pile-in",
   "counterpunch", "looked cleaner", "linked wallet(s)", "wallet trio",
   "wallet duo", "wallet squad", "informed flow", "smart money flow".
-- Banned CTAs: "in bio", "full breakdown", "link below", "more at".
+- Banned CTAs: "in bio", "full breakdown", "link below", "more at", "link in bio".
 
 ## Worked example
 BAD (jargon-heavy, no context, vague closer):
@@ -324,8 +287,7 @@ def validate_decision(decision: dict) -> tuple[bool, str]:
 
 
 def prepare_chart(decision: dict, seed_alerts: list[dict]) -> bytes | None:
-    """Resolve the alert and render the requested chart, with fallback to
-    wallet_record_card. Returns PNG bytes or None. Never raises."""
+    """Resolve the alert from decision.alert_ids[0] and render the chart."""
     if decision.get("decision") != "post":
         return None
     alert_ids = decision.get("alert_ids") or []
@@ -338,147 +300,8 @@ def prepare_chart(decision: dict, seed_alerts: list[dict]) -> bytes | None:
     alert = next((a for a in seed_alerts if int(a.get("id") or 0) == target_id), None)
     if alert is None:
         return None
-    enrich_alert_for_charts(alert)
     chart_type = decision.get("chart_type") or "none"
-    try:
-        return charts.render_chart_for_alert(chart_type, alert)
-    except Exception as exc:
-        log("chart_render_error", error=f"{type(exc).__name__}: {exc}",
-            chart_type=chart_type, alert_id=target_id)
-        return None
-
-
-def _fetch_alert_trades(alert_id: int) -> list[dict]:
-    """Fetch all trades for a given alert from Postgres alert_trades table.
-
-    Returns dicts shaped to mirror Polymarket Data API conventions
-    (`usdcSize`, `timestamp`) so the chart fetchers can stay consistent
-    with patterns used elsewhere in the codebase."""
-    conn = psycopg2.connect(DATABASE_URL, connect_timeout=QUERY_TIMEOUT_SECONDS)
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT wallet, outcome, side, usd_value, size, price,
-                   EXTRACT(EPOCH FROM trade_timestamp) AS ts,
-                   transaction_hash
-            FROM alert_trades WHERE alert_id = %s
-            """,
-            (alert_id,),
-        )
-        rows = cur.fetchall()
-        cur.close()
-    finally:
-        conn.close()
-    out = []
-    for w, oc, sd, usd, sz, pr, ts, txh in rows:
-        out.append({
-            "wallet": w,
-            "outcome": oc,
-            "side": sd,
-            "usdcSize": float(usd) if usd is not None else 0.0,
-            "size": float(sz) if sz is not None else 0.0,
-            "price": float(pr) if pr is not None else 0.0,
-            "timestamp": float(ts) if ts is not None else 0.0,
-            "transaction_hash": txh,
-        })
-    return out
-
-
-def _fetch_market_tokens(condition_id: str) -> dict[str, str]:
-    """Live Gamma fetch: return {outcome_name: token_id}.
-
-    Returns empty dict on any failure — caller treats missing tokens as None."""
-    if not condition_id:
-        return {}
-    try:
-        r = requests.get(
-            "https://gamma-api.polymarket.com/markets",
-            params=[("condition_ids", condition_id)],
-            timeout=QUERY_TIMEOUT_SECONDS * 2,
-        )
-        r.raise_for_status()
-        markets = r.json()
-        if not markets:
-            return {}
-        m = markets[0]
-        outcomes = m.get("outcomes")
-        token_ids = m.get("clobTokenIds")
-        if isinstance(outcomes, str):
-            outcomes = json.loads(outcomes)
-        if isinstance(token_ids, str):
-            token_ids = json.loads(token_ids)
-        if not (isinstance(outcomes, list) and isinstance(token_ids, list)):
-            return {}
-        return {o: t for o, t in zip(outcomes, token_ids) if o and t}
-    except Exception as exc:
-        log("market_tokens_fetch_error",
-            condition_id=condition_id,
-            error=f"{type(exc).__name__}: {exc}")
-        return {}
-
-
-def enrich_alert_for_charts(alert: dict) -> None:
-    """Populate alert['trades'] and alert['token_id'] in-place from Postgres + Gamma.
-
-    The chart fetchers (cluster_card, price_sparkline) read these fields.
-    Failures are silent — the dispatcher's fallback ladder absorbs them."""
-    alert_id = alert.get("id")
-    if alert_id is None:
-        return
-    try:
-        alert["trades"] = _fetch_alert_trades(int(alert_id))
-    except Exception as exc:
-        log("alert_trades_fetch_error",
-            alert_id=alert_id, error=f"{type(exc).__name__}: {exc}")
-        alert["trades"] = []
-
-    cid = alert.get("condition_id")
-    if not cid:
-        return
-    copy = alert.get("llm_copy_action") or {}
-    if isinstance(copy, str):
-        try:
-            copy = json.loads(copy)
-        except json.JSONDecodeError:
-            copy = {}
-    side = copy.get("outcome") or copy.get("side")
-    if not side:
-        return
-    tokens = _fetch_market_tokens(cid)
-    if side in tokens:
-        alert["token_id"] = tokens[side]
-
-
-def post_tweet(
-    text: str,
-    *,
-    twitter_client,
-    twitter_api_v1=None,
-    media_png: bytes | None = None,
-    dry_run: bool,
-) -> str:
-    """Post a single tweet, optionally with one PNG attached. Returns the tweet id."""
-    if dry_run:
-        return f"dryrun-{uuid.uuid4().hex[:12]}"
-
-    media_ids = None
-    if media_png is not None and twitter_api_v1 is not None:
-        from io import BytesIO
-        media = twitter_api_v1.media_upload(filename="chart.png", file=BytesIO(media_png))
-        media_id = getattr(media, "media_id", None) or getattr(media, "media_id_string", None)
-        if media_id:
-            media_ids = [media_id]
-
-    if media_ids:
-        resp = twitter_client.create_tweet(text=text, media_ids=media_ids)
-    else:
-        resp = twitter_client.create_tweet(text=text)
-    data = getattr(resp, "data", None) or {}
-    tweet_id = str(data.get("id") or "")
-    if not tweet_id:
-        raise RuntimeError(f"create_tweet returned no id: {resp!r}")
-    return tweet_id
+    return _render_alert_chart(chart_type, alert)
 
 
 def main() -> int:
@@ -552,7 +375,7 @@ def main() -> int:
             elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
         return 0
 
-    tweet = _strip_polyspotter_url(decision["tweet"])
+    tweet = strip_polyspotter_url(decision["tweet"])
     alert_ids = [int(i) for i in decision["alert_ids"]]
 
     chart_png = prepare_chart(decision, seed_alerts)
