@@ -148,7 +148,7 @@ shorthand. Every tweet must work as a self-contained sentence.
   "near-resolution flag", "priced in", "coordinated burst", "pile-in",
   "counterpunch", "looked cleaner", "linked wallet(s)", "wallet trio",
   "wallet duo", "wallet squad", "informed flow", "smart money flow".
-- Banned CTAs: "in bio", "full breakdown", "link below", "more at".
+- Banned CTAs: "in bio", "full breakdown", "link below", "more at", "link in bio".
 
 ## Worked example
 BAD (jargon-heavy, no context, vague closer):
