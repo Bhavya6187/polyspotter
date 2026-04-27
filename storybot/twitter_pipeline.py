@@ -674,6 +674,7 @@ def main() -> int:
     try:
         pick = pick_event(llm_client, seed_alerts, usage=usage_totals)
     except Exception as exc:
+        log("llm_usage", run_id=run_id, **usage_totals)
         log("llm_error", run_id=run_id, stage=1,
             error=f"{type(exc).__name__}: {exc}")
         return 1
@@ -683,6 +684,8 @@ def main() -> int:
     ok, err = validate_event_pick(pick, seed_alerts)
     if not ok:
         log("validation_error", run_id=run_id, stage=1, error=err, pick=pick)
+        if DRY_RUN:
+            _dump_dry_run(run_id, transcript)
         return 1
     if pick["decision"] == "skip":
         log("skip", run_id=run_id, reason=pick.get("reason"))
@@ -718,6 +721,7 @@ def main() -> int:
                                 pick["event_summary"], bundle["facts_bundle"],
                                 usage=usage_totals)
     except Exception as exc:
+        log("llm_usage", run_id=run_id, **usage_totals)
         log("llm_error", run_id=run_id, stage=3,
             error=f"{type(exc).__name__}: {exc}")
         return 1
@@ -727,6 +731,8 @@ def main() -> int:
     ok, err = validate_chart_pick(chart_pick)
     if not ok:
         log("validation_error", run_id=run_id, stage=3, error=err, pick=chart_pick)
+        if DRY_RUN:
+            _dump_dry_run(run_id, transcript)
         return 1
     log("chart_picked", run_id=run_id, chart_type=chart_pick["chart_type"],
         hook_anchor=chart_pick["hook_anchor"])
@@ -739,6 +745,7 @@ def main() -> int:
             llm_client, bundle["chosen_alerts"], pick["event_summary"],
             bundle["facts_bundle"], chart_pick, usage=usage_totals)
     except Exception as exc:
+        log("llm_usage", run_id=run_id, **usage_totals)
         log("llm_error", run_id=run_id, stage=4,
             error=f"{type(exc).__name__}: {exc}")
         return 1
