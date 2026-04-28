@@ -694,6 +694,41 @@ def _dump_dry_run(run_id: str, *, pick: dict, decision: dict | None,
     return path
 
 
+def _retry_with_validation_hint(llm_client, transcript: list, error_msg: str,
+                                usage: dict | None) -> dict | None:
+    """Make ONE more LLM call appending a targeted validation hint.
+
+    Appends a user message naming the violated rule, sends the full transcript
+    to the model with tool_choice="none" and json_object response format, and
+    returns the parsed decision dict.  Returns None if the response is not
+    valid JSON (caller treats None as a second failure).
+    """
+    transcript.append({
+        "role": "user",
+        "content": (
+            f"Your previous article failed validation: {error_msg}. "
+            "Please return a corrected JSON object that fixes this issue. "
+            "Same schema as before."
+        ),
+    })
+    response = llm_client.chat.completions.create(
+        model=MODEL,
+        messages=transcript,
+        temperature=1,
+        max_completion_tokens=12000,
+        tool_choice="none",
+        response_format={"type": "json_object"},
+    )
+    if usage is not None:
+        _accumulate_usage(usage, response)
+    content = response.choices[0].message.content or "{}"
+    transcript.append({"role": "assistant", "content": content})
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        return None  # caller treats None as a second failure
+
+
 def main() -> int:
     run_id = uuid.uuid4().hex[:8]
     log("articlebot_run_start", run_id=run_id, dry_run=ARTICLEBOT_DRY_RUN)
@@ -707,7 +742,10 @@ def main() -> int:
 
     llm_client = OpenAI(base_url=AZURE_OPENAI_ENDPOINT, api_key=AZURE_OPENAI_API_KEY)
     usage_totals: dict = {}
-    transcript: list = [] if ARTICLEBOT_DRY_RUN else None
+    # Always capture the messages list so we can use it for the validation
+    # retry path (transcript is a few KB; cost is negligible).
+    messages_list: list = []
+    transcript: list = messages_list
 
     # Stage 1+2: tournament pick
     pick = pick_article_story(llm_client, usage=usage_totals)
@@ -736,7 +774,7 @@ def main() -> int:
         decision = storybot.run_agent(
             llm_client,
             chosen_alerts=chosen_alerts,
-            transcript=transcript,
+            transcript=messages_list,
             usage=usage_totals,
             system_prompt=SYSTEM_PROMPT,
             kickoff_message=kickoff,
@@ -761,8 +799,18 @@ def main() -> int:
     # Carry the chosen event_slug into the decision (downstream needs it)
     decision["event_slug"] = pick["event_slug"]
 
-    # Validate
+    # Validate — with a one-shot retry on first failure
     ok, err = validate_article_decision(decision)
+    if not ok:
+        log("articlebot_validation_retry", run_id=run_id, error=err)
+        retry_decision = _retry_with_validation_hint(
+            llm_client, messages_list, err, usage_totals,
+        )
+        if retry_decision is not None:
+            retry_decision["event_slug"] = pick["event_slug"]
+            ok, err = validate_article_decision(retry_decision)
+            if ok:
+                decision = retry_decision
     if not ok:
         log("articlebot_validation_error", run_id=run_id, error=err)
         if not ARTICLEBOT_DRY_RUN:
