@@ -74,3 +74,16 @@ def test_run_agent_accepts_max_tool_calls_and_max_iterations_kwargs():
     sig = inspect.signature(storybot.run_agent)
     assert "max_tool_calls" in sig.parameters
     assert "max_iterations" in sig.parameters
+
+
+def test_run_agent_accepts_json_retry_hint_kwarg():
+    """run_agent must accept a `json_retry_hint` keyword argument so callers
+    can supply a schema-specific retry hint without the default falling back
+    to a thread-bot schema."""
+    import inspect
+    import storybot
+
+    sig = inspect.signature(storybot.run_agent)
+    assert "json_retry_hint" in sig.parameters
+    # Default must be None so existing thread-bot callers work unchanged.
+    assert sig.parameters["json_retry_hint"].default is None

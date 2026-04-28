@@ -963,6 +963,7 @@ def run_agent(llm_client, *, chosen_alerts: list[dict],
               timings: list[dict] | None = None,
               system_prompt: str = SYSTEM_PROMPT,
               kickoff_message: str | None = None,
+              json_retry_hint: str | None = None,
               max_tool_calls: int = MAX_TOOL_CALLS,
               max_iterations: int = MAX_ITERATIONS) -> dict:
     """Drive the function-calling loop until the LLM emits final JSON.
@@ -1076,14 +1077,13 @@ def run_agent(llm_client, *, chosen_alerts: list[dict],
                 }
             final_json_retries += 1
             messages.append({"role": "assistant", "content": content})
+            hint = json_retry_hint or (
+                "Respond with exactly one JSON object and nothing else, "
+                "matching the schema described in your system prompt."
+            )
             messages.append({
                 "role": "user",
-                "content": (
-                    "Your previous response was empty or not valid JSON. "
-                    "Respond with exactly one JSON object and nothing else, matching: "
-                    "{\"decision\":\"post\"|\"skip\",\"reason\":\"…\","
-                    "\"tweets\":[\"…\",\"…\",\"…\"]|null,\"alert_ids\":[…]|null}."
-                ),
+                "content": "Your previous response was empty or not valid JSON. " + hint,
             })
             forcing_final = True
             continue
