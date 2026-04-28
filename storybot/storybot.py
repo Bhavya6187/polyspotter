@@ -1377,9 +1377,22 @@ def main() -> int:
     print("", flush=True)
 
     if DRY_RUN:
-        log("run_end", run_id=run_id, posted=True, dry_run=True, tweet_id=root_tweet_id,
-            elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
-        return 0
+        try:
+            answer = input("\nPost this thread for real? [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = ""
+        if answer not in ("y", "yes"):
+            log("run_end", run_id=run_id, posted=True, dry_run=True, tweet_id=root_tweet_id,
+                elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
+            return 0
+        try:
+            tweet_ids = post_thread(tweets, twitter_client=twitter_client, dry_run=False)
+        except Exception as exc:
+            log("post_error", run_id=run_id, error=f"{type(exc).__name__}: {exc}")
+            return 1
+        root_tweet_id = tweet_ids[0]
+        log("posted_after_confirm", run_id=run_id, tweet_id=root_tweet_id,
+            tweet_ids=tweet_ids, alert_ids=alert_ids, tweet_count=len(tweets))
 
     try:
         record_tweet(alert_ids, root_tweet_id, thread_text)

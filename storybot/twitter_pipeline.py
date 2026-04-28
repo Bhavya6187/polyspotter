@@ -975,9 +975,24 @@ def main() -> int:
     print(f"\n--- Tweet ({len(tweet)} chars) ---\n{tweet}\n", flush=True)
 
     if DRY_RUN:
-        log("run_end", run_id=run_id, posted=True, dry_run=True, tweet_id=tweet_id,
-            elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
-        return 0
+        try:
+            answer = input("\nPost this tweet for real? [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = ""
+        if answer not in ("y", "yes"):
+            log("run_end", run_id=run_id, posted=True, dry_run=True, tweet_id=tweet_id,
+                elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
+            return 0
+        try:
+            tweet_id = post_tweet(
+                tweet, twitter_client=twitter_client, twitter_api_v1=twitter_api_v1,
+                media_png=chart_png, dry_run=False,
+            )
+        except Exception as exc:
+            log("post_error", run_id=run_id, error=f"{type(exc).__name__}: {exc}")
+            return 1
+        log("posted_after_confirm", run_id=run_id, tweet_id=tweet_id,
+            alert_ids=pick["alert_ids"], tweet_length=len(tweet))
 
     try:
         record_tweet([int(i) for i in pick["alert_ids"]], tweet_id, tweet)
