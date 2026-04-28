@@ -8,19 +8,23 @@ Run via cron:
 from __future__ import annotations
 
 import json
-from collections import Counter
-from datetime import datetime, timezone
-from charts import CHART_TYPES as _CHART_TYPES_TUPLE
-
 import os
 import sys
 import time
 import uuid
+from collections import Counter
+from datetime import datetime, timezone
+
+# Make the project root importable so `import db` works when this script
+# is run directly (cron / manual run from storybot/), not just under pytest.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
-from openai import OpenAI
 
 load_dotenv()
+
+from charts import CHART_TYPES as _CHART_TYPES_TUPLE
+from openai import OpenAI
 
 DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
 _DRY_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dry_runs")
