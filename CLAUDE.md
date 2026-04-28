@@ -73,6 +73,18 @@ Frontend:
 cd frontend && npm run dev
 ```
 
+Articlebot (daily X article generator):
+```bash
+source venv/bin/activate
+python storybot/articlebot.py        # writes a draft to storybot/articles/
+ARTICLEBOT_DRY_RUN=true python storybot/articlebot.py   # writes to storybot/dry_runs/
+
+# After pasting into X composer:
+python storybot/mark_published.py <run_id> <x_article_url>
+```
+
+Cron: once daily at 13:00 UTC (9am ET) recommended.
+
 Tests:
 ```bash
 source venv/bin/activate
