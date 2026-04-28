@@ -12,9 +12,18 @@ Run via cron:
 from __future__ import annotations
 
 import json
+import os
 import re
+import sys
+import time
+import uuid
+
+from openai import OpenAI
 
 from bot_utils import (
+    AZURE_OPENAI_API_KEY,
+    AZURE_OPENAI_ENDPOINT,
+    DATABASE_URL,
     MODEL,
     _accumulate_usage,
     _gamma_status_for_markets,
@@ -24,6 +33,9 @@ from bot_utils import (
 )
 from style_rules import STYLE_RULES
 from tweet_utils import _BANNED_TWEET_PHRASES, _POLYSPOTTER_URL_RE
+
+import storybot                  # for prefetch_bundle, run_agent, etc.
+import articlebot_storage as _storage
 
 
 # Tool-call budgets are higher than storybot's: articles need deeper research.
@@ -616,3 +628,204 @@ def render_cover_chart(spec: dict | None, chosen_alerts: list[dict],
             out_path=out_path, error=f"{type(exc).__name__}: {exc}")
         return None
     return out_path
+
+
+# ---------------------------------------------------------------------------
+# Dry-run configuration and helpers
+# ---------------------------------------------------------------------------
+
+ARTICLEBOT_DRY_RUN = os.environ.get("ARTICLEBOT_DRY_RUN", "false").lower() == "true"
+
+_DRY_RUN_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "dry_runs"
+)
+
+
+def _build_kickoff_message(chosen_alerts: list[dict]) -> tuple[str, dict, dict]:
+    """Build the article-shaped kickoff message. Returns (message, scope, prefetched).
+
+    Uses storybot's prefetched-block format but with article-specific framing.
+    """
+    scope = storybot._derive_scope(chosen_alerts)
+    prefetched = storybot.prefetch_bundle(scope)
+    prefix = storybot._format_prefetched_block(prefetched) if prefetched else ""
+
+    if len(chosen_alerts) == 1:
+        payload = json.dumps(chosen_alerts[0], default=str, indent=2)
+        body = (
+            "A 24h tournament picker chose THIS alert as the day's article "
+            "story. Research it deeply with the query tool, then write a "
+            "~600 word X article — or skip if research reveals it's not "
+            "actually a great story for a general audience.\n\n"
+            f"chosen_alert:\n{payload}"
+        )
+    else:
+        slug = chosen_alerts[0].get("event_slug") or "(unknown event)"
+        payload = json.dumps(chosen_alerts, default=str, indent=2)
+        body = (
+            f"A 24h tournament picker chose these {len(chosen_alerts)} alerts "
+            f"— all on event '{slug}' — as the day's article story. Treat "
+            "them as ONE story. Research deeply with the query tool, then "
+            "write a ~600 word X article — or skip if research reveals it's "
+            "not actually a great story for a general audience.\n\n"
+            f"chosen_alerts ({len(chosen_alerts)} rows):\n{payload}"
+        )
+    return prefix + body, scope, prefetched
+
+
+def _dump_dry_run(run_id: str, *, pick: dict, decision: dict | None,
+                  transcript: list | None, usage: dict, error: str | None) -> str:
+    """Dump the run state to dry_runs/articlebot_<run_id>.json for inspection."""
+    os.makedirs(_DRY_RUN_DIR, exist_ok=True)
+    path = os.path.join(_DRY_RUN_DIR, f"articlebot_{run_id}.json")
+    payload = {
+        "run_id": run_id,
+        "model": MODEL,
+        "max_tool_calls": ARTICLE_MAX_TOOL_CALLS,
+        "max_iterations": ARTICLE_MAX_ITERATIONS,
+        "pick": pick,
+        "transcript": transcript or [],
+        "final_decision": decision,
+        "error": error,
+        "llm_usage": usage,
+    }
+    with open(path, "w") as f:
+        json.dump(payload, f, indent=2, default=str)
+    return path
+
+
+def main() -> int:
+    run_id = uuid.uuid4().hex[:8]
+    log("articlebot_run_start", run_id=run_id, dry_run=ARTICLEBOT_DRY_RUN)
+
+    if not DATABASE_URL:
+        log("config_error", run_id=run_id, error="DATABASE_URL not set")
+        return 1
+    if not AZURE_OPENAI_API_KEY:
+        log("config_error", run_id=run_id, error="AZURE_OPENAI_API_KEY not set")
+        return 1
+
+    llm_client = OpenAI(base_url=AZURE_OPENAI_ENDPOINT, api_key=AZURE_OPENAI_API_KEY)
+    usage_totals: dict = {}
+    transcript: list = [] if ARTICLEBOT_DRY_RUN else None
+
+    # Stage 1+2: tournament pick
+    pick = pick_article_story(llm_client, usage=usage_totals)
+    log("articlebot_pick", run_id=run_id, decision=pick.get("decision"),
+        event_slug=pick.get("event_slug"), reason=pick.get("reason"))
+
+    if pick["decision"] != "post":
+        if not ARTICLEBOT_DRY_RUN:
+            try:
+                _storage.record_skipped_run(run_id=run_id,
+                                            event_slug=pick.get("event_slug") or "",
+                                            reason=pick.get("reason") or "")
+            except Exception as exc:
+                log("articlebot_skip_record_error", run_id=run_id,
+                    error=f"{type(exc).__name__}: {exc}")
+        if ARTICLEBOT_DRY_RUN:
+            _dump_dry_run(run_id, pick=pick, decision=None,
+                          transcript=transcript, usage=usage_totals, error=None)
+        return 0
+
+    chosen_alerts = pick.get("chosen_alerts") or []
+
+    # Stage 3: research + write
+    kickoff, _scope, _prefetched = _build_kickoff_message(chosen_alerts)
+    try:
+        decision = storybot.run_agent(
+            llm_client,
+            chosen_alerts=chosen_alerts,
+            transcript=transcript,
+            usage=usage_totals,
+            system_prompt=SYSTEM_PROMPT,
+            kickoff_message=kickoff,
+            max_tool_calls=ARTICLE_MAX_TOOL_CALLS,
+            max_iterations=ARTICLE_MAX_ITERATIONS,
+        )
+    except Exception as exc:
+        err = f"{type(exc).__name__}: {exc}"
+        log("articlebot_agent_error", run_id=run_id, error=err)
+        if not ARTICLEBOT_DRY_RUN:
+            try:
+                _storage.record_skipped_run(run_id=run_id,
+                                            event_slug=pick.get("event_slug") or "",
+                                            reason=f"agent error: {err}")
+            except Exception:
+                pass
+        if ARTICLEBOT_DRY_RUN:
+            _dump_dry_run(run_id, pick=pick, decision=None,
+                          transcript=transcript, usage=usage_totals, error=err)
+        return 1
+
+    # Carry the chosen event_slug into the decision (downstream needs it)
+    decision["event_slug"] = pick["event_slug"]
+
+    # Validate
+    ok, err = validate_article_decision(decision)
+    if not ok:
+        log("articlebot_validation_error", run_id=run_id, error=err)
+        if not ARTICLEBOT_DRY_RUN:
+            try:
+                _storage.record_skipped_run(run_id=run_id,
+                                            event_slug=pick.get("event_slug") or "",
+                                            reason=f"validation: {err}")
+            except Exception:
+                pass
+        if ARTICLEBOT_DRY_RUN:
+            _dump_dry_run(run_id, pick=pick, decision=decision,
+                          transcript=transcript, usage=usage_totals,
+                          error=f"validation: {err}")
+        return 1
+
+    if decision["decision"] == "skip":
+        log("articlebot_skip", run_id=run_id, reason=decision.get("reason"))
+        if not ARTICLEBOT_DRY_RUN:
+            try:
+                _storage.record_skipped_run(run_id=run_id,
+                                            event_slug=pick.get("event_slug") or "",
+                                            reason=decision.get("reason") or "")
+            except Exception:
+                pass
+        if ARTICLEBOT_DRY_RUN:
+            _dump_dry_run(run_id, pick=pick, decision=decision,
+                          transcript=transcript, usage=usage_totals, error=None)
+        return 0
+
+    # Stage 4: cover chart
+    cover_target_dir = _DRY_RUN_DIR if ARTICLEBOT_DRY_RUN else _storage.ARTICLES_DIR
+    os.makedirs(cover_target_dir, exist_ok=True)
+    cover_path_target = os.path.join(cover_target_dir, f"{run_id}.png")
+    cover_path = render_cover_chart(decision.get("cover_chart_spec"),
+                                    chosen_alerts, cover_path_target)
+
+    # Stage 5: persist
+    if ARTICLEBOT_DRY_RUN:
+        # Write the .md file into dry_runs (not articles/) and dump a transcript
+        md_text = _storage._format_md_file(run_id, decision, cover_path)
+        md_path = os.path.join(_DRY_RUN_DIR, f"{run_id}.md")
+        with open(md_path, "w") as f:
+            f.write(md_text)
+        _dump_dry_run(run_id, pick=pick, decision=decision,
+                      transcript=transcript, usage=usage_totals, error=None)
+        print(f"[articlebot dry-run] md={md_path} cover={cover_path or 'none'}")
+        return 0
+
+    try:
+        result = _storage.persist_article(
+            run_id=run_id, decision=decision, cover_path=cover_path,
+        )
+    except Exception as exc:
+        log("articlebot_persist_error", run_id=run_id,
+            error=f"{type(exc).__name__}: {exc}")
+        return 1
+
+    print(f"[articlebot] run_id={run_id} md={result['md_path']} "
+          f"cover={cover_path or 'none'} words={result['word_count']}")
+    print(f"[articlebot] paste into X composer, then: "
+          f"python storybot/mark_published.py {run_id} <x_article_url>")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
