@@ -268,3 +268,49 @@ def test_fetch_recent_article_slugs_excludes_skipped_and_old():
     sql = q.call_args.args[0]
     assert "status != 'skipped'" in sql
     assert "INTERVAL '7 days'" in sql
+
+
+def test_run_agent_does_not_double_prefetch_when_kickoff_message_provided():
+    """When run_agent receives a non-None kickoff_message, it must NOT call
+    prefetch_bundle itself — the caller already ran it while building the
+    kickoff.  (Issue 3 regression guard.)"""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, patch
+
+    import storybot
+
+    chosen_alerts = [{
+        "id": 1, "composite_score": 5.0, "alert_type": "composite",
+        "market_title": "Test market", "wallet": "0xabc",
+        "total_usd": 1000.0, "llm_headline": "test", "event_slug": "test-event",
+        "condition_id": "0xc1234567",
+    }]
+
+    final_json = '{"decision":"skip","reason":"test","tweets":null,"alert_ids":null}'
+
+    def _fake_response():
+        return SimpleNamespace(
+            choices=[SimpleNamespace(
+                message=SimpleNamespace(content=final_json, tool_calls=None),
+            )],
+            usage=SimpleNamespace(
+                prompt_tokens=5, completion_tokens=5, total_tokens=10,
+                prompt_tokens_details=None, completion_tokens_details=None,
+            ),
+        )
+
+    fake_completions = MagicMock()
+    fake_completions.create.return_value = _fake_response()
+    fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+
+    mock_prefetch = MagicMock(return_value={})
+    with patch.object(storybot, "prefetch_bundle", mock_prefetch):
+        storybot.run_agent(
+            fake_client,
+            chosen_alerts=chosen_alerts,
+            kickoff_message="pre-built kickoff — no prefetch needed",
+        )
+
+    assert mock_prefetch.call_count == 0, (
+        "prefetch_bundle should not be called when kickoff_message is supplied"
+    )

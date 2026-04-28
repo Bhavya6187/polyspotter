@@ -981,12 +981,16 @@ def run_agent(llm_client, *, chosen_alerts: list[dict],
 
     `on_tool_call` is called with (name, args, env, elapsed_ms) after each
     tool dispatches.
+
+    `json_retry_hint` overrides the hint appended when the model's first
+    attempt at final JSON fails to parse.  When None a generic hint is used
+    that does not reference any schema details.
     """
     scope = _derive_scope(chosen_alerts)
-    prefetched = prefetch_bundle(scope)
     messages: list[dict] = transcript if transcript is not None else []
     messages.append({"role": "system", "content": system_prompt})
     if kickoff_message is None:
+        prefetched = prefetch_bundle(scope)
         kickoff_message = build_kickoff_message(chosen_alerts, prefetched=prefetched)
     messages.append({"role": "user", "content": kickoff_message})
     calls_used = 0
