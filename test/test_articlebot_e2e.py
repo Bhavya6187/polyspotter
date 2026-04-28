@@ -109,10 +109,10 @@ def test_articlebot_main_e2e_post(tmp_path, monkeypatch):
     # Required env vars
     monkeypatch.setenv("DATABASE_URL", "postgres://fake")
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "fake-key")
-    monkeypatch.setenv("ARTICLEBOT_DRY_RUN", "false")
+    monkeypatch.setenv("DRY_RUN", "false")
 
     # Also patch the module-level attribute directly (env var may have been read at import time)
-    monkeypatch.setattr(articlebot, "ARTICLEBOT_DRY_RUN", False)
+    monkeypatch.setattr(articlebot, "DRY_RUN", False)
 
     rc = articlebot.main()
 
@@ -210,8 +210,8 @@ def _make_validation_retry_harness(monkeypatch, tmp_path, agent_response, retry_
 
     monkeypatch.setenv("DATABASE_URL", "postgres://fake")
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "fake-key")
-    monkeypatch.setenv("ARTICLEBOT_DRY_RUN", "false")
-    monkeypatch.setattr(articlebot, "ARTICLEBOT_DRY_RUN", False)
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setattr(articlebot, "DRY_RUN", False)
 
     return fake_cur
 

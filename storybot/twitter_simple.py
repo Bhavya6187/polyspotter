@@ -52,7 +52,7 @@ from tweet_utils import (
 
 load_dotenv()
 
-DRY_RUN = os.environ.get("TWITTER_SIMPLE_DRY_RUN", "false").lower() == "true"
+DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
 
 _DRY_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dry_runs")
 

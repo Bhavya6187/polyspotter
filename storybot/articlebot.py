@@ -634,7 +634,7 @@ def render_cover_chart(spec: dict | None, chosen_alerts: list[dict],
 # Dry-run configuration and helpers
 # ---------------------------------------------------------------------------
 
-ARTICLEBOT_DRY_RUN = os.environ.get("ARTICLEBOT_DRY_RUN", "false").lower() == "true"
+DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
 
 _DRY_RUN_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "dry_runs"
@@ -731,7 +731,7 @@ def _retry_with_validation_hint(llm_client, transcript: list, error_msg: str,
 
 def main() -> int:
     run_id = uuid.uuid4().hex[:8]
-    log("articlebot_run_start", run_id=run_id, dry_run=ARTICLEBOT_DRY_RUN)
+    log("articlebot_run_start", run_id=run_id, dry_run=DRY_RUN)
 
     if not DATABASE_URL:
         log("config_error", run_id=run_id, error="DATABASE_URL not set")
@@ -753,7 +753,7 @@ def main() -> int:
         event_slug=pick.get("event_slug"), reason=pick.get("reason"))
 
     if pick["decision"] != "post":
-        if not ARTICLEBOT_DRY_RUN:
+        if not DRY_RUN:
             try:
                 _storage.record_skipped_run(run_id=run_id,
                                             event_slug=pick.get("event_slug") or "",
@@ -761,7 +761,7 @@ def main() -> int:
             except Exception as exc:
                 log("articlebot_skip_record_error", run_id=run_id,
                     error=f"{type(exc).__name__}: {exc}")
-        if ARTICLEBOT_DRY_RUN:
+        if DRY_RUN:
             _dump_dry_run(run_id, pick=pick, decision=None,
                           transcript=transcript, usage=usage_totals, error=None)
         return 0
@@ -784,14 +784,14 @@ def main() -> int:
     except Exception as exc:
         err = f"{type(exc).__name__}: {exc}"
         log("articlebot_agent_error", run_id=run_id, error=err)
-        if not ARTICLEBOT_DRY_RUN:
+        if not DRY_RUN:
             try:
                 _storage.record_skipped_run(run_id=run_id,
                                             event_slug=pick.get("event_slug") or "",
                                             reason=f"agent error: {err}")
             except Exception:
                 pass
-        if ARTICLEBOT_DRY_RUN:
+        if DRY_RUN:
             _dump_dry_run(run_id, pick=pick, decision=None,
                           transcript=transcript, usage=usage_totals, error=err)
         return 1
@@ -813,14 +813,14 @@ def main() -> int:
                 decision = retry_decision
     if not ok:
         log("articlebot_validation_error", run_id=run_id, error=err)
-        if not ARTICLEBOT_DRY_RUN:
+        if not DRY_RUN:
             try:
                 _storage.record_skipped_run(run_id=run_id,
                                             event_slug=pick.get("event_slug") or "",
                                             reason=f"validation: {err}")
             except Exception:
                 pass
-        if ARTICLEBOT_DRY_RUN:
+        if DRY_RUN:
             _dump_dry_run(run_id, pick=pick, decision=decision,
                           transcript=transcript, usage=usage_totals,
                           error=f"validation: {err}")
@@ -828,27 +828,27 @@ def main() -> int:
 
     if decision["decision"] == "skip":
         log("articlebot_skip", run_id=run_id, reason=decision.get("reason"))
-        if not ARTICLEBOT_DRY_RUN:
+        if not DRY_RUN:
             try:
                 _storage.record_skipped_run(run_id=run_id,
                                             event_slug=pick.get("event_slug") or "",
                                             reason=decision.get("reason") or "")
             except Exception:
                 pass
-        if ARTICLEBOT_DRY_RUN:
+        if DRY_RUN:
             _dump_dry_run(run_id, pick=pick, decision=decision,
                           transcript=transcript, usage=usage_totals, error=None)
         return 0
 
     # Stage 4: cover chart
-    cover_target_dir = _DRY_RUN_DIR if ARTICLEBOT_DRY_RUN else _storage.ARTICLES_DIR
+    cover_target_dir = _DRY_RUN_DIR if DRY_RUN else _storage.ARTICLES_DIR
     os.makedirs(cover_target_dir, exist_ok=True)
     cover_path_target = os.path.join(cover_target_dir, f"{run_id}.png")
     cover_path = render_cover_chart(decision.get("cover_chart_spec"),
                                     chosen_alerts, cover_path_target)
 
     # Stage 5: persist
-    if ARTICLEBOT_DRY_RUN:
+    if DRY_RUN:
         # Write the .md file into dry_runs (not articles/) and dump a transcript
         md_text = _storage._format_md_file(run_id, decision, cover_path)
         md_path = os.path.join(_DRY_RUN_DIR, f"{run_id}.md")

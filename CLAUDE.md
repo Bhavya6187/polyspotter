@@ -77,7 +77,7 @@ Articlebot (daily X article generator):
 ```bash
 source venv/bin/activate
 python storybot/articlebot.py        # writes a draft to storybot/articles/
-ARTICLEBOT_DRY_RUN=true python storybot/articlebot.py   # writes to storybot/dry_runs/
+DRY_RUN=true python storybot/articlebot.py   # writes to storybot/dry_runs/
 
 # After pasting into X composer:
 python storybot/mark_published.py <run_id> <x_article_url>

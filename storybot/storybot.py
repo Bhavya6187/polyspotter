@@ -60,7 +60,7 @@ from tweet_utils import (
 from style_rules import STYLE_RULES_A, STYLE_RULES_B, STYLE_RULES_C
 
 
-STORYBOT_DRY_RUN = os.environ.get("STORYBOT_DRY_RUN", "false").lower() == "true"
+DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
 
 RESPONSE_CAP_BYTES = 12288   # 12 KB per tool response
 MAX_TOOL_CALLS = 22
@@ -1190,7 +1190,7 @@ def _dump_dry_run(run_id: str, transcript: list[dict], *,
 
 def main() -> int:
     run_id = uuid.uuid4().hex[:8]
-    log("run_start", run_id=run_id, dry_run=STORYBOT_DRY_RUN)
+    log("run_start", run_id=run_id, dry_run=DRY_RUN)
 
     if not DATABASE_URL:
         log("config_error", run_id=run_id, error="DATABASE_URL not set")
@@ -1203,7 +1203,7 @@ def main() -> int:
 
     def _on_tool(name: str, args: dict, env: dict, elapsed_ms: int) -> None:
         preview_source = args.get("intent") or args.get("sql") or args.get("path") or ""
-        if STORYBOT_DRY_RUN:
+        if DRY_RUN:
             preview = preview_source or json.dumps(args)[:200]
             meta = []
             if env.get("backend"):
@@ -1223,7 +1223,7 @@ def main() -> int:
                 error=env.get("error"), truncated=env.get("truncated", False),
                 elapsed_ms=elapsed_ms)
 
-    transcript: list[dict] | None = [] if STORYBOT_DRY_RUN else None
+    transcript: list[dict] | None = [] if DRY_RUN else None
     usage_totals: dict = {}
     timings: list[dict] = []
     pick: dict | None = None
@@ -1238,7 +1238,7 @@ def main() -> int:
     seed_ms = int((time.monotonic() - t_seed) * 1000)
     timings.append({"stage": "seed_fetch", "ms": seed_ms, "count": len(seed_alerts)})
     log("seed_fetched", run_id=run_id, count=len(seed_alerts), elapsed_ms=seed_ms)
-    if STORYBOT_DRY_RUN:
+    if DRY_RUN:
         print(f"[dry-run] seeded {len(seed_alerts)} alerts ({seed_ms} ms)", flush=True)
 
     if not seed_alerts:
@@ -1258,7 +1258,7 @@ def main() -> int:
     log("pick", run_id=run_id, decision=pick.get("decision"),
         alert_ids=pick.get("alert_ids"), reason=pick.get("reason"),
         elapsed_ms=pick_ms)
-    if STORYBOT_DRY_RUN:
+    if DRY_RUN:
         print(
             f"[dry-run] pick: {pick.get('decision')} "
             f"alert_ids={pick.get('alert_ids')} — {pick.get('reason')} "
@@ -1271,7 +1271,7 @@ def main() -> int:
         log("skip", run_id=run_id, reason=pick.get("reason") or "picker chose to skip")
         log("run_end", run_id=run_id, posted=False,
             elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
-        if STORYBOT_DRY_RUN and transcript is not None:
+        if DRY_RUN and transcript is not None:
             path = _dump_dry_run(run_id, transcript, pick=pick,
                                  usage=usage_totals, timings=timings)
             print(f"[dry-run] transcript → {path}", flush=True)
@@ -1281,7 +1281,7 @@ def main() -> int:
     if chosen_alerts is None:
         log("llm_usage", run_id=run_id, **usage_totals)
         log("pick_error", run_id=run_id, error=err, pick=pick)
-        if STORYBOT_DRY_RUN and transcript is not None:
+        if DRY_RUN and transcript is not None:
             path = _dump_dry_run(run_id, transcript, pick=pick,
                                  usage=usage_totals, timings=timings,
                                  error=f"invalid pick: {err}")
@@ -1298,7 +1298,7 @@ def main() -> int:
     except AgentError as exc:
         log("llm_usage", run_id=run_id, **usage_totals)
         log("agent_error", run_id=run_id, error=str(exc))
-        if STORYBOT_DRY_RUN and transcript is not None:
+        if DRY_RUN and transcript is not None:
             path = _dump_dry_run(run_id, transcript, pick=pick,
                                  usage=usage_totals, timings=timings,
                                  error=f"AgentError: {exc}")
@@ -1307,7 +1307,7 @@ def main() -> int:
     except Exception as exc:
         log("llm_usage", run_id=run_id, **usage_totals)
         log("llm_error", run_id=run_id, error=f"{type(exc).__name__}: {exc}")
-        if STORYBOT_DRY_RUN and transcript is not None:
+        if DRY_RUN and transcript is not None:
             path = _dump_dry_run(run_id, transcript, pick=pick,
                                  usage=usage_totals, timings=timings,
                                  error=f"{type(exc).__name__}: {exc}")
@@ -1316,7 +1316,7 @@ def main() -> int:
 
     log("llm_usage", run_id=run_id, **usage_totals)
 
-    if STORYBOT_DRY_RUN:
+    if DRY_RUN:
         iters = [t for t in timings if t.get("stage") == "research_iter"]
         tool_total = sum(len(t.get("tool_calls") or []) for t in iters)
         research_ms = sum(t.get("llm_ms", 0) for t in iters) + sum(
@@ -1363,7 +1363,7 @@ def main() -> int:
 
     try:
         twitter_client = _build_twitter_client()
-        tweet_ids = post_thread(tweets, twitter_client=twitter_client, dry_run=STORYBOT_DRY_RUN)
+        tweet_ids = post_thread(tweets, twitter_client=twitter_client, dry_run=DRY_RUN)
     except Exception as exc:
         log("post_error", run_id=run_id, error=f"{type(exc).__name__}: {exc}")
         return 1
@@ -1376,7 +1376,7 @@ def main() -> int:
         print(f"\n--- Tweet {i}/{len(tweets)} ({len(t)} chars) ---\n{t}", flush=True)
     print("", flush=True)
 
-    if STORYBOT_DRY_RUN:
+    if DRY_RUN:
         log("run_end", run_id=run_id, posted=True, dry_run=True, tweet_id=root_tweet_id,
             elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
         return 0
