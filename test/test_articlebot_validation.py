@@ -136,7 +136,7 @@ def test_article_system_prompt_contains_style_rules_and_article_specifics():
     assert "Hard style rules" in p
     assert "Analyst-speak" in p or "analyst-speak" in p.lower()
     # Article-specific framing
-    assert "X article" in p or "X Article" in p
+    assert "SEO-indexed page on polyspotter.com" in p
     assert "general audience" in p.lower()
     # Length and structure rules surfaced to the model
     assert "500-700" in p or "600 words" in p or "450" in p
