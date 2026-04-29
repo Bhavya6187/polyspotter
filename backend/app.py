@@ -52,6 +52,8 @@ from models import (
     PricePoint,
     HolderEntry,
     MarketHoldersData,
+    ArticleOut,
+    ArticleListItem,
 )
 
 
@@ -1851,3 +1853,38 @@ def health():
         cur.execute("SELECT COUNT(*) as cnt FROM alerts")
         count = cur.fetchone()["cnt"]
     return {"status": "ok", "alert_count": count}
+
+
+@app.get("/api/articles/by-slug/{date}/{event_slug}", response_model=ArticleOut)
+def get_article_by_slug(date: str, event_slug: str):
+    """Look up a published article by (published_date, event_slug)."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT run_id, event_slug, published_date, headline, subhead,
+                   body_markdown, cover_alt_text, alert_ids, posted_url,
+                   (cover_bytes IS NOT NULL) AS has_cover
+            FROM articles
+            WHERE published_date = %s::date
+              AND event_slug = %s
+              AND status = 'published'
+            LIMIT 1
+            """,
+            (date, event_slug),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="article not found")
+    return ArticleOut(
+        run_id=row["run_id"],
+        event_slug=row["event_slug"],
+        published_date=row["published_date"].isoformat(),
+        headline=row["headline"],
+        subhead=row["subhead"],
+        body_markdown=row["body_markdown"],
+        cover_alt_text=row["cover_alt_text"],
+        alert_ids=list(row["alert_ids"] or []),
+        posted_url=row["posted_url"],
+        has_cover=bool(row["has_cover"]),
+    )

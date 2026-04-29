@@ -978,3 +978,64 @@ class TestTopThree:
         ids = {row["id"] for row in resp.json()}
         assert resolved_id not in ids, "UMA-resolved market should be excluded"
         assert clean_id in ids, "clean lower-score market should fill the bucket"
+
+
+# ---------------------------------------------------------------------------
+# /api/articles/by-slug/{date}/{event_slug} endpoint tests
+# ---------------------------------------------------------------------------
+
+@skip_no_db
+def test_articles_by_slug_returns_published_row():
+    """A published row is returned by (date, slug); drafts and missing rows 404."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO articles
+                (run_id, event_slug, alert_ids, headline, subhead,
+                 body_markdown, cover_alt_text, md_path, word_count,
+                 status, published_date, posted_url, tweet_text)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (run_id) DO NOTHING
+            """,
+            ("TEST_byslug_run", "test-event-slug", [1, 2],
+             "Test Headline", "Test Subhead", "body **md**", "cover alt",
+             "test.md", 600, "published", "2026-04-28",
+             "https://x.com/PolySpotter/status/1", "tweet teaser"),
+        )
+
+    try:
+        r = client.get("/api/articles/by-slug/2026-04-28/test-event-slug")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["run_id"] == "TEST_byslug_run"
+        assert body["headline"] == "Test Headline"
+        assert body["body_markdown"] == "body **md**"
+        assert body["alert_ids"] == [1, 2]
+        assert body["published_date"] == "2026-04-28"
+        assert body["has_cover"] is False  # no cover_bytes set
+
+        # 404 for unknown slug
+        r = client.get("/api/articles/by-slug/2026-04-28/no-such-slug")
+        assert r.status_code == 404
+
+        # 404 for draft (re-INSERT same event_slug as a draft on a different date)
+        with db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO articles
+                    (run_id, event_slug, alert_ids, headline, subhead,
+                     body_markdown, md_path, word_count, status, tweet_text)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                ("TEST_byslug_draft", "test-event-slug", [3],
+                 "Draft", "Draft sub", "body", "test.md", 600,
+                 "draft", "tweet"),
+            )
+        r = client.get("/api/articles/by-slug/2026-04-29/test-event-slug")
+        assert r.status_code == 404
+    finally:
+        with db() as conn:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM articles WHERE run_id LIKE 'TEST_byslug_%%'")
