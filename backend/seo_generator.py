@@ -138,7 +138,7 @@ def generate_seo_content(
     try:
         response = client.chat.completions.create(
             model=MODEL,
-            max_completion_tokens=500,
+            max_completion_tokens=2000,
             messages=[
                 {"role": "developer", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},

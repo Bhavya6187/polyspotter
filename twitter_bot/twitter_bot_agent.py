@@ -865,7 +865,7 @@ def select_shortlist(top_alerts: list[dict], *, llm_client) -> ShortlistDecision
         messages=messages,
         response_format={"type": "json_object"},
         temperature=0.7,
-        max_completion_tokens=400,
+        max_completion_tokens=2000,
     )
     content = response.choices[0].message.content
     if not content:
@@ -1038,7 +1038,7 @@ def compose_tweet(
             "messages": messages,
             "tools": TOOL_SCHEMAS,
             "temperature": 0.7,
-            "max_completion_tokens": 800,
+            "max_completion_tokens": 2000,
         }
         if remaining > 0 and not forcing_final:
             call_kwargs["tool_choice"] = "auto"

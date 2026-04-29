@@ -50,7 +50,7 @@ def call_llm(prompt, label):
     print(f"=== {label} ===")
     response = client.chat.completions.create(
         model=MODEL,
-        max_completion_tokens=300,
+        max_completion_tokens=2000,
         messages=[
             {"role": "developer", "content": SYSTEM_PROMPT},
             {"role": "user", "content": prompt},

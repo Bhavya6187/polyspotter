@@ -615,7 +615,7 @@ def route_compression(llm_client, *, intent: str, data: Any, model: str,
             {"role": "user", "content": user_msg},
         ],
         temperature=1,
-        max_completion_tokens=800,
+        max_completion_tokens=2000,
         reasoning_effort="low",
         response_format={"type": "json_object"},
     )

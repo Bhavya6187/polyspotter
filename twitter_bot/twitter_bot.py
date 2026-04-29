@@ -403,7 +403,7 @@ def _shorten_tweet(decision: dict, top_alerts: list[dict], shortlist_decision, *
         messages=retry_messages,
         response_format={"type": "json_object"},
         temperature=0.7,
-        max_completion_tokens=500,
+        max_completion_tokens=2000,
     )
     content = response.choices[0].message.content or "{}"
     return json.loads(content)
