@@ -563,3 +563,27 @@ class CricketGameData(BaseModel):
     balls: list[BallEvent] = []
     squads: dict[str, list[CricketSquadPlayer]] = {}  # {"home": [...], "away": [...]}
     head_to_head: CricketHeadToHead | None = None
+
+
+# -- Articles ----------------------------------------------------------------
+
+class ArticleOut(BaseModel):
+    """Full article payload returned to the frontend article page."""
+    run_id: str
+    event_slug: str
+    published_date: str        # ISO YYYY-MM-DD
+    headline: str
+    subhead: str
+    body_markdown: str
+    cover_alt_text: str | None = None
+    alert_ids: list[int]
+    posted_url: str | None = None
+    has_cover: bool
+
+
+class ArticleListItem(BaseModel):
+    """Single entry in GET /api/articles, used by the sitemap."""
+    run_id: str
+    event_slug: str
+    published_date: str
+    headline: str
