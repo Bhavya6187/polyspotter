@@ -170,7 +170,11 @@ def _migrate_add_articles(cur):
             status          TEXT NOT NULL DEFAULT 'draft',
             posted_url      TEXT,
             created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            posted_at       TIMESTAMPTZ
+            posted_at       TIMESTAMPTZ,
+            cover_bytes     BYTEA,
+            tweet_text      TEXT,
+            tweet_id        TEXT,
+            published_date  DATE
         )
     """)
     cur.execute("""
@@ -180,4 +184,14 @@ def _migrate_add_articles(cur):
     cur.execute("""
         CREATE INDEX IF NOT EXISTS idx_articles_status
             ON articles (status, created_at DESC)
+    """)
+    # Backward-compat ALTERs for tables created before these columns existed
+    cur.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS cover_bytes BYTEA")
+    cur.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS tweet_text TEXT")
+    cur.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS tweet_id TEXT")
+    cur.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS published_date DATE")
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_articles_published_lookup
+            ON articles (published_date, event_slug)
+            WHERE status = 'published'
     """)

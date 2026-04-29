@@ -8,22 +8,29 @@ from unittest.mock import MagicMock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 
-def test_migrate_add_articles_executes_create_table_and_indexes():
-    """The migration runs three statements: CREATE TABLE + 2 CREATE INDEX,
-    all with IF NOT EXISTS so it's idempotent."""
+def test_migrate_add_articles_executes_full_migration():
+    """Migration runs: CREATE TABLE + 2 base indexes + 4 ALTER ADD COLUMN
+    + 1 partial index, all idempotent."""
     import database
 
     cur = MagicMock()
     database._migrate_add_articles(cur)
 
     sqls = [call.args[0] for call in cur.execute.call_args_list]
-    assert len(sqls) == 3, f"expected 3 statements, got {len(sqls)}"
+    assert len(sqls) == 8, f"expected 8 statements, got {len(sqls)}"
     assert "CREATE TABLE IF NOT EXISTS articles" in sqls[0]
-    assert "run_id" in sqls[0] and "TEXT NOT NULL UNIQUE" in sqls[0]
-    assert "alert_ids" in sqls[0] and "INTEGER[]" in sqls[0]
-    assert "status" in sqls[0]
+    assert "cover_bytes     BYTEA" in sqls[0]
+    assert "tweet_text      TEXT" in sqls[0]
+    assert "tweet_id        TEXT" in sqls[0]
+    assert "published_date  DATE" in sqls[0]
     assert "CREATE INDEX IF NOT EXISTS idx_articles_event_slug" in sqls[1]
     assert "CREATE INDEX IF NOT EXISTS idx_articles_status" in sqls[2]
+    assert "ADD COLUMN IF NOT EXISTS cover_bytes BYTEA" in sqls[3]
+    assert "ADD COLUMN IF NOT EXISTS tweet_text TEXT" in sqls[4]
+    assert "ADD COLUMN IF NOT EXISTS tweet_id TEXT" in sqls[5]
+    assert "ADD COLUMN IF NOT EXISTS published_date DATE" in sqls[6]
+    assert "CREATE INDEX IF NOT EXISTS idx_articles_published_lookup" in sqls[7]
+    assert "WHERE status = 'published'" in sqls[7]
 
 
 import os
