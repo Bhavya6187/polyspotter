@@ -237,17 +237,22 @@ def enrich_alert_for_charts(alert: dict) -> None:
         alert["token_id"] = tokens[side]
 
 
-def prepare_chart(chart_type: str, alert: dict) -> bytes | None:
+def prepare_chart(chart_type: str, alert: dict,
+                  *, cluster_context: dict | None = None) -> bytes | None:
     """Render a chart for one alert. Returns PNG bytes or None. Never raises.
 
     Caller is responsible for resolving which alert + chart_type to render.
+    `cluster_context` lets the caller pass cluster-wide stats (e.g. cluster_total_usd,
+    cluster_size) so a wallet-shaped chart can show the bigger cluster framing
+    instead of just the individual alert's stake.
     """
     if not alert:
         return None
     enrich_alert_for_charts(alert)
     try:
         import charts  # local import to keep tweet_utils import-light at module load
-        return charts.render_chart_for_alert(chart_type, alert)
+        return charts.render_chart_for_alert(chart_type, alert,
+                                             cluster_context=cluster_context)
     except Exception as exc:
         log("chart_render_error",
             error=f"{type(exc).__name__}: {exc}",

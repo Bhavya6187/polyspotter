@@ -79,6 +79,7 @@ class WalletRecordCardData(TypedDict):
     wallet_age_days: int | None
     bet_size_usd: float
     outcome_side: str        # "Yes" / "Arsenal" / etc.
+    cluster_size: int | None  # when set: footer reads "$X on Y — N linked accounts"
 
 
 def _format_usd(amount: float) -> str:
@@ -122,8 +123,11 @@ def render_wallet_record_card(data: WalletRecordCardData) -> bytes:
                            0.8 * (1 - data["win_pct"]), bar_h,
                            color=LOSS, transform=ax.transAxes))
 
-    # Footer: bet size + outcome side
+    # Footer: bet size + outcome side, plus optional "— N linked accounts" suffix.
     footer = f"{_format_usd(data['bet_size_usd'])} on {data['outcome_side']}"
+    cluster_size = data.get("cluster_size")
+    if cluster_size and cluster_size >= 2:
+        footer = f"{footer} — {cluster_size} linked accounts"
     ax.text(0.5, 0.10, footer, color=FG, fontsize=24, ha="center", va="center",
             fontweight="bold")
 
@@ -171,7 +175,11 @@ def _fetch_wallet_profiles(wallets: list[str]) -> dict[str, dict]:
     return out
 
 
-def fetch_wallet_record_card_data(alert: dict) -> WalletRecordCardData | None:
+def fetch_wallet_record_card_data(
+    alert: dict,
+    *,
+    cluster_context: dict | None = None,
+) -> WalletRecordCardData | None:
     """Build WalletRecordCardData for either a single-wallet or cluster alert.
 
     Single-wallet (alert['wallet'] set): use that wallet's wallet_profiles row,
@@ -181,6 +189,12 @@ def fetch_wallet_record_card_data(alert: dict) -> WalletRecordCardData | None:
     primary wallet, but the picker may have led with a sharp wallet *inside*
     the cluster. Pick the wallet with the highest win_rate among those meeting
     WALLET_RECORD_MIN_BETS, and show its individual contribution in the footer.
+
+    `cluster_context` (optional) carries cluster-wide stats from the caller.
+    When `cluster_total_usd` exceeds the wallet's individual stake AND
+    `cluster_size` is >= 2, the footer is upgraded to show the cluster total
+    + a "N linked accounts" suffix — the cluster bet is the bigger story
+    once a record-eligible wallet is part of a multi-wallet pile-on.
 
     Returns None when the wallet is unknown / not in the cluster, or has fewer
     than WALLET_RECORD_MIN_BETS resolved bets.
@@ -210,6 +224,18 @@ def fetch_wallet_record_card_data(alert: dict) -> WalletRecordCardData | None:
         wallet = max(profiles, key=lambda w: profiles[w]["win_rate"])
         profile = profiles[wallet]
         bet_size = size_by_wallet.get(wallet, 0.0)
+
+    # Cluster-context override: when the cluster total dwarfs this wallet's
+    # individual stake AND the cluster has 2+ linked accounts, the footer
+    # tells the cluster story instead of the individual stake.
+    cluster_size_for_footer: int | None = None
+    if cluster_context:
+        cluster_total = float(cluster_context.get("cluster_total_usd") or 0.0)
+        cluster_size = cluster_context.get("cluster_size")
+        if (cluster_total > bet_size
+                and isinstance(cluster_size, int) and cluster_size >= 2):
+            bet_size = cluster_total
+            cluster_size_for_footer = cluster_size
 
     wins = profile["wins"]
     losses = profile["losses"]
@@ -243,6 +269,7 @@ def fetch_wallet_record_card_data(alert: dict) -> WalletRecordCardData | None:
         "wallet_age_days": wallet_age_days,
         "bet_size_usd": float(bet_size),
         "outcome_side": outcome_side,
+        "cluster_size": cluster_size_for_footer,
     }
 
 
@@ -982,14 +1009,22 @@ _CHART_REGISTRY: dict[str, tuple] = {
 }
 
 
-def _try_render(chart_type: str, alert: dict) -> bytes | None:
-    """Try the chart for `chart_type`. Returns bytes or None. Never raises."""
+def _try_render(chart_type: str, alert: dict,
+                cluster_context: dict | None = None) -> bytes | None:
+    """Try the chart for `chart_type`. Returns bytes or None. Never raises.
+
+    `cluster_context` is forwarded to fetchers that opt in to it (currently
+    wallet_record_card). Other fetchers ignore the kwarg.
+    """
     pair = _CHART_REGISTRY.get(chart_type)
     if not pair:
         return None
     fetcher, renderer = pair
     try:
-        data = fetcher(alert)
+        if chart_type == "wallet_record_card":
+            data = fetcher(alert, cluster_context=cluster_context)
+        else:
+            data = fetcher(alert)
     except Exception:
         return None
     if data is None:
@@ -1000,16 +1035,17 @@ def _try_render(chart_type: str, alert: dict) -> bytes | None:
         return None
 
 
-def render_chart_for_alert(chart_type: str, alert: dict) -> bytes | None:
+def render_chart_for_alert(chart_type: str, alert: dict,
+                           *, cluster_context: dict | None = None) -> bytes | None:
     """Try the requested chart. If it fails, fall back to wallet_record_card
     (except for the wallet-shaped charts, which are mutually exclusive with
     a record card — a fresh wallet has no record, and vice versa). Returns
     PNG bytes or None. Never raises."""
     if chart_type in ("none", "", None):
         return None
-    primary = _try_render(chart_type, alert)
+    primary = _try_render(chart_type, alert, cluster_context)
     if primary is not None:
         return primary
     if chart_type in ("wallet_record_card", "fresh_wallet_card"):
         return None
-    return _try_render("wallet_record_card", alert)
+    return _try_render("wallet_record_card", alert, cluster_context)

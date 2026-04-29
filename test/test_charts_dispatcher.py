@@ -27,10 +27,12 @@ def test_render_chart_returns_bytes_when_primary_succeeds():
         "bet_count": 12, "wallet_age_days": 50, "bet_size_usd": 1000,
         "outcome_side": "Yes",
     }
-    # Patch the function in the registry by patching the module's reference
+    # Patch the function in the registry by patching the module's reference.
+    # wallet_record_card fetchers accept cluster_context as a keyword arg.
     with patch.dict(
         "charts._CHART_REGISTRY",
-        {"wallet_record_card": (lambda alert: fake_data, charts.render_wallet_record_card)},
+        {"wallet_record_card": (lambda alert, cluster_context=None: fake_data,
+                                charts.render_wallet_record_card)},
     ):
         result = charts.render_chart_for_alert("wallet_record_card", {"wallet": "0xabc"})
     assert isinstance(result, bytes)
@@ -43,12 +45,14 @@ def test_render_chart_falls_back_to_wallet_record_when_primary_fails():
         "bet_count": 12, "wallet_age_days": 50, "bet_size_usd": 1000,
         "outcome_side": "Yes",
     }
-    # Patch volume_bar to fail, fallback to wallet_record
+    # Patch volume_bar to fail, fallback to wallet_record. The wallet_record_card
+    # fetcher accepts cluster_context as a keyword arg.
     with patch.dict(
         "charts._CHART_REGISTRY",
         {
             "volume_bar": (lambda alert: None, charts.render_volume_bar),
-            "wallet_record_card": (lambda alert: fake_wallet, charts.render_wallet_record_card),
+            "wallet_record_card": (lambda alert, cluster_context=None: fake_wallet,
+                                   charts.render_wallet_record_card),
         },
     ):
         result = charts.render_chart_for_alert("volume_bar", {"wallet": "0xabc"})

@@ -102,7 +102,29 @@ def test_sharp_wallet_from_llm_copy_action():
     b = twitter_pipeline.build_facts_bundle(alerts, [])
     assert b["has_sharp_wallet"] == {
         "wallet": "0xfeed", "record": "29-4", "win_pct": 0.88, "alert_id": 4242,
+        "bet_usd": 0.0,
     }
+
+
+def test_sharp_wallet_bet_usd_sums_only_that_wallets_trades():
+    """bet_usd must isolate the sharp wallet's contribution from the cluster
+    total — otherwise the writer can't tell them apart."""
+    trades = [
+        _trade(wallet="0xfeed", usd=1_000),    # the sharp wallet
+        _trade(wallet="0xfeed", usd=500),      # same wallet, second trade
+        _trade(wallet="0xother", usd=22_000),  # a different cluster wallet
+    ]
+    alerts = [{
+        "id": 4242,
+        "wallet": "0xfeed",
+        "llm_copy_action": {"wallet_record": "184-13", "win_pct": 0.93},
+        "signals": [],
+    }]
+    b = twitter_pipeline.build_facts_bundle(alerts, trades)
+    sharp = b["has_sharp_wallet"]
+    assert sharp["bet_usd"] == 1_500.0
+    # Total sums all trades, not just the sharp's.
+    assert b["total_usd"] == 23_500.0
 
 
 def test_sharp_wallet_falls_back_to_wallet_pnl_summary(monkeypatch):

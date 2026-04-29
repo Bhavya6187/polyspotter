@@ -146,6 +146,83 @@ def test_fetch_wallet_record_card_returns_none_when_cluster_has_no_trades():
     assert result is None
 
 
+def test_fetch_wallet_record_card_uses_cluster_context_when_total_dwarfs_individual():
+    """When cluster_total_usd > alert.total_usd AND cluster_size >= 2, the
+    footer shows the cluster total + a "N linked accounts" suffix."""
+    alert = {
+        "wallet": "0xsharp",
+        "market_title": "Madrid Open: Sinner vs Jodar",
+        "total_usd": 1_000,  # the sharp wallet's individual stake
+        "llm_copy_action": '{"outcome": "Rafael Jodar"}',
+    }
+    cluster_context = {"cluster_total_usd": 22_000, "cluster_size": 8}
+    with patch("charts.psycopg2.connect") as mock_connect:
+        mock_cur = mock_connect.return_value.cursor.return_value
+        mock_cur.fetchall.return_value = [("0xsharp", 184, 13, 0.934, None)]
+        result = charts.fetch_wallet_record_card_data(
+            alert, cluster_context=cluster_context)
+    assert result is not None
+    assert result["bet_size_usd"] == 22_000
+    assert result["cluster_size"] == 8
+
+
+def test_fetch_wallet_record_card_ignores_cluster_when_individual_is_larger():
+    """If the alert's own total_usd >= cluster total, keep the individual stake."""
+    alert = {
+        "wallet": "0xsharp",
+        "market_title": "Some market",
+        "total_usd": 50_000,
+        "llm_copy_action": '{"outcome": "Yes"}',
+    }
+    cluster_context = {"cluster_total_usd": 30_000, "cluster_size": 4}
+    with patch("charts.psycopg2.connect") as mock_connect:
+        mock_cur = mock_connect.return_value.cursor.return_value
+        mock_cur.fetchall.return_value = [("0xsharp", 50, 10, 0.833, None)]
+        result = charts.fetch_wallet_record_card_data(
+            alert, cluster_context=cluster_context)
+    assert result is not None
+    assert result["bet_size_usd"] == 50_000
+    assert result["cluster_size"] is None
+
+
+def test_fetch_wallet_record_card_ignores_cluster_when_size_below_two():
+    """A cluster_size of 1 (or None) means there's no real cluster — keep the
+    individual stake even if cluster_total exceeds it."""
+    alert = {
+        "wallet": "0xsharp",
+        "market_title": "M",
+        "total_usd": 1_000,
+        "llm_copy_action": '{"outcome": "Yes"}',
+    }
+    cluster_context = {"cluster_total_usd": 5_000, "cluster_size": 1}
+    with patch("charts.psycopg2.connect") as mock_connect:
+        mock_cur = mock_connect.return_value.cursor.return_value
+        mock_cur.fetchall.return_value = [("0xsharp", 30, 5, 0.857, None)]
+        result = charts.fetch_wallet_record_card_data(
+            alert, cluster_context=cluster_context)
+    assert result is not None
+    assert result["bet_size_usd"] == 1_000
+    assert result["cluster_size"] is None
+
+
+def test_render_wallet_record_card_includes_cluster_suffix():
+    """When cluster_size is set, the footer carries '— N linked accounts'.
+    Smoke-test by rendering with and without and asserting the bytes differ."""
+    base: charts.WalletRecordCardData = {
+        "market_title": "M",
+        "record_str": "184-13",
+        "win_pct": 0.934,
+        "bet_count": 197,
+        "wallet_age_days": None,
+        "bet_size_usd": 22_000,
+        "outcome_side": "Rafael Jodar",
+        "cluster_size": None,
+    }
+    no_cluster = charts.render_wallet_record_card(base)
+    with_cluster = charts.render_wallet_record_card({**base, "cluster_size": 8})
+    assert no_cluster != with_cluster
+
+
 # --------- fresh_wallet_card ---------
 
 def test_fetch_fresh_wallet_card_picks_youngest_wallet_in_cluster(monkeypatch):

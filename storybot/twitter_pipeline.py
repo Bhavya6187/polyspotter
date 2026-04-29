@@ -93,13 +93,33 @@ def _best_sharp_wallet_via_pnl(wallets: list[str]) -> tuple[str, int, int] | Non
     return best
 
 
+def _wallet_bet_usd(wallet: str, trades: list[dict]) -> float:
+    """Sum usdcSize across `trades` placed by `wallet`. Handles both
+    'proxyWallet' (Polymarket Data API) and 'wallet' (internal/test) keys."""
+    if not wallet:
+        return 0.0
+    total = 0.0
+    for t in trades:
+        if not isinstance(t, dict):
+            continue
+        w = t.get("proxyWallet") or t.get("wallet")
+        if w == wallet:
+            total += float(t.get("usdcSize") or 0.0)
+    return total
+
+
 def _extract_sharp_wallet(chosen_alerts: list[dict],
                           trades: list[dict]) -> dict | None:
     """Try llm_copy_action first; fall back to wallet_pnl summary if a
     win_rate_tracking signal exists. For cluster alerts (no top-level wallet),
     scan the cluster's trades and pick the highest-win-rate wallet meeting the
     min resolved-positions threshold — matching the chart fetcher's cluster
-    path in storybot.charts.fetch_wallet_record_card_data."""
+    path in storybot.charts.fetch_wallet_record_card_data.
+
+    Returned dict includes `bet_usd` — the sharp wallet's own contribution
+    summed across `trades` — so the writer can name it separately from the
+    cluster total when they materially differ.
+    """
     for a in chosen_alerts:
         copy = a.get("llm_copy_action") or {}
         if isinstance(copy, str):
@@ -115,6 +135,7 @@ def _extract_sharp_wallet(chosen_alerts: list[dict],
                 "record": str(record),
                 "win_pct": float(win_pct) if win_pct is not None else None,
                 "alert_id": int(a.get("id") or 0),
+                "bet_usd": _wallet_bet_usd(a["wallet"], trades),
             }
 
     for a in chosen_alerts:
@@ -134,6 +155,7 @@ def _extract_sharp_wallet(chosen_alerts: list[dict],
             "record": f"{wins}-{losses}",
             "win_pct": (wins / closed) if closed > 0 else None,
             "alert_id": int(a.get("id") or 0),
+            "bet_usd": _wallet_bet_usd(wallet, trades),
         }
     return None
 
@@ -538,6 +560,16 @@ as a self-contained sentence.
   Win-rate records stay exact ("178-20"). Max 3 numbers.
 - Refer to wallets by what makes them notable ("a 178-20 wallet", "a fresh account
   up $400k"), not by 0x address.
+- Sharp wallet vs cluster total: when has_sharp_wallet is set AND its bet_usd
+  is materially less than total_usd (rule of thumb: bet_usd <= 0.5 * total_usd),
+  these are two different facts and you MUST name them separately. The sharp
+  wallet's own stake is bet_usd; the surrounding cluster's total stake is
+  total_usd minus bet_usd (or just the total, if you frame it as "the cluster
+  put $X total"). Never imply the sharp wallet bet the full cluster sum.
+  Pattern: "<record-led lede with the sharp wallet's bet>. <cluster sentence
+  naming the rest>." Example: "A 184-13 Polymarket account just put $1k on
+  Rafael Jodar to upset Sinner. Seven more accounts sharing the same funder
+  added another $22k on the same side."
 - The closing line earns its spot: a stake, a time pressure, or something concrete
   to watch. NOT vague chest-thumps like "Not random.", "Something's cooking.",
   "Worth a look.". If you don't have a real closer, end on the link.
@@ -944,7 +976,12 @@ def main() -> int:
          if int(a.get("id") or 0) == target_alert_id),
         None,
     )
-    chart_png = (prepare_chart(chart_pick["chart_type"], target_alert)
+    cluster_context = {
+        "cluster_total_usd": bundle["facts_bundle"].get("total_usd"),
+        "cluster_size": bundle["facts_bundle"].get("cluster_size"),
+    }
+    chart_png = (prepare_chart(chart_pick["chart_type"], target_alert,
+                               cluster_context=cluster_context)
                  if target_alert else None)
     log("chart_selected", run_id=run_id, chart_type=chart_pick["chart_type"],
         rendered=chart_png is not None,

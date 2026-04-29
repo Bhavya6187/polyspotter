@@ -164,14 +164,18 @@ SEED_ALERTS_SQL = f"""
 """
 
 
+_GAMMA_MARKETS_BATCH_SIZE = 20  # 66-char condition_ids; 20/req keeps URL <2KB
+
+
 def _gamma_status_for_markets(condition_ids: list[str]) -> dict[str, dict]:
     """Batch-fetch {closed, uma_status, max_price} per condition_id from Gamma.
 
     Two passes: open markets first, then retry the misses with closed=true
     (Gamma hides closed markets by default — without the retry, settled
-    games would silently leak through as "unknown"). Degrades gracefully
-    on network failure: returns partial results and the caller falls back
-    to whatever the SQL filter already caught.
+    games would silently leak through as "unknown"). Each pass is chunked
+    because Gamma rejects URLs > ~2KB with 414. Degrades gracefully on
+    network failure: a single bad chunk is logged and skipped; remaining
+    chunks still run, and unresolved IDs fall through to the next pass.
     """
     if not condition_ids:
         return {}
@@ -181,37 +185,39 @@ def _gamma_status_for_markets(condition_ids: list[str]) -> dict[str, dict]:
     for extra_params in ({}, {"closed": "true"}):
         if not remaining:
             break
-        params: list[tuple[str, str]] = [("condition_ids", cid) for cid in remaining]
-        for k, v in extra_params.items():
-            params.append((k, v))
-        try:
-            resp = requests.get(
-                f"{GAMMA_BASE_URL}/markets", params=params,
-                timeout=QUERY_TIMEOUT_SECONDS * 2,
-            )
-            resp.raise_for_status()
-            markets = resp.json()
-        except Exception as exc:
-            log("gamma_status_error",
-                error=f"{type(exc).__name__}: {exc}",
-                pending=len(remaining))
-            break
-
-        for m in markets:
-            cid = m.get("conditionId")
-            if not cid:
-                continue
-            raw = m.get("outcomePrices") or "[]"
+        for i in range(0, len(remaining), _GAMMA_MARKETS_BATCH_SIZE):
+            chunk = remaining[i:i + _GAMMA_MARKETS_BATCH_SIZE]
+            params: list[tuple[str, str]] = [("condition_ids", cid) for cid in chunk]
+            for k, v in extra_params.items():
+                params.append((k, v))
             try:
-                prices = json.loads(raw) if isinstance(raw, str) else raw
-                max_price = max(float(p) for p in prices) if prices else 0.0
-            except (ValueError, TypeError, json.JSONDecodeError):
-                max_price = 0.0
-            out[cid] = {
-                "closed": bool(m.get("closed")),
-                "uma_status": (m.get("umaResolutionStatus") or "").strip(),
-                "max_price": max_price,
-            }
+                resp = requests.get(
+                    f"{GAMMA_BASE_URL}/markets", params=params,
+                    timeout=QUERY_TIMEOUT_SECONDS * 2,
+                )
+                resp.raise_for_status()
+                markets = resp.json()
+            except Exception as exc:
+                log("gamma_status_error",
+                    error=f"{type(exc).__name__}: {exc}",
+                    pending=len(chunk))
+                continue
+
+            for m in markets:
+                cid = m.get("conditionId")
+                if not cid:
+                    continue
+                raw = m.get("outcomePrices") or "[]"
+                try:
+                    prices = json.loads(raw) if isinstance(raw, str) else raw
+                    max_price = max(float(p) for p in prices) if prices else 0.0
+                except (ValueError, TypeError, json.JSONDecodeError):
+                    max_price = 0.0
+                out[cid] = {
+                    "closed": bool(m.get("closed")),
+                    "uma_status": (m.get("umaResolutionStatus") or "").strip(),
+                    "max_price": max_price,
+                }
         remaining = [cid for cid in remaining if cid not in out]
 
     return out
