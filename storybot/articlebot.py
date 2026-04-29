@@ -911,17 +911,20 @@ def main() -> int:
 
     try:
         result = _storage.persist_article(
-            run_id=run_id, decision=decision, cover_path=cover_path,
+            run_id=run_id,
+            decision=decision,
+            cover_bytes=cover_bytes,
+            cover_path=cover_path,
         )
     except Exception as exc:
         log("articlebot_persist_error", run_id=run_id,
             error=f"{type(exc).__name__}: {exc}")
         return 1
 
-    print(f"[articlebot] run_id={run_id} md={result['md_path']} "
+    print(f"[articlebot] draft run_id={run_id} md={result['md_path']} "
           f"cover={cover_path or 'none'} words={result['word_count']}")
-    print(f"[articlebot] paste into X composer, then: "
-          f"python storybot/mark_published.py {run_id} <x_article_url>")
+    print(f"[articlebot] review the markdown, then: "
+          f"python storybot/publish_article.py {run_id}")
     return 0
 
 

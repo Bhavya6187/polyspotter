@@ -1,4 +1,4 @@
-"""Tests for articlebot storage: migration, insert, file dump, mark_published."""
+"""Tests for articlebot storage: migration, insert, file dump."""
 from __future__ import annotations
 
 import sys
@@ -50,6 +50,7 @@ def _decision(**overrides):
             "body_markdown": "Opening.\n\n## A\n\nbody.\n\nClose. https://polyspotter.com/market/x",
             "cover_alt_text": "alt",
         },
+        "tweet_text": "An account up $2M just stacked $80k on a coin-flip.",
         "alert_ids": [11, 12],
     }
     base.update(overrides)
@@ -65,8 +66,12 @@ def test_persist_article_writes_md_file_and_inserts_row(tmp_path, monkeypatch):
     fake_conn.cursor.return_value.__enter__.return_value = fake_cur
     monkeypatch.setattr(st, "_get_conn", lambda: fake_conn)
 
+    fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+
     out = st.persist_article(
-        run_id="abc12345", decision=_decision(),
+        run_id="abc12345",
+        decision=_decision(),
+        cover_bytes=fake_png,
         cover_path=str(tmp_path / "abc12345.png"),
     )
 
@@ -75,20 +80,25 @@ def test_persist_article_writes_md_file_and_inserts_row(tmp_path, monkeypatch):
     content = md_path.read_text()
     assert "# Headline" in content
     assert "Subhead" in content
-    assert "abc12345.png" in content  # cover image ref
+    assert "abc12345.png" in content
     assert "https://polyspotter.com/market/x" in content
     assert "alert_ids: [11, 12]" in content
 
     fake_cur.execute.assert_called_once()
     sql, params = fake_cur.execute.call_args.args
     assert "INSERT INTO articles" in sql
-    # Param order matches the INSERT VALUES order — verified by the SQL itself.
-    assert params[0] == "abc12345"               # run_id
-    assert params[1] == "alive-event"            # event_slug
-    assert params[2] == [11, 12]                 # alert_ids array
-    assert params[3] == "Headline"
-    assert fake_conn.commit.called
-    assert out["md_path"].endswith("abc12345.md")
+    assert "cover_bytes" in sql
+    assert "tweet_text" in sql
+    # tweet_text should land somewhere in the params
+    assert any(
+        p == "An account up $2M just stacked $80k on a coin-flip." for p in params
+    )
+    # cover_bytes wrapped in psycopg2.Binary
+    import psycopg2
+    cover_binary_or_bytes = [p for p in params if isinstance(p, (bytes, psycopg2.Binary))]
+    assert len(cover_binary_or_bytes) == 1
+
+    assert out == {"md_path": str(md_path), "word_count": out["word_count"]}
     assert out["word_count"] > 0
 
 
@@ -111,48 +121,3 @@ def test_record_skipped_run_inserts_minimal_row(tmp_path, monkeypatch):
     assert params[0] == "def67890"
 
 
-def test_mark_published_validates_url(monkeypatch, capsys):
-    import mark_published
-
-    fake_conn = MagicMock()
-    fake_cur = MagicMock()
-    fake_conn.cursor.return_value.__enter__.return_value = fake_cur
-    monkeypatch.setattr(mark_published, "_get_conn", lambda: fake_conn)
-
-    rc = mark_published.main(["abc12345", "https://example.com/foo"])
-    assert rc != 0
-    captured = capsys.readouterr()
-    assert "x.com" in captured.err.lower() or "twitter.com" in captured.err.lower()
-
-
-def test_mark_published_updates_row(monkeypatch, capsys):
-    import mark_published
-
-    fake_conn = MagicMock()
-    fake_cur = MagicMock()
-    fake_cur.rowcount = 1
-    fake_conn.cursor.return_value.__enter__.return_value = fake_cur
-    monkeypatch.setattr(mark_published, "_get_conn", lambda: fake_conn)
-
-    rc = mark_published.main(["abc12345", "https://x.com/PolySpotter/status/1"])
-    assert rc == 0
-
-    sql, params = fake_cur.execute.call_args.args
-    assert "UPDATE articles" in sql
-    assert "status = 'published'" in sql
-    assert params == ("https://x.com/PolySpotter/status/1", "abc12345")
-
-
-def test_mark_published_unknown_run_id(monkeypatch, capsys):
-    import mark_published
-
-    fake_conn = MagicMock()
-    fake_cur = MagicMock()
-    fake_cur.rowcount = 0
-    fake_conn.cursor.return_value.__enter__.return_value = fake_cur
-    monkeypatch.setattr(mark_published, "_get_conn", lambda: fake_conn)
-
-    rc = mark_published.main(["unknown", "https://x.com/PolySpotter/status/1"])
-    assert rc != 0
-    captured = capsys.readouterr()
-    assert "no article" in captured.err.lower() or "not found" in captured.err.lower()

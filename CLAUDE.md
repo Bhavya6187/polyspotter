@@ -73,17 +73,19 @@ Frontend:
 cd frontend && npm run dev
 ```
 
-Articlebot (daily X article generator):
+Articlebot (daily PolySpotter article + teaser tweet):
 ```bash
 source venv/bin/activate
-python storybot/articlebot.py        # writes a draft to storybot/articles/
+python storybot/articlebot.py        # writes a draft to articles table + .md to storybot/articles/
 DRY_RUN=true python storybot/articlebot.py   # writes to storybot/dry_runs/
 
-# After pasting into X composer:
-python storybot/mark_published.py <run_id> <x_article_url>
+# After reviewing the draft (storybot/articles/<run_id>.md):
+python storybot/publish_article.py <run_id>          # flips draft → published, posts teaser tweet
+DRY_RUN=true python storybot/publish_article.py <run_id>   # preview + confirm prompt
 ```
 
-Cron: once daily at 13:00 UTC (9am ET) recommended.
+Cron: once daily at 13:00 UTC (9am ET) recommended for `articlebot.py`.
+`publish_article.py` is run manually after human review.
 
 Tests:
 ```bash
