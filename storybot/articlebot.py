@@ -573,6 +573,28 @@ def validate_article_decision(decision: dict) -> tuple[bool, str]:
         if phrase in body_lower:
             return False, f"body contains banned phrase {phrase!r}"
 
+    # tweet_text checks
+    tweet_text = decision.get("tweet_text")
+    if not isinstance(tweet_text, str) or not tweet_text.strip():
+        return False, "tweet_text must be a non-empty string when decision=post"
+
+    # Tweet body + "\n\n" + any URL must fit in TWEET_MAX_CHARS.
+    # _tweet_length counts every URL as TWEET_URL_CHARS regardless of source length.
+    from tweet_utils import TWEET_MAX_CHARS, _tweet_length
+    if _tweet_length(tweet_text + "\n\nhttps://x") > TWEET_MAX_CHARS:
+        return False, (
+            f"tweet_text length combined with URL exceeds {TWEET_MAX_CHARS} "
+            f"(tweet_text is {len(tweet_text)} chars)"
+        )
+
+    tweet_lower = tweet_text.lower()
+    for phrase in _BANNED_TWEET_PHRASES:
+        if phrase in tweet_lower:
+            return False, f"tweet_text contains banned phrase {phrase!r}"
+
+    if _POLYSPOTTER_URL_RE.search(tweet_text):
+        return False, "tweet_text must not contain an inline polyspotter.com URL"
+
     alert_ids = decision.get("alert_ids") or []
     if not isinstance(alert_ids, list) or not alert_ids:
         return False, "alert_ids must be a non-empty list when decision=post"

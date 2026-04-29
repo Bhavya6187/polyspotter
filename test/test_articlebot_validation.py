@@ -29,6 +29,7 @@ def _valid_decision(**overrides):
             "body_markdown": _valid_body(600),
             "cover_alt_text": "alt",
         },
+        "tweet_text": "A 178-20 wallet just stacked $80k on the underdog tonight.",
         "alert_ids": [1],
         "cover_chart_spec": None,
     }
@@ -211,3 +212,42 @@ def test_render_cover_chart_returns_none_when_alert_id_not_found(tmp_path, monke
         str(tmp_path / "cover.png"),
     )
     assert out is None
+
+
+def test_tweet_text_missing_fails():
+    import articlebot
+    d = _valid_decision()
+    d.pop("tweet_text")
+    ok, err = articlebot.validate_article_decision(d)
+    assert not ok and "tweet_text" in err.lower()
+
+
+def test_tweet_text_empty_fails():
+    import articlebot
+    d = _valid_decision(tweet_text="   ")
+    ok, err = articlebot.validate_article_decision(d)
+    assert not ok and "tweet_text" in err.lower()
+
+
+def test_tweet_text_too_long_fails():
+    import articlebot
+    # 256 visible chars + "\n\n" + URL(23) > 280
+    d = _valid_decision(tweet_text="x" * 256)
+    ok, err = articlebot.validate_article_decision(d)
+    assert not ok and "tweet" in err.lower()
+
+
+def test_tweet_text_banned_phrase_fails():
+    import articlebot
+    d = _valid_decision(tweet_text="Read the full breakdown of this play.")
+    ok, err = articlebot.validate_article_decision(d)
+    assert not ok and "banned" in err.lower()
+
+
+def test_tweet_text_inline_polyspotter_url_fails():
+    import articlebot
+    d = _valid_decision(
+        tweet_text="A wallet just stacked $80k. https://polyspotter.com/alert/123"
+    )
+    ok, err = articlebot.validate_article_decision(d)
+    assert not ok and "polyspotter" in err.lower()
