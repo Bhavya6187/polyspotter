@@ -527,9 +527,9 @@ def evaluate_alert(alert: dict) -> dict:
     except (json.JSONDecodeError, IndexError, KeyError, TypeError) as e:
         print(f"[llm_filter] WARNING: Failed to parse LLM response: {e}")
         return {
-            "interesting": True,
-            "summary": "LLM evaluation inconclusive — kept for manual review.",
-            "bullets": ["LLM evaluation inconclusive"],
+            "interesting": False,
+            "summary": "LLM evaluation inconclusive — discarded by default.",
+            "bullets": [],
             "copy_action": {},
         }
 
@@ -587,12 +587,8 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
         try:
             result = evaluate_alert(alert)
         except Exception as e:
-            print(f"ERROR ({e}) — keeping alert")
-            alert["llm_summary"] = "LLM evaluation failed — kept for manual review."
-            alert["llm_headline"] = None
-            alert["llm_bullets"] = ["LLM evaluation failed"]
-            alert["llm_copy_action"] = {}
-            kept.append(alert)
+            print(f"ERROR ({e}) — discarding alert")
+            discarded += 1
             continue
 
         interesting = result["interesting"]
