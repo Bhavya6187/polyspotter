@@ -82,6 +82,61 @@ function MarkdownLink({ href, children, ...props }) {
   );
 }
 
+const markdownComponents = {
+  a: MarkdownLink,
+  h1: ({ children }) => (
+    <h1 className="mt-12 mb-4 text-3xl font-semibold tracking-tight text-white">
+      {children}
+    </h1>
+  ),
+  h2: ({ children }) => (
+    <h2 className="mt-10 mb-4 text-2xl font-semibold tracking-tight text-white">
+      {children}
+    </h2>
+  ),
+  h3: ({ children }) => (
+    <h3 className="mt-8 mb-3 text-xl font-semibold tracking-tight text-white">
+      {children}
+    </h3>
+  ),
+  p: ({ children }) => (
+    <p className="my-5 text-lg leading-relaxed text-zinc-300">{children}</p>
+  ),
+  ul: ({ children }) => (
+    <ul className="my-5 list-disc space-y-2 pl-6 text-lg leading-relaxed text-zinc-300 marker:text-zinc-500">
+      {children}
+    </ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="my-5 list-decimal space-y-2 pl-6 text-lg leading-relaxed text-zinc-300 marker:text-zinc-500">
+      {children}
+    </ol>
+  ),
+  li: ({ children }) => <li className="pl-1">{children}</li>,
+  blockquote: ({ children }) => (
+    <blockquote className="my-6 border-l-4 border-zinc-700 pl-5 italic text-zinc-400">
+      {children}
+    </blockquote>
+  ),
+  hr: () => <hr className="my-10 border-zinc-800" />,
+  strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+  em: ({ children }) => <em className="italic">{children}</em>,
+  code: ({ children }) => (
+    <code className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-sm text-zinc-200">
+      {children}
+    </code>
+  ),
+  pre: ({ children }) => (
+    <pre className="my-6 overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-900 p-4 text-sm">
+      {children}
+    </pre>
+  ),
+  img: ({ src, alt }) => (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={src} alt={alt || ""} className="my-6 w-full rounded-lg" />
+  ),
+};
+
 export default async function ArticlePage({ params }) {
   const { date, slug } = await params;
   const article = await getArticle(date, slug);
@@ -143,10 +198,10 @@ export default async function ArticlePage({ params }) {
         </div>
       )}
 
-      <article className="prose prose-invert max-w-none">
+      <article className="max-w-none">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
-          components={{ a: MarkdownLink }}
+          components={markdownComponents}
         >
           {article.body_markdown}
         </ReactMarkdown>
