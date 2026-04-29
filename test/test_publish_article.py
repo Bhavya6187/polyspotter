@@ -55,8 +55,9 @@ def test_publish_happy_path_updates_row_and_posts(monkeypatch):
     rc = pa.main(["abc12345"])
     assert rc == 0
 
-    # Tweet body has the article URL appended
+    # Tweet body has the article URL appended with today's date and slug
     assert "https://polyspotter.com/article/" in posted["text"]
+    assert today_iso in posted["text"]
     assert "/test-event" in posted["text"]
     assert posted["media_png"] == b"\x89PNG\r\n\x1a\nfakepngbytes"
     assert posted["dry_run"] is False
@@ -141,3 +142,26 @@ def test_publish_validates_final_tweet_text(monkeypatch):
 
     rc = pa.main(["abc12345"])
     assert rc == 1
+
+
+def test_publish_rolls_back_on_concurrent_publish(monkeypatch):
+    """If the UPDATE rowcount is 0 (another process beat us to it after we
+    posted the tweet), the script must rollback and exit 1 — even though the
+    tweet has already gone out. The error message lets the human investigate."""
+    import publish_article as pa
+
+    fake_conn, fake_cur = _make_db(_draft_row())
+    fake_cur.rowcount = 0  # simulate concurrent publish — UPDATE matches no row
+    monkeypatch.setattr(pa, "_get_conn", lambda: fake_conn)
+    monkeypatch.setattr(pa, "DRY_RUN", False)
+    monkeypatch.setattr(pa, "_build_twitter_client", lambda: MagicMock())
+    monkeypatch.setattr(pa, "_build_twitter_api_v1", lambda: MagicMock())
+    monkeypatch.setattr(
+        pa, "post_tweet",
+        lambda text, **kw: "tweet_after_race",
+    )
+
+    rc = pa.main(["abc12345"])
+    assert rc == 1
+    assert fake_conn.rollback.called
+    assert not fake_conn.commit.called
