@@ -161,15 +161,18 @@ def test_render_cover_chart_writes_png_and_returns_path(tmp_path, monkeypatch):
 
     monkeypatch.setattr(articlebot, "_dispatch_chart_render", _fake_render)
 
-    out = articlebot.render_cover_chart(spec, chosen_alerts, str(tmp_path / "cover.png"))
-    assert out == str(tmp_path / "cover.png")
+    png_bytes, cover_path = articlebot.render_cover_chart(
+        spec, chosen_alerts, str(tmp_path / "cover.png")
+    )
+    assert cover_path == str(tmp_path / "cover.png")
+    assert png_bytes == b"\x89PNG\r\n\x1a\n"
     assert (tmp_path / "cover.png").exists()
     assert (tmp_path / "cover.png").read_bytes().startswith(b"\x89PNG")
 
 
 def test_render_cover_chart_returns_none_when_spec_is_null():
     import articlebot
-    assert articlebot.render_cover_chart(None, [], "/tmp/x.png") is None
+    assert articlebot.render_cover_chart(None, [], "/tmp/x.png") == (None, None)
 
 
 def test_render_cover_chart_returns_none_when_renderer_returns_none(tmp_path, monkeypatch):
@@ -181,7 +184,7 @@ def test_render_cover_chart_returns_none_when_renderer_returns_none(tmp_path, mo
         [{"id": 1, "wallet": "0xa", "market_title": "M", "condition_id": "0xc"}],
         str(tmp_path / "cover.png"),
     )
-    assert out is None
+    assert out == (None, None)
     assert not (tmp_path / "cover.png").exists()
 
 
@@ -197,7 +200,7 @@ def test_render_cover_chart_soft_faults_on_render_error(tmp_path, monkeypatch):
         [{"id": 1, "wallet": "0xa", "market_title": "M", "condition_id": "0xc"}],
         str(tmp_path / "cover.png"),
     )
-    assert out is None
+    assert out == (None, None)
     assert not (tmp_path / "cover.png").exists()
 
 
@@ -211,7 +214,7 @@ def test_render_cover_chart_returns_none_when_alert_id_not_found(tmp_path, monke
         [{"id": 1}],
         str(tmp_path / "cover.png"),
     )
-    assert out is None
+    assert out == (None, None)
 
 
 def test_tweet_text_missing_fails():
