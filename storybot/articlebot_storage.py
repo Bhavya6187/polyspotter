@@ -49,6 +49,7 @@ def _format_md_file(run_id: str, decision: dict, cover_path: str | None) -> str:
 
 
 def persist_article(*, run_id: str, decision: dict,
+                    cover_bytes: bytes | None,
                     cover_path: str | None) -> dict:
     """INSERT the article row into Postgres and write the .md file to disk.
 
@@ -74,8 +75,8 @@ def persist_article(*, run_id: str, decision: dict,
         INSERT INTO articles
             (run_id, event_slug, alert_ids, headline, subhead,
              body_markdown, cover_alt_text, cover_path, md_path,
-             word_count, status)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'draft')
+             word_count, status, cover_bytes, tweet_text)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'draft', %s, %s)
     """
     params = (
         run_id,
@@ -88,6 +89,8 @@ def persist_article(*, run_id: str, decision: dict,
         rel_cover,
         rel_md,
         word_count,
+        psycopg2.Binary(cover_bytes) if cover_bytes else None,
+        decision.get("tweet_text") or "",
     )
 
     conn = _get_conn()
@@ -99,7 +102,9 @@ def persist_article(*, run_id: str, decision: dict,
         conn.close()
 
     log("articlebot_persisted", run_id=run_id, md_path=md_path,
-        word_count=word_count, cover=bool(cover_path))
+        word_count=word_count,
+        cover=bool(cover_bytes),
+        tweet_text_chars=len(decision.get("tweet_text") or ""))
 
     return {"md_path": md_path, "word_count": word_count}
 
