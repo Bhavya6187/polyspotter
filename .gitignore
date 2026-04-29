@@ -26,4 +26,5 @@ storybot/dry_runs/
 storybot/articles/*.md
 storybot/articles/*.png
 storybot/articles/*.json
+storybot/logs/*
 !storybot/articles/.gitkeep
