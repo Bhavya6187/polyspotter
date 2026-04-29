@@ -28,6 +28,7 @@ import requests as _requests
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 
 from database import get_conn, init_db
 from seo_generator import generate_seo_content
@@ -1887,4 +1888,29 @@ def get_article_by_slug(date: str, event_slug: str):
         alert_ids=list(row["alert_ids"] or []),
         posted_url=row["posted_url"],
         has_cover=bool(row["has_cover"]),
+    )
+
+
+@app.get("/api/articles/{run_id}/cover.png")
+def get_article_cover(run_id: str):
+    """Stream the cover_bytes for a published article."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT cover_bytes
+            FROM articles
+            WHERE run_id = %s AND status = 'published'
+            LIMIT 1
+            """,
+            (run_id,),
+        )
+        row = cur.fetchone()
+    if not row or row["cover_bytes"] is None:
+        raise HTTPException(status_code=404, detail="cover not found")
+    png_bytes = bytes(row["cover_bytes"])  # psycopg2 BYTEA → memoryview, normalize to bytes
+    return Response(
+        content=png_bytes,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
     )

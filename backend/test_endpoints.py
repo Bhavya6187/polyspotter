@@ -7,6 +7,7 @@ Run: cd backend && pytest test_endpoints.py -v
 
 import json
 import os
+import psycopg2
 import pytest
 from datetime import datetime, timezone, timedelta
 from contextlib import contextmanager
@@ -1039,3 +1040,56 @@ def test_articles_by_slug_returns_published_row():
         with db() as conn:
             cur = conn.cursor()
             cur.execute("DELETE FROM articles WHERE run_id LIKE 'TEST_byslug_%%'")
+
+
+# ---------------------------------------------------------------------------
+# /api/articles/{run_id}/cover.png endpoint tests
+# ---------------------------------------------------------------------------
+
+@skip_no_db
+def test_articles_cover_png_streams_bytes():
+    """Cover endpoint streams the BYTEA contents with image/png; 404 if null
+    or if status != 'published'."""
+    fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO articles
+                (run_id, event_slug, alert_ids, headline, subhead,
+                 body_markdown, md_path, word_count, status,
+                 published_date, cover_bytes, tweet_text)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            ("TEST_cover_run", "cov", [1], "h", "s", "b", "x.md", 600,
+             "published", "2026-04-28", psycopg2.Binary(fake_png), "tweet"),
+        )
+
+    try:
+        r = client.get("/api/articles/TEST_cover_run/cover.png")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "image/png"
+        assert r.content == fake_png
+
+        # 404 for unknown run_id
+        assert client.get("/api/articles/no-such-run/cover.png").status_code == 404
+
+        # 404 for null cover_bytes
+        with db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO articles
+                    (run_id, event_slug, alert_ids, headline, subhead,
+                     body_markdown, md_path, word_count, status, tweet_text)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                ("TEST_cover_nobytes", "cov2", [1], "h", "s", "b", "x.md",
+                 600, "published", "tweet"),
+            )
+        assert client.get("/api/articles/TEST_cover_nobytes/cover.png").status_code == 404
+    finally:
+        with db() as conn:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM articles WHERE run_id LIKE 'TEST_cover_%%'")
