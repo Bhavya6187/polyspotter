@@ -41,6 +41,7 @@ _FINAL_DECISION_JSON = json.dumps({
         "body_markdown": _VALID_BODY,
         "cover_alt_text": "wallet record card",
     },
+    "tweet_text": "A wallet up $2M lifetime just dropped $80k on a coin-flip nobody was watching.",
     "alert_ids": [42],
     "cover_chart_spec": {"chart_type": "wallet_record_card", "alert_id": 42, "params": {}},
 })
@@ -156,6 +157,7 @@ _INVALID_DECISION_JSON = json.dumps({
         "body_markdown": _SHORT_BODY,
         "cover_alt_text": "wallet record card",
     },
+    "tweet_text": "A wallet up $2M lifetime just dropped $80k on a coin-flip nobody was watching.",
     "alert_ids": [42],
     "cover_chart_spec": {"chart_type": "wallet_record_card", "alert_id": 42, "params": {}},
 })
