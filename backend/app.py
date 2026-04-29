@@ -1856,6 +1856,31 @@ def health():
     return {"status": "ok", "alert_count": count}
 
 
+@app.get("/api/articles", response_model=list[ArticleListItem])
+def list_articles():
+    """List all published articles for sitemap consumption."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT run_id, event_slug, published_date, headline
+            FROM articles
+            WHERE status = 'published'
+            ORDER BY published_date DESC, created_at DESC
+            """,
+        )
+        rows = cur.fetchall()
+    return [
+        ArticleListItem(
+            run_id=r["run_id"],
+            event_slug=r["event_slug"],
+            published_date=r["published_date"].isoformat(),
+            headline=r["headline"],
+        )
+        for r in rows
+    ]
+
+
 @app.get("/api/articles/by-slug/{date}/{event_slug}", response_model=ArticleOut)
 def get_article_by_slug(date: str, event_slug: str):
     """Look up a published article by (published_date, event_slug)."""

@@ -1093,3 +1093,47 @@ def test_articles_cover_png_streams_bytes():
         with db() as conn:
             cur = conn.cursor()
             cur.execute("DELETE FROM articles WHERE run_id LIKE 'TEST_cover_%%'")
+
+
+# ---------------------------------------------------------------------------
+# /api/articles list endpoint tests
+# ---------------------------------------------------------------------------
+
+@skip_no_db
+def test_articles_list_returns_published_only_ordered_desc():
+    """List endpoint returns published rows ordered by published_date DESC.
+    Used by the sitemap."""
+    with db() as conn:
+        cur = conn.cursor()
+        for run_id, slug, date, status in [
+            ("TEST_list_a", "ev-a", "2026-04-26", "published"),
+            ("TEST_list_b", "ev-b", "2026-04-28", "published"),
+            ("TEST_list_c", "ev-c", "2026-04-27", "draft"),
+        ]:
+            cur.execute(
+                """
+                INSERT INTO articles
+                    (run_id, event_slug, alert_ids, headline, subhead,
+                     body_markdown, md_path, word_count, status,
+                     published_date, tweet_text)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (run_id, slug, [1], f"H {run_id}", "s", "b", "x.md", 600,
+                 status, date if status == "published" else None, "tweet"),
+            )
+
+    try:
+        r = client.get("/api/articles")
+        assert r.status_code == 200
+        body = r.json()
+        # Only published rows should appear
+        run_ids = [a["run_id"] for a in body if a["run_id"].startswith("TEST_list_")]
+        assert run_ids == ["TEST_list_b", "TEST_list_a"]  # 04-28 before 04-26
+        # Shape check
+        for a in body:
+            if a["run_id"].startswith("TEST_list_"):
+                assert {"run_id", "event_slug", "published_date", "headline"} <= a.keys()
+    finally:
+        with db() as conn:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM articles WHERE run_id LIKE 'TEST_list_%%'")
