@@ -28,6 +28,8 @@ from openai import OpenAI
 
 DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
 _DRY_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dry_runs")
+_LIVE_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live_runs")
+_RUN_OUTPUT_DIR = _DRY_RUN_DIR if DRY_RUN else _LIVE_RUN_DIR
 
 
 def _parse_iso(value) -> datetime | None:
@@ -769,11 +771,14 @@ def fetch_data_bundle(alert_ids: list[int], seed_alerts: list[dict]) -> dict:
     }
 
 
-def _dump_dry_run(run_id: str, transcript: dict) -> None:
-    """Write the full stage transcript to dry_runs/twitter_pipeline_<run_id>.json."""
+def _dump_transcript(run_id: str, transcript: dict) -> None:
+    """Write the full stage transcript to <output_dir>/twitter_pipeline_<run_id>.json.
+
+    Output dir is `dry_runs/` when DRY_RUN, else `live_runs/`.
+    """
     from bot_utils import log
-    os.makedirs(_DRY_RUN_DIR, exist_ok=True)
-    path = os.path.join(_DRY_RUN_DIR, f"twitter_pipeline_{run_id}.json")
+    os.makedirs(_RUN_OUTPUT_DIR, exist_ok=True)
+    path = os.path.join(_RUN_OUTPUT_DIR, f"twitter_pipeline_{run_id}.json")
     try:
         with open(path, "w") as f:
             json.dump(transcript, f, default=str, indent=2)
@@ -853,13 +858,11 @@ def main() -> int:
     ok, err = validate_event_pick(pick, seed_alerts)
     if not ok:
         log("validation_error", run_id=run_id, stage=1, error=err, pick=pick)
-        if DRY_RUN:
-            _dump_dry_run(run_id, transcript)
+        _dump_transcript(run_id, transcript)
         return 1
     if pick["decision"] == "skip":
         log("skip", run_id=run_id, reason=pick.get("reason"))
-        if DRY_RUN:
-            _dump_dry_run(run_id, transcript)
+        _dump_transcript(run_id, transcript)
         log("run_end", run_id=run_id, posted=False,
             elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
         return 0
@@ -900,8 +903,7 @@ def main() -> int:
     ok, err = validate_chart_pick(chart_pick)
     if not ok:
         log("validation_error", run_id=run_id, stage=3, error=err, pick=chart_pick)
-        if DRY_RUN:
-            _dump_dry_run(run_id, transcript)
+        _dump_transcript(run_id, transcript)
         return 1
     log("chart_picked", run_id=run_id, chart_type=chart_pick["chart_type"],
         hook_anchor=chart_pick["hook_anchor"])
@@ -924,8 +926,7 @@ def main() -> int:
     if err:
         log("validation_error", run_id=run_id, stage=4, attempts=attempts,
             error=err, decision=decision)
-        if DRY_RUN:
-            _dump_dry_run(run_id, transcript)
+        _dump_transcript(run_id, transcript)
         return 1
 
     tweet = strip_polyspotter_url(decision["tweet"])
@@ -949,18 +950,17 @@ def main() -> int:
         rendered=chart_png is not None,
         bytes_len=(len(chart_png) if chart_png else 0))
 
-    if DRY_RUN and chart_png is not None:
-        os.makedirs(_DRY_RUN_DIR, exist_ok=True)
-        out_path = os.path.join(_DRY_RUN_DIR, f"twitter_pipeline_{run_id}.png")
+    if chart_png is not None:
+        os.makedirs(_RUN_OUTPUT_DIR, exist_ok=True)
+        out_path = os.path.join(_RUN_OUTPUT_DIR, f"twitter_pipeline_{run_id}.png")
         try:
             with open(out_path, "wb") as f:
                 f.write(chart_png)
-            log("chart_saved_dryrun", run_id=run_id, path=out_path)
+            log("chart_saved", run_id=run_id, path=out_path)
         except OSError as exc:
             log("chart_save_error", run_id=run_id, error=str(exc))
 
-    if DRY_RUN:
-        _dump_dry_run(run_id, transcript)
+    _dump_transcript(run_id, transcript)
 
     # Post
     try:

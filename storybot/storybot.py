@@ -1154,20 +1154,25 @@ def post_thread(tweets: list[str], *, twitter_client, dry_run: bool) -> list[str
     return tweet_ids
 
 
-# --- Dry-run transcript dump -------------------------------------------------
+# --- Run transcript dump -----------------------------------------------------
 
 _DRY_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dry_runs")
+_LIVE_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live_runs")
+_RUN_OUTPUT_DIR = _DRY_RUN_DIR if DRY_RUN else _LIVE_RUN_DIR
 
 
-def _dump_dry_run(run_id: str, transcript: list[dict], *,
-                  pick: dict | None = None,
-                  decision: dict | None = None, error: str | None = None,
-                  usage: dict | None = None,
-                  timings: list[dict] | None = None) -> str:
+def _dump_transcript(run_id: str, transcript: list[dict], *,
+                     pick: dict | None = None,
+                     decision: dict | None = None, error: str | None = None,
+                     usage: dict | None = None,
+                     timings: list[dict] | None = None) -> str:
     """Write the full chain (stage-1 pick, stage-2 transcript, final decision,
-    per-step timings) to storybot/dry_runs/<run_id>.json."""
-    os.makedirs(_DRY_RUN_DIR, exist_ok=True)
-    path = os.path.join(_DRY_RUN_DIR, f"{run_id}.json")
+    per-step timings) to <output_dir>/<run_id>.json.
+
+    Output dir is `dry_runs/` when DRY_RUN, else `live_runs/`.
+    """
+    os.makedirs(_RUN_OUTPUT_DIR, exist_ok=True)
+    path = os.path.join(_RUN_OUTPUT_DIR, f"{run_id}.json")
     payload = {
         "run_id": run_id,
         "model": MODEL,
@@ -1183,6 +1188,7 @@ def _dump_dry_run(run_id: str, transcript: list[dict], *,
     }
     with open(path, "w") as f:
         json.dump(payload, f, indent=2, default=str)
+    log("transcript_saved", run_id=run_id, path=path)
     return path
 
 
@@ -1223,7 +1229,7 @@ def main() -> int:
                 error=env.get("error"), truncated=env.get("truncated", False),
                 elapsed_ms=elapsed_ms)
 
-    transcript: list[dict] | None = [] if DRY_RUN else None
+    transcript: list[dict] = []
     usage_totals: dict = {}
     timings: list[dict] = []
     pick: dict | None = None
@@ -1271,9 +1277,9 @@ def main() -> int:
         log("skip", run_id=run_id, reason=pick.get("reason") or "picker chose to skip")
         log("run_end", run_id=run_id, posted=False,
             elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
-        if DRY_RUN and transcript is not None:
-            path = _dump_dry_run(run_id, transcript, pick=pick,
-                                 usage=usage_totals, timings=timings)
+        path = _dump_transcript(run_id, transcript, pick=pick,
+                                usage=usage_totals, timings=timings)
+        if DRY_RUN:
             print(f"[dry-run] transcript → {path}", flush=True)
         return 0
 
@@ -1281,10 +1287,10 @@ def main() -> int:
     if chosen_alerts is None:
         log("llm_usage", run_id=run_id, **usage_totals)
         log("pick_error", run_id=run_id, error=err, pick=pick)
-        if DRY_RUN and transcript is not None:
-            path = _dump_dry_run(run_id, transcript, pick=pick,
-                                 usage=usage_totals, timings=timings,
-                                 error=f"invalid pick: {err}")
+        path = _dump_transcript(run_id, transcript, pick=pick,
+                                usage=usage_totals, timings=timings,
+                                error=f"invalid pick: {err}")
+        if DRY_RUN:
             print(f"[dry-run] transcript → {path}", flush=True)
         return 1
 
@@ -1298,19 +1304,19 @@ def main() -> int:
     except AgentError as exc:
         log("llm_usage", run_id=run_id, **usage_totals)
         log("agent_error", run_id=run_id, error=str(exc))
-        if DRY_RUN and transcript is not None:
-            path = _dump_dry_run(run_id, transcript, pick=pick,
-                                 usage=usage_totals, timings=timings,
-                                 error=f"AgentError: {exc}")
+        path = _dump_transcript(run_id, transcript, pick=pick,
+                                usage=usage_totals, timings=timings,
+                                error=f"AgentError: {exc}")
+        if DRY_RUN:
             print(f"[dry-run] transcript → {path}", flush=True)
         return 1
     except Exception as exc:
         log("llm_usage", run_id=run_id, **usage_totals)
         log("llm_error", run_id=run_id, error=f"{type(exc).__name__}: {exc}")
-        if DRY_RUN and transcript is not None:
-            path = _dump_dry_run(run_id, transcript, pick=pick,
-                                 usage=usage_totals, timings=timings,
-                                 error=f"{type(exc).__name__}: {exc}")
+        path = _dump_transcript(run_id, transcript, pick=pick,
+                                usage=usage_totals, timings=timings,
+                                error=f"{type(exc).__name__}: {exc}")
+        if DRY_RUN:
             print(f"[dry-run] transcript → {path}", flush=True)
         return 1
 
@@ -1340,11 +1346,12 @@ def main() -> int:
             f"requests={usage_totals.get('requests', 0)}",
             flush=True,
         )
-        if transcript is not None:
-            path = _dump_dry_run(run_id, transcript, pick=pick,
-                                 usage=usage_totals, timings=timings,
-                                 decision=decision)
-            print(f"[dry-run] transcript → {path}", flush=True)
+
+    path = _dump_transcript(run_id, transcript, pick=pick,
+                            usage=usage_totals, timings=timings,
+                            decision=decision)
+    if DRY_RUN:
+        print(f"[dry-run] transcript → {path}", flush=True)
 
     ok, err = validate_decision(decision)
     if not ok:

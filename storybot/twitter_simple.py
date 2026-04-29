@@ -55,6 +55,8 @@ load_dotenv()
 DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
 
 _DRY_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dry_runs")
+_LIVE_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live_runs")
+_RUN_OUTPUT_DIR = _DRY_RUN_DIR if DRY_RUN else _LIVE_RUN_DIR
 
 SYSTEM_PROMPT = f"""You are the social media voice for PolySpotter — a service \
 that surfaces notable bets on Polymarket (whales, sharp wallets, coordinated \
@@ -388,12 +390,13 @@ def main() -> int:
         rendered=chart_png is not None,
         bytes_len=(len(chart_png) if chart_png else 0))
 
-    if DRY_RUN and chart_png is not None:
-        out_path = os.path.join(_DRY_RUN_DIR, f"twitter_simple_{run_id}.png")
+    if chart_png is not None:
+        os.makedirs(_RUN_OUTPUT_DIR, exist_ok=True)
+        out_path = os.path.join(_RUN_OUTPUT_DIR, f"twitter_simple_{run_id}.png")
         try:
             with open(out_path, "wb") as f:
                 f.write(chart_png)
-            log("chart_saved_dryrun", run_id=run_id, path=out_path)
+            log("chart_saved", run_id=run_id, path=out_path)
         except OSError as exc:
             log("chart_save_error", run_id=run_id, error=str(exc))
 
