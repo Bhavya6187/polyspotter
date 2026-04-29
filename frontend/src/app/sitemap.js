@@ -49,6 +49,22 @@ async function getMarketEntries() {
   }
 }
 
+async function getArticleEntries() {
+  try {
+    const res = await fetch(`${API_URL}/api/articles`, FETCH_OPTS);
+    if (!res.ok) return [];
+    const articles = await res.json();
+    return articles.map((a) => ({
+      url: `${SITE_URL}/article/${a.published_date}/${a.event_slug}`,
+      lastModified: new Date(a.published_date),
+      changeFrequency: "weekly",
+      priority: 0.8,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 async function getTagEntries() {
   try {
     const res = await fetch(`${API_URL}/api/tags`, FETCH_OPTS);
@@ -97,10 +113,11 @@ export default async function sitemap() {
   // Run all sections in parallel. Each section is self-contained with its own
   // try/catch so one failing upstream (e.g. a /api/theses timeout) degrades
   // only that section instead of collapsing the entire sitemap to the homepage.
-  const [markets, tags] = await Promise.all([
+  const [markets, tags, articles] = await Promise.all([
     getMarketEntries(),
     getTagEntries(),
+    getArticleEntries(),
   ]);
 
-  return [...staticPages, ...markets, ...tags];
+  return [...staticPages, ...articles, ...markets, ...tags];
 }
