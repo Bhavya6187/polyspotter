@@ -637,39 +637,46 @@ def _dispatch_chart_render(chart_type: str, alert: dict) -> bytes | None:
     return charts.render_chart_for_alert(chart_type, alert)
 
 
-def render_cover_chart(spec: dict | None, chosen_alerts: list[dict],
-                       out_path: str) -> str | None:
-    """Render the cover chart specified by `cover_chart_spec`. Returns the
-    output path on success, None on any failure (soft fault). When spec is
-    null, returns None without touching the filesystem."""
+def render_cover_chart(
+    spec: dict | None,
+    chosen_alerts: list[dict],
+    out_path: str,
+) -> tuple[bytes | None, str | None]:
+    """Render the cover chart specified by `cover_chart_spec`.
+
+    Returns (png_bytes, written_path). Either or both may be None on a soft
+    failure (no chart spec, missing alert, render error, write error). The
+    caller writes png_bytes to the DB; the disk artifact is debug-only.
+    """
     if not spec:
-        return None
+        return None, None
     chart_type = spec.get("chart_type")
     alert_id = spec.get("alert_id")
     if not chart_type:
-        return None
+        return None, None
     alert = next((a for a in chosen_alerts if a.get("id") == alert_id), None)
     if alert is None:
         log("articlebot_chart_skip", reason=f"alert_id {alert_id} not in chosen_alerts")
-        return None
+        return None, None
     try:
         png_bytes = _dispatch_chart_render(chart_type, alert)
     except Exception as exc:
         log("articlebot_chart_error",
             chart_type=chart_type, alert_id=alert_id,
             error=f"{type(exc).__name__}: {exc}")
-        return None
+        return None, None
     if not png_bytes:
         log("articlebot_chart_empty", chart_type=chart_type, alert_id=alert_id)
-        return None
+        return None, None
     try:
         with open(out_path, "wb") as f:
             f.write(png_bytes)
     except OSError as exc:
         log("articlebot_chart_write_error",
             out_path=out_path, error=f"{type(exc).__name__}: {exc}")
-        return None
-    return out_path
+        # Bytes still good even if disk write failed — we return them.
+        return png_bytes, None
+    return png_bytes, out_path
 
 
 # ---------------------------------------------------------------------------
@@ -886,8 +893,9 @@ def main() -> int:
     cover_target_dir = _DRY_RUN_DIR if DRY_RUN else _storage.ARTICLES_DIR
     os.makedirs(cover_target_dir, exist_ok=True)
     cover_path_target = os.path.join(cover_target_dir, f"{run_id}.png")
-    cover_path = render_cover_chart(decision.get("cover_chart_spec"),
-                                    chosen_alerts, cover_path_target)
+    cover_bytes, cover_path = render_cover_chart(
+        decision.get("cover_chart_spec"), chosen_alerts, cover_path_target
+    )
 
     # Stage 5: persist
     if DRY_RUN:
