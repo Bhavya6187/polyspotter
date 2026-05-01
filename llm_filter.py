@@ -488,7 +488,7 @@ def evaluate_alert(alert: dict) -> dict:
 
     response = client.chat.completions.create(
         model=MODEL,
-        max_completion_tokens=2000,
+        max_completion_tokens=3000,
         messages=messages,
         response_format=RESPONSE_SCHEMA,
     )
