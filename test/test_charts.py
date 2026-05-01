@@ -372,8 +372,62 @@ def test_wallet_pseudonym_format():
 
 
 def test_fetch_cluster_card_returns_none_for_single_wallet():
+    """No top-level wallet/condition_id and only 1 trade — sibling fanout
+    can't proceed, so the fetcher returns None."""
     alert = {"trades": [{"proxyWallet": "0xabc", "usdcSize": 1000}]}
     result = charts.fetch_cluster_card_data(alert)
+    assert result is None
+
+
+def test_fetch_cluster_card_fans_out_via_funder_for_single_wallet_alert():
+    """Single-wallet alert tagged with a cluster signal: the chart picker keys
+    off cluster_size from signal severity, but the alert's trades JSON has
+    only one wallet. The fetcher must look up the wallet's funder, find
+    siblings, and pull their stakes on this market."""
+    alert = {
+        "wallet": "0xprimary",
+        "condition_id": "0xcid",
+        "market_title": "Strait of Hormuz back to normal by June?",
+        "total_usd": 5000,
+        "llm_copy_action": {"outcome": "No"},
+        "trades": [{"proxyWallet": "0xprimary", "usdcSize": 5000}],
+    }
+    siblings = ["0xprimary", "0xsib1", "0xsib2"]
+    bets = [("0xprimary", 5000.0), ("0xsib1", 12000.0), ("0xsib2", 8000.0)]
+    with patch("charts._funder_for_wallet", return_value="0xfunder"), \
+         patch("charts._wallets_sharing_funder", return_value=siblings), \
+         patch("charts._fetch_cluster_bets_on_market", return_value=bets):
+        result = charts.fetch_cluster_card_data(alert)
+    assert result is not None
+    assert result["shared_funder"] == "0xfunder"
+    assert len(result["wallet_sizes"]) == 3
+    # Cluster total reflects the summed sibling stakes, not the single alert.
+    assert result["total_usd"] == 25000.0
+    assert result["outcome_side"] == "No"
+
+
+def test_fetch_cluster_card_single_wallet_alert_no_funder():
+    """If the wallet's funder isn't in wallet_funders, no fanout is possible."""
+    alert = {
+        "wallet": "0xprimary",
+        "condition_id": "0xcid",
+        "trades": [{"proxyWallet": "0xprimary", "usdcSize": 5000}],
+    }
+    with patch("charts._funder_for_wallet", return_value=None):
+        result = charts.fetch_cluster_card_data(alert)
+    assert result is None
+
+
+def test_fetch_cluster_card_single_wallet_alert_too_few_siblings():
+    """Funder known, but it only funds the primary wallet — not a real cluster."""
+    alert = {
+        "wallet": "0xprimary",
+        "condition_id": "0xcid",
+        "trades": [{"proxyWallet": "0xprimary", "usdcSize": 5000}],
+    }
+    with patch("charts._funder_for_wallet", return_value="0xfunder"), \
+         patch("charts._wallets_sharing_funder", return_value=["0xprimary"]):
+        result = charts.fetch_cluster_card_data(alert)
     assert result is None
 
 

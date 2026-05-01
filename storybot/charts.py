@@ -802,27 +802,151 @@ def _shared_funder_for_wallets(wallets: list[str]) -> str | None:
     return funder if n >= 2 else None
 
 
+def _funder_for_wallet(wallet: str) -> str | None:
+    """Look up a single wallet's funder in wallet_funders. Returns None when the
+    wallet is unknown, has no recorded funder, or the SQLite cache is missing."""
+    if not wallet:
+        return None
+    uri = f"file:{POLYBOT_DB_PATH}?mode=ro"
+    conn = None
+    try:
+        conn = sqlite3.connect(uri, uri=True, timeout=QUERY_TIMEOUT_SECONDS)
+        cur = conn.execute(
+            "SELECT funder FROM wallet_funders "
+            "WHERE wallet = ? AND funder IS NOT NULL",
+            (wallet.lower(),),
+        )
+        row = cur.fetchone()
+    except (sqlite3.OperationalError, sqlite3.DatabaseError) as e:
+        print(
+            f"[storybot.charts] _funder_for_wallet: SQLite unavailable "
+            f"({type(e).__name__}: {e}); returning None",
+            file=sys.stderr,
+        )
+        return None
+    finally:
+        if conn is not None:
+            conn.close()
+    return row[0] if row else None
+
+
+def _wallets_sharing_funder(funder: str) -> list[str]:
+    """All wallets co-funded by `funder` (lowercased addresses).
+
+    Empty list when the funder is unknown or the SQLite cache is missing.
+    """
+    if not funder:
+        return []
+    uri = f"file:{POLYBOT_DB_PATH}?mode=ro"
+    conn = None
+    try:
+        conn = sqlite3.connect(uri, uri=True, timeout=QUERY_TIMEOUT_SECONDS)
+        cur = conn.execute(
+            "SELECT wallet FROM wallet_funders WHERE funder = ?",
+            (funder,),
+        )
+        rows = cur.fetchall()
+    except (sqlite3.OperationalError, sqlite3.DatabaseError) as e:
+        print(
+            f"[storybot.charts] _wallets_sharing_funder: SQLite unavailable "
+            f"({type(e).__name__}: {e}); returning []",
+            file=sys.stderr,
+        )
+        return []
+    finally:
+        if conn is not None:
+            conn.close()
+    return [r[0] for r in rows if r[0]]
+
+
+def _fetch_cluster_bets_on_market(condition_id: str,
+                                  wallets: list[str]) -> list[tuple[str, float]]:
+    """Sum each wallet's stake on `condition_id` from Postgres alert_trades.
+
+    Returns [(wallet, total_usd), ...] sorted by $ descending. Empty list when
+    Postgres is unreachable, wallets is empty, or no rows match.
+    """
+    if not condition_id or not wallets:
+        return []
+    placeholders = ",".join(["%s"] * len(wallets))
+    lower_wallets = [w.lower() for w in wallets]
+    try:
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=QUERY_TIMEOUT_SECONDS)
+    except psycopg2.Error as e:
+        print(
+            f"[storybot.charts] _fetch_cluster_bets_on_market: postgres "
+            f"unavailable ({type(e).__name__}: {e}); returning []",
+            file=sys.stderr,
+        )
+        return []
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            f"""
+            SELECT LOWER(wallet) AS w, SUM(usd_value) AS total
+            FROM alert_trades
+            WHERE condition_id = %s AND LOWER(wallet) IN ({placeholders})
+            GROUP BY LOWER(wallet)
+            """,
+            [condition_id] + lower_wallets,
+        )
+        rows = cur.fetchall()
+        cur.close()
+    finally:
+        conn.close()
+    sized = [(w, float(t)) for w, t in rows if t is not None and float(t) > 0]
+    sized.sort(key=lambda kv: kv[1], reverse=True)
+    return sized
+
+
 def fetch_cluster_card_data(
     alert: dict, *, params: dict | None = None,
 ) -> ClusterCardData | None:
     """Build ClusterCardData from an alert dict.
 
+    Two paths:
+    1) Multi-wallet alert: pull wallets directly from alert['trades'] and
+       look for a funder shared across them.
+    2) Single-wallet alert tagged with a cluster signal: the cluster's other
+       members live on sibling alerts, not in this alert's trades JSON. Look
+       up this wallet's funder, fan out to all wallets sharing it, then sum
+       each one's stake on this market from alert_trades. Without this path
+       the chart picker would pick cluster_card (it keys off signal-derived
+       cluster_size) and the fetcher would refuse to render it.
+
     alert dict fields used:
+        wallet          — top-level wallet address (single-wallet alerts)
+        condition_id    — required for the sibling-fanout path
         trades          — list of trade dicts (or JSON string)
         market_title    — market question string
         total_usd       — total $ across all trades in the cluster
         llm_copy_action — JSON string (or dict) with outcome/side fields
 
-    Returns None when the alert has fewer than CLUSTER_CARD_MIN_WALLETS
-    distinct wallets, or when no shared funder is found in wallet_funders.
+    Returns None when fewer than CLUSTER_CARD_MIN_WALLETS wallets can be
+    assembled or no shared funder is found.
     """
     wallet_sizes_raw = _wallets_in_alert(alert)
-    if len(wallet_sizes_raw) < CLUSTER_CARD_MIN_WALLETS:
-        return None
-    addresses = [w for w, _ in wallet_sizes_raw]
-    funder = _shared_funder_for_wallets(addresses)
-    if not funder:
-        return None  # no shared funder = no real "cluster" story
+    total_override: float | None = None
+    if len(wallet_sizes_raw) >= CLUSTER_CARD_MIN_WALLETS:
+        funder = _shared_funder_for_wallets([w for w, _ in wallet_sizes_raw])
+        if not funder:
+            return None  # no shared funder = no real "cluster" story
+    else:
+        primary = (alert.get("wallet")
+                   or (wallet_sizes_raw[0][0] if wallet_sizes_raw else None))
+        cid = alert.get("condition_id")
+        if not primary or not cid:
+            return None
+        funder = _funder_for_wallet(primary)
+        if not funder:
+            return None
+        siblings = _wallets_sharing_funder(funder)
+        if len(siblings) < CLUSTER_CARD_MIN_WALLETS:
+            return None
+        wallet_sizes_raw = _fetch_cluster_bets_on_market(cid, siblings)
+        if len(wallet_sizes_raw) < CLUSTER_CARD_MIN_WALLETS:
+            return None
+        total_override = sum(s for _, s in wallet_sizes_raw)
 
     wallet_sizes = [(wallet_pseudonym(w), s) for w, s in wallet_sizes_raw]
 
@@ -836,11 +960,14 @@ def fetch_cluster_card_data(
     outcome_side = (p.get("outcome") or p.get("side")
                     or copy.get("outcome") or copy.get("side") or "")
 
+    total_usd = (total_override
+                 if total_override is not None
+                 else float(alert.get("total_usd", 0)))
     return {
         "market_title": alert.get("market_title", ""),
         "outcome_side": outcome_side,
         "wallet_sizes": wallet_sizes,
-        "total_usd": float(alert.get("total_usd", 0)),
+        "total_usd": total_usd,
         "shared_funder": funder,
     }
 
