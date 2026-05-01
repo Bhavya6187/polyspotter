@@ -13,6 +13,30 @@ export default function HeaderActions({ variant = "default" }) {
   return (
     <div className="flex items-center gap-1">
       <a
+        href="/articles"
+        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:opacity-80"
+        style={{ color: "var(--text-muted)" }}
+        aria-label="Articles"
+        title="Articles"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.75}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="h-3.5 w-3.5"
+          aria-hidden="true"
+        >
+          <path d="M4 4h12a2 2 0 0 1 2 2v13a1 1 0 0 0 1 1 1 1 0 0 0 1-1V8" />
+          <path d="M4 4v15a1 1 0 0 0 1 1h15" />
+          <path d="M8 8h6M8 12h6M8 16h4" />
+        </svg>
+        {!compact && <span className="hidden md:inline">Articles</span>}
+      </a>
+      <a
         href="mailto:feedback@polyspotter.com"
         className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:opacity-80"
         style={{ color: "var(--text-muted)" }}
