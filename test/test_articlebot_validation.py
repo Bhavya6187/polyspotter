@@ -156,7 +156,11 @@ def test_render_cover_chart_writes_png_and_returns_path(tmp_path, monkeypatch):
     chosen_alerts = [{"id": 42, "wallet": "0xabc", "market_title": "M",
                       "condition_id": "0xc1"}]
 
-    def _fake_render(chart_type, alert):
+    captured = {}
+
+    def _fake_render(chart_type, alert, params=None):
+        captured["chart_type"] = chart_type
+        captured["params"] = params
         return b"\x89PNG\r\n\x1a\n"
 
     monkeypatch.setattr(articlebot, "_dispatch_chart_render", _fake_render)
@@ -164,6 +168,8 @@ def test_render_cover_chart_writes_png_and_returns_path(tmp_path, monkeypatch):
     png_bytes, cover_path = articlebot.render_cover_chart(
         spec, chosen_alerts, str(tmp_path / "cover.png")
     )
+    # Spec params were forwarded (empty dict passes through unchanged)
+    assert captured["params"] == {}
     assert cover_path == str(tmp_path / "cover.png")
     assert png_bytes == b"\x89PNG\r\n\x1a\n"
     assert (tmp_path / "cover.png").exists()
@@ -177,7 +183,8 @@ def test_render_cover_chart_returns_none_when_spec_is_null():
 
 def test_render_cover_chart_returns_none_when_renderer_returns_none(tmp_path, monkeypatch):
     import articlebot
-    monkeypatch.setattr(articlebot, "_dispatch_chart_render", lambda chart_type, alert: None)
+    monkeypatch.setattr(articlebot, "_dispatch_chart_render",
+                        lambda chart_type, alert, params=None: None)
 
     out = articlebot.render_cover_chart(
         {"chart_type": "price_sparkline", "alert_id": 1, "params": {}},
@@ -191,7 +198,7 @@ def test_render_cover_chart_returns_none_when_renderer_returns_none(tmp_path, mo
 def test_render_cover_chart_soft_faults_on_render_error(tmp_path, monkeypatch):
     import articlebot
 
-    def _boom(chart_type, alert):
+    def _boom(chart_type, alert, params=None):
         raise RuntimeError("render busted")
     monkeypatch.setattr(articlebot, "_dispatch_chart_render", _boom)
 
@@ -208,7 +215,7 @@ def test_render_cover_chart_returns_none_when_alert_id_not_found(tmp_path, monke
     import articlebot
     # Even if the dispatcher is OK, missing alert means we don't render.
     monkeypatch.setattr(articlebot, "_dispatch_chart_render",
-                         lambda c, a: b"\x89PNG\r\n\x1a\n")
+                         lambda c, a, params=None: b"\x89PNG\r\n\x1a\n")
     out = articlebot.render_cover_chart(
         {"chart_type": "wallet_record_card", "alert_id": 999, "params": {}},
         [{"id": 1}],

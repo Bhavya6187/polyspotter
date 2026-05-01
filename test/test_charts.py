@@ -476,3 +476,128 @@ def test_fetch_price_sparkline_returns_data_when_move_present():
     assert result is not None
     assert len(result["times"]) == 24
     assert result["trade_times"] == [1000.0]
+
+
+# --------- cover_chart_spec.params override (the c6080ab9 regression) ---------
+#
+# When the picker SQL strips llm_copy_action / tokens / token_id from the alert
+# JSONB blob, the only remaining source of `outcome` and `token_id` is the
+# LLM-authored cover_chart_spec.params dict. These tests pin that contract.
+
+
+def test_yes_token_id_prefers_params_over_alert():
+    """Spec params win when both params and alert carry a token_id."""
+    alert = {"token_id": "from_alert", "llm_copy_action": {"token_id": "from_copy"}}
+    assert charts._yes_token_id(alert, {"token_id": "from_params"}) == "from_params"
+
+
+def test_yes_token_id_uses_params_when_alert_is_bare():
+    """Reproduces c6080ab9: alert dict lacks token_id (picker SQL stripped it),
+    params carries it. Without this fix, _yes_token_id returns None and
+    price_sparkline silently falls back to wallet_record_card."""
+    bare_alert = {"id": 131447, "wallet": "0xbaa", "total_usd": 31_569.6}
+    assert charts._yes_token_id(bare_alert, {"token_id": "tok_yes"}) == "tok_yes"
+
+
+def test_yes_token_id_falls_back_to_alert_when_params_empty():
+    """Backwards-compat: callers that don't pass params still work."""
+    alert = {"token_id": "from_alert"}
+    assert charts._yes_token_id(alert, None) == "from_alert"
+    assert charts._yes_token_id(alert, {}) == "from_alert"
+
+
+def test_fetch_price_sparkline_uses_params_token_id():
+    """The fetcher pulls token_id from params, not just the alert dict."""
+    alert = {"market_title": "M", "trades": []}
+    history = [(0.0 + i, 0.30 + 0.001 * i) for i in range(24)]
+    with patch("charts._fetch_clob_prices_history", return_value=history) as mock_h:
+        result = charts.fetch_price_sparkline_data(
+            alert, params={"token_id": "tok_from_params", "outcome": "Yes"})
+    assert result is not None
+    assert result["outcome_side"] == "Yes"
+    mock_h.assert_called_once()
+    assert mock_h.call_args[0][0] == "tok_from_params"
+
+
+def test_fetch_wallet_record_card_uses_params_outcome():
+    """params.outcome wins over alert.llm_copy_action.outcome — and is set
+    even when the alert dict is missing llm_copy_action entirely."""
+    alert = {
+        "wallet": "0xsharp",
+        "market_title": "M",
+        "total_usd": 31_569.6,
+        # NOTE: no llm_copy_action — replicates EVENT_SUMMARIES_SQL output
+    }
+    with patch("charts.psycopg2.connect") as mock_connect:
+        mock_cur = mock_connect.return_value.cursor.return_value
+        mock_cur.fetchall.return_value = [("0xsharp", 575, 324, 0.64, None)]
+        result = charts.fetch_wallet_record_card_data(
+            alert, params={"outcome": "No"})
+    assert result is not None
+    assert result["outcome_side"] == "No"
+
+
+def test_fetch_wallet_record_card_falls_back_to_copy_when_params_empty():
+    """Existing call sites (tweet_utils, render_all_charts) pass no params and
+    still get outcome from llm_copy_action."""
+    alert = {
+        "wallet": "0xsharp",
+        "market_title": "M",
+        "total_usd": 5_000,
+        "llm_copy_action": '{"outcome": "Yes"}',
+    }
+    with patch("charts.psycopg2.connect") as mock_connect:
+        mock_cur = mock_connect.return_value.cursor.return_value
+        mock_cur.fetchall.return_value = [("0xsharp", 50, 10, 0.833, None)]
+        result = charts.fetch_wallet_record_card_data(alert)
+    assert result is not None
+    assert result["outcome_side"] == "Yes"
+
+
+# --------- empty-outcome footer (belt-and-suspenders) ---------
+#
+# Even if params and llm_copy_action both fail to provide an outcome, the
+# rendered footer must not be "$32k on " with a trailing preposition.
+
+
+def test_render_wallet_record_card_with_empty_outcome_differs_from_filled():
+    """Rendering with outcome_side='' takes the 'bet' branch and produces
+    different bytes from outcome_side='Yes' (smoke check that the empty
+    branch is reachable and doesn't crash)."""
+    base: charts.WalletRecordCardData = {
+        "market_title": "M",
+        "record_str": "575-324",
+        "win_pct": 0.64,
+        "bet_count": 899,
+        "wallet_age_days": None,
+        "bet_size_usd": 31_569.6,
+        "outcome_side": "Yes",
+        "cluster_size": None,
+    }
+    with_side = charts.render_wallet_record_card(base)
+    no_side = charts.render_wallet_record_card({**base, "outcome_side": ""})
+    assert with_side != no_side
+    assert len(no_side) > 1000
+
+
+def test_render_cluster_card_with_empty_outcome_does_not_crash():
+    data: charts.ClusterCardData = {
+        "market_title": "M",
+        "outcome_side": "",
+        "wallet_sizes": [("Wallet_0xabcde", 10_000), ("Wallet_0x12345", 8_000)],
+        "total_usd": 18_000,
+        "shared_funder": "0xfunder1234567890",
+    }
+    png = charts.render_cluster_card(data)
+    assert _png_dimensions(png) == (charts.CANVAS_W_PX, charts.CANVAS_H_PX)
+
+
+def test_render_fresh_wallet_card_with_empty_outcome_does_not_crash():
+    data: charts.FreshWalletCardData = {
+        "market_title": "M",
+        "wallet_age_days": 7,
+        "bet_size_usd": 5_000,
+        "outcome_side": "",
+    }
+    png = charts.render_fresh_wallet_card(data)
+    assert _png_dimensions(png) == (charts.CANVAS_W_PX, charts.CANVAS_H_PX)

@@ -124,7 +124,11 @@ def render_wallet_record_card(data: WalletRecordCardData) -> bytes:
                            color=LOSS, transform=ax.transAxes))
 
     # Footer: bet size + outcome side, plus optional "— N linked accounts" suffix.
-    footer = f"{_format_usd(data['bet_size_usd'])} on {data['outcome_side']}"
+    # When outcome_side is missing (upstream lost the field), drop "on" rather
+    # than rendering "$32k on " — matches the bug seen in c6080ab9.
+    side = (data.get("outcome_side") or "").strip()
+    bet_str = _format_usd(data["bet_size_usd"])
+    footer = f"{bet_str} on {side}" if side else f"{bet_str} bet"
     cluster_size = data.get("cluster_size")
     if cluster_size and cluster_size >= 2:
         footer = f"{footer} — {cluster_size} linked accounts"
@@ -179,6 +183,7 @@ def fetch_wallet_record_card_data(
     alert: dict,
     *,
     cluster_context: dict | None = None,
+    params: dict | None = None,
 ) -> WalletRecordCardData | None:
     """Build WalletRecordCardData for either a single-wallet or cluster alert.
 
@@ -259,7 +264,9 @@ def fetch_wallet_record_card_data(
             copy = json.loads(copy)
         except (json.JSONDecodeError, ValueError):
             copy = {}
-    outcome_side = copy.get("outcome") or copy.get("side") or ""
+    p = params or {}
+    outcome_side = (p.get("outcome") or p.get("side")
+                    or copy.get("outcome") or copy.get("side") or "")
 
     return {
         "market_title": alert.get("market_title", ""),
@@ -312,8 +319,10 @@ def render_fresh_wallet_card(data: FreshWalletCardData) -> bytes:
     ax.text(0.5, 0.30, "on Polymarket", color=MUTED, fontsize=16,
             ha="center", va="center")
 
-    # Footer: bet size + outcome side
-    footer = f"{_format_usd(data['bet_size_usd'])} on {data['outcome_side']}"
+    # Footer: bet size + outcome side (drop "on" when side is missing)
+    side = (data.get("outcome_side") or "").strip()
+    bet_str = _format_usd(data["bet_size_usd"])
+    footer = f"{bet_str} on {side}" if side else f"{bet_str} bet"
     ax.text(0.5, 0.12, footer, color=FG, fontsize=24, ha="center", va="center",
             fontweight="bold")
 
@@ -427,7 +436,9 @@ def youngest_fresh_wallet(wallets: list[str]) -> tuple[str, int] | None:
     return best
 
 
-def fetch_fresh_wallet_card_data(alert: dict) -> FreshWalletCardData | None:
+def fetch_fresh_wallet_card_data(
+    alert: dict, *, params: dict | None = None,
+) -> FreshWalletCardData | None:
     """Build FreshWalletCardData for either a single-wallet or cluster alert.
 
     Single-wallet (alert['wallet'] set): use that wallet's age, with the
@@ -475,7 +486,9 @@ def fetch_fresh_wallet_card_data(alert: dict) -> FreshWalletCardData | None:
             copy = json.loads(copy)
         except (json.JSONDecodeError, ValueError):
             copy = {}
-    outcome_side = copy.get("outcome") or copy.get("side") or ""
+    p = params or {}
+    outcome_side = (p.get("outcome") or p.get("side")
+                    or copy.get("outcome") or copy.get("side") or "")
     return {
         "market_title": alert.get("market_title", ""),
         "wallet_age_days": int(age_days),
@@ -596,7 +609,12 @@ def _fetch_baseline_avg_volume(condition_id: str) -> float | None:
     return float(row[0])
 
 
-def fetch_volume_bar_data(alert: dict) -> VolumeBarData | None:
+def fetch_volume_bar_data(
+    alert: dict, *, params: dict | None = None,
+) -> VolumeBarData | None:
+    # `params` is unused — volume_bar shows market-wide volume and has no
+    # outcome/side. Accepted for dispatch-signature uniformity.
+    del params
     cid = alert.get("condition_id")
     if not cid:
         return None
@@ -684,8 +702,10 @@ def render_cluster_card(data: ClusterCardData) -> bytes:
         ax.text(0.1 + w + 0.01, y + bar_h / 2, _format_usd(size_usd),
                 color=FG, fontsize=14, ha="left", va="center")
 
-    # Total + shared funder
-    total_str = f"{_format_usd(data['total_usd'])} on {data['outcome_side']}"
+    # Total + shared funder (drop "on" when side is missing)
+    side = (data.get("outcome_side") or "").strip()
+    total_fmt = _format_usd(data["total_usd"])
+    total_str = f"{total_fmt} on {side}" if side else f"{total_fmt} total"
     ax.text(0.5, 0.16, total_str, color=ACCENT, fontsize=28, ha="center", va="center",
             fontweight="bold")
     if data["shared_funder"]:
@@ -782,7 +802,9 @@ def _shared_funder_for_wallets(wallets: list[str]) -> str | None:
     return funder if n >= 2 else None
 
 
-def fetch_cluster_card_data(alert: dict) -> ClusterCardData | None:
+def fetch_cluster_card_data(
+    alert: dict, *, params: dict | None = None,
+) -> ClusterCardData | None:
     """Build ClusterCardData from an alert dict.
 
     alert dict fields used:
@@ -810,7 +832,9 @@ def fetch_cluster_card_data(alert: dict) -> ClusterCardData | None:
             copy = json.loads(copy)
         except (json.JSONDecodeError, ValueError):
             copy = {}
-    outcome_side = copy.get("outcome") or copy.get("side") or ""
+    p = params or {}
+    outcome_side = (p.get("outcome") or p.get("side")
+                    or copy.get("outcome") or copy.get("side") or "")
 
     return {
         "market_title": alert.get("market_title", ""),
@@ -841,8 +865,9 @@ def render_price_sparkline(data: PriceSparklineData) -> bytes:
         # Defensive — fetcher should have rejected this case.
         return _figure_to_png_bytes(fig)
 
-    # Title
-    title = f"{data['market_title']} — {data['outcome_side']}"
+    # Title (drop the dash when side is missing)
+    side = (data.get("outcome_side") or "").strip()
+    title = f"{data['market_title']} — {side}" if side else data["market_title"]
     fig.suptitle(title, color=MUTED, fontsize=18, y=0.95)
 
     ax.plot(times, prices, color=ACCENT, linewidth=3)
@@ -901,11 +926,14 @@ def _fetch_clob_prices_history(token_id: str, hours: int = 24) -> list[tuple[flo
     return out
 
 
-def _yes_token_id(alert: dict) -> str | None:
-    """The CLOB price for a market is keyed by the outcome token. Pull the YES token id
-    from the alert's stored market metadata (typically alert['tokens'] or
-    alert['llm_copy_action']['token_id'])."""
-    # Prefer enriched top-level token_id (set by twitter_simple.enrich_alert_for_charts).
+def _yes_token_id(alert: dict, params: dict | None = None) -> str | None:
+    """The CLOB price for a market is keyed by the outcome token. Resolve it
+    from (in order): cover_chart_spec params, the alert's enriched top-level
+    `token_id`, the alert's `llm_copy_action.token_id`, or `alert['tokens']`
+    matched against the chosen outcome side."""
+    p = params or {}
+    if p.get("token_id"):
+        return p["token_id"]
     direct = alert.get("token_id")
     if direct:
         return direct
@@ -925,7 +953,8 @@ def _yes_token_id(alert: dict) -> str | None:
             tokens = None
     if isinstance(tokens, list) and tokens:
         # Prefer the token matching the outcome side; otherwise first.
-        side = (copy.get("outcome") or copy.get("side") or "").lower()
+        side = (p.get("outcome") or p.get("side")
+                or copy.get("outcome") or copy.get("side") or "").lower()
         for t in tokens:
             if isinstance(t, dict) and (t.get("outcome") or "").lower() == side:
                 return t.get("token_id") or t.get("id")
@@ -935,8 +964,10 @@ def _yes_token_id(alert: dict) -> str | None:
     return None
 
 
-def fetch_price_sparkline_data(alert: dict) -> PriceSparklineData | None:
-    token_id = _yes_token_id(alert)
+def fetch_price_sparkline_data(
+    alert: dict, *, params: dict | None = None,
+) -> PriceSparklineData | None:
+    token_id = _yes_token_id(alert, params)
     if not token_id:
         return None
     try:
@@ -987,9 +1018,11 @@ def fetch_price_sparkline_data(alert: dict) -> PriceSparklineData | None:
             copy = json.loads(copy)
         except json.JSONDecodeError:
             copy = {}
+    p = params or {}
     return {
         "market_title": alert.get("market_title", ""),
-        "outcome_side": copy.get("outcome") or copy.get("side") or "",
+        "outcome_side": (p.get("outcome") or p.get("side")
+                         or copy.get("outcome") or copy.get("side") or ""),
         "times": times,
         "prices": prices,
         "trade_times": trade_times,
@@ -1010,11 +1043,14 @@ _CHART_REGISTRY: dict[str, tuple] = {
 
 
 def _try_render(chart_type: str, alert: dict,
-                cluster_context: dict | None = None) -> bytes | None:
+                cluster_context: dict | None = None,
+                params: dict | None = None) -> bytes | None:
     """Try the chart for `chart_type`. Returns bytes or None. Never raises.
 
     `cluster_context` is forwarded to fetchers that opt in to it (currently
-    wallet_record_card). Other fetchers ignore the kwarg.
+    wallet_record_card). `params` carries chart-specific overrides (`outcome`,
+    `token_id`, ...) that the LLM included in cover_chart_spec — fetchers
+    that opt in prefer these over what they can derive from the alert dict.
     """
     pair = _CHART_REGISTRY.get(chart_type)
     if not pair:
@@ -1022,9 +1058,9 @@ def _try_render(chart_type: str, alert: dict,
     fetcher, renderer = pair
     try:
         if chart_type == "wallet_record_card":
-            data = fetcher(alert, cluster_context=cluster_context)
+            data = fetcher(alert, cluster_context=cluster_context, params=params)
         else:
-            data = fetcher(alert)
+            data = fetcher(alert, params=params)
     except Exception:
         return None
     if data is None:
@@ -1036,16 +1072,22 @@ def _try_render(chart_type: str, alert: dict,
 
 
 def render_chart_for_alert(chart_type: str, alert: dict,
-                           *, cluster_context: dict | None = None) -> bytes | None:
+                           *, cluster_context: dict | None = None,
+                           params: dict | None = None) -> bytes | None:
     """Try the requested chart. If it fails, fall back to wallet_record_card
     (except for the wallet-shaped charts, which are mutually exclusive with
     a record card — a fresh wallet has no record, and vice versa). Returns
-    PNG bytes or None. Never raises."""
+    PNG bytes or None. Never raises.
+
+    `params` mirrors articlebot's cover_chart_spec.params. It is forwarded to
+    the fallback as well, so an `outcome` the LLM specified for the primary
+    chart still informs the wallet_record_card footer when we degrade.
+    """
     if chart_type in ("none", "", None):
         return None
-    primary = _try_render(chart_type, alert, cluster_context)
+    primary = _try_render(chart_type, alert, cluster_context, params)
     if primary is not None:
         return primary
     if chart_type in ("wallet_record_card", "fresh_wallet_card"):
         return None
-    return _try_render("wallet_record_card", alert, cluster_context)
+    return _try_render("wallet_record_card", alert, cluster_context, params)

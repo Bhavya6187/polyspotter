@@ -155,9 +155,17 @@ audience), return decision=skip. Don't force an article.
     "chart_type": "wallet_record_card" | "price_sparkline" |
                   "volume_bar" | "cluster_card",
     "alert_id": <int>,
-    "params": {{}}
+    "params": {{
+      "outcome": "Yes" | "No" | "<team/candidate name>",
+      "token_id": "<optional CLOB token id, only for price_sparkline if known>"
+    }}
   }}
 }}
+
+`cover_chart_spec.params.outcome` is REQUIRED for every chart type except
+volume_bar — without it the chart footer renders "$32k on " with a missing
+side. Use the same exact string as the chosen alert's outcome (e.g. "Yes",
+"No", a team name). Set `params: {{}}` only for volume_bar.
 
 When decision=skip, set `article`, `tweet_text`, and `cover_chart_spec`
 to null and `alert_ids` to null.
@@ -630,11 +638,18 @@ def validate_article_decision(decision: dict) -> tuple[bool, str]:
 # Cover chart renderer
 # ---------------------------------------------------------------------------
 
-def _dispatch_chart_render(chart_type: str, alert: dict) -> bytes | None:
+def _dispatch_chart_render(
+    chart_type: str, alert: dict, params: dict | None = None,
+) -> bytes | None:
     """Thin wrapper around storybot/charts.render_chart_for_alert. Tested
-    separately via monkeypatch. May raise; caller catches."""
+    separately via monkeypatch. May raise; caller catches.
+
+    `params` is the LLM-authored cover_chart_spec.params dict — forwarded so
+    fetchers/renderers can use the outcome/token_id the LLM specified instead
+    of trying to recover them from the alert dict (the picker SQL strips
+    fields like `tokens` and `llm_copy_action`)."""
     import charts
-    return charts.render_chart_for_alert(chart_type, alert)
+    return charts.render_chart_for_alert(chart_type, alert, params=params)
 
 
 def render_cover_chart(
@@ -658,8 +673,9 @@ def render_cover_chart(
     if alert is None:
         log("articlebot_chart_skip", reason=f"alert_id {alert_id} not in chosen_alerts")
         return None, None
+    spec_params = spec.get("params") if isinstance(spec.get("params"), dict) else None
     try:
-        png_bytes = _dispatch_chart_render(chart_type, alert)
+        png_bytes = _dispatch_chart_render(chart_type, alert, spec_params)
     except Exception as exc:
         log("articlebot_chart_error",
             chart_type=chart_type, alert_id=alert_id,

@@ -53,6 +53,11 @@ def _parse_iso(value) -> datetime | None:
 # and the chart fetcher all agree on what counts.
 _SHARP_WALLET_MIN_BETS = 10
 
+# Strategies whose presence on a chosen alert means the wallet's record is
+# the load-bearing fact — and therefore worth a wallet_pnl lookup so the
+# chart picker can pick wallet_record_card.
+_SHARP_WALLET_STRATEGIES = ("win_rate_tracking", "correlated_cross_market")
+
 
 def _distinct_trade_wallets(trades: list[dict]) -> list[str]:
     """Distinct wallets across the trades, in first-seen order. Handles both
@@ -110,37 +115,20 @@ def _wallet_bet_usd(wallet: str, trades: list[dict]) -> float:
 
 def _extract_sharp_wallet(chosen_alerts: list[dict],
                           trades: list[dict]) -> dict | None:
-    """Try llm_copy_action first; fall back to wallet_pnl summary if a
-    win_rate_tracking signal exists. For cluster alerts (no top-level wallet),
-    scan the cluster's trades and pick the highest-win-rate wallet meeting the
-    min resolved-positions threshold — matching the chart fetcher's cluster
-    path in storybot.charts.fetch_wallet_record_card_data.
+    """Look up the wallet's record via wallet_pnl summary when the cluster
+    carries a win_rate_tracking or correlated_cross_market signal. For cluster
+    alerts (no top-level wallet), scan the cluster's trades and pick the
+    highest-win-rate wallet meeting the min resolved-positions threshold —
+    matching the chart fetcher's cluster path in
+    storybot.charts.fetch_wallet_record_card_data.
 
     Returned dict includes `bet_usd` — the sharp wallet's own contribution
     summed across `trades` — so the writer can name it separately from the
     cluster total when they materially differ.
     """
     for a in chosen_alerts:
-        copy = a.get("llm_copy_action") or {}
-        if isinstance(copy, str):
-            try:
-                copy = json.loads(copy)
-            except json.JSONDecodeError:
-                copy = {}
-        record = copy.get("wallet_record") or copy.get("record")
-        win_pct = copy.get("win_pct") or copy.get("win_rate")
-        if record and a.get("wallet"):
-            return {
-                "wallet": a["wallet"],
-                "record": str(record),
-                "win_pct": float(win_pct) if win_pct is not None else None,
-                "alert_id": int(a.get("id") or 0),
-                "bet_usd": _wallet_bet_usd(a["wallet"], trades),
-            }
-
-    for a in chosen_alerts:
         signals = a.get("signals") or []
-        if not any(s.get("strategy") == "win_rate_tracking" for s in signals):
+        if not any(s.get("strategy") in _SHARP_WALLET_STRATEGIES for s in signals):
             continue
         candidates = [a["wallet"]] if a.get("wallet") else _distinct_trade_wallets(trades)
         if not candidates:

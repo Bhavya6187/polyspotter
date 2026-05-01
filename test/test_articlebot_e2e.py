@@ -96,7 +96,7 @@ def test_articlebot_main_e2e_post(tmp_path, monkeypatch):
     monkeypatch.setattr(storybot, "prefetch_bundle", lambda scope: {})
 
     # Stub chart render to drop a fake PNG
-    def _fake_render(chart_type, alert):
+    def _fake_render(chart_type, alert, params=None):
         return b"\x89PNG\r\n\x1a\n"
     monkeypatch.setattr(articlebot, "_dispatch_chart_render", _fake_render)
 
@@ -200,7 +200,7 @@ def _make_validation_retry_harness(monkeypatch, tmp_path, agent_response, retry_
 
     monkeypatch.setattr(storybot, "prefetch_bundle", lambda scope: {})
 
-    def _fake_render(chart_type, alert):
+    def _fake_render(chart_type, alert, params=None):
         return b"\x89PNG\r\n\x1a\n"
     monkeypatch.setattr(articlebot, "_dispatch_chart_render", _fake_render)
 

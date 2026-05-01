@@ -92,21 +92,7 @@ def test_cluster_size_lifted_from_wallet_clustering_severity():
     assert b["cluster_size"] == 6
 
 
-def test_sharp_wallet_from_llm_copy_action():
-    alerts = [{
-        "id": 4242,
-        "wallet": "0xfeed",
-        "llm_copy_action": {"wallet_record": "29-4", "win_pct": 0.88},
-        "signals": [],
-    }]
-    b = twitter_pipeline.build_facts_bundle(alerts, [])
-    assert b["has_sharp_wallet"] == {
-        "wallet": "0xfeed", "record": "29-4", "win_pct": 0.88, "alert_id": 4242,
-        "bet_usd": 0.0,
-    }
-
-
-def test_sharp_wallet_bet_usd_sums_only_that_wallets_trades():
+def test_sharp_wallet_bet_usd_sums_only_that_wallets_trades(monkeypatch):
     """bet_usd must isolate the sharp wallet's contribution from the cluster
     total — otherwise the writer can't tell them apart."""
     trades = [
@@ -117,23 +103,26 @@ def test_sharp_wallet_bet_usd_sums_only_that_wallets_trades():
     alerts = [{
         "id": 4242,
         "wallet": "0xfeed",
-        "llm_copy_action": {"wallet_record": "184-13", "win_pct": 0.93},
-        "signals": [],
+        "signals": [{"strategy": "win_rate_tracking", "severity": 8}],
     }]
+    import db
+    monkeypatch.setattr(db, "get_wallet_pnl_summary",
+                        lambda w: {"closed_positions": 197, "wins": 184, "losses": 13})
     b = twitter_pipeline.build_facts_bundle(alerts, trades)
     sharp = b["has_sharp_wallet"]
+    assert sharp["wallet"] == "0xfeed"
+    assert sharp["record"] == "184-13"
     assert sharp["bet_usd"] == 1_500.0
     # Total sums all trades, not just the sharp's.
     assert b["total_usd"] == 23_500.0
 
 
 def test_sharp_wallet_falls_back_to_wallet_pnl_summary(monkeypatch):
-    # No record in llm_copy_action; signals indicate win_rate_tracking;
-    # db.get_wallet_pnl_summary returns aggregated stats for the wallet.
+    # signals indicate win_rate_tracking; db.get_wallet_pnl_summary
+    # returns aggregated stats for the wallet.
     alerts = [{
         "id": 4242,
         "wallet": "0xfeed",
-        "llm_copy_action": {},
         "signals": [{"strategy": "win_rate_tracking", "severity": 8}],
     }]
     captured = {}
@@ -150,6 +139,26 @@ def test_sharp_wallet_falls_back_to_wallet_pnl_summary(monkeypatch):
     assert captured["wallet"] == "0xfeed"
 
 
+def test_sharp_wallet_triggers_on_correlated_cross_market_signal(monkeypatch):
+    # correlated_cross_market alerts also imply the wallet's record is the
+    # load-bearing fact — the bundle should look it up so the chart picker
+    # can pick wallet_record_card.
+    alerts = [{
+        "id": 131876,
+        "wallet": "0xfeed",
+        "signals": [{"strategy": "correlated_cross_market", "severity": 5}],
+    }]
+    import db
+    monkeypatch.setattr(db, "get_wallet_pnl_summary",
+                        lambda w: {"closed_positions": 104, "wins": 76, "losses": 28})
+    b = twitter_pipeline.build_facts_bundle(alerts, [])
+    sharp = b["has_sharp_wallet"]
+    assert sharp is not None
+    assert sharp["wallet"] == "0xfeed"
+    assert sharp["record"] == "76-28"
+    assert sharp["alert_id"] == 131876
+
+
 def test_sharp_wallet_finds_best_wallet_in_cluster(monkeypatch):
     # Cluster alert (alert.wallet is None) with 3 wallets in trades. Only
     # one of them clears MIN_RESOLVED_BETS and has the best win rate. The
@@ -163,7 +172,6 @@ def test_sharp_wallet_finds_best_wallet_in_cluster(monkeypatch):
     alerts = [{
         "id": 121743,
         "wallet": None,
-        "llm_copy_action": {"outcome": "No"},
         "signals": [{"strategy": "win_rate_tracking", "severity": 4}],
         "trades": trades,
     }]
@@ -190,7 +198,6 @@ def test_sharp_wallet_returns_none_when_cluster_has_no_qualifying_wallet(monkeyp
     alerts = [{
         "id": 99,
         "wallet": None,
-        "llm_copy_action": {},
         "signals": [{"strategy": "win_rate_tracking", "severity": 4}],
         "trades": trades,
     }]
@@ -282,7 +289,6 @@ def test_sharp_wallet_requires_win_rate_signal_for_cluster(monkeypatch):
     alerts = [{
         "id": 99,
         "wallet": None,
-        "llm_copy_action": {},
         "signals": [{"strategy": "concentrated_one_sided", "severity": 5}],
         "trades": trades,
     }]
