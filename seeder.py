@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 
 from detection_strategies import Signal
 from db import get_wallet_pnl_summary, get_flagged_wallet_stats, get_wallet_current_streak
-from gamma_cache import get_market_tags, get_market_by_condition
+from gamma_cache import get_market_tags, get_market_by_condition, get_market_category
 
 import json
 
@@ -180,20 +180,22 @@ def _resolve_event_timing(condition_id: str | None) -> tuple[str | None, str | N
             raw_start = events[0].get("startTime")
     game_start = _normalize_gamma_game_start(raw_start)
 
-    # Heuristic miss-detection: if Gamma marks this as a series-level market
-    # (e.g. League of Legends, NBA games) but no start time is present, it's
-    # almost certainly a data gap rather than an intentional null. Log so we
-    # can spot systematic misses without hard-failing the ingest.
+    # Heuristic miss-detection: per-game sports/esports markets should always
+    # have a start time. We identify these via two signals together: the market
+    # is tagged Sports/Games (rules out political markets that also use
+    # seriesSlug, like "putin-out-as-president") AND has a seriesSlug (rules out
+    # season-long markets like "NBA MVP" that legitimately have no start time).
     if not game_start:
         events = market.get("events") or []
         series_slug = events[0].get("seriesSlug") if events else None
-        category = events[0].get("category") if events else None
-        if series_slug or category:
-            print(
-                f"[WARN] Sports market without start time: condition={condition_id} "
-                f"series={series_slug!r} category={category!r} title={market.get('question','')[:60]!r}",
-                file=sys.stderr,
-            )
+        if series_slug:
+            category = get_market_category(condition_id)
+            if category in ("Sports", "Games"):
+                print(
+                    f"[WARN] {category} market without start time: condition={condition_id} "
+                    f"series={series_slug!r} title={market.get('question','')[:60]!r}",
+                    file=sys.stderr,
+                )
 
     event_end = game_start or end_date
     return game_start, event_end
