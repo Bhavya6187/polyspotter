@@ -111,13 +111,11 @@ def _draw_wallet_record_card(ax, data: WalletRecordCardData) -> None:
     ax.text(0.5, 0.62, hero, color=ACCENT, fontsize=110, ha="center", va="center",
             fontweight="bold")
 
-    # Subtitle: count of prior bets
-    age_str = (
-        f", {data['wallet_age_days']}-day-old account" if data["wallet_age_days"] is not None
-        else ""
-    )
-    subtitle = f"across {data['bet_count']} prior Polymarket bets{age_str}"
-    ax.text(0.5, 0.40, subtitle, color=FG, fontsize=20, ha="center", va="center")
+    # Subtitle: count of prior bets. wallet_age_days is intentionally dropped
+    # here — the FRESH WALLET tile carries that fact when it matters, and the
+    # longer string overflowed the 720px grid hero on long market titles.
+    subtitle = f"across {data['bet_count']} prior Polymarket bets"
+    ax.text(0.5, 0.40, subtitle, color=FG, fontsize=16, ha="center", va="center")
 
     # Record bar: green for wins, red for losses, sized by win_pct
     bar_y, bar_h = 0.22, 0.06
@@ -1005,12 +1003,14 @@ def _draw_price_sparkline(ax, data: PriceSparklineData) -> None:
     # over the figure when this draws into a chart_grid sub-region.
     ax.set_facecolor(BG)
 
-    # Title (drop the dash when side is missing). Place above the plot
-    # using ax-relative text (replaces the prior fig.suptitle so this
-    # works inside a sub-region of a shared figure).
+    # Title (drop the dash when side is missing). Use ax.text in axes coords
+    # so it survives being drawn into a margin-less sub-axes inside
+    # chart_grid.compose_chart (ax.set_title renders outside the data area
+    # and gets clipped when the axes is placed edge-to-edge).
     side = (data.get("outcome_side") or "").strip()
     title = f"{data['market_title']} — {side}" if side else data["market_title"]
-    ax.set_title(title, color=MUTED, fontsize=18, pad=14)
+    ax.text(0.5, 0.96, title, color=MUTED, fontsize=18,
+            ha="center", va="top", transform=ax.transAxes, wrap=True)
 
     ax.plot(times, prices, color=ACCENT, linewidth=3)
     if data["trade_times"]:
@@ -1023,15 +1023,18 @@ def _draw_price_sparkline(ax, data: PriceSparklineData) -> None:
     pad = max((pmax - pmin) * 0.15, 0.01)
     ax.set_ylim(max(0, pmin - pad), min(1, pmax + pad))
 
-    ax.set_yticks([prices[0], prices[-1]])
-    ax.set_yticklabels(
-        [f"{int(prices[0]*100)}c", f"{int(prices[-1]*100)}c"],
-        color=FG, fontsize=14,
-    )
-    ax.set_xticks([times[0], times[-1]])
-    ax.set_xticklabels(
-        ["24h ago", "now"], color=MUTED, fontsize=12,
-    )
+    # Hide ticks; draw price labels in axes coords so they survive
+    # placement inside a margin-less sub-axes.
+    ax.set_yticks([])
+    ax.set_xticks([])
+    ax.text(0.02, 0.10, f"{int(prices[0]*100)}c", color=FG, fontsize=14,
+            ha="left", va="center", transform=ax.transAxes, fontweight="bold")
+    ax.text(0.98, 0.10, f"{int(prices[-1]*100)}c", color=FG, fontsize=14,
+            ha="right", va="center", transform=ax.transAxes, fontweight="bold")
+    ax.text(0.02, 0.04, "24h ago", color=MUTED, fontsize=12,
+            ha="left", va="bottom", transform=ax.transAxes)
+    ax.text(0.98, 0.04, "now", color=MUTED, fontsize=12,
+            ha="right", va="bottom", transform=ax.transAxes)
 
 
 def render_price_sparkline(data: PriceSparklineData) -> bytes:
