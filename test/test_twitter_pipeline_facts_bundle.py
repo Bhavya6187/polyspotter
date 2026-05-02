@@ -5,6 +5,7 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "storybot"))
 import twitter_pipeline  # noqa: E402
@@ -416,3 +417,39 @@ def test_chart_target_alert_id_falls_back_when_bundle_missing_alert():
     target = twitter_pipeline._chart_target_alert_id(
         "fresh_wallet_card", [120845, 120672], facts_bundle)
     assert target == 120845
+
+
+def test_volume_multiplier_x_set_when_volume_spike_and_baseline_known(monkeypatch):
+    """When has_volume_spike is True, fetch_data_bundle enriches the bundle
+    with volume_multiplier_x using gamma 24h volume / sqlite 7-day baseline."""
+    import twitter_pipeline
+    import charts
+
+    # Stub the two fetchers volume_bar already uses.
+    monkeypatch.setattr(charts, "_fetch_gamma_volume24hr",
+                        lambda cid: 120_000.0)
+    monkeypatch.setattr(charts, "_fetch_baseline_avg_volume",
+                        lambda cid: 10_000.0)
+    # Stub trade-fetch + token-fetch — irrelevant to this test.
+    # fetch_data_bundle imports these locally, so a monkeypatch on the
+    # tweet_utils module attribute is picked up on the next call.
+    import tweet_utils
+    monkeypatch.setattr(tweet_utils, "fetch_alert_trades", lambda aid: [])
+    monkeypatch.setattr(tweet_utils, "fetch_market_tokens", lambda cid: {})
+
+    chosen_alert = {
+        "id": 1,
+        "condition_id": "0xabc",
+        "signals": [{"strategy": "pre_event_volume_spike", "headline": "x"}],
+    }
+    bundle = twitter_pipeline.fetch_data_bundle([1], [chosen_alert])
+    fb = bundle["facts_bundle"]
+    assert fb["has_volume_spike"] is True
+    assert fb["volume_multiplier_x"] == pytest.approx(12.0)
+
+
+def test_volume_multiplier_x_none_when_no_volume_spike():
+    import twitter_pipeline
+    bundle = twitter_pipeline.build_facts_bundle([], [])
+    assert bundle["has_volume_spike"] is False
+    assert bundle["volume_multiplier_x"] is None

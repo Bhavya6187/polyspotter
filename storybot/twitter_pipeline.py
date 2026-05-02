@@ -305,6 +305,8 @@ def build_facts_bundle(chosen_alerts: list[dict], trades: list[dict]) -> dict:
     """Derive a small dict of facts for downstream LLM stages to quote precisely.
 
     All fields gracefully degrade to null/0 when underlying data is missing.
+    Note: volume_multiplier_x is enriched in fetch_data_bundle (it requires
+    a gamma + sqlite fetch); build_facts_bundle alone leaves it None.
     """
     total_usd = sum(float(t.get("usdcSize") or 0.0) for t in trades)
     return {
@@ -319,6 +321,7 @@ def build_facts_bundle(chosen_alerts: list[dict], trades: list[dict]) -> dict:
         "cluster_size": _cluster_size(chosen_alerts),
         "has_volume_spike": _has_volume_spike(chosen_alerts),
         "minutes_to_resolution": _minutes_to_resolution(chosen_alerts),
+        "volume_multiplier_x": None,
     }
 
 
@@ -847,11 +850,29 @@ def fetch_data_bundle(alert_ids: list[int], seed_alerts: list[dict]) -> dict:
         seen_cids.add(cid)
         token_map.update(fetch_market_tokens(cid))
 
+    facts_bundle = build_facts_bundle(chosen, trades)
+    if facts_bundle["has_volume_spike"]:
+        # Use the same fetchers volume_bar uses, on the cluster's primary
+        # condition_id (first chosen alert that has one). One gamma call +
+        # one sqlite read per tweet; cheap.
+        import charts
+        cid = next((a.get("condition_id") for a in chosen if a.get("condition_id")), None)
+        if cid:
+            try:
+                today = charts._fetch_gamma_volume24hr(cid)
+                baseline = charts._fetch_baseline_avg_volume(cid)
+                if today > 0 and baseline and baseline > 0:
+                    facts_bundle["volume_multiplier_x"] = today / baseline
+            except Exception as exc:
+                from bot_utils import log
+                log("volume_multiplier_fetch_error",
+                    error=f"{type(exc).__name__}: {exc}")
+
     return {
         "chosen_alerts": chosen,
         "trades": trades,
         "token_map": token_map,
-        "facts_bundle": build_facts_bundle(chosen, trades),
+        "facts_bundle": facts_bundle,
     }
 
 
