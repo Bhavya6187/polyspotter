@@ -185,7 +185,7 @@ def _fetch_wallet_profiles(wallets: list[str]) -> dict[str, dict]:
 def fetch_wallet_record_card_data(
     alert: dict,
     *,
-    cluster_context: dict | None = None,
+    cluster_context: dict | None = None,  # unused; kept for dispatcher compat
     params: dict | None = None,
 ) -> WalletRecordCardData | None:
     """Build WalletRecordCardData for either a single-wallet or cluster alert.

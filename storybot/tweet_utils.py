@@ -242,9 +242,9 @@ def prepare_chart(chart_type: str, alert: dict,
     """Render a chart for one alert. Returns PNG bytes or None. Never raises.
 
     Caller is responsible for resolving which alert + chart_type to render.
-    `cluster_context` lets the caller pass cluster-wide stats (e.g. cluster_total_usd,
-    cluster_size) so a wallet-shaped chart can show the bigger cluster framing
-    instead of just the individual alert's stake.
+    `cluster_context` is currently unused by all fetchers (kept on the signature
+    for stability while call sites are migrated in later tasks); pass it or omit
+    it freely.
     """
     if not alert:
         return None
