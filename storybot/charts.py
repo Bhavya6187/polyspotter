@@ -504,6 +504,9 @@ class VolumeBarData(TypedDict):
 
 
 def _draw_volume_bar(ax, data: VolumeBarData) -> None:
+    """Draw the volume bar chart into the given Axes. The Axes' figure
+    determines output size — used for both standalone 1200×675 renders and
+    the 720×675 hero region of the grid."""
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.set_xticks([])
