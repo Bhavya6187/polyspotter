@@ -28,27 +28,12 @@ def test_wallet_record_card_renders_png_at_canvas_size():
         "record_str": "29-4",
         "win_pct": 0.879,
         "bet_count": 33,
-        "wallet_age_days": 412,
         "bet_size_usd": 80_000,
         "outcome_side": "Yes",
     }
     png = charts.render_wallet_record_card(data)
     assert isinstance(png, bytes)
     assert len(png) > 1000  # not empty
-    assert _png_dimensions(png) == (charts.CANVAS_W_PX, charts.CANVAS_H_PX)
-
-
-def test_wallet_record_card_handles_missing_age():
-    data: charts.WalletRecordCardData = {
-        "market_title": "Some market",
-        "record_str": "12-2",
-        "win_pct": 0.857,
-        "bet_count": 14,
-        "wallet_age_days": None,
-        "bet_size_usd": 5_000,
-        "outcome_side": "No",
-    }
-    png = charts.render_wallet_record_card(data)
     assert _png_dimensions(png) == (charts.CANVAS_W_PX, charts.CANVAS_H_PX)
 
 
@@ -87,7 +72,6 @@ def test_fetch_wallet_record_card_returns_data_when_eligible():
     assert result is not None
     assert result["record_str"] == "29-4"
     assert result["bet_count"] == 33
-    assert result["wallet_age_days"] is None
 
 
 def test_fetch_wallet_record_card_picks_strongest_wallet_in_cluster():
