@@ -907,7 +907,7 @@ def main() -> int:
     )
     from tweet_utils import (
         _build_twitter_api_v1, _build_twitter_client,
-        filter_posted_alerts, post_tweet, prepare_chart, record_tweet,
+        filter_posted_alerts, post_tweet, prepare_chart_grid, record_tweet,
         strip_polyspotter_url,
     )
 
@@ -1061,8 +1061,9 @@ def main() -> int:
         "cluster_total_usd": bundle["facts_bundle"].get("total_usd"),
         "cluster_size": bundle["facts_bundle"].get("cluster_size"),
     }
-    chart_png = (prepare_chart(chart_pick["chart_type"], target_alert,
-                               cluster_context=cluster_context)
+    chart_png = (prepare_chart_grid(chart_pick["chart_type"], target_alert,
+                                    facts_bundle=bundle["facts_bundle"],
+                                    cluster_context=cluster_context)
                  if target_alert else None)
     log("chart_selected", run_id=run_id, chart_type=chart_pick["chart_type"],
         rendered=chart_png is not None,

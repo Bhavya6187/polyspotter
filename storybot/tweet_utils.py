@@ -260,6 +260,34 @@ def prepare_chart(chart_type: str, alert: dict,
         return None
 
 
+def prepare_chart_grid(chart_type: str, alert: dict,
+                       *,
+                       facts_bundle: dict,
+                       cluster_context: dict | None = None) -> bytes | None:
+    """Render a hero+tiles grid for one alert. Returns PNG bytes or None.
+    Never raises.
+
+    Used by twitter_pipeline. articlebot continues to call prepare_chart
+    (single-chart) until/unless we choose to migrate it later.
+    """
+    if not alert:
+        return None
+    enrich_alert_for_charts(alert)
+    try:
+        import chart_grid
+        return chart_grid.compose_chart(
+            hero_type=chart_type,
+            alert=alert,
+            facts_bundle=facts_bundle,
+            cluster_context=cluster_context,
+        )
+    except Exception as exc:
+        log("chart_grid_render_error",
+            error=f"{type(exc).__name__}: {exc}",
+            chart_type=chart_type, alert_id=alert.get("id"))
+        return None
+
+
 # --- Posting ----------------------------------------------------------------
 
 def post_tweet(
