@@ -5,6 +5,7 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "storybot"))
 import twitter_pipeline  # noqa: E402
@@ -31,6 +32,7 @@ def test_empty_inputs_produce_zeroed_bundle():
     assert b["cluster_size"] is None
     assert b["has_volume_spike"] is False
     assert b["minutes_to_resolution"] is None
+    assert b["volume_multiplier_x"] is None
 
 
 def test_distinct_wallets_and_total_usd():
@@ -233,17 +235,23 @@ def test_sharp_wallet_returns_none_when_cluster_has_no_qualifying_wallet(monkeyp
     assert b["has_sharp_wallet"] is None
 
 
-def test_fresh_wallet_returns_wallet_for_single_wallet_alert():
-    # Single-wallet alert with new_wallet_large_bet signal: existing
-    # behavior — surface the wallet/alert_id without an age check (the
-    # chart fetcher does the age validation).
+def test_fresh_wallet_returns_wallet_for_single_wallet_alert(monkeypatch):
+    # Single-wallet alert with new_wallet_large_bet signal: surface wallet,
+    # alert_id, and wallet_age_days computed from _fetch_wallet_created_at.
     alerts = [{
         "id": 999,
         "wallet": "0xfeed",
         "signals": [{"strategy": "new_wallet_large_bet", "severity": 4}],
     }]
+    now = datetime.now(timezone.utc)
+    import charts
+    monkeypatch.setattr(charts, "_fetch_wallet_created_at",
+                        lambda w: now - timedelta(days=7))
     b = twitter_pipeline.build_facts_bundle(alerts, [])
-    assert b["has_fresh_wallet"] == {"wallet": "0xfeed", "alert_id": 999}
+    fw = b["has_fresh_wallet"]
+    assert fw["wallet"] == "0xfeed"
+    assert fw["alert_id"] == 999
+    assert fw["wallet_age_days"] == 7
 
 
 def test_fresh_wallet_finds_youngest_in_cluster(monkeypatch):
@@ -269,7 +277,10 @@ def test_fresh_wallet_finds_youngest_in_cluster(monkeypatch):
     monkeypatch.setattr(charts, "_fetch_wallet_created_at",
                         lambda w: ages.get(w))
     b = twitter_pipeline.build_facts_bundle(alerts, trades)
-    assert b["has_fresh_wallet"] == {"wallet": "0xccc", "alert_id": 121967}
+    fw = b["has_fresh_wallet"]
+    assert fw["wallet"] == "0xccc"
+    assert fw["alert_id"] == 121967
+    assert fw["wallet_age_days"] == 3
 
 
 def test_fresh_wallet_returns_none_when_cluster_has_no_fresh_wallet(monkeypatch):
@@ -416,3 +427,69 @@ def test_chart_target_alert_id_falls_back_when_bundle_missing_alert():
     target = twitter_pipeline._chart_target_alert_id(
         "fresh_wallet_card", [120845, 120672], facts_bundle)
     assert target == 120845
+
+
+def test_volume_multiplier_x_set_when_volume_spike_and_baseline_known(monkeypatch):
+    """When has_volume_spike is True, fetch_data_bundle enriches the bundle
+    with volume_multiplier_x using gamma 24h volume / sqlite 7-day baseline."""
+    import twitter_pipeline
+    import charts
+
+    # Stub the two fetchers volume_bar already uses.
+    monkeypatch.setattr(charts, "_fetch_gamma_volume24hr",
+                        lambda cid: 120_000.0)
+    monkeypatch.setattr(charts, "_fetch_baseline_avg_volume",
+                        lambda cid: 10_000.0)
+    # Stub trade-fetch + token-fetch — irrelevant to this test.
+    # fetch_data_bundle imports these locally, so a monkeypatch on the
+    # tweet_utils module attribute is picked up on the next call.
+    import tweet_utils
+    monkeypatch.setattr(tweet_utils, "fetch_alert_trades", lambda aid: [])
+    monkeypatch.setattr(tweet_utils, "fetch_market_tokens", lambda cid: {})
+
+    chosen_alert = {
+        "id": 1,
+        "condition_id": "0xabc",
+        "signals": [{"strategy": "pre_event_volume_spike", "headline": "x"}],
+    }
+    bundle = twitter_pipeline.fetch_data_bundle([1], [chosen_alert])
+    fb = bundle["facts_bundle"]
+    assert fb["has_volume_spike"] is True
+    assert fb["volume_multiplier_x"] == pytest.approx(12.0)
+
+
+def test_volume_multiplier_x_uses_cid_from_spike_alert_in_cross_market_cluster(monkeypatch):
+    """In a cross-market cluster, pick the cid of the alert that actually
+    fired pre_event_volume_spike — not just the first cid in the cluster."""
+    import twitter_pipeline
+    import charts
+
+    seen_cids = []
+    def fake_volume(cid):
+        seen_cids.append(cid)
+        return 120_000.0
+    monkeypatch.setattr(charts, "_fetch_gamma_volume24hr", fake_volume)
+    monkeypatch.setattr(charts, "_fetch_baseline_avg_volume",
+                        lambda cid: 10_000.0)
+    import tweet_utils
+    monkeypatch.setattr(tweet_utils, "fetch_alert_trades", lambda aid: [])
+    monkeypatch.setattr(tweet_utils, "fetch_market_tokens", lambda cid: {})
+
+    # First alert: cross-market correlation, no spike. Second alert: spike.
+    alerts = [
+        {"id": 1, "condition_id": "0x_no_spike",
+         "signals": [{"strategy": "correlated_cross_market", "headline": "x"}]},
+        {"id": 2, "condition_id": "0x_spike",
+         "signals": [{"strategy": "pre_event_volume_spike", "headline": "x"}]},
+    ]
+    bundle = twitter_pipeline.fetch_data_bundle([1, 2], alerts)
+    assert bundle["facts_bundle"]["volume_multiplier_x"] == pytest.approx(12.0)
+    assert "0x_spike" in seen_cids
+    assert "0x_no_spike" not in seen_cids
+
+
+def test_volume_multiplier_x_none_when_no_volume_spike():
+    import twitter_pipeline
+    bundle = twitter_pipeline.build_facts_bundle([], [])
+    assert bundle["has_volume_spike"] is False
+    assert bundle["volume_multiplier_x"] is None

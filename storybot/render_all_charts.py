@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import chart_grid  # noqa: E402
 import charts  # noqa: E402
 import tweet_utils  # noqa: E402
 
@@ -65,6 +66,36 @@ def main() -> int:
             continue
         out.write_bytes(png)
         print(f"  {chart_type}: wrote {out} ({len(png)} bytes)")
+
+    # Grid renders — preview hero + 3 stat tiles for each hero type. Uses
+    # a synthetic facts_bundle so tiles exercise their renderers regardless
+    # of which signals fired on this specific alert.
+    fb = {
+        "minutes_to_resolution": 214,
+        "total_usd": 220_000,
+        "cluster_size": 7,
+        "has_volume_spike": True,
+        "volume_multiplier_x": 12.0,
+        "biggest_price_move": {"from": 0.60, "to": 0.62},
+        "has_sharp_wallet": {"record": "24-1", "win_pct": 0.96,
+                             "wallet": alert.get("wallet") or "0xabc",
+                             "alert_id": alert["id"], "bet_usd": 7_000},
+        "has_fresh_wallet": None,
+        "distinct_wallets": 15,
+        "trade_count": 30, "time_span_minutes": 129,
+        "peak_hour_volume_usd": 140_000,
+    }
+    for hero_type in ("wallet_record_card", "fresh_wallet_card", "volume_bar",
+                      "cluster_card", "price_sparkline"):
+        png = chart_grid.compose_chart(
+            hero_type=hero_type, alert=alert, facts_bundle=fb,
+        )
+        out = OUTPUT_DIR / f"grid_{hero_type}_{alert['id']}.png"
+        if png is None:
+            print(f"  grid_{hero_type}: SKIPPED (fetcher returned None)")
+            continue
+        out.write_bytes(png)
+        print(f"  grid_{hero_type}: wrote {out} ({len(png)} bytes)")
     return 0
 
 

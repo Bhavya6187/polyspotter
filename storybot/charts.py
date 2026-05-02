@@ -76,10 +76,8 @@ class WalletRecordCardData(TypedDict):
     record_str: str          # e.g. "29-4"
     win_pct: float           # 0..1
     bet_count: int
-    wallet_age_days: int | None
     bet_size_usd: float
     outcome_side: str        # "Yes" / "Arsenal" / etc.
-    cluster_size: int | None  # when set: footer reads "$X on Y — N linked accounts"
 
 
 def _format_usd(amount: float) -> str:
@@ -91,12 +89,17 @@ def _format_usd(amount: float) -> str:
     return f"${amount:.0f}"
 
 
-def render_wallet_record_card(data: WalletRecordCardData) -> bytes:
-    fig, ax = _new_figure()
+def _draw_wallet_record_card(ax, data: WalletRecordCardData) -> None:
+    """Draw the wallet record card into the given Axes. The Axes' figure
+    determines output size — used for both standalone 1200×675 renders and
+    the 720×675 hero region of the grid."""
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.set_xticks([])
     ax.set_yticks([])
+    ax.set_facecolor(BG)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
 
     # Top: market title in muted grey
     ax.text(0.5, 0.92, data["market_title"], color=MUTED, fontsize=18,
@@ -107,13 +110,9 @@ def render_wallet_record_card(data: WalletRecordCardData) -> bytes:
     ax.text(0.5, 0.62, hero, color=ACCENT, fontsize=110, ha="center", va="center",
             fontweight="bold")
 
-    # Subtitle: count of prior bets
-    age_str = (
-        f", {data['wallet_age_days']}-day-old account" if data["wallet_age_days"] is not None
-        else ""
-    )
-    subtitle = f"across {data['bet_count']} prior Polymarket bets{age_str}"
-    ax.text(0.5, 0.40, subtitle, color=FG, fontsize=20, ha="center", va="center")
+    # Subtitle: count of prior bets.
+    subtitle = f"across {data['bet_count']} prior Polymarket bets"
+    ax.text(0.5, 0.40, subtitle, color=FG, fontsize=16, ha="center", va="center")
 
     # Record bar: green for wins, red for losses, sized by win_pct
     bar_y, bar_h = 0.22, 0.06
@@ -123,18 +122,17 @@ def render_wallet_record_card(data: WalletRecordCardData) -> bytes:
                            0.8 * (1 - data["win_pct"]), bar_h,
                            color=LOSS, transform=ax.transAxes))
 
-    # Footer: bet size + outcome side, plus optional "— N linked accounts" suffix.
-    # When outcome_side is missing (upstream lost the field), drop "on" rather
-    # than rendering "$32k on " — matches the bug seen in c6080ab9.
+    # Personal subtitle: bet size + outcome side. Drop "on" when side missing.
     side = (data.get("outcome_side") or "").strip()
     bet_str = _format_usd(data["bet_size_usd"])
     footer = f"{bet_str} on {side}" if side else f"{bet_str} bet"
-    cluster_size = data.get("cluster_size")
-    if cluster_size and cluster_size >= 2:
-        footer = f"{footer} — {cluster_size} linked accounts"
     ax.text(0.5, 0.10, footer, color=FG, fontsize=24, ha="center", va="center",
             fontweight="bold")
 
+
+def render_wallet_record_card(data: WalletRecordCardData) -> bytes:
+    fig, ax = _new_figure()
+    _draw_wallet_record_card(ax, data)
     return _figure_to_png_bytes(fig)
 
 
@@ -182,7 +180,6 @@ def _fetch_wallet_profiles(wallets: list[str]) -> dict[str, dict]:
 def fetch_wallet_record_card_data(
     alert: dict,
     *,
-    cluster_context: dict | None = None,
     params: dict | None = None,
 ) -> WalletRecordCardData | None:
     """Build WalletRecordCardData for either a single-wallet or cluster alert.
@@ -194,12 +191,6 @@ def fetch_wallet_record_card_data(
     primary wallet, but the picker may have led with a sharp wallet *inside*
     the cluster. Pick the wallet with the highest win_rate among those meeting
     WALLET_RECORD_MIN_BETS, and show its individual contribution in the footer.
-
-    `cluster_context` (optional) carries cluster-wide stats from the caller.
-    When `cluster_total_usd` exceeds the wallet's individual stake AND
-    `cluster_size` is >= 2, the footer is upgraded to show the cluster total
-    + a "N linked accounts" suffix — the cluster bet is the bigger story
-    once a record-eligible wallet is part of a multi-wallet pile-on.
 
     Returns None when the wallet is unknown / not in the cluster, or has fewer
     than WALLET_RECORD_MIN_BETS resolved bets.
@@ -230,33 +221,9 @@ def fetch_wallet_record_card_data(
         profile = profiles[wallet]
         bet_size = size_by_wallet.get(wallet, 0.0)
 
-    # Cluster-context override: when the cluster total dwarfs this wallet's
-    # individual stake AND the cluster has 2+ linked accounts, the footer
-    # tells the cluster story instead of the individual stake.
-    cluster_size_for_footer: int | None = None
-    if cluster_context:
-        cluster_total = float(cluster_context.get("cluster_total_usd") or 0.0)
-        cluster_size = cluster_context.get("cluster_size")
-        if (cluster_total > bet_size
-                and isinstance(cluster_size, int) and cluster_size >= 2):
-            bet_size = cluster_total
-            cluster_size_for_footer = cluster_size
-
     wins = profile["wins"]
     losses = profile["losses"]
     total_bets = wins + losses
-    first_seen_at = profile["first_seen_at"]
-
-    wallet_age_days: int | None = None
-    if first_seen_at is not None:
-        try:
-            if isinstance(first_seen_at, str):
-                first_seen_at = datetime.fromisoformat(first_seen_at)
-            if first_seen_at.tzinfo is None:
-                first_seen_at = first_seen_at.replace(tzinfo=timezone.utc)
-            wallet_age_days = (datetime.now(timezone.utc) - first_seen_at).days
-        except (ValueError, TypeError, AttributeError):
-            wallet_age_days = None
 
     copy = alert.get("llm_copy_action") or {}
     if isinstance(copy, str):
@@ -273,10 +240,8 @@ def fetch_wallet_record_card_data(
         "record_str": f"{wins}-{losses}",
         "win_pct": profile["win_rate"],
         "bet_count": int(total_bets),
-        "wallet_age_days": wallet_age_days,
         "bet_size_usd": float(bet_size),
         "outcome_side": outcome_side,
-        "cluster_size": cluster_size_for_footer,
     }
 
 
@@ -296,12 +261,17 @@ GAMMA_PUBLIC_PROFILE_URL = "https://gamma-api.polymarket.com/public-profile"
 POLYMARKET_DATA_API = "https://data-api.polymarket.com"
 
 
-def render_fresh_wallet_card(data: FreshWalletCardData) -> bytes:
-    fig, ax = _new_figure()
+def _draw_fresh_wallet_card(ax, data: FreshWalletCardData) -> None:
+    """Draw the fresh wallet card into the given Axes. The Axes' figure
+    determines output size — used for both standalone 1200×675 renders and
+    the 720×675 hero region of the grid."""
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.set_xticks([])
     ax.set_yticks([])
+    ax.set_facecolor(BG)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
 
     # Top: market title in muted grey
     ax.text(0.5, 0.92, data["market_title"], color=MUTED, fontsize=18,
@@ -326,6 +296,10 @@ def render_fresh_wallet_card(data: FreshWalletCardData) -> bytes:
     ax.text(0.5, 0.12, footer, color=FG, fontsize=24, ha="center", va="center",
             fontweight="bold")
 
+
+def render_fresh_wallet_card(data: FreshWalletCardData) -> bytes:
+    fig, ax = _new_figure()
+    _draw_fresh_wallet_card(ax, data)
     return _figure_to_png_bytes(fig)
 
 
@@ -506,30 +480,31 @@ class VolumeBarData(TypedDict):
     multiplier: float
 
 
-def render_volume_bar(data: VolumeBarData) -> bytes:
-    fig, ax = _new_figure()
+def _draw_volume_bar(ax, data: VolumeBarData) -> None:
+    """Draw the volume bar chart into the given Axes. The Axes' figure
+    determines output size — used for both standalone 1200×675 renders and
+    the 720×675 hero region of the grid."""
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.set_xticks([])
     ax.set_yticks([])
+    ax.set_facecolor(BG)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
 
-    # Title
     ax.text(0.5, 0.92, data["market_title"], color=MUTED, fontsize=18,
             ha="center", va="top", wrap=True)
 
-    # Hero multiplier
     mult = data["multiplier"]
     mult_label = f"{mult:.0f}×" if mult >= 10 else f"{mult:.1f}×"
-    ax.text(0.5, 0.72, mult_label, color=ACCENT, fontsize=120, ha="center", va="center",
-            fontweight="bold")
+    ax.text(0.5, 0.72, mult_label, color=ACCENT, fontsize=120, ha="center",
+            va="center", fontweight="bold")
     ax.text(0.5, 0.55, "today's volume vs. 7-day average", color=FG, fontsize=20,
             ha="center", va="center")
 
-    # Two horizontal bars — baseline tiny, today full-width
-    # Map widths to a log-friendly visual: baseline always >= 4% of bar area for visibility.
     today = max(data["today_volume_usd"], 1.0)
     baseline = max(data["baseline_avg_usd"], 1.0)
-    today_w = 0.8
+    today_w = 0.62
     baseline_w = max(0.04, today_w * (baseline / today))
 
     ax.add_patch(Rectangle((0.1, 0.32), baseline_w, 0.04, color=MUTED,
@@ -544,6 +519,10 @@ def render_volume_bar(data: VolumeBarData) -> bytes:
             f"today: {_format_usd(today)}",
             color=FG, fontsize=16, ha="left", va="center", fontweight="bold")
 
+
+def render_volume_bar(data: VolumeBarData) -> bytes:
+    fig, ax = _new_figure()
+    _draw_volume_bar(ax, data)
     return _figure_to_png_bytes(fig)
 
 
@@ -672,48 +651,53 @@ def wallet_pseudonym(wallet: str | None, tier: dict | None = None) -> str:
     return f"{prefix}_0x{short}"
 
 
-def render_cluster_card(data: ClusterCardData) -> bytes:
-    fig, ax = _new_figure()
+def _draw_cluster_card(ax, data: ClusterCardData) -> None:
+    """Draw the cluster card into the given Axes. The Axes' figure
+    determines output size — used for both standalone 1200×675 renders and
+    the 720×675 hero region of the grid."""
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.set_xticks([])
     ax.set_yticks([])
+    ax.set_facecolor(BG)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
 
-    # Title
     ax.text(0.5, 0.93, data["market_title"], color=MUTED, fontsize=18,
             ha="center", va="top", wrap=True)
 
-    # Bars: one per wallet, sized proportionally
-    wallets = data["wallet_sizes"][:8]  # cap at 8 to keep readable
+    wallets = data["wallet_sizes"][:8]
     if not wallets:
-        # Defensive: shouldn't happen because the fetcher rejects 0-wallet clusters.
-        return _figure_to_png_bytes(fig)
+        return
     max_size = max(w[1] for w in wallets) or 1.0
     bar_top = 0.78
     bar_h = 0.06
     spacing = 0.02
     for i, (name, size_usd) in enumerate(wallets):
         y = bar_top - i * (bar_h + spacing)
-        w = 0.6 * (size_usd / max_size)
-        ax.add_patch(Rectangle((0.1, y), w, bar_h, color=ACCENT,
+        w = 0.55 * (size_usd / max_size)
+        ax.add_patch(Rectangle((0.32, y), w, bar_h, color=ACCENT,
                                transform=ax.transAxes))
-        ax.text(0.09, y + bar_h / 2, name, color=FG, fontsize=14,
+        ax.text(0.30, y + bar_h / 2, name, color=FG, fontsize=14,
                 ha="right", va="center")
-        ax.text(0.1 + w + 0.01, y + bar_h / 2, _format_usd(size_usd),
+        ax.text(0.32 + w + 0.01, y + bar_h / 2, _format_usd(size_usd),
                 color=FG, fontsize=14, ha="left", va="center")
 
-    # Total + shared funder (drop "on" when side is missing)
     side = (data.get("outcome_side") or "").strip()
     total_fmt = _format_usd(data["total_usd"])
     total_str = f"{total_fmt} on {side}" if side else f"{total_fmt} total"
-    ax.text(0.5, 0.16, total_str, color=ACCENT, fontsize=28, ha="center", va="center",
-            fontweight="bold")
+    ax.text(0.5, 0.16, total_str, color=ACCENT, fontsize=28, ha="center",
+            va="center", fontweight="bold")
     if data["shared_funder"]:
         funder = data["shared_funder"]
         funder_disp = funder[:6] + "…" + funder[-4:] if len(funder) > 12 else funder
-        ax.text(0.5, 0.08, f"Shared funder: {funder_disp}", color=MUTED, fontsize=14,
-                ha="center", va="center")
+        ax.text(0.5, 0.08, f"Shared funder: {funder_disp}", color=MUTED,
+                fontsize=14, ha="center", va="center")
 
+
+def render_cluster_card(data: ClusterCardData) -> bytes:
+    fig, ax = _new_figure()
+    _draw_cluster_card(ax, data)
     return _figure_to_png_bytes(fig)
 
 
@@ -984,44 +968,57 @@ class PriceSparklineData(TypedDict):
     trade_sizes_usd: Sequence[float]
 
 
-def render_price_sparkline(data: PriceSparklineData) -> bytes:
-    fig, ax = _new_figure()
+def _draw_price_sparkline(ax, data: PriceSparklineData) -> None:
+    """Draw the price sparkline into the given Axes. The Axes' figure
+    determines output size — used for both standalone 1200×675 renders and
+    the 720×675 hero region of the grid."""
     times = list(data["times"])
     prices = list(data["prices"])
     if len(times) < 2 or len(times) != len(prices):
         # Defensive — fetcher should have rejected this case.
-        return _figure_to_png_bytes(fig)
+        return
 
-    # Title (drop the dash when side is missing)
+    # Match the figure background so the sub-axes doesn't paint white
+    # over the figure when this draws into a chart_grid sub-region.
+    ax.set_facecolor(BG)
+
+    # Title (drop the dash when side is missing). Use ax.text in axes coords
+    # so it survives being drawn into a margin-less sub-axes inside
+    # chart_grid.compose_chart (ax.set_title renders outside the data area
+    # and gets clipped when the axes is placed edge-to-edge).
     side = (data.get("outcome_side") or "").strip()
     title = f"{data['market_title']} — {side}" if side else data["market_title"]
-    fig.suptitle(title, color=MUTED, fontsize=18, y=0.95)
+    ax.text(0.5, 0.96, title, color=MUTED, fontsize=18,
+            ha="center", va="top", transform=ax.transAxes, wrap=True)
 
     ax.plot(times, prices, color=ACCENT, linewidth=3)
-    # Trade markers
     if data["trade_times"]:
         sizes = list(data["trade_sizes_usd"]) or [10_000] * len(data["trade_times"])
-        # Marker size scaled by $: $10k -> 60, $100k -> 200, capped.
         scaled = [min(60 + s / 800, 240) for s in sizes]
         ax.scatter(list(data["trade_times"]), list(data["trade_prices"]),
                    s=scaled, color=FG, edgecolor=ACCENT, linewidth=2, zorder=5)
 
-    # Y-axis: pin to actual price range with small padding
     pmin, pmax = min(prices), max(prices)
     pad = max((pmax - pmin) * 0.15, 0.01)
     ax.set_ylim(max(0, pmin - pad), min(1, pmax + pad))
 
-    # Show only the start/end price labels, no other ticks
-    ax.set_yticks([prices[0], prices[-1]])
-    ax.set_yticklabels(
-        [f"{int(prices[0]*100)}c", f"{int(prices[-1]*100)}c"],
-        color=FG, fontsize=14,
-    )
-    ax.set_xticks([times[0], times[-1]])
-    ax.set_xticklabels(
-        ["24h ago", "now"], color=MUTED, fontsize=12,
-    )
+    # Hide ticks; draw price labels in axes coords so they survive
+    # placement inside a margin-less sub-axes.
+    ax.set_yticks([])
+    ax.set_xticks([])
+    ax.text(0.02, 0.10, f"{int(prices[0]*100)}c", color=FG, fontsize=14,
+            ha="left", va="center", transform=ax.transAxes, fontweight="bold")
+    ax.text(0.98, 0.10, f"{int(prices[-1]*100)}c", color=FG, fontsize=14,
+            ha="right", va="center", transform=ax.transAxes, fontweight="bold")
+    ax.text(0.02, 0.04, "24h ago", color=MUTED, fontsize=12,
+            ha="left", va="bottom", transform=ax.transAxes)
+    ax.text(0.98, 0.04, "now", color=MUTED, fontsize=12,
+            ha="right", va="bottom", transform=ax.transAxes)
 
+
+def render_price_sparkline(data: PriceSparklineData) -> bytes:
+    fig, ax = _new_figure()
+    _draw_price_sparkline(ax, data)
     return _figure_to_png_bytes(fig)
 
 
@@ -1170,24 +1167,19 @@ _CHART_REGISTRY: dict[str, tuple] = {
 
 
 def _try_render(chart_type: str, alert: dict,
-                cluster_context: dict | None = None,
                 params: dict | None = None) -> bytes | None:
     """Try the chart for `chart_type`. Returns bytes or None. Never raises.
 
-    `cluster_context` is forwarded to fetchers that opt in to it (currently
-    wallet_record_card). `params` carries chart-specific overrides (`outcome`,
-    `token_id`, ...) that the LLM included in cover_chart_spec — fetchers
-    that opt in prefer these over what they can derive from the alert dict.
+    `params` carries chart-specific overrides (`outcome`, `token_id`, ...)
+    that the LLM included in cover_chart_spec — fetchers that opt in prefer
+    these over what they can derive from the alert dict.
     """
     pair = _CHART_REGISTRY.get(chart_type)
     if not pair:
         return None
     fetcher, renderer = pair
     try:
-        if chart_type == "wallet_record_card":
-            data = fetcher(alert, cluster_context=cluster_context, params=params)
-        else:
-            data = fetcher(alert, params=params)
+        data = fetcher(alert, params=params)
     except Exception:
         return None
     if data is None:
@@ -1199,8 +1191,7 @@ def _try_render(chart_type: str, alert: dict,
 
 
 def render_chart_for_alert(chart_type: str, alert: dict,
-                           *, cluster_context: dict | None = None,
-                           params: dict | None = None) -> bytes | None:
+                           *, params: dict | None = None) -> bytes | None:
     """Try the requested chart. If it fails, fall back to wallet_record_card
     (except for the wallet-shaped charts, which are mutually exclusive with
     a record card — a fresh wallet has no record, and vice versa). Returns
@@ -1212,9 +1203,9 @@ def render_chart_for_alert(chart_type: str, alert: dict,
     """
     if chart_type in ("none", "", None):
         return None
-    primary = _try_render(chart_type, alert, cluster_context, params)
+    primary = _try_render(chart_type, alert, params)
     if primary is not None:
         return primary
     if chart_type in ("wallet_record_card", "fresh_wallet_card"):
         return None
-    return _try_render("wallet_record_card", alert, cluster_context, params)
+    return _try_render("wallet_record_card", alert, params)

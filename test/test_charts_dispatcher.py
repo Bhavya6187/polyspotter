@@ -24,15 +24,15 @@ def test_render_chart_returns_none_for_none():
 def test_render_chart_returns_bytes_when_primary_succeeds():
     fake_data = {
         "market_title": "M", "record_str": "10-2", "win_pct": 0.83,
-        "bet_count": 12, "wallet_age_days": 50, "bet_size_usd": 1000,
+        "bet_count": 12, "bet_size_usd": 1000,
         "outcome_side": "Yes",
     }
     # Patch the function in the registry by patching the module's reference.
-    # wallet_record_card fetchers accept cluster_context and params kwargs.
+    # wallet_record_card fetchers accept params kwarg.
     with patch.dict(
         "charts._CHART_REGISTRY",
         {"wallet_record_card": (
-            lambda alert, cluster_context=None, params=None: fake_data,
+            lambda alert, params=None: fake_data,
             charts.render_wallet_record_card)},
     ):
         result = charts.render_chart_for_alert("wallet_record_card", {"wallet": "0xabc"})
@@ -43,18 +43,18 @@ def test_render_chart_returns_bytes_when_primary_succeeds():
 def test_render_chart_falls_back_to_wallet_record_when_primary_fails():
     fake_wallet = {
         "market_title": "M", "record_str": "10-2", "win_pct": 0.83,
-        "bet_count": 12, "wallet_age_days": 50, "bet_size_usd": 1000,
+        "bet_count": 12, "bet_size_usd": 1000,
         "outcome_side": "Yes",
     }
     # Patch volume_bar to fail, fallback to wallet_record. The wallet_record_card
-    # fetcher accepts cluster_context and params as keyword args.
+    # fetcher accepts params kwarg.
     with patch.dict(
         "charts._CHART_REGISTRY",
         {
             "volume_bar": (lambda alert, params=None: None,
                            charts.render_volume_bar),
             "wallet_record_card": (
-                lambda alert, cluster_context=None, params=None: fake_wallet,
+                lambda alert, params=None: fake_wallet,
                 charts.render_wallet_record_card),
         },
     ):
@@ -72,7 +72,7 @@ def test_render_chart_returns_none_when_primary_and_fallback_fail():
 def test_render_chart_returns_none_on_render_exception():
     fake_data = {
         "market_title": "M", "record_str": "10-2", "win_pct": 0.83,
-        "bet_count": 12, "wallet_age_days": 50, "bet_size_usd": 1000,
+        "bet_count": 12, "bet_size_usd": 1000,
         "outcome_side": "Yes",
     }
     # When the chart_type is wallet_record_card AND the render fails, the

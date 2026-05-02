@@ -24,7 +24,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from charts import CHART_TYPES as _CHART_TYPES_TUPLE
+import chart_grid
+import charts
 from openai import OpenAI
 
 DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
@@ -152,28 +153,40 @@ def _extract_sharp_wallet(chosen_alerts: list[dict],
 def _extract_fresh_wallet(chosen_alerts: list[dict],
                           trades: list[dict]) -> dict | None:
     """Surface a fresh-account bet if the cluster contains a new_wallet_large_bet
-    signal. Returns {wallet, alert_id} for the first match, else None.
+    signal. Returns {wallet, alert_id, wallet_age_days} for the first match,
+    else None. wallet_age_days is None when the lookup failed (e.g. Gamma
+    profile missing).
 
-    Single-wallet alerts: trust the signal and skip the age check (the chart
-    fetcher does it). Cluster alerts (no top-level wallet): scan the cluster's
-    trades and pick the youngest wallet within FRESH_WALLET_MAX_DAYS — matching
-    the chart fetcher's cluster path in storybot.charts.fetch_fresh_wallet_card_data.
+    Single-wallet alerts: look up the wallet's age via
+    charts._fetch_wallet_created_at; the chart_grid FRESH WALLET tile reads
+    wallet_age_days from facts_bundle["has_fresh_wallet"].
+
+    Cluster alerts (no top-level wallet): scan the cluster's trades and pick
+    the youngest wallet within FRESH_WALLET_MAX_DAYS — matching the chart
+    fetcher's cluster path in storybot.charts.fetch_fresh_wallet_card_data.
     """
     for a in chosen_alerts:
         signals = a.get("signals") or []
         if not any(s.get("strategy") == "new_wallet_large_bet" for s in signals):
             continue
         if a.get("wallet"):
-            return {"wallet": a["wallet"], "alert_id": int(a.get("id") or 0)}
+            created_at = charts._fetch_wallet_created_at(a["wallet"])
+            age_days = None
+            if created_at is not None:
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                age_days = (datetime.now(timezone.utc) - created_at).days
+            return {"wallet": a["wallet"], "alert_id": int(a.get("id") or 0),
+                    "wallet_age_days": age_days}
         candidates = _distinct_trade_wallets(trades)
         if not candidates:
             continue
-        import charts
         best = charts.youngest_fresh_wallet(candidates)
         if best is None:
             continue
-        wallet, _age_days = best
-        return {"wallet": wallet, "alert_id": int(a.get("id") or 0)}
+        wallet, age_days = best
+        return {"wallet": wallet, "alert_id": int(a.get("id") or 0),
+                "wallet_age_days": age_days}
     return None
 
 
@@ -305,6 +318,8 @@ def build_facts_bundle(chosen_alerts: list[dict], trades: list[dict]) -> dict:
     """Derive a small dict of facts for downstream LLM stages to quote precisely.
 
     All fields gracefully degrade to null/0 when underlying data is missing.
+    Note: volume_multiplier_x is enriched in fetch_data_bundle (it requires
+    a gamma + sqlite fetch); build_facts_bundle alone leaves it None.
     """
     total_usd = sum(float(t.get("usdcSize") or 0.0) for t in trades)
     return {
@@ -319,6 +334,7 @@ def build_facts_bundle(chosen_alerts: list[dict], trades: list[dict]) -> dict:
         "cluster_size": _cluster_size(chosen_alerts),
         "has_volume_spike": _has_volume_spike(chosen_alerts),
         "minutes_to_resolution": _minutes_to_resolution(chosen_alerts),
+        "volume_multiplier_x": None,
     }
 
 
@@ -493,7 +509,7 @@ def pick_chart(llm_client, chosen_alerts: list[dict], event_summary: str,
                 "_parse_error": f"invalid JSON: {exc}"}
 
 
-_VALID_CHART_TYPES = frozenset(_CHART_TYPES_TUPLE)
+_VALID_CHART_TYPES = frozenset(charts.CHART_TYPES)
 
 
 def validate_chart_pick(pick: dict) -> tuple[bool, str]:
@@ -526,6 +542,13 @@ You see:
   in your own plain-English voice.
 
 Your job: write a tweet that fits in 280 characters (URLs count as 23 chars).
+
+## Image grid
+The chart shipped with this tweet is a grid: a hero panel (corresponding
+to chart_type) plus up to 3 stat tiles drawn from {{CLOCK, CLUSTER $,
+LINKED ACCOUNTS, VOLUME ×, PRICE MOVE, SHARP RECORD, FRESH WALLET, WALLETS}}. The
+active tile list is in image_tiles. Don't waste tweet characters listing
+tile facts unless they're load-bearing for the lede shape.
 
 ## Audience
 Sports/markets-curious reader who has never heard of PolySpotter and may not
@@ -706,7 +729,8 @@ def validate_tweet(text: str) -> tuple[bool, str]:
 
 
 def _writer_user_message(chosen_alerts: list[dict], event_summary: str,
-                         bundle: dict, chart_pick: dict) -> str:
+                         bundle: dict, chart_pick: dict,
+                         image_tiles: list[str] | None = None) -> str:
     from bot_utils import _compact_alert_for_picker
     compact = [_compact_alert_for_picker(a) for a in chosen_alerts]
     payload = {
@@ -715,18 +739,21 @@ def _writer_user_message(chosen_alerts: list[dict], event_summary: str,
         "chosen_alerts": compact,
         "chart_type": chart_pick.get("chart_type"),
         "hook_anchor": chart_pick.get("hook_anchor"),
+        "image_tiles": image_tiles or [],
     }
     return json.dumps(payload, default=str, indent=2)
 
 
 def write_tweet(llm_client, chosen_alerts: list[dict], event_summary: str,
                 bundle: dict, chart_pick: dict, *,
+                image_tiles: list[str] | None = None,
                 usage: dict | None = None,
                 prior_error: str | None = None) -> dict:
     """Stage 4: compose the tweet. Caller invokes this twice if validation fails."""
     from bot_utils import MODEL, _accumulate_usage
     messages = [{"role": "system", "content": SYSTEM_PROMPT_WRITER}]
-    user_payload = _writer_user_message(chosen_alerts, event_summary, bundle, chart_pick)
+    user_payload = _writer_user_message(chosen_alerts, event_summary, bundle, chart_pick,
+                                        image_tiles=image_tiles)
     if prior_error:
         user_payload = (
             f"Your previous tweet failed validation: {prior_error}. Regenerate.\n\n"
@@ -751,7 +778,8 @@ def write_tweet(llm_client, chosen_alerts: list[dict], event_summary: str,
 
 
 def write_tweet_with_retry(llm_client, chosen_alerts, event_summary, bundle,
-                           chart_pick, *, usage=None) -> tuple[dict, str | None, int]:
+                           chart_pick, *, image_tiles=None,
+                           usage=None) -> tuple[dict, str | None, int]:
     """Run stage 4 once; on validation failure, retry once with the error fed back.
 
     Returns (final_decision_dict, error_or_None, attempts).
@@ -759,12 +787,13 @@ def write_tweet_with_retry(llm_client, chosen_alerts, event_summary, bundle,
     from bot_utils import log
     attempt = 1
     out = write_tweet(llm_client, chosen_alerts, event_summary, bundle, chart_pick,
-                      usage=usage)
+                      image_tiles=image_tiles, usage=usage)
     if out.get("_parse_error"):
         log("validation_retry", error=out["_parse_error"])
         attempt = 2
         out = write_tweet(llm_client, chosen_alerts, event_summary, bundle, chart_pick,
-                          usage=usage, prior_error=out["_parse_error"])
+                          image_tiles=image_tiles, usage=usage,
+                          prior_error=out["_parse_error"])
         if out.get("_parse_error"):
             return out, out["_parse_error"], attempt
         ok, err = validate_tweet(out.get("tweet", ""))
@@ -776,7 +805,7 @@ def write_tweet_with_retry(llm_client, chosen_alerts, event_summary, bundle,
     log("validation_retry", error=err)
     attempt = 2
     out = write_tweet(llm_client, chosen_alerts, event_summary, bundle, chart_pick,
-                      usage=usage, prior_error=err)
+                      image_tiles=image_tiles, usage=usage, prior_error=err)
     if out.get("_parse_error"):
         return out, out["_parse_error"], attempt
     ok, err = validate_tweet(out.get("tweet", ""))
@@ -847,11 +876,35 @@ def fetch_data_bundle(alert_ids: list[int], seed_alerts: list[dict]) -> dict:
         seen_cids.add(cid)
         token_map.update(fetch_market_tokens(cid))
 
+    facts_bundle = build_facts_bundle(chosen, trades)
+    if facts_bundle["has_volume_spike"]:
+        # Use the same fetchers volume_bar uses, on the condition_id of the
+        # alert that actually fired pre_event_volume_spike — picking the
+        # first cid in the cluster would describe the wrong market for
+        # cross-market clusters. One gamma call + one sqlite read per tweet.
+        spike_alert = next(
+            (a for a in chosen
+             if any(s.get("strategy") == "pre_event_volume_spike"
+                    for s in (a.get("signals") or []))
+             and a.get("condition_id")),
+            None,
+        )
+        cid = spike_alert.get("condition_id") if spike_alert else None
+        if cid:
+            try:
+                today = charts._fetch_gamma_volume24hr(cid)
+                baseline = charts._fetch_baseline_avg_volume(cid)
+                if today > 0 and baseline and baseline > 0:
+                    facts_bundle["volume_multiplier_x"] = today / baseline
+            except Exception as exc:
+                log("volume_multiplier_fetch_error",
+                    error=f"{type(exc).__name__}: {exc}")
+
     return {
         "chosen_alerts": chosen,
         "trades": trades,
         "token_map": token_map,
-        "facts_bundle": build_facts_bundle(chosen, trades),
+        "facts_bundle": facts_bundle,
     }
 
 
@@ -878,7 +931,7 @@ def main() -> int:
     )
     from tweet_utils import (
         _build_twitter_api_v1, _build_twitter_client,
-        filter_posted_alerts, post_tweet, prepare_chart, record_tweet,
+        filter_posted_alerts, post_tweet, prepare_chart_grid, record_tweet,
         strip_polyspotter_url,
     )
 
@@ -995,10 +1048,13 @@ def main() -> int:
     # Stage 4
     t = time.monotonic()
     log("stage_start", run_id=run_id, stage=4)
+    image_tiles_kinds = [tile.kind for tile in chart_grid.select_tiles(
+        chart_pick["chart_type"], bundle["facts_bundle"])]
     try:
         decision, err, attempts = write_tweet_with_retry(
             llm_client, bundle["chosen_alerts"], pick["event_summary"],
-            bundle["facts_bundle"], chart_pick, usage=usage_totals)
+            bundle["facts_bundle"], chart_pick,
+            image_tiles=image_tiles_kinds, usage=usage_totals)
     except Exception as exc:
         log("llm_usage", run_id=run_id, **usage_totals)
         log("llm_error", run_id=run_id, stage=4,
@@ -1028,12 +1084,8 @@ def main() -> int:
          if int(a.get("id") or 0) == target_alert_id),
         None,
     )
-    cluster_context = {
-        "cluster_total_usd": bundle["facts_bundle"].get("total_usd"),
-        "cluster_size": bundle["facts_bundle"].get("cluster_size"),
-    }
-    chart_png = (prepare_chart(chart_pick["chart_type"], target_alert,
-                               cluster_context=cluster_context)
+    chart_png = (prepare_chart_grid(chart_pick["chart_type"], target_alert,
+                                    facts_bundle=bundle["facts_bundle"])
                  if target_alert else None)
     log("chart_selected", run_id=run_id, chart_type=chart_pick["chart_type"],
         rendered=chart_png is not None,
