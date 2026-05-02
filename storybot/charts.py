@@ -674,22 +674,24 @@ def wallet_pseudonym(wallet: str | None, tier: dict | None = None) -> str:
     return f"{prefix}_0x{short}"
 
 
-def render_cluster_card(data: ClusterCardData) -> bytes:
-    fig, ax = _new_figure()
+def _draw_cluster_card(ax, data: ClusterCardData) -> None:
+    """Draw the cluster card into the given Axes. The Axes' figure
+    determines output size — used for both standalone 1200×675 renders and
+    the 720×675 hero region of the grid."""
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.set_xticks([])
     ax.set_yticks([])
+    ax.set_facecolor(BG)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
 
-    # Title
     ax.text(0.5, 0.93, data["market_title"], color=MUTED, fontsize=18,
             ha="center", va="top", wrap=True)
 
-    # Bars: one per wallet, sized proportionally
-    wallets = data["wallet_sizes"][:8]  # cap at 8 to keep readable
+    wallets = data["wallet_sizes"][:8]
     if not wallets:
-        # Defensive: shouldn't happen because the fetcher rejects 0-wallet clusters.
-        return _figure_to_png_bytes(fig)
+        return
     max_size = max(w[1] for w in wallets) or 1.0
     bar_top = 0.78
     bar_h = 0.06
@@ -704,18 +706,21 @@ def render_cluster_card(data: ClusterCardData) -> bytes:
         ax.text(0.1 + w + 0.01, y + bar_h / 2, _format_usd(size_usd),
                 color=FG, fontsize=14, ha="left", va="center")
 
-    # Total + shared funder (drop "on" when side is missing)
     side = (data.get("outcome_side") or "").strip()
     total_fmt = _format_usd(data["total_usd"])
     total_str = f"{total_fmt} on {side}" if side else f"{total_fmt} total"
-    ax.text(0.5, 0.16, total_str, color=ACCENT, fontsize=28, ha="center", va="center",
-            fontweight="bold")
+    ax.text(0.5, 0.16, total_str, color=ACCENT, fontsize=28, ha="center",
+            va="center", fontweight="bold")
     if data["shared_funder"]:
         funder = data["shared_funder"]
         funder_disp = funder[:6] + "…" + funder[-4:] if len(funder) > 12 else funder
-        ax.text(0.5, 0.08, f"Shared funder: {funder_disp}", color=MUTED, fontsize=14,
-                ha="center", va="center")
+        ax.text(0.5, 0.08, f"Shared funder: {funder_disp}", color=MUTED,
+                fontsize=14, ha="center", va="center")
 
+
+def render_cluster_card(data: ClusterCardData) -> bytes:
+    fig, ax = _new_figure()
+    _draw_cluster_card(ax, data)
     return _figure_to_png_bytes(fig)
 
 
