@@ -108,4 +108,4 @@ def test_prepare_chart_calls_enrich_before_dispatcher():
          patch("charts.render_chart_for_alert", return_value=b"png") as render_mock:
         twitter_simple.prepare_chart(decision, seed)
     enrich_mock.assert_called_once_with(seed[0])
-    render_mock.assert_called_once_with("cluster_card", seed[0], cluster_context=None)
+    render_mock.assert_called_once_with("cluster_card", seed[0])

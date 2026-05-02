@@ -228,7 +228,6 @@ def _hero_registry():
 
 
 def compose_chart(*, hero_type: str, alert: dict, facts_bundle: dict,
-                  cluster_context: dict | None = None,
                   params: dict | None = None) -> bytes | None:
     """Assemble hero + 3 stat tiles into a 1200×675 PNG.
 
@@ -243,10 +242,7 @@ def compose_chart(*, hero_type: str, alert: dict, facts_bundle: dict,
     fetcher, draw_hero = pair
 
     try:
-        if hero_type == "wallet_record_card":
-            data = fetcher(alert, cluster_context=cluster_context, params=params)
-        else:
-            data = fetcher(alert, params=params)
+        data = fetcher(alert, params=params)
     except Exception:
         return None
     if data is None:

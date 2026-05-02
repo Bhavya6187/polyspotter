@@ -1074,13 +1074,8 @@ def main() -> int:
          if int(a.get("id") or 0) == target_alert_id),
         None,
     )
-    cluster_context = {
-        "cluster_total_usd": bundle["facts_bundle"].get("total_usd"),
-        "cluster_size": bundle["facts_bundle"].get("cluster_size"),
-    }
     chart_png = (prepare_chart_grid(chart_pick["chart_type"], target_alert,
-                                    facts_bundle=bundle["facts_bundle"],
-                                    cluster_context=cluster_context)
+                                    facts_bundle=bundle["facts_bundle"])
                  if target_alert else None)
     log("chart_selected", run_id=run_id, chart_type=chart_pick["chart_type"],
         rendered=chart_png is not None,

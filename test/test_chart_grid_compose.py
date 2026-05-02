@@ -19,7 +19,6 @@ def _wallet_record_data():
         "record_str": "24-1",
         "win_pct": 0.96,
         "bet_count": 25,
-        "wallet_age_days": 412,
         "bet_size_usd": 7_000,
         "outcome_side": "Under",
     }
@@ -43,7 +42,6 @@ def test_compose_chart_produces_canvas_sized_png():
             hero_type="wallet_record_card",
             alert={"id": 1, "wallet": "0xabc", "market_title": "Lakers vs Rockets"},
             facts_bundle=fb,
-            cluster_context={"cluster_total_usd": 220_000, "cluster_size": 7},
         )
     assert png is not None
     img = Image.open(BytesIO(png))

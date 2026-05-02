@@ -32,7 +32,6 @@ def test_prepare_chart_grid_returns_canvas_sized_png():
         "record_str": "24-1",
         "win_pct": 0.96,
         "bet_count": 25,
-        "wallet_age_days": 412,
         "bet_size_usd": 7_000,
         "outcome_side": "Under",
     }
@@ -40,7 +39,6 @@ def test_prepare_chart_grid_returns_canvas_sized_png():
                       return_value=fake_data):
         png = tweet_utils.prepare_chart_grid(
             "wallet_record_card", alert, facts_bundle=facts_bundle,
-            cluster_context={"cluster_total_usd": 220_000, "cluster_size": 7},
         )
     assert png is not None
     img = Image.open(BytesIO(png))

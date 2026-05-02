@@ -237,22 +237,17 @@ def enrich_alert_for_charts(alert: dict) -> None:
         alert["token_id"] = tokens[side]
 
 
-def prepare_chart(chart_type: str, alert: dict,
-                  *, cluster_context: dict | None = None) -> bytes | None:
+def prepare_chart(chart_type: str, alert: dict) -> bytes | None:
     """Render a chart for one alert. Returns PNG bytes or None. Never raises.
 
     Caller is responsible for resolving which alert + chart_type to render.
-    `cluster_context` is currently unused by all fetchers (kept on the signature
-    for stability while call sites are migrated in later tasks); pass it or omit
-    it freely.
     """
     if not alert:
         return None
     enrich_alert_for_charts(alert)
     try:
         import charts  # local import to keep tweet_utils import-light at module load
-        return charts.render_chart_for_alert(chart_type, alert,
-                                             cluster_context=cluster_context)
+        return charts.render_chart_for_alert(chart_type, alert)
     except Exception as exc:
         log("chart_render_error",
             error=f"{type(exc).__name__}: {exc}",
@@ -262,8 +257,7 @@ def prepare_chart(chart_type: str, alert: dict,
 
 def prepare_chart_grid(chart_type: str, alert: dict,
                        *,
-                       facts_bundle: dict,
-                       cluster_context: dict | None = None) -> bytes | None:
+                       facts_bundle: dict) -> bytes | None:
     """Render a hero+tiles grid for one alert. Returns PNG bytes or None.
     Never raises.
 
@@ -279,7 +273,6 @@ def prepare_chart_grid(chart_type: str, alert: dict,
             hero_type=chart_type,
             alert=alert,
             facts_bundle=facts_bundle,
-            cluster_context=cluster_context,
         )
     except Exception as exc:
         log("chart_grid_render_error",

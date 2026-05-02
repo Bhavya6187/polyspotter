@@ -76,7 +76,6 @@ class WalletRecordCardData(TypedDict):
     record_str: str          # e.g. "29-4"
     win_pct: float           # 0..1
     bet_count: int
-    wallet_age_days: int | None
     bet_size_usd: float
     outcome_side: str        # "Yes" / "Arsenal" / etc.
 
@@ -111,9 +110,7 @@ def _draw_wallet_record_card(ax, data: WalletRecordCardData) -> None:
     ax.text(0.5, 0.62, hero, color=ACCENT, fontsize=110, ha="center", va="center",
             fontweight="bold")
 
-    # Subtitle: count of prior bets. wallet_age_days is intentionally dropped
-    # here — the FRESH WALLET tile carries that fact when it matters, and the
-    # longer string overflowed the 720px grid hero on long market titles.
+    # Subtitle: count of prior bets.
     subtitle = f"across {data['bet_count']} prior Polymarket bets"
     ax.text(0.5, 0.40, subtitle, color=FG, fontsize=16, ha="center", va="center")
 
@@ -183,7 +180,6 @@ def _fetch_wallet_profiles(wallets: list[str]) -> dict[str, dict]:
 def fetch_wallet_record_card_data(
     alert: dict,
     *,
-    cluster_context: dict | None = None,  # unused; kept for dispatcher compat
     params: dict | None = None,
 ) -> WalletRecordCardData | None:
     """Build WalletRecordCardData for either a single-wallet or cluster alert.
@@ -195,10 +191,6 @@ def fetch_wallet_record_card_data(
     primary wallet, but the picker may have led with a sharp wallet *inside*
     the cluster. Pick the wallet with the highest win_rate among those meeting
     WALLET_RECORD_MIN_BETS, and show its individual contribution in the footer.
-
-    `cluster_context` is accepted for signature stability with callers but
-    is unused — the hero now always shows the wallet's personal stake, and
-    cluster facts are surfaced via dedicated tiles in the chart grid.
 
     Returns None when the wallet is unknown / not in the cluster, or has fewer
     than WALLET_RECORD_MIN_BETS resolved bets.
@@ -232,18 +224,6 @@ def fetch_wallet_record_card_data(
     wins = profile["wins"]
     losses = profile["losses"]
     total_bets = wins + losses
-    first_seen_at = profile["first_seen_at"]
-
-    wallet_age_days: int | None = None
-    if first_seen_at is not None:
-        try:
-            if isinstance(first_seen_at, str):
-                first_seen_at = datetime.fromisoformat(first_seen_at)
-            if first_seen_at.tzinfo is None:
-                first_seen_at = first_seen_at.replace(tzinfo=timezone.utc)
-            wallet_age_days = (datetime.now(timezone.utc) - first_seen_at).days
-        except (ValueError, TypeError, AttributeError):
-            wallet_age_days = None
 
     copy = alert.get("llm_copy_action") or {}
     if isinstance(copy, str):
@@ -260,7 +240,6 @@ def fetch_wallet_record_card_data(
         "record_str": f"{wins}-{losses}",
         "win_pct": profile["win_rate"],
         "bet_count": int(total_bets),
-        "wallet_age_days": wallet_age_days,
         "bet_size_usd": float(bet_size),
         "outcome_side": outcome_side,
     }
@@ -1188,24 +1167,19 @@ _CHART_REGISTRY: dict[str, tuple] = {
 
 
 def _try_render(chart_type: str, alert: dict,
-                cluster_context: dict | None = None,
                 params: dict | None = None) -> bytes | None:
     """Try the chart for `chart_type`. Returns bytes or None. Never raises.
 
-    `cluster_context` is forwarded to fetchers that opt in to it (currently
-    wallet_record_card). `params` carries chart-specific overrides (`outcome`,
-    `token_id`, ...) that the LLM included in cover_chart_spec — fetchers
-    that opt in prefer these over what they can derive from the alert dict.
+    `params` carries chart-specific overrides (`outcome`, `token_id`, ...)
+    that the LLM included in cover_chart_spec — fetchers that opt in prefer
+    these over what they can derive from the alert dict.
     """
     pair = _CHART_REGISTRY.get(chart_type)
     if not pair:
         return None
     fetcher, renderer = pair
     try:
-        if chart_type == "wallet_record_card":
-            data = fetcher(alert, cluster_context=cluster_context, params=params)
-        else:
-            data = fetcher(alert, params=params)
+        data = fetcher(alert, params=params)
     except Exception:
         return None
     if data is None:
@@ -1217,8 +1191,7 @@ def _try_render(chart_type: str, alert: dict,
 
 
 def render_chart_for_alert(chart_type: str, alert: dict,
-                           *, cluster_context: dict | None = None,
-                           params: dict | None = None) -> bytes | None:
+                           *, params: dict | None = None) -> bytes | None:
     """Try the requested chart. If it fails, fall back to wallet_record_card
     (except for the wallet-shaped charts, which are mutually exclusive with
     a record card — a fresh wallet has no record, and vice versa). Returns
@@ -1230,9 +1203,9 @@ def render_chart_for_alert(chart_type: str, alert: dict,
     """
     if chart_type in ("none", "", None):
         return None
-    primary = _try_render(chart_type, alert, cluster_context, params)
+    primary = _try_render(chart_type, alert, params)
     if primary is not None:
         return primary
     if chart_type in ("wallet_record_card", "fresh_wallet_card"):
         return None
-    return _try_render("wallet_record_card", alert, cluster_context, params)
+    return _try_render("wallet_record_card", alert, params)

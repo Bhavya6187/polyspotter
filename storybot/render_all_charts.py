@@ -89,8 +89,6 @@ def main() -> int:
                       "cluster_card", "price_sparkline"):
         png = chart_grid.compose_chart(
             hero_type=hero_type, alert=alert, facts_bundle=fb,
-            cluster_context={"cluster_total_usd": fb["total_usd"],
-                             "cluster_size": fb["cluster_size"]},
         )
         out = OUTPUT_DIR / f"grid_{hero_type}_{alert['id']}.png"
         if png is None:
