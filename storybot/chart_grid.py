@@ -10,7 +10,14 @@ docs/superpowers/specs/2026-05-01-twitter-pipeline-chart-grid-design.md.
 """
 from __future__ import annotations
 
+import matplotlib
+matplotlib.use("Agg")
+
 from dataclasses import dataclass
+from io import BytesIO
+
+from matplotlib.figure import Figure
+from matplotlib.patches import Rectangle
 
 
 @dataclass(frozen=True)
@@ -142,3 +149,54 @@ def _fmt_usd_big(amount: float) -> str:
     if amount >= 1_000:
         return f"${amount / 1_000:.0f}K"
     return f"${amount:.0f}"
+
+
+# ---------- tile rendering ----------
+
+# Same colors as charts.py — kept duplicated to avoid an import cycle.
+_BG = "#0E1117"
+_FG = "#FFFFFF"
+_ACCENT = "#22C55E"
+_MUTED = "#9CA3AF"
+
+TILE_W_PX = 480
+TILE_H_PX = 225
+_DPI = 100
+
+
+def _draw_tile(ax, spec: TileSpec) -> None:
+    """Draw a stat tile into the given Axes. Two text rows (big number,
+    label) and a 2px accent underline at the bottom."""
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_facecolor(_BG)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    big_color = _ACCENT if spec.accent else _FG
+    # Auto-shrink the big text when it has more than ~6 chars (e.g. "32¢ → 41¢").
+    big = spec.big
+    fontsize_big = 80 if len(big) <= 6 else 56
+    ax.text(0.5, 0.62, big, color=big_color, fontsize=fontsize_big,
+            ha="center", va="center", fontweight="bold")
+
+    ax.text(0.5, 0.28, spec.label, color=_MUTED, fontsize=22,
+            ha="center", va="center")
+
+    # Thin accent underline at the bottom — visual rhythm between tile rows.
+    accent_color = _ACCENT if spec.accent else _MUTED
+    ax.add_patch(Rectangle((0.20, 0.06), 0.60, 0.012,
+                            color=accent_color, transform=ax.transAxes))
+
+
+def render_tile(spec: TileSpec) -> bytes:
+    """Standalone tile render at 480×225. Used for tests + render_all_charts."""
+    fig = Figure(figsize=(TILE_W_PX / _DPI, TILE_H_PX / _DPI), dpi=_DPI)
+    fig.patch.set_facecolor(_BG)
+    ax = fig.add_subplot(111)
+    _draw_tile(ax, spec)
+    buf = BytesIO()
+    fig.savefig(buf, format="png", facecolor=_BG, dpi=_DPI)
+    return buf.getvalue()
