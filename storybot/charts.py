@@ -525,7 +525,7 @@ def _draw_volume_bar(ax, data: VolumeBarData) -> None:
 
     today = max(data["today_volume_usd"], 1.0)
     baseline = max(data["baseline_avg_usd"], 1.0)
-    today_w = 0.8
+    today_w = 0.62
     baseline_w = max(0.04, today_w * (baseline / today))
 
     ax.add_patch(Rectangle((0.1, 0.32), baseline_w, 0.04, color=MUTED,
@@ -696,12 +696,12 @@ def _draw_cluster_card(ax, data: ClusterCardData) -> None:
     spacing = 0.02
     for i, (name, size_usd) in enumerate(wallets):
         y = bar_top - i * (bar_h + spacing)
-        w = 0.6 * (size_usd / max_size)
-        ax.add_patch(Rectangle((0.1, y), w, bar_h, color=ACCENT,
+        w = 0.55 * (size_usd / max_size)
+        ax.add_patch(Rectangle((0.32, y), w, bar_h, color=ACCENT,
                                transform=ax.transAxes))
-        ax.text(0.09, y + bar_h / 2, name, color=FG, fontsize=14,
+        ax.text(0.30, y + bar_h / 2, name, color=FG, fontsize=14,
                 ha="right", va="center")
-        ax.text(0.1 + w + 0.01, y + bar_h / 2, _format_usd(size_usd),
+        ax.text(0.32 + w + 0.01, y + bar_h / 2, _format_usd(size_usd),
                 color=FG, fontsize=14, ha="left", va="center")
 
     side = (data.get("outcome_side") or "").strip()
