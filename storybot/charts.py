@@ -991,34 +991,34 @@ class PriceSparklineData(TypedDict):
     trade_sizes_usd: Sequence[float]
 
 
-def render_price_sparkline(data: PriceSparklineData) -> bytes:
-    fig, ax = _new_figure()
+def _draw_price_sparkline(ax, data: PriceSparklineData) -> None:
+    """Draw the price sparkline into the given Axes. The Axes' figure
+    determines output size — used for both standalone 1200×675 renders and
+    the 720×675 hero region of the grid."""
     times = list(data["times"])
     prices = list(data["prices"])
     if len(times) < 2 or len(times) != len(prices):
         # Defensive — fetcher should have rejected this case.
-        return _figure_to_png_bytes(fig)
+        return
 
-    # Title (drop the dash when side is missing)
+    # Title (drop the dash when side is missing). Place above the plot
+    # using ax-relative text (replaces the prior fig.suptitle so this
+    # works inside a sub-region of a shared figure).
     side = (data.get("outcome_side") or "").strip()
     title = f"{data['market_title']} — {side}" if side else data["market_title"]
-    fig.suptitle(title, color=MUTED, fontsize=18, y=0.95)
+    ax.set_title(title, color=MUTED, fontsize=18, pad=14)
 
     ax.plot(times, prices, color=ACCENT, linewidth=3)
-    # Trade markers
     if data["trade_times"]:
         sizes = list(data["trade_sizes_usd"]) or [10_000] * len(data["trade_times"])
-        # Marker size scaled by $: $10k -> 60, $100k -> 200, capped.
         scaled = [min(60 + s / 800, 240) for s in sizes]
         ax.scatter(list(data["trade_times"]), list(data["trade_prices"]),
                    s=scaled, color=FG, edgecolor=ACCENT, linewidth=2, zorder=5)
 
-    # Y-axis: pin to actual price range with small padding
     pmin, pmax = min(prices), max(prices)
     pad = max((pmax - pmin) * 0.15, 0.01)
     ax.set_ylim(max(0, pmin - pad), min(1, pmax + pad))
 
-    # Show only the start/end price labels, no other ticks
     ax.set_yticks([prices[0], prices[-1]])
     ax.set_yticklabels(
         [f"{int(prices[0]*100)}c", f"{int(prices[-1]*100)}c"],
@@ -1029,6 +1029,10 @@ def render_price_sparkline(data: PriceSparklineData) -> bytes:
         ["24h ago", "now"], color=MUTED, fontsize=12,
     )
 
+
+def render_price_sparkline(data: PriceSparklineData) -> bytes:
+    fig, ax = _new_figure()
+    _draw_price_sparkline(ax, data)
     return _figure_to_png_bytes(fig)
 
 
