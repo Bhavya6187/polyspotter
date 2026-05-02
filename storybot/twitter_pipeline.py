@@ -864,7 +864,6 @@ def fetch_data_bundle(alert_ids: list[int], seed_alerts: list[dict]) -> dict:
                 if today > 0 and baseline and baseline > 0:
                     facts_bundle["volume_multiplier_x"] = today / baseline
             except Exception as exc:
-                from bot_utils import log
                 log("volume_multiplier_fetch_error",
                     error=f"{type(exc).__name__}: {exc}")
 

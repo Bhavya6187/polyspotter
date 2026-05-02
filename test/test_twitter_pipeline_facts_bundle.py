@@ -32,6 +32,7 @@ def test_empty_inputs_produce_zeroed_bundle():
     assert b["cluster_size"] is None
     assert b["has_volume_spike"] is False
     assert b["minutes_to_resolution"] is None
+    assert b["volume_multiplier_x"] is None
 
 
 def test_distinct_wallets_and_total_usd():
