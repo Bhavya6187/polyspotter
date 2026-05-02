@@ -539,6 +539,13 @@ You see:
 
 Your job: write a tweet that fits in 280 characters (URLs count as 23 chars).
 
+## Image grid
+The chart shipped with this tweet is a grid: a hero panel (corresponding
+to chart_type) plus up to 3 stat tiles drawn from {{CLOCK, CLUSTER $,
+LINKED ACCOUNTS, VOLUME ×, PRICE MOVE, SHARP RECORD, FRESH WALLET}}. The
+active tile list is in image_tiles. Don't waste tweet characters listing
+tile facts unless they're load-bearing for the lede shape.
+
 ## Audience
 Sports/markets-curious reader who has never heard of PolySpotter and may not
 know Polymarket. They will not parse insider shorthand. Every tweet must work
@@ -718,7 +725,8 @@ def validate_tweet(text: str) -> tuple[bool, str]:
 
 
 def _writer_user_message(chosen_alerts: list[dict], event_summary: str,
-                         bundle: dict, chart_pick: dict) -> str:
+                         bundle: dict, chart_pick: dict,
+                         image_tiles: list[str] | None = None) -> str:
     from bot_utils import _compact_alert_for_picker
     compact = [_compact_alert_for_picker(a) for a in chosen_alerts]
     payload = {
@@ -727,18 +735,21 @@ def _writer_user_message(chosen_alerts: list[dict], event_summary: str,
         "chosen_alerts": compact,
         "chart_type": chart_pick.get("chart_type"),
         "hook_anchor": chart_pick.get("hook_anchor"),
+        "image_tiles": image_tiles or [],
     }
     return json.dumps(payload, default=str, indent=2)
 
 
 def write_tweet(llm_client, chosen_alerts: list[dict], event_summary: str,
                 bundle: dict, chart_pick: dict, *,
+                image_tiles: list[str] | None = None,
                 usage: dict | None = None,
                 prior_error: str | None = None) -> dict:
     """Stage 4: compose the tweet. Caller invokes this twice if validation fails."""
     from bot_utils import MODEL, _accumulate_usage
     messages = [{"role": "system", "content": SYSTEM_PROMPT_WRITER}]
-    user_payload = _writer_user_message(chosen_alerts, event_summary, bundle, chart_pick)
+    user_payload = _writer_user_message(chosen_alerts, event_summary, bundle, chart_pick,
+                                        image_tiles=image_tiles)
     if prior_error:
         user_payload = (
             f"Your previous tweet failed validation: {prior_error}. Regenerate.\n\n"
@@ -763,7 +774,8 @@ def write_tweet(llm_client, chosen_alerts: list[dict], event_summary: str,
 
 
 def write_tweet_with_retry(llm_client, chosen_alerts, event_summary, bundle,
-                           chart_pick, *, usage=None) -> tuple[dict, str | None, int]:
+                           chart_pick, *, image_tiles=None,
+                           usage=None) -> tuple[dict, str | None, int]:
     """Run stage 4 once; on validation failure, retry once with the error fed back.
 
     Returns (final_decision_dict, error_or_None, attempts).
@@ -771,12 +783,13 @@ def write_tweet_with_retry(llm_client, chosen_alerts, event_summary, bundle,
     from bot_utils import log
     attempt = 1
     out = write_tweet(llm_client, chosen_alerts, event_summary, bundle, chart_pick,
-                      usage=usage)
+                      image_tiles=image_tiles, usage=usage)
     if out.get("_parse_error"):
         log("validation_retry", error=out["_parse_error"])
         attempt = 2
         out = write_tweet(llm_client, chosen_alerts, event_summary, bundle, chart_pick,
-                          usage=usage, prior_error=out["_parse_error"])
+                          image_tiles=image_tiles, usage=usage,
+                          prior_error=out["_parse_error"])
         if out.get("_parse_error"):
             return out, out["_parse_error"], attempt
         ok, err = validate_tweet(out.get("tweet", ""))
@@ -788,7 +801,7 @@ def write_tweet_with_retry(llm_client, chosen_alerts, event_summary, bundle,
     log("validation_retry", error=err)
     attempt = 2
     out = write_tweet(llm_client, chosen_alerts, event_summary, bundle, chart_pick,
-                      usage=usage, prior_error=err)
+                      image_tiles=image_tiles, usage=usage, prior_error=err)
     if out.get("_parse_error"):
         return out, out["_parse_error"], attempt
     ok, err = validate_tweet(out.get("tweet", ""))
@@ -1024,10 +1037,14 @@ def main() -> int:
     # Stage 4
     t = time.monotonic()
     log("stage_start", run_id=run_id, stage=4)
+    import chart_grid
+    image_tiles_kinds = [tile.kind for tile in chart_grid.select_tiles(
+        chart_pick["chart_type"], bundle["facts_bundle"])]
     try:
         decision, err, attempts = write_tweet_with_retry(
             llm_client, bundle["chosen_alerts"], pick["event_summary"],
-            bundle["facts_bundle"], chart_pick, usage=usage_totals)
+            bundle["facts_bundle"], chart_pick,
+            image_tiles=image_tiles_kinds, usage=usage_totals)
     except Exception as exc:
         log("llm_usage", run_id=run_id, **usage_totals)
         log("llm_error", run_id=run_id, stage=4,
