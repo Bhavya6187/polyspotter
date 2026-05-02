@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from io import BytesIO
 
 from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 
 
@@ -197,6 +198,105 @@ def render_tile(spec: TileSpec) -> bytes:
     fig.patch.set_facecolor(_BG)
     ax = fig.add_subplot(111)
     _draw_tile(ax, spec)
+    buf = BytesIO()
+    fig.savefig(buf, format="png", facecolor=_BG, dpi=_DPI)
+    return buf.getvalue()
+
+
+# ---------- full grid composition ----------
+
+HERO_W_PX = 720
+CANVAS_W_PX = 1200
+CANVAS_H_PX = 675
+
+# Hero-type → (fetcher, _draw helper) inside charts.py. Mirror of
+# charts._CHART_REGISTRY but with the _draw helpers from this refactor.
+def _hero_registry():
+    import charts
+    return {
+        "wallet_record_card": (charts.fetch_wallet_record_card_data,
+                               charts._draw_wallet_record_card),
+        "fresh_wallet_card":  (charts.fetch_fresh_wallet_card_data,
+                               charts._draw_fresh_wallet_card),
+        "volume_bar":         (charts.fetch_volume_bar_data,
+                               charts._draw_volume_bar),
+        "cluster_card":       (charts.fetch_cluster_card_data,
+                               charts._draw_cluster_card),
+        "price_sparkline":    (charts.fetch_price_sparkline_data,
+                               charts._draw_price_sparkline),
+    }
+
+
+def compose_chart(*, hero_type: str, alert: dict, facts_bundle: dict,
+                  cluster_context: dict | None = None,
+                  params: dict | None = None) -> bytes | None:
+    """Assemble hero + 3 stat tiles into a 1200×675 PNG.
+
+    Returns None when the hero fetcher returns None (caller falls back to
+    "no chart attached"). When zero tiles pass thresholds, renders the
+    hero across the full 1200×675 canvas (single-chart fallback).
+    """
+    registry = _hero_registry()
+    pair = registry.get(hero_type)
+    if pair is None:
+        return None
+    fetcher, draw_hero = pair
+
+    try:
+        if hero_type == "wallet_record_card":
+            data = fetcher(alert, cluster_context=cluster_context, params=params)
+        else:
+            data = fetcher(alert, params=params)
+    except Exception:
+        return None
+    if data is None:
+        return None
+
+    tiles = select_tiles(hero_type, facts_bundle)
+
+    fig = Figure(figsize=(CANVAS_W_PX / _DPI, CANVAS_H_PX / _DPI), dpi=_DPI)
+    fig.patch.set_facecolor(_BG)
+
+    if not tiles:
+        # Fallback: hero spans the full canvas (existing single-chart layout).
+        ax_full = fig.add_axes((0, 0, 1, 1))
+        try:
+            draw_hero(ax_full, data)
+        except Exception:
+            return None
+        buf = BytesIO()
+        fig.savefig(buf, format="png", facecolor=_BG, dpi=_DPI)
+        return buf.getvalue()
+
+    # Hero region: left HERO_W_PX wide, full height.
+    hero_w_frac = HERO_W_PX / CANVAS_W_PX
+    ax_hero = fig.add_axes((0, 0, hero_w_frac, 1))
+    try:
+        draw_hero(ax_hero, data)
+    except Exception:
+        return None
+
+    # Tile column: 3 vertically stacked regions on the right.
+    col_x = hero_w_frac
+    col_w = 1.0 - hero_w_frac
+    n_slots = 3
+    slot_h = 1.0 / n_slots
+    for i, spec in enumerate(tiles):
+        # Slot 0 is the TOP slot — figure y goes 0 (bottom) to 1 (top).
+        y_bottom = 1.0 - (i + 1) * slot_h
+        ax_tile = fig.add_axes((col_x, y_bottom, col_w, slot_h))
+        _draw_tile(ax_tile, spec)
+
+    # Dividers: thin MUTED lines between hero/tiles and between tile slots.
+    # Use figure-level Line2D so they sit above the axes without being
+    # clipped by axes spines.
+    fig.add_artist(Line2D([hero_w_frac, hero_w_frac], [0, 1],
+                          color=_MUTED, linewidth=1, alpha=0.3))
+    for i in range(1, n_slots):
+        y = 1.0 - i * slot_h
+        fig.add_artist(Line2D([hero_w_frac, 1.0], [y, y],
+                              color=_MUTED, linewidth=1, alpha=0.3))
+
     buf = BytesIO()
     fig.savefig(buf, format="png", facecolor=_BG, dpi=_DPI)
     return buf.getvalue()
