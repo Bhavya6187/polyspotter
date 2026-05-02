@@ -878,10 +878,18 @@ def fetch_data_bundle(alert_ids: list[int], seed_alerts: list[dict]) -> dict:
 
     facts_bundle = build_facts_bundle(chosen, trades)
     if facts_bundle["has_volume_spike"]:
-        # Use the same fetchers volume_bar uses, on the cluster's primary
-        # condition_id (first chosen alert that has one). One gamma call +
-        # one sqlite read per tweet; cheap.
-        cid = next((a.get("condition_id") for a in chosen if a.get("condition_id")), None)
+        # Use the same fetchers volume_bar uses, on the condition_id of the
+        # alert that actually fired pre_event_volume_spike — picking the
+        # first cid in the cluster would describe the wrong market for
+        # cross-market clusters. One gamma call + one sqlite read per tweet.
+        spike_alert = next(
+            (a for a in chosen
+             if any(s.get("strategy") == "pre_event_volume_spike"
+                    for s in (a.get("signals") or []))
+             and a.get("condition_id")),
+            None,
+        )
+        cid = spike_alert.get("condition_id") if spike_alert else None
         if cid:
             try:
                 today = charts._fetch_gamma_volume24hr(cid)

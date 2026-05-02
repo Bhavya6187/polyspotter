@@ -458,6 +458,36 @@ def test_volume_multiplier_x_set_when_volume_spike_and_baseline_known(monkeypatc
     assert fb["volume_multiplier_x"] == pytest.approx(12.0)
 
 
+def test_volume_multiplier_x_uses_cid_from_spike_alert_in_cross_market_cluster(monkeypatch):
+    """In a cross-market cluster, pick the cid of the alert that actually
+    fired pre_event_volume_spike — not just the first cid in the cluster."""
+    import twitter_pipeline
+    import charts
+
+    seen_cids = []
+    def fake_volume(cid):
+        seen_cids.append(cid)
+        return 120_000.0
+    monkeypatch.setattr(charts, "_fetch_gamma_volume24hr", fake_volume)
+    monkeypatch.setattr(charts, "_fetch_baseline_avg_volume",
+                        lambda cid: 10_000.0)
+    import tweet_utils
+    monkeypatch.setattr(tweet_utils, "fetch_alert_trades", lambda aid: [])
+    monkeypatch.setattr(tweet_utils, "fetch_market_tokens", lambda cid: {})
+
+    # First alert: cross-market correlation, no spike. Second alert: spike.
+    alerts = [
+        {"id": 1, "condition_id": "0x_no_spike",
+         "signals": [{"strategy": "correlated_cross_market", "headline": "x"}]},
+        {"id": 2, "condition_id": "0x_spike",
+         "signals": [{"strategy": "pre_event_volume_spike", "headline": "x"}]},
+    ]
+    bundle = twitter_pipeline.fetch_data_bundle([1, 2], alerts)
+    assert bundle["facts_bundle"]["volume_multiplier_x"] == pytest.approx(12.0)
+    assert "0x_spike" in seen_cids
+    assert "0x_no_spike" not in seen_cids
+
+
 def test_volume_multiplier_x_none_when_no_volume_spike():
     import twitter_pipeline
     bundle = twitter_pipeline.build_facts_bundle([], [])
