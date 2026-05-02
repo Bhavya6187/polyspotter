@@ -235,17 +235,23 @@ def test_sharp_wallet_returns_none_when_cluster_has_no_qualifying_wallet(monkeyp
     assert b["has_sharp_wallet"] is None
 
 
-def test_fresh_wallet_returns_wallet_for_single_wallet_alert():
-    # Single-wallet alert with new_wallet_large_bet signal: existing
-    # behavior — surface the wallet/alert_id without an age check (the
-    # chart fetcher does the age validation).
+def test_fresh_wallet_returns_wallet_for_single_wallet_alert(monkeypatch):
+    # Single-wallet alert with new_wallet_large_bet signal: surface wallet,
+    # alert_id, and wallet_age_days computed from _fetch_wallet_created_at.
     alerts = [{
         "id": 999,
         "wallet": "0xfeed",
         "signals": [{"strategy": "new_wallet_large_bet", "severity": 4}],
     }]
+    now = datetime.now(timezone.utc)
+    import charts
+    monkeypatch.setattr(charts, "_fetch_wallet_created_at",
+                        lambda w: now - timedelta(days=7))
     b = twitter_pipeline.build_facts_bundle(alerts, [])
-    assert b["has_fresh_wallet"] == {"wallet": "0xfeed", "alert_id": 999}
+    fw = b["has_fresh_wallet"]
+    assert fw["wallet"] == "0xfeed"
+    assert fw["alert_id"] == 999
+    assert fw["wallet_age_days"] == 7
 
 
 def test_fresh_wallet_finds_youngest_in_cluster(monkeypatch):
@@ -271,7 +277,10 @@ def test_fresh_wallet_finds_youngest_in_cluster(monkeypatch):
     monkeypatch.setattr(charts, "_fetch_wallet_created_at",
                         lambda w: ages.get(w))
     b = twitter_pipeline.build_facts_bundle(alerts, trades)
-    assert b["has_fresh_wallet"] == {"wallet": "0xccc", "alert_id": 121967}
+    fw = b["has_fresh_wallet"]
+    assert fw["wallet"] == "0xccc"
+    assert fw["alert_id"] == 121967
+    assert fw["wallet_age_days"] == 3
 
 
 def test_fresh_wallet_returns_none_when_cluster_has_no_fresh_wallet(monkeypatch):

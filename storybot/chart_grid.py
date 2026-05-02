@@ -11,7 +11,6 @@ docs/superpowers/specs/2026-05-01-twitter-pipeline-chart-grid-design.md.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 
 @dataclass(frozen=True)
@@ -26,7 +25,7 @@ class TileSpec:
 # ---------- thresholds ----------
 CLUSTER_TOTAL_MIN_USD = 25_000
 PRICE_MOVE_MIN_DELTA = 0.03
-LINKED_ACCOUNTS_MIN = 3
+MIN_CLUSTER_SIZE_FOR_TILE = 3
 WALLETS_FALLBACK_MIN = 5
 
 
@@ -80,7 +79,7 @@ def _tile_linked_accounts(fb: dict, hero: str) -> TileSpec | None:
     if hero == "cluster_card":
         return None
     n = fb.get("cluster_size")
-    if n is None or n < LINKED_ACCOUNTS_MIN:
+    if n is None or n < MIN_CLUSTER_SIZE_FOR_TILE:
         return None
     return TileSpec("linked_accounts", f"{n} wallets", "one funder", accent=False)
 
@@ -91,8 +90,10 @@ def _tile_sharp_record(fb: dict, hero: str) -> TileSpec | None:
     sw = fb.get("has_sharp_wallet")
     if not sw:
         return None
-    return TileSpec("sharp_record", str(sw.get("record") or ""),
-                    "sharp wallet", accent=True)
+    record = sw.get("record") or ""
+    if not record:
+        return None
+    return TileSpec("sharp_record", record, "sharp wallet", accent=True)
 
 
 def _tile_fresh_wallet(fb: dict, hero: str) -> TileSpec | None:

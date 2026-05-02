@@ -36,6 +36,14 @@ def test_clock_wins_when_set():
     assert [t.kind for t in tiles][0] == "clock"
 
 
+def test_clock_at_720_minutes_renders_as_hours():
+    """At exactly 720 min the format switches from MIN to hours."""
+    fb = _bundle(minutes_to_resolution=720)
+    tiles = chart_grid.select_tiles("price_sparkline", fb)
+    clock = next(t for t in tiles if t.kind == "clock")
+    assert clock.big == "12h"
+
+
 def test_dedup_sharp_record_when_hero_is_wallet_record_card():
     fb = _bundle(has_sharp_wallet={"record": "24-1", "win_pct": 0.96})
     tiles = chart_grid.select_tiles("wallet_record_card", fb)
@@ -84,7 +92,7 @@ def test_priority_order_caps_at_three():
         biggest_price_move={"from": 0.30, "to": 0.40},  # 4: price_move
         cluster_size=7,                       # 5: linked_accounts
         has_sharp_wallet={"record": "24-1"},  # 6: sharp_record
-        has_fresh_wallet={"wallet": "0xa"},   # 7: fresh_wallet
+        has_fresh_wallet={"wallet": "0xa", "wallet_age_days": 9},  # 7: fresh_wallet
         distinct_wallets=15,                  # 8: wallets
     )
     tiles = chart_grid.select_tiles("price_sparkline", fb)

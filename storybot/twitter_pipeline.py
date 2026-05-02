@@ -164,7 +164,15 @@ def _extract_fresh_wallet(chosen_alerts: list[dict],
         if not any(s.get("strategy") == "new_wallet_large_bet" for s in signals):
             continue
         if a.get("wallet"):
-            return {"wallet": a["wallet"], "alert_id": int(a.get("id") or 0)}
+            import charts
+            created_at = charts._fetch_wallet_created_at(a["wallet"])
+            age_days = None
+            if created_at is not None:
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                age_days = (datetime.now(timezone.utc) - created_at).days
+            return {"wallet": a["wallet"], "alert_id": int(a.get("id") or 0),
+                    "wallet_age_days": age_days}
         candidates = _distinct_trade_wallets(trades)
         if not candidates:
             continue
@@ -172,8 +180,9 @@ def _extract_fresh_wallet(chosen_alerts: list[dict],
         best = charts.youngest_fresh_wallet(candidates)
         if best is None:
             continue
-        wallet, _age_days = best
-        return {"wallet": wallet, "alert_id": int(a.get("id") or 0)}
+        wallet, age_days = best
+        return {"wallet": wallet, "alert_id": int(a.get("id") or 0),
+                "wallet_age_days": age_days}
     return None
 
 
