@@ -18,6 +18,7 @@ paraphrase is acceptable (market descriptions, FAQs, long prose).
 
 from __future__ import annotations
 
+import contextvars
 import json
 import time
 from typing import Any, Callable
@@ -27,14 +28,26 @@ PASSTHROUGH_BYTES = 2048
 PREVIEW_BYTES = 600
 SHAPE_DEPTH = 3
 
+# Per-call event buffer. `run_query` sets this to a fresh list while it runs so
+# every `_log` call appends the same dict that goes to stdout. The buffer is
+# then attached to the caller-provided `trace_sink` once the call finishes.
+_TRACE_BUFFER: contextvars.ContextVar[list[dict] | None] = contextvars.ContextVar(
+    "compressor_trace_buffer", default=None,
+)
+
 
 def _log(event: str, **fields: Any) -> None:
     """Emit one JSON log line (mirrors storybot.log format), plus a compact
-    human-readable companion line for live tailing."""
-    print(json.dumps({"event": event, **fields}, default=str), flush=True)
+    human-readable companion line for live tailing. Also append to the
+    active per-call trace buffer if one is set."""
+    record = {"event": event, **fields}
+    print(json.dumps(record, default=str), flush=True)
     pretty = _format_console(event, fields)
     if pretty:
         print(pretty, flush=True)
+    buf = _TRACE_BUFFER.get()
+    if buf is not None:
+        buf.append(record)
 
 
 def _fmt_bytes(n: Any) -> str:
@@ -597,7 +610,7 @@ def route_compression(llm_client, *, intent: str, data: Any, model: str,
     sample, count, size = _sample_and_size(data)
     if size <= PASSTHROUGH_BYTES:
         _log("compressor_route", method="passthrough", short_circuit=True,
-             input_rows=count, input_bytes=size)
+             spec=None, input_rows=count, input_bytes=size)
         return {"method": "passthrough", "spec": None}
 
     user_msg = json.dumps({
@@ -627,10 +640,12 @@ def route_compression(llm_client, *, intent: str, data: Any, model: str,
     content = response.choices[0].message.content or "{}"
     route = json.loads(content)
     method = route.get("method")
-    dsl_op = (route.get("spec") or {}).get("op") if method == "python" else None
+    spec = route.get("spec") if method == "python" else None
+    dsl_op = (spec or {}).get("op") if method == "python" else None
     _log("compressor_route",
          method=method,
          dsl_op=dsl_op,
+         spec=spec,
          input_rows=count,
          input_bytes=size,
          ms=ms,
@@ -834,7 +849,8 @@ def compress(llm_client, *, intent: str, data: Any, route: dict,
 def run_query(llm_client, *, intent: str, hint: str | None, model: str,
               backends: dict[str, Callable],
               scope: dict | None = None,
-              usage: dict | None = None) -> dict:
+              usage: dict | None = None,
+              trace_sink: list | None = None) -> dict:
     """Run the full compressor pipeline for one orchestrator tool call.
 
     `scope` (optional) is a dict of session-level constants the orchestrator is
@@ -842,12 +858,39 @@ def run_query(llm_client, *, intent: str, hint: str | None, model: str,
     Set once by the caller from the picker's output; threaded through to the
     builder as a hard-filter rule so every query is auto-scoped.
 
+    `trace_sink` (optional) is a caller-owned list. When provided, an envelope
+    of the form {"intent": ..., "hint": ..., "events": [<every compressor_*
+    event dict>]} is appended for each call — used by orchestrators that
+    persist per-call traces in their run JSON.
+
     Returns an envelope:
         {"data": <compressed>, "backend": "...", "compression": "...",
          "input_rows": int, "input_bytes": int}
         or
         {"error": "<stage>: <message>"}
     """
+    call_events: list[dict] = []
+    token = _TRACE_BUFFER.set(call_events)
+    try:
+        result = _run_query_inner(
+            llm_client, intent=intent, hint=hint, model=model,
+            backends=backends, scope=scope, usage=usage,
+        )
+    finally:
+        _TRACE_BUFFER.reset(token)
+        if trace_sink is not None:
+            trace_sink.append({
+                "intent": intent[:200],
+                "hint": hint,
+                "events": call_events,
+            })
+    return result
+
+
+def _run_query_inner(llm_client, *, intent: str, hint: str | None, model: str,
+                     backends: dict[str, Callable],
+                     scope: dict | None = None,
+                     usage: dict | None = None) -> dict:
     t_start = time.monotonic()
     call_usage: dict = {}
     _log("compressor_start", intent=intent[:160], hint=(hint or None),

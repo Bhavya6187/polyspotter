@@ -493,7 +493,8 @@ def prefetch_bundle(scope: dict) -> dict:
     return results
 
 
-def _make_dispatcher(llm_client, *, usage: dict | None, scope: dict | None = None):
+def _make_dispatcher(llm_client, *, usage: dict | None, scope: dict | None = None,
+                     trace_sink: list | None = None):
     def dispatch(name: str, args: dict) -> dict:
         if name != "query":
             return _envelope(error=f"unknown tool: {name}")
@@ -510,6 +511,7 @@ def _make_dispatcher(llm_client, *, usage: dict | None, scope: dict | None = Non
                 backends=_BACKENDS,
                 scope=scope,
                 usage=usage,
+                trace_sink=trace_sink,
             )
         except Exception as exc:
             return _envelope(error=f"compressor: {type(exc).__name__}: {exc}")
@@ -961,6 +963,7 @@ def run_agent(llm_client, *, chosen_alerts: list[dict],
               on_tool_call=None, transcript: list[dict] | None = None,
               usage: dict | None = None,
               timings: list[dict] | None = None,
+              compressor_traces: list[dict] | None = None,
               system_prompt: str = SYSTEM_PROMPT,
               kickoff_message: str | None = None,
               json_retry_hint: str | None = None,
@@ -985,6 +988,11 @@ def run_agent(llm_client, *, chosen_alerts: list[dict],
     `json_retry_hint` overrides the hint appended when the model's first
     attempt at final JSON fails to parse.  When None a generic hint is used
     that does not reference any schema details.
+
+    `compressor_traces` (optional) is a caller-owned list. When provided, the
+    compressor appends one entry per `query` tool call describing every
+    build/route/execute/compress event it emitted — used by orchestrators
+    that persist per-call traces in their run JSON.
     """
     scope = _derive_scope(chosen_alerts)
     messages: list[dict] = transcript if transcript is not None else []
@@ -996,7 +1004,8 @@ def run_agent(llm_client, *, chosen_alerts: list[dict],
     calls_used = 0
     forcing_final = False
     final_json_retries = 0
-    dispatch = _make_dispatcher(llm_client, usage=usage, scope=scope)
+    dispatch = _make_dispatcher(llm_client, usage=usage, scope=scope,
+                                trace_sink=compressor_traces)
 
     for iter_idx in range(max_iterations):
         remaining = max_tool_calls - calls_used
@@ -1165,7 +1174,8 @@ def _dump_transcript(run_id: str, transcript: list[dict], *,
                      pick: dict | None = None,
                      decision: dict | None = None, error: str | None = None,
                      usage: dict | None = None,
-                     timings: list[dict] | None = None) -> str:
+                     timings: list[dict] | None = None,
+                     compressor_traces: list[dict] | None = None) -> str:
     """Write the full chain (stage-1 pick, stage-2 transcript, final decision,
     per-step timings) to <output_dir>/<run_id>.json.
 
@@ -1185,6 +1195,7 @@ def _dump_transcript(run_id: str, transcript: list[dict], *,
         "error": error,
         "llm_usage": usage or {},
         "timings": timings or [],
+        "compressor_traces": compressor_traces or [],
     }
     with open(path, "w") as f:
         json.dump(payload, f, indent=2, default=str)
@@ -1232,6 +1243,7 @@ def main() -> int:
     transcript: list[dict] = []
     usage_totals: dict = {}
     timings: list[dict] = []
+    compressor_traces: list[dict] = []
     pick: dict | None = None
     run_start_t = time.monotonic()
 
@@ -1278,7 +1290,8 @@ def main() -> int:
         log("run_end", run_id=run_id, posted=False,
             elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
         path = _dump_transcript(run_id, transcript, pick=pick,
-                                usage=usage_totals, timings=timings)
+                                usage=usage_totals, timings=timings,
+                                compressor_traces=compressor_traces)
         if DRY_RUN:
             print(f"[dry-run] transcript → {path}", flush=True)
         return 0
@@ -1289,6 +1302,7 @@ def main() -> int:
         log("pick_error", run_id=run_id, error=err, pick=pick)
         path = _dump_transcript(run_id, transcript, pick=pick,
                                 usage=usage_totals, timings=timings,
+                                compressor_traces=compressor_traces,
                                 error=f"invalid pick: {err}")
         if DRY_RUN:
             print(f"[dry-run] transcript → {path}", flush=True)
@@ -1300,12 +1314,14 @@ def main() -> int:
             llm_client, chosen_alerts=chosen_alerts,
             on_tool_call=_on_tool, transcript=transcript,
             usage=usage_totals, timings=timings,
+            compressor_traces=compressor_traces,
         )
     except AgentError as exc:
         log("llm_usage", run_id=run_id, **usage_totals)
         log("agent_error", run_id=run_id, error=str(exc))
         path = _dump_transcript(run_id, transcript, pick=pick,
                                 usage=usage_totals, timings=timings,
+                                compressor_traces=compressor_traces,
                                 error=f"AgentError: {exc}")
         if DRY_RUN:
             print(f"[dry-run] transcript → {path}", flush=True)
@@ -1315,6 +1331,7 @@ def main() -> int:
         log("llm_error", run_id=run_id, error=f"{type(exc).__name__}: {exc}")
         path = _dump_transcript(run_id, transcript, pick=pick,
                                 usage=usage_totals, timings=timings,
+                                compressor_traces=compressor_traces,
                                 error=f"{type(exc).__name__}: {exc}")
         if DRY_RUN:
             print(f"[dry-run] transcript → {path}", flush=True)
@@ -1349,6 +1366,7 @@ def main() -> int:
 
     path = _dump_transcript(run_id, transcript, pick=pick,
                             usage=usage_totals, timings=timings,
+                            compressor_traces=compressor_traces,
                             decision=decision)
     if DRY_RUN:
         print(f"[dry-run] transcript → {path}", flush=True)

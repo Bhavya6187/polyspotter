@@ -81,15 +81,40 @@ def test_volume_spike_signal_lifted_from_alerts():
     assert b["has_volume_spike"] is True
 
 
-def test_cluster_size_lifted_from_wallet_clustering_severity():
+def test_cluster_size_parsed_from_headline_not_severity():
+    # Severity for these strategies is log-scaled and saturates at 8.0, so it
+    # can't be used as cluster size. The real count lives in the headline.
     alerts = [{
         "signals": [
-            {"strategy": "wallet_clustering", "severity": 4},
-            {"strategy": "concentrated_one_sided", "severity": 6},
+            {"strategy": "wallet_clustering", "severity": 8.0,
+             "headline": "18 wallets share funder 0xabc...def, $25,000 total (+17 from prior runs)"},
+            {"strategy": "concentrated_one_sided", "severity": 8.0,
+             "headline": "37 wallets, same direction (Hawks/BUY), $564,695 — 8 share funder (linked)"},
         ]
     }]
     b = twitter_pipeline.build_facts_bundle(alerts, [])
-    assert b["cluster_size"] == 6
+    assert b["cluster_size"] == 37  # max across signals
+
+
+def test_cluster_size_handles_known_sybil_form():
+    alerts = [{
+        "signals": [
+            {"strategy": "wallet_clustering", "severity": 6.0,
+             "headline": "Known linked funder 0xabc...def: 2 wallet(s) active, 18 total known, $3,000"},
+        ]
+    }]
+    b = twitter_pipeline.build_facts_bundle(alerts, [])
+    assert b["cluster_size"] == 18  # uses "total known", not "wallet(s) active"
+
+
+def test_cluster_size_none_when_headline_unparseable():
+    alerts = [{
+        "signals": [
+            {"strategy": "wallet_clustering", "severity": 8.0, "headline": "garbage"},
+        ]
+    }]
+    b = twitter_pipeline.build_facts_bundle(alerts, [])
+    assert b["cluster_size"] is None
 
 
 def test_sharp_wallet_bet_usd_sums_only_that_wallets_trades(monkeypatch):

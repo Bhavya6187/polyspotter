@@ -743,7 +743,8 @@ def _build_kickoff_message(chosen_alerts: list[dict]) -> tuple[str, dict, dict]:
 
 
 def _dump_transcript(run_id: str, *, pick: dict, decision: dict | None,
-                     transcript: list | None, usage: dict, error: str | None) -> str:
+                     transcript: list | None, usage: dict, error: str | None,
+                     compressor_traces: list[dict] | None = None) -> str:
     """Dump the run state to <output_dir>/articlebot_<run_id>.json for inspection.
 
     Output dir is `dry_runs/` when DRY_RUN, else `live_runs/`.
@@ -760,6 +761,7 @@ def _dump_transcript(run_id: str, *, pick: dict, decision: dict | None,
         "final_decision": decision,
         "error": error,
         "llm_usage": usage,
+        "compressor_traces": compressor_traces or [],
     }
     with open(path, "w") as f:
         json.dump(payload, f, indent=2, default=str)
@@ -819,6 +821,7 @@ def main() -> int:
     # retry path (transcript is a few KB; cost is negligible).
     messages_list: list = []
     transcript: list = messages_list
+    compressor_traces: list[dict] = []
 
     # Stage 1+2: tournament pick
     pick = pick_article_story(llm_client, usage=usage_totals)
@@ -835,7 +838,8 @@ def main() -> int:
                 log("articlebot_skip_record_error", run_id=run_id,
                     error=f"{type(exc).__name__}: {exc}")
         _dump_transcript(run_id, pick=pick, decision=None,
-                         transcript=transcript, usage=usage_totals, error=None)
+                         transcript=transcript, usage=usage_totals, error=None,
+                         compressor_traces=compressor_traces)
         return 0
 
     chosen_alerts = pick.get("chosen_alerts") or []
@@ -848,6 +852,7 @@ def main() -> int:
             chosen_alerts=chosen_alerts,
             transcript=messages_list,
             usage=usage_totals,
+            compressor_traces=compressor_traces,
             system_prompt=SYSTEM_PROMPT,
             kickoff_message=kickoff,
             max_tool_calls=ARTICLE_MAX_TOOL_CALLS,
@@ -864,7 +869,8 @@ def main() -> int:
             except Exception:
                 pass
         _dump_transcript(run_id, pick=pick, decision=None,
-                         transcript=transcript, usage=usage_totals, error=err)
+                         transcript=transcript, usage=usage_totals, error=err,
+                         compressor_traces=compressor_traces)
         return 1
 
     # Carry the chosen event_slug into the decision (downstream needs it)
@@ -893,7 +899,8 @@ def main() -> int:
                 pass
         _dump_transcript(run_id, pick=pick, decision=decision,
                          transcript=transcript, usage=usage_totals,
-                         error=f"validation: {err}")
+                         error=f"validation: {err}",
+                         compressor_traces=compressor_traces)
         return 1
 
     if decision["decision"] == "skip":
@@ -906,7 +913,8 @@ def main() -> int:
             except Exception:
                 pass
         _dump_transcript(run_id, pick=pick, decision=decision,
-                         transcript=transcript, usage=usage_totals, error=None)
+                         transcript=transcript, usage=usage_totals, error=None,
+                         compressor_traces=compressor_traces)
         return 0
 
     # Stage 4: cover chart
@@ -919,7 +927,8 @@ def main() -> int:
 
     # Stage 5: persist
     _dump_transcript(run_id, pick=pick, decision=decision,
-                     transcript=transcript, usage=usage_totals, error=None)
+                     transcript=transcript, usage=usage_totals, error=None,
+                     compressor_traces=compressor_traces)
     if DRY_RUN:
         # Write the .md file into dry_runs (not articles/) for inspection.
         md_text = _storage._format_md_file(run_id, decision, cover_path)

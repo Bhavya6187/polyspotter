@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 import uuid
@@ -176,16 +177,42 @@ def _extract_fresh_wallet(chosen_alerts: list[dict],
     return None
 
 
+# Severity for wallet_clustering / concentrated_one_sided is log-scaled and
+# saturates at 8.0, so it can't stand in for the actual cluster size — a sev=8
+# wallet_clustering signal could cover anywhere from 8 to 30+ wallets. The real
+# count lives in the headline:
+#   wallet_clustering (in-window):  "{N} wallets share funder ..."
+#   wallet_clustering (known sybil): "Known linked funder ...: {K} wallet(s) active, {N} total known, ..."
+#   concentrated_one_sided:          "{N} wallets, same direction ..."
+_CLUSTER_SIZE_TOTAL_KNOWN_RE = re.compile(r"(\d+)\s+total known")
+_CLUSTER_SIZE_LEADING_WALLETS_RE = re.compile(r"^\s*(\d+)\s+wallets?\b")
+
+
+def _parse_cluster_size_from_headline(headline: str) -> int | None:
+    if not isinstance(headline, str):
+        return None
+    m = _CLUSTER_SIZE_TOTAL_KNOWN_RE.search(headline)
+    if m is None:
+        m = _CLUSTER_SIZE_LEADING_WALLETS_RE.match(headline)
+    if m is None:
+        return None
+    try:
+        n = int(m.group(1))
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
 def _cluster_size(chosen_alerts: list[dict]) -> int | None:
     """Largest cluster_size implied by wallet_clustering or concentrated_one_sided signals."""
     sizes = []
     for a in chosen_alerts:
         for s in a.get("signals") or []:
-            if s.get("strategy") in ("wallet_clustering", "concentrated_one_sided"):
-                # severity is roughly the cluster size for these strategies.
-                sev = s.get("severity")
-                if isinstance(sev, (int, float)) and sev > 0:
-                    sizes.append(int(sev))
+            if s.get("strategy") not in ("wallet_clustering", "concentrated_one_sided"):
+                continue
+            n = _parse_cluster_size_from_headline(s.get("headline") or "")
+            if n is not None:
+                sizes.append(n)
     return max(sizes) if sizes else None
 
 
@@ -524,24 +551,40 @@ as a self-contained sentence.
 ## Style
 - Confident, punchy, human. Like a sharp friend explaining what they just spotted —
   NOT analyst-speak, NOT a press release, NOT scanner output.
-- Lead with the SINGLE most surprising fact in the story — not the structural
-  setup, not a chart label. Identify the one thing that makes a reader stop
-  scrolling, and put it in the first clause as natural English. The hook_anchor
-  tells you which fact the chart proves; your job is to express that fact in
-  human voice. The lede shape depends on what's actually surprising:
-  - win_rate / sharp wallet → record-led: "An account that's gone 29-4 on
-    Polymarket just…"
-  - new_wallet_large_bet → age-led: "A 12-day-old account just dropped $80k…"
-  - timing_relative_resolution → timing-led: "With 4 minutes left, someone bought…"
-  - price_impact → impact-led: "One buy just flipped this market from 32c to 41c…"
-  - low_activity_large_bet → size-led: "$50k just landed on a market that's
-    seen $4k all week…"
-  - wallet_clustering / concentrated_one_sided → cluster-led only if the
-    cluster IS the surprising thing; if one of the cluster wallets has a
-    strong record, lead with the record and bring in the cluster as
-    supporting context. Even when cluster-led, write it as behavior
-    ("Eight Polymarket accounts just bought…") not as a tile name
-    ("8-wallet NO cluster…").
+- Lead with WHAT JUST HAPPENED or WHAT'S AT STAKE — never with who placed
+  the bet. The first clause is the scroll-stopper; "who they are" comes
+  second as supporting evidence. Read hook_anchor as a hint about which
+  fact the chart proves, not as a tweet opener.
+- HARD RULE — never open the tweet with a literal win-loss record.
+  "A 174-32 account just…", "A 35-7 Polymarket account just…", "An
+  account that's X-Y on past markets…" are all banned ledes; they
+  read like scanner output and the reader bounces. The record is
+  credibility evidence, not the hook — place it mid-sentence or in a
+  follow-up clause: "…and the lead wallet is 174-32 on past calls",
+  "…from a wallet that's 35-7 on tracked markets". If hook_anchor is
+  itself a record number, paraphrase the behavior — don't echo the digits.
+- Pick the lede shape from what's actually surprising. When more than one
+  applies, use this priority (strongest scroll-stop first):
+  1. timing-led — there's a hard clock: "With 4 minutes left, someone
+     bought…", "Minutes before tip, five accounts piled in on…"
+  2. impact-led — a single buy moved the market: "One buy just flipped
+     this market from 32c to 41c…", "$13k just jolted the line 13% in
+     minutes…"
+  3. size-led — outsized stake on a quiet market: "$50k just landed on
+     a market that's seen $4k all week…"
+  4. age-led (new_wallet_large_bet): "A 12-day-old account just dropped
+     $80k…"
+  5. cluster-led — only when the cluster IS the surprise (many wallets,
+     one funder, simultaneous): "Eighteen Polymarket accounts sharing
+     one funder just bought…". Write as behavior, never as a tile
+     caption ("18-wallet cluster" → banned).
+  6. behavior-led for sharp wallets — describe the action and stake
+     first, then qualify with the record: "Someone is quietly building
+     a $113k thesis across Polymarket's US-Iran meeting markets — and
+     the lead wallet is 174-32 on past calls". The digits come second.
+  When timing AND a sharp record both apply, timing wins. When a cluster
+  AND a sharp record both apply, the cluster scale or funder link leads,
+  with the record as a one-clause qualifier.
 - Pacing: 2-3 short sentences beats one long clause-stack. Aim for ≤20 words
   per sentence. Punchy rhythm > polished prose.
 - Round numbers for readability: "$78k" not "$78,131.61"; "$2.8M" not "$2,789,285.20".
@@ -554,13 +597,29 @@ as a self-contained sentence.
   wallet's own stake is bet_usd; the surrounding cluster's total stake is
   total_usd minus bet_usd (or just the total, if you frame it as "the cluster
   put $X total"). Never imply the sharp wallet bet the full cluster sum.
-  Pattern: "<record-led lede with the sharp wallet's bet>. <cluster sentence
-  naming the rest>." Example: "A 184-13 Polymarket account just put $1k on
-  Rafael Jodar to upset Sinner. Seven more accounts sharing the same funder
-  added another $22k on the same side."
-- The closing line earns its spot: a stake, a time pressure, or something concrete
-  to watch. NOT vague chest-thumps like "Not random.", "Something's cooking.",
-  "Worth a look.". If you don't have a real closer, end on the link.
+  Pattern: "<behavior-led lede with the sharp wallet's bet>. <cluster
+  sentence naming the rest>." Example: "$1k just landed on Rafael Jodar
+  to upset Sinner — from a wallet that's 184-13 on Polymarket. Seven
+  more accounts sharing the same funder piled another $22k on the same
+  side." (The record qualifies the wallet; it doesn't open the tweet.)
+- Cumulative cluster vs this run's trades: event_summary and chosen_alerts
+  headlines may cite cluster-scale figures (wallet counts, dollar totals)
+  that exceed facts_bundle.total_usd — those are cumulative across flagged
+  trades, not a single push. Frame them with present perfect ("have built",
+  "have put", "now sit at") and never with temporal compression ("just bought",
+  "in the last hour", "minutes before X") unless facts_bundle.total_usd backs
+  the claim. If a cited dollar figure is larger than facts_bundle.total_usd,
+  treat it as cumulative and phrase it accordingly.
+- The closing line earns its spot. Strong closers, in priority order:
+  (a) time-to-resolution if facts_bundle.minutes_to_resolution is set and
+      under ~360: "First pitch in 90 minutes.", "Tips off in 11.",
+      "We'll know by close.";
+  (b) a concrete stake or escalation: "$113k now riding on this thesis.",
+      "Their related exposure on this event is $81k.";
+  (c) a counter-fact that sharpens the conflict: "A $231k whale just took
+      the other side."
+  NEVER vague chest-thumps like "Not random.", "Something's cooking.",
+  "Worth a look.". If none of (a)-(c) applies cleanly, end on the link.
 - 0-1 emoji, only if it earns its spot. No hashtags. No @mentions.
 - BANNED jargon: "deployed capital", "real size", "meaningful size", "conviction
   flow", "high-conviction", "scan window", "composite score", "alerted flow",
@@ -571,38 +630,43 @@ as a self-contained sentence.
   "<wallet> sharp record" used as a noun-phrase opener. Restate as behavior.
 - Banned CTAs: "in bio", "full breakdown", "link below", "more at", "link in bio".
 
-## Worked example
-BAD (jargon-heavy, no context, vague closer):
-  "A linked wallet trio just slammed Red Sox/Orioles Under 7.5 for $32k.
-  One buyer wins 88% of the time. Not random baseball action."
-Why it's bad: "linked wallet trio" is insider lingo, "Under 7.5" omits the
-unit (runs), "wins 88%" omits what (Polymarket bets), nothing tells the
-reader this is a prediction market, and the closer adds no information.
+## Worked examples
 
-OK (clear but buries the lede in a long opening clause):
-  "Three Polymarket accounts sharing one funder just stacked $32k on
-  Red Sox/Orioles staying under 7.5 runs tonight. One of them is 88%
-  across 50+ prior bets on the site."
-Why it's only OK: the strongest fact (the 88% record) shows up second,
-and the opening sentence runs ~25 words.
+### Sharp-wallet story (the most over-formulaic case)
 
-GOOD (lead with the record, short sentences):
-  "A Polymarket account with a 29-4 record just helped pile $65k on
-  Red Sox/Orioles staying under 7.5 runs tonight. Two more accounts
-  on the same funder rode along.
-  https://polyspotter.com/alert/114781"
+BAD (record-led, scanner output, no urgency):
+  "A Polymarket account that's 174-32 on past markets just put $1.7k
+  on Yes on a US-Iran peace deal by June."
+Why it's bad: opens with the literal record, no clock, no stakes, no
+reason for a casual reader to stop scrolling.
 
-Tile-label trap (avoid):
-  "7-wallet NO cluster against Finland winning Eurovision 2026: bettors
-  bought about $20k of No on Polymarket. Volume hit 130x the market's
-  usual pace."
-Why it's bad: "7-wallet NO cluster against …" is a chart caption, not a
-tweet opener. Restate as behavior.
+GOOD (lead with the cumulative thesis, demote the record to a clause):
+  "Someone is quietly building a $113k thesis across Polymarket's
+  US-Iran meeting markets — and the lead wallet is 174-32 on past
+  calls. Latest add: $2.9k on a meeting by late spring.
+  https://polyspotter.com/alert/130328"
 
-Better:
-  "Eight Polymarket accounts just bought $23k of No on Finland winning
-  Eurovision 2026. The market's usual volume got blown out by an 82x
-  surge, months before the final."
+### Timing-led story (the ideal — leans into urgency)
+
+GOOD:
+  "With 11 minutes to tip, five Polymarket accounts bought $82k on
+  the 76ers to beat the Celtics. Three share one funder. Volume ran
+  99x usual.
+  https://polyspotter.com/alert/131163"
+Why it works: hard clock first three words; size, funder link, then
+volume context. No record number anywhere.
+
+### Cluster story (when the cluster IS the surprise)
+
+BAD (tile-caption opener):
+  "7-wallet NO cluster against Finland winning Eurovision 2026:
+  bettors bought $20k of No. Volume hit 130x usual."
+Why it's bad: "7-wallet NO cluster" is a chart caption, not a tweet.
+
+GOOD (behavior, scale, time-frame as closer):
+  "Eight Polymarket accounts just bought $23k of No on Finland
+  winning Eurovision 2026, blowing out the market's usual volume
+  by 82x — months before the final."
 
 ## Link (mandatory)
 Include exactly one polyspotter.com deep link. Prefer the market page; use a
