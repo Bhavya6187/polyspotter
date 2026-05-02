@@ -1001,6 +1001,10 @@ def _draw_price_sparkline(ax, data: PriceSparklineData) -> None:
         # Defensive — fetcher should have rejected this case.
         return
 
+    # Match the figure background so the sub-axes doesn't paint white
+    # over the figure when this draws into a chart_grid sub-region.
+    ax.set_facecolor(BG)
+
     # Title (drop the dash when side is missing). Place above the plot
     # using ax-relative text (replaces the prior fig.suptitle so this
     # works inside a sub-region of a shared figure).
