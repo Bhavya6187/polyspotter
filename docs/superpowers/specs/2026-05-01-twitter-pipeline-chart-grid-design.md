@@ -117,7 +117,7 @@ what the hero's specific subject did:
 
 | Hero | Personal subtitle |
 |---|---|
-| `wallet_record_card` | "$7k · on Under" *(uses existing `bet_size_usd`)* |
+| `wallet_record_card` | "across N prior Polymarket bets" *(unchanged from pre-grid; wallet_age_days clause dropped to avoid duplicating the FRESH WALLET tile)* |
 | `fresh_wallet_card` | "$80k · on Yes" |
 | `price_sparkline` | "Under · dominant outcome" |
 | `volume_bar` | "$140k · peak hour" |
@@ -179,14 +179,17 @@ consume from the bundle.
 
 ### Stage 4: writer prompt addendum
 
-Add one sentence to `SYSTEM_PROMPT_WRITER`, gated on `image_tiles` being
-non-empty in the payload:
+Add one paragraph to `SYSTEM_PROMPT_WRITER`. The active tile list always
+appears in the writer payload as `image_tiles`; when zero tiles ship (the
+single-chart fallback), `image_tiles: []` appears and the writer naturally
+has no facts to dedupe against.
 
 > The chart you ship with this tweet is a grid: a hero panel
-> (corresponding to chart_type) plus 3 stat tiles drawn from {CLOCK,
+> (corresponding to chart_type) plus up to 3 stat tiles drawn from {CLOCK,
 > CLUSTER $, LINKED ACCOUNTS, VOLUME ×, PRICE MOVE, SHARP RECORD, FRESH
-> WALLET}. The active tile list is in `image_tiles`. Don't waste tweet
-> characters listing tile facts unless they're load-bearing for the lede.
+> WALLET, WALLETS}. The active tile list is in `image_tiles`. Don't waste
+> tweet characters listing tile facts unless they're load-bearing for the
+> lede.
 
 Stage-4 payload gains `image_tiles: ["clock", "cluster_total", ...]`.
 Existing rules (banned phrases, lede shapes, length, polyspotter URL)
