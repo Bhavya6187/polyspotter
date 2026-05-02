@@ -284,12 +284,17 @@ GAMMA_PUBLIC_PROFILE_URL = "https://gamma-api.polymarket.com/public-profile"
 POLYMARKET_DATA_API = "https://data-api.polymarket.com"
 
 
-def render_fresh_wallet_card(data: FreshWalletCardData) -> bytes:
-    fig, ax = _new_figure()
+def _draw_fresh_wallet_card(ax, data: FreshWalletCardData) -> None:
+    """Draw the fresh wallet card into the given Axes. The Axes' figure
+    determines output size — used for both standalone 1200×675 renders and
+    the 720×675 hero region of the grid."""
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.set_xticks([])
     ax.set_yticks([])
+    ax.set_facecolor(BG)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
 
     # Top: market title in muted grey
     ax.text(0.5, 0.92, data["market_title"], color=MUTED, fontsize=18,
@@ -314,6 +319,10 @@ def render_fresh_wallet_card(data: FreshWalletCardData) -> bytes:
     ax.text(0.5, 0.12, footer, color=FG, fontsize=24, ha="center", va="center",
             fontweight="bold")
 
+
+def render_fresh_wallet_card(data: FreshWalletCardData) -> bytes:
+    fig, ax = _new_figure()
+    _draw_fresh_wallet_card(ax, data)
     return _figure_to_png_bytes(fig)
 
 
