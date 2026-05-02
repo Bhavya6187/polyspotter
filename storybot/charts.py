@@ -503,27 +503,25 @@ class VolumeBarData(TypedDict):
     multiplier: float
 
 
-def render_volume_bar(data: VolumeBarData) -> bytes:
-    fig, ax = _new_figure()
+def _draw_volume_bar(ax, data: VolumeBarData) -> None:
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.set_xticks([])
     ax.set_yticks([])
+    ax.set_facecolor(BG)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
 
-    # Title
     ax.text(0.5, 0.92, data["market_title"], color=MUTED, fontsize=18,
             ha="center", va="top", wrap=True)
 
-    # Hero multiplier
     mult = data["multiplier"]
     mult_label = f"{mult:.0f}×" if mult >= 10 else f"{mult:.1f}×"
-    ax.text(0.5, 0.72, mult_label, color=ACCENT, fontsize=120, ha="center", va="center",
-            fontweight="bold")
+    ax.text(0.5, 0.72, mult_label, color=ACCENT, fontsize=120, ha="center",
+            va="center", fontweight="bold")
     ax.text(0.5, 0.55, "today's volume vs. 7-day average", color=FG, fontsize=20,
             ha="center", va="center")
 
-    # Two horizontal bars — baseline tiny, today full-width
-    # Map widths to a log-friendly visual: baseline always >= 4% of bar area for visibility.
     today = max(data["today_volume_usd"], 1.0)
     baseline = max(data["baseline_avg_usd"], 1.0)
     today_w = 0.8
@@ -541,6 +539,10 @@ def render_volume_bar(data: VolumeBarData) -> bytes:
             f"today: {_format_usd(today)}",
             color=FG, fontsize=16, ha="left", va="center", fontweight="bold")
 
+
+def render_volume_bar(data: VolumeBarData) -> bytes:
+    fig, ax = _new_figure()
+    _draw_volume_bar(ax, data)
     return _figure_to_png_bytes(fig)
 
 
