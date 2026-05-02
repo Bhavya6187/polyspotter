@@ -79,7 +79,6 @@ class WalletRecordCardData(TypedDict):
     wallet_age_days: int | None
     bet_size_usd: float
     outcome_side: str        # "Yes" / "Arsenal" / etc.
-    cluster_size: int | None  # when set: footer reads "$X on Y — N linked accounts"
 
 
 def _format_usd(amount: float) -> str:
@@ -91,12 +90,17 @@ def _format_usd(amount: float) -> str:
     return f"${amount:.0f}"
 
 
-def render_wallet_record_card(data: WalletRecordCardData) -> bytes:
-    fig, ax = _new_figure()
+def _draw_wallet_record_card(ax, data: WalletRecordCardData) -> None:
+    """Draw the wallet record card into the given Axes. The Axes' figure
+    determines output size — used for both standalone 1200×675 renders and
+    the 720×675 hero region of the grid."""
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.set_xticks([])
     ax.set_yticks([])
+    ax.set_facecolor(BG)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
 
     # Top: market title in muted grey
     ax.text(0.5, 0.92, data["market_title"], color=MUTED, fontsize=18,
@@ -123,18 +127,17 @@ def render_wallet_record_card(data: WalletRecordCardData) -> bytes:
                            0.8 * (1 - data["win_pct"]), bar_h,
                            color=LOSS, transform=ax.transAxes))
 
-    # Footer: bet size + outcome side, plus optional "— N linked accounts" suffix.
-    # When outcome_side is missing (upstream lost the field), drop "on" rather
-    # than rendering "$32k on " — matches the bug seen in c6080ab9.
+    # Personal subtitle: bet size + outcome side. Drop "on" when side missing.
     side = (data.get("outcome_side") or "").strip()
     bet_str = _format_usd(data["bet_size_usd"])
     footer = f"{bet_str} on {side}" if side else f"{bet_str} bet"
-    cluster_size = data.get("cluster_size")
-    if cluster_size and cluster_size >= 2:
-        footer = f"{footer} — {cluster_size} linked accounts"
     ax.text(0.5, 0.10, footer, color=FG, fontsize=24, ha="center", va="center",
             fontweight="bold")
 
+
+def render_wallet_record_card(data: WalletRecordCardData) -> bytes:
+    fig, ax = _new_figure()
+    _draw_wallet_record_card(ax, data)
     return _figure_to_png_bytes(fig)
 
 
@@ -195,11 +198,9 @@ def fetch_wallet_record_card_data(
     the cluster. Pick the wallet with the highest win_rate among those meeting
     WALLET_RECORD_MIN_BETS, and show its individual contribution in the footer.
 
-    `cluster_context` (optional) carries cluster-wide stats from the caller.
-    When `cluster_total_usd` exceeds the wallet's individual stake AND
-    `cluster_size` is >= 2, the footer is upgraded to show the cluster total
-    + a "N linked accounts" suffix — the cluster bet is the bigger story
-    once a record-eligible wallet is part of a multi-wallet pile-on.
+    `cluster_context` is accepted for signature stability with callers but
+    is unused — the hero now always shows the wallet's personal stake, and
+    cluster facts are surfaced via dedicated tiles in the chart grid.
 
     Returns None when the wallet is unknown / not in the cluster, or has fewer
     than WALLET_RECORD_MIN_BETS resolved bets.
@@ -229,18 +230,6 @@ def fetch_wallet_record_card_data(
         wallet = max(profiles, key=lambda w: profiles[w]["win_rate"])
         profile = profiles[wallet]
         bet_size = size_by_wallet.get(wallet, 0.0)
-
-    # Cluster-context override: when the cluster total dwarfs this wallet's
-    # individual stake AND the cluster has 2+ linked accounts, the footer
-    # tells the cluster story instead of the individual stake.
-    cluster_size_for_footer: int | None = None
-    if cluster_context:
-        cluster_total = float(cluster_context.get("cluster_total_usd") or 0.0)
-        cluster_size = cluster_context.get("cluster_size")
-        if (cluster_total > bet_size
-                and isinstance(cluster_size, int) and cluster_size >= 2):
-            bet_size = cluster_total
-            cluster_size_for_footer = cluster_size
 
     wins = profile["wins"]
     losses = profile["losses"]
@@ -276,7 +265,6 @@ def fetch_wallet_record_card_data(
         "wallet_age_days": wallet_age_days,
         "bet_size_usd": float(bet_size),
         "outcome_side": outcome_side,
-        "cluster_size": cluster_size_for_footer,
     }
 
 
