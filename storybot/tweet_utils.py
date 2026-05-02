@@ -21,6 +21,8 @@ import requests
 import tweepy
 from psycopg2.extras import RealDictCursor
 
+import chart_grid
+import charts
 from bot_utils import DATABASE_URL, GAMMA_BASE_URL, QUERY_TIMEOUT_SECONDS, log
 
 
@@ -246,7 +248,6 @@ def prepare_chart(chart_type: str, alert: dict) -> bytes | None:
         return None
     enrich_alert_for_charts(alert)
     try:
-        import charts  # local import to keep tweet_utils import-light at module load
         return charts.render_chart_for_alert(chart_type, alert)
     except Exception as exc:
         log("chart_render_error",
@@ -268,7 +269,6 @@ def prepare_chart_grid(chart_type: str, alert: dict,
         return None
     enrich_alert_for_charts(alert)
     try:
-        import chart_grid
         return chart_grid.compose_chart(
             hero_type=chart_type,
             alert=alert,

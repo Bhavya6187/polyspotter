@@ -24,7 +24,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from charts import CHART_TYPES as _CHART_TYPES_TUPLE
+import chart_grid
+import charts
 from openai import OpenAI
 
 DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
@@ -152,19 +153,23 @@ def _extract_sharp_wallet(chosen_alerts: list[dict],
 def _extract_fresh_wallet(chosen_alerts: list[dict],
                           trades: list[dict]) -> dict | None:
     """Surface a fresh-account bet if the cluster contains a new_wallet_large_bet
-    signal. Returns {wallet, alert_id} for the first match, else None.
+    signal. Returns {wallet, alert_id, wallet_age_days} for the first match,
+    else None. wallet_age_days is None when the lookup failed (e.g. Gamma
+    profile missing).
 
-    Single-wallet alerts: trust the signal and skip the age check (the chart
-    fetcher does it). Cluster alerts (no top-level wallet): scan the cluster's
-    trades and pick the youngest wallet within FRESH_WALLET_MAX_DAYS — matching
-    the chart fetcher's cluster path in storybot.charts.fetch_fresh_wallet_card_data.
+    Single-wallet alerts: look up the wallet's age via
+    charts._fetch_wallet_created_at; the chart_grid FRESH WALLET tile reads
+    wallet_age_days from facts_bundle["has_fresh_wallet"].
+
+    Cluster alerts (no top-level wallet): scan the cluster's trades and pick
+    the youngest wallet within FRESH_WALLET_MAX_DAYS — matching the chart
+    fetcher's cluster path in storybot.charts.fetch_fresh_wallet_card_data.
     """
     for a in chosen_alerts:
         signals = a.get("signals") or []
         if not any(s.get("strategy") == "new_wallet_large_bet" for s in signals):
             continue
         if a.get("wallet"):
-            import charts
             created_at = charts._fetch_wallet_created_at(a["wallet"])
             age_days = None
             if created_at is not None:
@@ -176,7 +181,6 @@ def _extract_fresh_wallet(chosen_alerts: list[dict],
         candidates = _distinct_trade_wallets(trades)
         if not candidates:
             continue
-        import charts
         best = charts.youngest_fresh_wallet(candidates)
         if best is None:
             continue
@@ -505,7 +509,7 @@ def pick_chart(llm_client, chosen_alerts: list[dict], event_summary: str,
                 "_parse_error": f"invalid JSON: {exc}"}
 
 
-_VALID_CHART_TYPES = frozenset(_CHART_TYPES_TUPLE)
+_VALID_CHART_TYPES = frozenset(charts.CHART_TYPES)
 
 
 def validate_chart_pick(pick: dict) -> tuple[bool, str]:
@@ -542,7 +546,7 @@ Your job: write a tweet that fits in 280 characters (URLs count as 23 chars).
 ## Image grid
 The chart shipped with this tweet is a grid: a hero panel (corresponding
 to chart_type) plus up to 3 stat tiles drawn from {{CLOCK, CLUSTER $,
-LINKED ACCOUNTS, VOLUME ×, PRICE MOVE, SHARP RECORD, FRESH WALLET}}. The
+LINKED ACCOUNTS, VOLUME ×, PRICE MOVE, SHARP RECORD, FRESH WALLET, WALLETS}}. The
 active tile list is in image_tiles. Don't waste tweet characters listing
 tile facts unless they're load-bearing for the lede shape.
 
@@ -877,7 +881,6 @@ def fetch_data_bundle(alert_ids: list[int], seed_alerts: list[dict]) -> dict:
         # Use the same fetchers volume_bar uses, on the cluster's primary
         # condition_id (first chosen alert that has one). One gamma call +
         # one sqlite read per tweet; cheap.
-        import charts
         cid = next((a.get("condition_id") for a in chosen if a.get("condition_id")), None)
         if cid:
             try:
@@ -1037,7 +1040,6 @@ def main() -> int:
     # Stage 4
     t = time.monotonic()
     log("stage_start", run_id=run_id, stage=4)
-    import chart_grid
     image_tiles_kinds = [tile.kind for tile in chart_grid.select_tiles(
         chart_pick["chart_type"], bundle["facts_bundle"])]
     try:

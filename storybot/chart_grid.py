@@ -30,6 +30,11 @@ class TileSpec:
     accent: bool       # True → ACCENT (green); False → FG (white)
 
 
+# Convention: dimensions are public (used by tests / external callers to
+# verify output sizes); colors, DPI, and other style internals are private
+# (mirrored from charts.py to avoid an import cycle, and deliberately not
+# part of this module's public surface).
+
 # ---------- thresholds ----------
 CLUSTER_TOTAL_MIN_USD = 25_000
 PRICE_MOVE_MIN_DELTA = 0.03
@@ -144,7 +149,8 @@ def select_tiles(hero_type: str, facts_bundle: dict) -> list[TileSpec]:
 # ---------- helpers ----------
 
 def _fmt_usd_big(amount: float) -> str:
-    """Same as charts._format_usd but caps the K-suffix to 0 decimals."""
+    """USD shorthand with uppercase K (vs charts._format_usd's lowercase k).
+    Tiles use the visually heavier uppercase to read at small sizes."""
     if amount >= 1_000_000:
         return f"${amount / 1_000_000:.1f}M"
     if amount >= 1_000:

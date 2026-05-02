@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import chart_grid  # noqa: E402
 import charts  # noqa: E402
 import tweet_utils  # noqa: E402
 
@@ -84,7 +85,6 @@ def main() -> int:
         "trade_count": 30, "time_span_minutes": 129,
         "peak_hour_volume_usd": 140_000,
     }
-    import chart_grid
     for hero_type in ("wallet_record_card", "fresh_wallet_card", "volume_bar",
                       "cluster_card", "price_sparkline"):
         png = chart_grid.compose_chart(

@@ -82,8 +82,8 @@ def test_price_move_dropped_below_threshold():
     assert "price_move" not in [t.kind for t in tiles]
 
 
-def test_priority_order_caps_at_three():
-    """All eight tiles eligible — only the top 3 by priority should appear."""
+def test_top_three_tiles_win_when_more_than_three_eligible():
+    """When more candidates pass thresholds than fit, the top three by priority appear."""
     fb = _bundle(
         minutes_to_resolution=11,             # 1: clock
         total_usd=200_000,                    # 2: cluster_total
