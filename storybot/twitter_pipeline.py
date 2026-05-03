@@ -440,11 +440,19 @@ You see:
 
 ## Available chart types
 - "wallet_record_card" — one wallet's win record + their bet on this market.
-  Pick this iff facts_bundle.has_sharp_wallet is non-null.
+  Pick this iff facts_bundle.has_sharp_wallet is non-null AND
+  facts_bundle.has_sharp_wallet.bet_usd >= 5000. Below that $ floor the
+  sharp wallet's fresh stake is too small to anchor the chart on its own;
+  pick whichever OTHER chart type has the strongest supporting fact
+  (price_sparkline if biggest_price_move is meaningful, volume_bar if
+  has_volume_spike, cluster_card if cluster_size >= 3 with a shared funder,
+  fresh_wallet_card if has_fresh_wallet, else "none"). The wallet's record
+  can still ride along in the tweet text — but the chart shouldn't lead
+  with a record that came from a $1-2k bet.
 - "fresh_wallet_card" — one wallet's age + their bet on this market.
   Pick this iff facts_bundle.has_fresh_wallet is non-null AND
-  facts_bundle.has_sharp_wallet is null. (A record beats an age when both
-  apply — wallet_record_card wins the tiebreak.)
+  wallet_record_card is not eligible (either has_sharp_wallet is null,
+  or bet_usd is below the $5k floor described above).
 - "price_sparkline" — price over time on the dominant outcome.
   Pick this iff facts_bundle.biggest_price_move is non-null AND the move is
   meaningful. Polymarket prices are 0.0-1.0 probabilities; "3 cents" means a
@@ -552,6 +560,15 @@ to chart_type) plus up to 3 stat tiles drawn from {{CLOCK, CLUSTER $,
 LINKED ACCOUNTS, VOLUME ×, PRICE MOVE, SHARP RECORD, FRESH WALLET, WALLETS}}. The
 active tile list is in image_tiles. Don't waste tweet characters listing
 tile facts unless they're load-bearing for the lede shape.
+
+## Recent openers to avoid
+The user payload includes `recent_openers_to_avoid` — the opening clauses of
+the last few tweets we shipped. Do NOT mimic their structure. If your draft
+opens with a near-clone of any listed opener (same first 3-4 words, same
+template — "$Xk just hit…", "With N minutes to tip…", "A wallet that's…"),
+rewrite the lede with a different shape from the priority list above. Variety
+is itself an engagement lever; back-to-back tweets with the same template
+train followers to scroll past.
 
 ## Audience
 Sports/markets-curious reader who has never heard of PolySpotter and may not
@@ -713,9 +730,10 @@ wallet link only when the story is about one specific wallet.
 
 
 def validate_tweet(text: str) -> tuple[bool, str]:
-    """Length / banned-phrase / link presence checks. No JSON parsing."""
+    """Length / banned-phrase / banned-opener / link presence checks. No JSON parsing."""
     from tweet_utils import (
-        TWEET_MAX_CHARS, _BANNED_TWEET_PHRASES, _POLYSPOTTER_URL_RE, _tweet_length,
+        TWEET_MAX_CHARS, _BANNED_TWEET_PHRASES, _POLYSPOTTER_URL_RE,
+        _TWEET_RECORD_OPENER_RE, _tweet_length,
     )
     if not isinstance(text, str) or not text.strip():
         return False, "tweet must be a non-empty string"
@@ -726,6 +744,11 @@ def validate_tweet(text: str) -> tuple[bool, str]:
     for phrase in _BANNED_TWEET_PHRASES:
         if phrase in lower:
             return False, f"tweet contains banned CTA phrase {phrase!r}"
+    if _TWEET_RECORD_OPENER_RE.match(text):
+        return False, ("tweet must not open with a literal win-loss record "
+                       "(e.g. 'A 174-32 account just…'); rewrite the lede "
+                       "as behavior, timing, or impact and demote the record "
+                       "to a later clause")
     if not _POLYSPOTTER_URL_RE.search(text):
         return False, "tweet must contain a polyspotter.com deep link"
     return True, ""
@@ -733,7 +756,8 @@ def validate_tweet(text: str) -> tuple[bool, str]:
 
 def _writer_user_message(chosen_alerts: list[dict], event_summary: str,
                          bundle: dict, chart_pick: dict,
-                         image_tiles: list[str] | None = None) -> str:
+                         image_tiles: list[str] | None = None,
+                         recent_openers: list[str] | None = None) -> str:
     from bot_utils import _compact_alert_for_picker
     compact = [_compact_alert_for_picker(a) for a in chosen_alerts]
     payload = {
@@ -743,6 +767,7 @@ def _writer_user_message(chosen_alerts: list[dict], event_summary: str,
         "chart_type": chart_pick.get("chart_type"),
         "hook_anchor": chart_pick.get("hook_anchor"),
         "image_tiles": image_tiles or [],
+        "recent_openers_to_avoid": recent_openers or [],
     }
     return json.dumps(payload, default=str, indent=2)
 
@@ -750,13 +775,15 @@ def _writer_user_message(chosen_alerts: list[dict], event_summary: str,
 def write_tweet(llm_client, chosen_alerts: list[dict], event_summary: str,
                 bundle: dict, chart_pick: dict, *,
                 image_tiles: list[str] | None = None,
+                recent_openers: list[str] | None = None,
                 usage: dict | None = None,
                 prior_error: str | None = None) -> dict:
     """Stage 4: compose the tweet. Caller invokes this twice if validation fails."""
     from bot_utils import MODEL, _accumulate_usage
     messages = [{"role": "system", "content": SYSTEM_PROMPT_WRITER}]
     user_payload = _writer_user_message(chosen_alerts, event_summary, bundle, chart_pick,
-                                        image_tiles=image_tiles)
+                                        image_tiles=image_tiles,
+                                        recent_openers=recent_openers)
     if prior_error:
         user_payload = (
             f"Your previous tweet failed validation: {prior_error}. Regenerate.\n\n"
@@ -782,6 +809,7 @@ def write_tweet(llm_client, chosen_alerts: list[dict], event_summary: str,
 
 def write_tweet_with_retry(llm_client, chosen_alerts, event_summary, bundle,
                            chart_pick, *, image_tiles=None,
+                           recent_openers=None,
                            usage=None) -> tuple[dict, str | None, int]:
     """Run stage 4 once; on validation failure, retry once with the error fed back.
 
@@ -790,13 +818,14 @@ def write_tweet_with_retry(llm_client, chosen_alerts, event_summary, bundle,
     from bot_utils import log
     attempt = 1
     out = write_tweet(llm_client, chosen_alerts, event_summary, bundle, chart_pick,
-                      image_tiles=image_tiles, usage=usage)
+                      image_tiles=image_tiles, recent_openers=recent_openers,
+                      usage=usage)
     if out.get("_parse_error"):
         log("validation_retry", error=out["_parse_error"])
         attempt = 2
         out = write_tweet(llm_client, chosen_alerts, event_summary, bundle, chart_pick,
-                          image_tiles=image_tiles, usage=usage,
-                          prior_error=out["_parse_error"])
+                          image_tiles=image_tiles, recent_openers=recent_openers,
+                          usage=usage, prior_error=out["_parse_error"])
         if out.get("_parse_error"):
             return out, out["_parse_error"], attempt
         ok, err = validate_tweet(out.get("tweet", ""))
@@ -808,7 +837,8 @@ def write_tweet_with_retry(llm_client, chosen_alerts, event_summary, bundle,
     log("validation_retry", error=err)
     attempt = 2
     out = write_tweet(llm_client, chosen_alerts, event_summary, bundle, chart_pick,
-                      image_tiles=image_tiles, usage=usage, prior_error=err)
+                      image_tiles=image_tiles, recent_openers=recent_openers,
+                      usage=usage, prior_error=err)
     if out.get("_parse_error"):
         return out, out["_parse_error"], attempt
     ok, err = validate_tweet(out.get("tweet", ""))
@@ -954,6 +984,7 @@ def main() -> int:
     )
     from tweet_utils import (
         _build_twitter_api_v1, _build_twitter_client,
+        fetch_recent_tweet_openers,
         filter_posted_alerts, post_tweet, prepare_chart_grid, record_tweet,
         strip_polyspotter_url,
     )
@@ -1073,11 +1104,15 @@ def main() -> int:
     log("stage_start", run_id=run_id, stage=4)
     image_tiles_kinds = [tile.kind for tile in chart_grid.select_tiles(
         chart_pick["chart_type"], bundle["facts_bundle"])]
+    recent_openers = fetch_recent_tweet_openers(limit=5)
+    log("recent_openers_loaded", run_id=run_id, count=len(recent_openers))
     try:
         decision, err, attempts = write_tweet_with_retry(
             llm_client, bundle["chosen_alerts"], pick["event_summary"],
             bundle["facts_bundle"], chart_pick,
-            image_tiles=image_tiles_kinds, usage=usage_totals)
+            image_tiles=image_tiles_kinds,
+            recent_openers=recent_openers,
+            usage=usage_totals)
     except Exception as exc:
         log("llm_usage", run_id=run_id, **usage_totals)
         log("llm_error", run_id=run_id, stage=4,

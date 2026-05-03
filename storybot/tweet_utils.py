@@ -43,6 +43,16 @@ _URL_RE = re.compile(r"https?://\S+")
 _POLYSPOTTER_URL_RE = re.compile(r"https://polyspotter\.com/(?:market|wallet|alert|tag)/")
 _BANNED_TWEET_PHRASES = ("in bio", "full breakdown", "link below", "more at", "link in bio")
 
+# Reject tweets that open with a literal win-loss record like "A 174-32 account
+# just …" — SYSTEM_PROMPT_WRITER calls these out as a HARD RULE banned lede,
+# but the model still produces them ~20% of the time. Catching it in validation
+# forces a retry with the error fed back.
+_TWEET_RECORD_OPENER_RE = re.compile(
+    r"^\s*(?:An?\s+)?\d+\s*[-–]\s*\d+\s+(?:Polymarket\s+)?"
+    r"(?:account|wallet|sharp|trader|bettor)\b",
+    re.IGNORECASE,
+)
+
 
 def _tweet_length(t: str) -> int:
     """Twitter-counted length: every URL counts as TWEET_URL_CHARS regardless of actual length."""
@@ -142,6 +152,56 @@ def filter_posted_alerts(seed_alerts: list[dict]) -> list[dict]:
     ids = [int(a["id"]) for a in seed_alerts if a.get("id") is not None]
     posted = already_tweeted_ids(ids)
     return [a for a in seed_alerts if int(a.get("id") or 0) not in posted]
+
+
+# --- Recent openers --------------------------------------------------------
+
+def _tweet_opener(tweet_text: str) -> str:
+    """Strip the polyspotter URL, then return the first sentence (capped at
+    ~12 words). Used to feed the writer a 'do not mimic' list so successive
+    tweets don't all open with the same template."""
+    text = _POLYSPOTTER_URL_STRIP_RE.sub("", tweet_text or "").strip()
+    m = re.search(r"[.!?]", text)
+    if m:
+        text = text[: m.start()].strip()
+    words = text.split()
+    if len(words) > 12:
+        text = " ".join(words[:12]) + "…"
+    return text
+
+
+def fetch_recent_tweet_openers(limit: int = 5) -> list[str]:
+    """Latest `limit` distinct tweet openers, newest first. Used by the writer
+    to avoid repeating the same lede shape. Empty list on any failure — the
+    writer still works without this hint."""
+    try:
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=QUERY_TIMEOUT_SECONDS)
+    except Exception as exc:
+        log("recent_openers_db_error", error=f"{type(exc).__name__}: {exc}")
+        return []
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT tweet_text FROM (
+                SELECT DISTINCT ON (tweet_id) tweet_id, tweet_text, tweeted_at
+                FROM tweeted_alerts
+                ORDER BY tweet_id, tweeted_at DESC
+            ) sub
+            ORDER BY tweeted_at DESC
+            LIMIT %s
+            """,
+            (int(limit),),
+        )
+        rows = cur.fetchall()
+        cur.close()
+    except Exception as exc:
+        log("recent_openers_query_error", error=f"{type(exc).__name__}: {exc}")
+        return []
+    finally:
+        conn.close()
+    out = [_tweet_opener(r[0]) for r in rows if r and r[0]]
+    return [o for o in out if o]
 
 
 # --- Chart prep -------------------------------------------------------------
