@@ -65,6 +65,40 @@ def test_word_count_too_high_fails():
     assert not ok and "word count" in err.lower()
 
 
+def test_word_count_strips_markdown_links():
+    """The visible text inside [text](url) counts; the URL itself does not.
+    Long polyspotter URLs were inflating word counts by ~10-15 per link
+    and pushing valid articles over BODY_WORD_MAX."""
+    import articlebot
+    text = (
+        "alpha beta "
+        "[gamma delta](https://polyspotter.com/market/will-something-something-happen-in-the-future-0xabcdef0)"
+        " epsilon"
+    )
+    # Visible words: alpha, beta, gamma, delta, epsilon = 5.
+    # Without link-stripping the URL adds ~12 \w+ tokens.
+    assert articlebot._word_count(text) == 5
+
+
+def test_word_count_links_dont_push_valid_article_over_cap():
+    """An article right under the cap with two long polyspotter links must
+    still validate. Pre-fix the URLs added ~25 fake words and tripped
+    BODY_WORD_MAX."""
+    import articlebot
+    # Build a body with exactly 800 visible words and two long inline links.
+    body = (
+        "Opening paragraph with [a long market link](https://polyspotter.com/market/will-thomas-massie-be-the-republican-nominee-for-ky-04-0xe3033).\n\n"
+        "## A\n\n" + " ".join(["w"] * 260) + "\n\n"
+        "## B\n\n" + " ".join(["w"] * 260) + "\n\n"
+        "## C\n\n" + " ".join(["w"] * 260) + "\n\n"
+        "Close with [an alert](https://polyspotter.com/alert/135546)."
+    )
+    d = _valid_decision()
+    d["article"]["body_markdown"] = body
+    ok, err = articlebot.validate_article_decision(d)
+    assert ok, err
+
+
 def test_missing_polyspotter_link_fails():
     import articlebot
     d = _valid_decision()
@@ -158,8 +192,9 @@ def test_render_cover_chart_writes_png_and_returns_path(tmp_path, monkeypatch):
 
     captured = {}
 
-    def _fake_render(chart_type, alert, params=None):
+    def _fake_render(chart_type, alert, chosen_alerts, params=None):
         captured["chart_type"] = chart_type
+        captured["chosen_alerts"] = chosen_alerts
         captured["params"] = params
         return b"\x89PNG\r\n\x1a\n"
 
@@ -184,7 +219,7 @@ def test_render_cover_chart_returns_none_when_spec_is_null():
 def test_render_cover_chart_returns_none_when_renderer_returns_none(tmp_path, monkeypatch):
     import articlebot
     monkeypatch.setattr(articlebot, "_dispatch_chart_render",
-                        lambda chart_type, alert, params=None: None)
+                        lambda chart_type, alert, chosen_alerts, params=None: None)
 
     out = articlebot.render_cover_chart(
         {"chart_type": "price_sparkline", "alert_id": 1, "params": {}},
@@ -198,7 +233,7 @@ def test_render_cover_chart_returns_none_when_renderer_returns_none(tmp_path, mo
 def test_render_cover_chart_soft_faults_on_render_error(tmp_path, monkeypatch):
     import articlebot
 
-    def _boom(chart_type, alert, params=None):
+    def _boom(chart_type, alert, chosen_alerts, params=None):
         raise RuntimeError("render busted")
     monkeypatch.setattr(articlebot, "_dispatch_chart_render", _boom)
 
@@ -215,7 +250,7 @@ def test_render_cover_chart_returns_none_when_alert_id_not_found(tmp_path, monke
     import articlebot
     # Even if the dispatcher is OK, missing alert means we don't render.
     monkeypatch.setattr(articlebot, "_dispatch_chart_render",
-                         lambda c, a, params=None: b"\x89PNG\r\n\x1a\n")
+                         lambda c, a, ca, params=None: b"\x89PNG\r\n\x1a\n")
     out = articlebot.render_cover_chart(
         {"chart_type": "wallet_record_card", "alert_id": 999, "params": {}},
         [{"id": 1}],

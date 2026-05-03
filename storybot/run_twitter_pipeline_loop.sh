@@ -9,7 +9,7 @@
 
 set -u
 
-INTERVAL_SECONDS="${INTERVAL_SECONDS:-10800}"  # 3 hours
+INTERVAL_SECONDS="${INTERVAL_SECONDS:-3600}"  # 3 hours
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_DIR="$PROJECT_ROOT/storybot/logs"

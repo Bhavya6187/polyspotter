@@ -318,8 +318,8 @@ def build_facts_bundle(chosen_alerts: list[dict], trades: list[dict]) -> dict:
     """Derive a small dict of facts for downstream LLM stages to quote precisely.
 
     All fields gracefully degrade to null/0 when underlying data is missing.
-    Note: volume_multiplier_x is enriched in fetch_data_bundle (it requires
-    a gamma + sqlite fetch); build_facts_bundle alone leaves it None.
+    Note: volume_multiplier_x is enriched in build_enriched_facts_bundle (it
+    requires a gamma + sqlite fetch); build_facts_bundle alone leaves it None.
     """
     total_usd = sum(float(t.get("usdcSize") or 0.0) for t in trades)
     return {
@@ -453,10 +453,13 @@ You see:
 - "volume_bar" — volume bars showing a spike.
   Pick this iff facts_bundle.has_volume_spike is true OR
   peak_hour_volume_usd dwarfs other windows.
-- "cluster_card" — multi-wallet cluster card.
+- "cluster_card" — multi-wallet cluster card with a SHARED FUNDER.
   Pick this iff facts_bundle.cluster_size >= 3 AND no sharp_wallet record
   dominates (otherwise prefer wallet_record_card and mention the cluster
-  in the tweet text).
+  in the tweet text) AND at least one chosen alert's cluster_headline ends
+  with "share funder (linked)". Without that marker the wallets don't
+  share a funder in our index and the card will fail to render — pick
+  volume_bar or price_sparkline instead (or none).
 - "none" — if nothing supports a chart cleanly.
 
 ## Hook anchor
@@ -845,45 +848,39 @@ def _chart_target_alert_id(chart_type: str, alert_ids: list[int],
     return primary
 
 
-def fetch_data_bundle(alert_ids: list[int], seed_alerts: list[dict]) -> dict:
-    """Stage 2: fetch trades + Gamma tokens for chosen alerts, build facts_bundle.
+def build_enriched_facts_bundle(
+    chosen_alerts: list[dict],
+) -> tuple[dict, list[dict]]:
+    """Fetch trades for chosen_alerts, build a facts_bundle, and apply the
+    volume_multiplier_x enrichment when has_volume_spike fires.
 
-    Returns: {chosen_alerts, trades, token_map, facts_bundle}.
-    Failures are absorbed — missing trades become [], missing tokens become {}.
+    Returns (facts_bundle, trades). Shared by twitter_pipeline.fetch_data_bundle
+    and articlebot's chart-grid path so both bots produce the same bundle
+    shape from the same alerts. Failures are absorbed — missing trades stay
+    as [], the volume enrichment silently leaves volume_multiplier_x as None.
     """
-    from tweet_utils import fetch_alert_trades, fetch_market_tokens
+    from tweet_utils import fetch_alert_trades
     from bot_utils import log
 
-    chosen = _select_chosen_alerts(alert_ids, seed_alerts)
-
     trades: list[dict] = []
-    for aid in alert_ids:
+    for a in chosen_alerts:
+        aid = a.get("id")
+        if aid is None:
+            continue
         try:
             trades.extend(fetch_alert_trades(int(aid)))
         except Exception as exc:
             log("alert_trades_fetch_error",
                 alert_id=aid, error=f"{type(exc).__name__}: {exc}")
 
-    # token_map is flat {outcome_name -> token_id}. Multi-market clusters
-    # would collide on shared outcome names (e.g. two markets each with a
-    # "Yes") — the current pipeline assumes one cid per event-cluster.
-    token_map: dict[str, str] = {}
-    seen_cids: set[str] = set()
-    for a in chosen:
-        cid = a.get("condition_id")
-        if not cid or cid in seen_cids:
-            continue
-        seen_cids.add(cid)
-        token_map.update(fetch_market_tokens(cid))
-
-    facts_bundle = build_facts_bundle(chosen, trades)
+    facts_bundle = build_facts_bundle(chosen_alerts, trades)
     if facts_bundle["has_volume_spike"]:
         # Use the same fetchers volume_bar uses, on the condition_id of the
         # alert that actually fired pre_event_volume_spike — picking the
         # first cid in the cluster would describe the wrong market for
         # cross-market clusters. One gamma call + one sqlite read per tweet.
         spike_alert = next(
-            (a for a in chosen
+            (a for a in chosen_alerts
              if any(s.get("strategy") == "pre_event_volume_spike"
                     for s in (a.get("signals") or []))
              and a.get("condition_id")),
@@ -899,6 +896,32 @@ def fetch_data_bundle(alert_ids: list[int], seed_alerts: list[dict]) -> dict:
             except Exception as exc:
                 log("volume_multiplier_fetch_error",
                     error=f"{type(exc).__name__}: {exc}")
+
+    return facts_bundle, trades
+
+
+def fetch_data_bundle(alert_ids: list[int], seed_alerts: list[dict]) -> dict:
+    """Stage 2: fetch trades + Gamma tokens for chosen alerts, build facts_bundle.
+
+    Returns: {chosen_alerts, trades, token_map, facts_bundle}.
+    Failures are absorbed — missing trades become [], missing tokens become {}.
+    """
+    from tweet_utils import fetch_market_tokens
+
+    chosen = _select_chosen_alerts(alert_ids, seed_alerts)
+    facts_bundle, trades = build_enriched_facts_bundle(chosen)
+
+    # token_map is flat {outcome_name -> token_id}. Multi-market clusters
+    # would collide on shared outcome names (e.g. two markets each with a
+    # "Yes") — the current pipeline assumes one cid per event-cluster.
+    token_map: dict[str, str] = {}
+    seen_cids: set[str] = set()
+    for a in chosen:
+        cid = a.get("condition_id")
+        if not cid or cid in seen_cids:
+            continue
+        seen_cids.add(cid)
+        token_map.update(fetch_market_tokens(cid))
 
     return {
         "chosen_alerts": chosen,

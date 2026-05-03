@@ -72,13 +72,15 @@ specific bet on a specific market.
 
 3. WRITE the article AND the teaser tweet.
 
-## Article shape (~500-700 words)
+## Article shape (~500-650 words)
 
 - **Headline** — ≤90 chars. Specific. Stakes baked in. NOT a summary; a hook.
 - **Subhead** — ≤160 chars. One sentence that adds context the headline
   doesn't have room for. Don't restate the headline.
-- **Body markdown** — 450-800 words (target 500-700). Three to four `## H2`
-  sections. Pick from this menu:
+- **Body markdown** — target 500-650 words. HARD CAP: 850 words — the
+  validator rejects anything longer and forces a costly retry, so leave
+  yourself margin and cut before submitting if you're near the cap. Three
+  to four `## H2` sections. Pick from this menu:
     - `## The wallet` (or `## The squad` for clusters)
     - `## The bet`
     - `## What the market thinks`
@@ -103,14 +105,30 @@ specific bet on a specific market.
     - alert:  `https://polyspotter.com/alert/<id>`
     - tag:    `https://polyspotter.com/tag/<tag-slug>`
 
-- **Cover chart** — pick ONE chart from this menu, or null if no chart fits:
+- **Cover chart** — pick ONE hero from this menu, or null if no chart fits.
+  The hero you pick anchors the cover image; the renderer auto-attaches up
+  to 3 stat tiles (e.g. "11 MIN to close", "$220K cluster flow", "12×
+  usual volume") drawn deterministically from the event's data. You don't
+  pick the tiles — just the hero.
     - `wallet_record_card` — when one sharp wallet's track record carries the story
+    - `fresh_wallet_card`  — when a brand-new wallet (≤60 days) is the story
     - `price_sparkline`    — when the market's price moved
     - `volume_bar`         — when there was a volume surge
-    - `cluster_card`       — when a coordinated squad is the story
+    - `cluster_card`       — when a coordinated squad with a SHARED FUNDER
+                             is the story. ONLY pick this when at least
+                             one chosen alert's `cluster_headline` ends
+                             with "share funder (linked)". Without that
+                             marker the wallets don't share a funder in
+                             our index and the cover will fail to render
+                             — pick `volume_bar` or `price_sparkline`
+                             instead (or null).
     - null                 — when no chart adds anything
 
-- **Cover alt text** — ≤200 chars. Plain English description of the chart.
+- **Cover alt text** — ≤320 chars. Describe the hero you picked in plain
+  English (wallet, market, side, dollar size, etc.), then add a short
+  trailing clause noting that surrounding tiles show event stat callouts.
+  Example: "Card showing wallet 0xabc with 18-3 record betting $5k on
+  Knicks ML, with stat tiles for time to tip, cluster flow, and volume."
 
 ## Teaser tweet (~200-250 chars)
 
@@ -152,8 +170,8 @@ audience), return decision=skip. Don't force an article.
   "tweet_text": "...",
   "alert_ids": [<int>, ...],
   "cover_chart_spec": {{
-    "chart_type": "wallet_record_card" | "price_sparkline" |
-                  "volume_bar" | "cluster_card",
+    "chart_type": "wallet_record_card" | "fresh_wallet_card" |
+                  "price_sparkline" | "volume_bar" | "cluster_card",
     "alert_id": <int>,
     "params": {{
       "outcome": "Yes" | "No" | "<team/candidate name>",
@@ -166,6 +184,11 @@ audience), return decision=skip. Don't force an article.
 volume_bar — without it the chart footer renders "$32k on " with a missing
 side. Use the same exact string as the chosen alert's outcome (e.g. "Yes",
 "No", a team name). Set `params: {{}}` only for volume_bar.
+
+For `wallet_record_card` and `fresh_wallet_card`, the `alert_id` you pick
+must match the wallet you want the card to feature — the card renders
+against that single alert's wallet, so don't pass a cluster's primary
+alert if a different alert in the cluster has the wallet you mean.
 
 When decision=skip, set `article`, `tweet_text`, and `cover_chart_spec`
 to null and `alert_ids` to null.
@@ -197,6 +220,7 @@ EVENT_SUMMARIES_SQL = """
             'alert_type', a.alert_type,
             'market_title', a.market_title,
             'condition_id', a.condition_id,
+            'event_slug', a.event_slug,
             'wallet', a.wallet,
             'total_usd', a.total_usd,
             'tags', a.tags,
@@ -378,6 +402,19 @@ If you pick an event, return the alert_ids that belong to that event from
 the data shown to you (NOT alert_ids from elsewhere — only the alerts already
 listed on your chosen event_slug).
 
+When `wallet_stats` is attached to an alert, it shows the wallet's career:
+win_rate (0-1), closed_positions, total_pnl, total_invested, roi_pct (%
+return on invested capital), avg_pnl_per_closed. Use roi_pct + closed_positions
+to disambiguate sharp directional bettors from market makers:
+
+- A wallet with win_rate ≥ 0.95, roi_pct < 5%, AND closed_positions ≥ 50 is
+  almost certainly market-making — recycling small spreads across many
+  trades. The "perfect record" reads sharp on a headline but the per-bet
+  edge is tiny. Do NOT pick a story whose hook is one of these wallets;
+  prefer events where at least one named wallet has a meaningful roi_pct.
+- A wallet with win_rate ≥ 0.7 AND roi_pct ≥ 15% is a real directional
+  sharp regardless of position count.
+
 Voice context: smart financial Twitter that a curious news-following adult
 who doesn't speak desk slang can read. Same publication as the existing
 PolySpotter thread bot.
@@ -392,11 +429,82 @@ Return strict JSON:
 """
 
 
+def fetch_picker_wallet_stats(wallets: list[str]) -> dict[str, dict]:
+    """Fetch wallet_profiles for the picker's stage-2 enrichment, returning
+    {wallet: {win_rate, closed_positions, total_pnl, total_invested,
+    roi_pct, avg_pnl_per_closed}}. Wallets without a profile row are simply
+    omitted (the picker treats absence as 'no track record yet').
+
+    roi_pct = (total_pnl / total_invested) × 100; this is what separates a
+    directional sharp from a high-turnover market maker that happens to have
+    a 100% win rate. avg_pnl_per_closed is the per-roundtrip profit; both
+    metrics drop close to zero for MM activity.
+    """
+    if not wallets:
+        return {}
+    wlist = storybot._hex_in_clause(wallets)
+    if not wlist:
+        return {}
+    sql = f"""
+        SELECT wallet, win_rate, closed_positions, total_pnl, total_invested
+        FROM wallet_profiles WHERE wallet IN {wlist}
+    """
+    try:
+        rows = query_postgres(sql)
+    except Exception as exc:
+        log("articlebot_wallet_stats_error", error=f"{type(exc).__name__}: {exc}")
+        return {}
+
+    out: dict[str, dict] = {}
+    for r in rows:
+        w = r.get("wallet")
+        if not isinstance(w, str):
+            continue
+        try:
+            invested = float(r.get("total_invested") or 0)
+            pnl = float(r.get("total_pnl") or 0)
+            closed = int(r.get("closed_positions") or 0)
+        except (TypeError, ValueError):
+            continue
+        roi_pct = round(pnl / invested * 100, 2) if invested else None
+        avg_pnl = round(pnl / closed, 2) if closed else None
+        out[w] = {
+            "win_rate": r.get("win_rate"),
+            "closed_positions": closed,
+            "total_pnl": pnl,
+            "total_invested": invested,
+            "roi_pct": roi_pct,
+            "avg_pnl_per_closed": avg_pnl,
+        }
+    return out
+
+
+def _enrich_alerts_with_wallet_stats(alerts: list[dict],
+                                     wallet_stats: dict[str, dict]) -> list[dict]:
+    """Attach `wallet_stats` to each alert dict whose wallet has a profile.
+    Non-destructive: returns new dicts; alerts without a wallet match are
+    passed through unchanged."""
+    if not wallet_stats:
+        return alerts
+    out: list[dict] = []
+    for a in alerts:
+        w = a.get("wallet")
+        stats = wallet_stats.get(w) if isinstance(w, str) else None
+        out.append({**a, "wallet_stats": stats} if stats else a)
+    return out
+
+
 def pick_final_event(llm_client, finalists: list[dict],
                      *, recent_event_slugs: list[str],
+                     wallet_stats: dict[str, dict] | None = None,
                      usage: dict | None = None) -> dict:
     """Run the stage-2 final picker. Returns a decision dict (the same shape
     storybot.pick_story produces today, plus an explicit `event_slug`).
+
+    `wallet_stats` (optional) is the {wallet: {...}} map from
+    fetch_picker_wallet_stats — when provided, each alert's wallet is enriched
+    with roi_pct/closed_positions so the picker can avoid MM-style
+    "perfect record" wallets that aren't really directional sharps.
 
     On any LLM error or invalid JSON, returns decision=skip with the error
     message in `reason`. Defense-in-depth: if the model returns an
@@ -408,9 +516,12 @@ def pick_final_event(llm_client, finalists: list[dict],
 
     compact = [_compact_event_for_picker(e) for e in finalists]
     # Re-attach the full alerts (not just top_alerts) so the model can pick
-    # specific alert_ids belonging to the chosen event.
+    # specific alert_ids belonging to the chosen event, and enrich each
+    # alert with its wallet's career stats when available.
     for c, src in zip(compact, finalists):
-        c["alerts"] = src.get("alerts") or []
+        c["alerts"] = _enrich_alerts_with_wallet_stats(
+            src.get("alerts") or [], wallet_stats or {},
+        )
 
     user_msg = (
         f"Stage-2 finalists ({len(compact)} events):\n"
@@ -511,10 +622,20 @@ def pick_article_story(llm_client, *, usage: dict | None = None) -> dict:
         return {"decision": "skip", "event_slug": None, "alert_ids": None,
                 "reason": "stage 1 produced no finalists"}
 
-    # Stage 2: final picker
+    # Stage 2: final picker. Fetch wallet_profiles for every wallet across
+    # finalists' alerts so the picker can disambiguate sharp directional
+    # bettors from MM-style "perfect record" wallets via roi_pct.
     recent = fetch_recent_article_slugs()
+    finalist_wallets = sorted({
+        a["wallet"]
+        for f in finalists for a in (f.get("alerts") or [])
+        if isinstance(a.get("wallet"), str)
+    })
+    wallet_stats = fetch_picker_wallet_stats(finalist_wallets)
     decision = pick_final_event(llm_client, finalists,
-                                recent_event_slugs=recent, usage=usage)
+                                recent_event_slugs=recent,
+                                wallet_stats=wallet_stats,
+                                usage=usage)
 
     # Attach the chosen event's alerts so downstream can resolve alert_ids → alert dicts
     if decision["decision"] == "post":
@@ -527,6 +648,12 @@ def pick_article_story(llm_client, *, usage: dict | None = None) -> dict:
         if not chosen_alerts:
             return {"decision": "skip", "event_slug": None, "alert_ids": None,
                     "reason": f"stage-2 returned alert_ids not in chosen event"}
+        # Defensive: each alert dict should already carry event_slug (from the
+        # JSONB_AGG above), but stamp it from the parent in case the SQL or a
+        # caller drops it. _derive_scope and _build_kickoff_message both rely
+        # on alerts[i]['event_slug'] for the event-keyed prefetches.
+        for a in chosen_alerts:
+            a.setdefault("event_slug", chosen["event_slug"])
         decision["chosen_alerts"] = chosen_alerts
 
     return decision
@@ -538,18 +665,22 @@ def pick_article_story(llm_client, *, usage: dict | None = None) -> dict:
 
 HEADLINE_MAX_CHARS = 90
 SUBHEAD_MAX_CHARS = 160
-COVER_ALT_MAX_CHARS = 200
+COVER_ALT_MAX_CHARS = 320
 BODY_WORD_MIN = 450
-BODY_WORD_MAX = 800
+BODY_WORD_MAX = 850
 BODY_H2_MIN = 3
 BODY_H2_MAX = 4
 
 _H2_LINE_RE = re.compile(r"(?m)^## \S")
 _WORD_RE = re.compile(r"\w+")
+# Replace `[text](url)` with just `text` so URL fragments (polyspotter, com,
+# market, will, the, slug words, hex chars) don't count as 10-15 extra words
+# per link and push valid articles over BODY_WORD_MAX.
+_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)\s]+\)")
 
 
 def _word_count(text: str) -> int:
-    return len(_WORD_RE.findall(text))
+    return len(_WORD_RE.findall(_MD_LINK_RE.sub(r"\1", text)))
 
 
 def validate_article_decision(decision: dict) -> tuple[bool, str]:
@@ -639,17 +770,29 @@ def validate_article_decision(decision: dict) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 def _dispatch_chart_render(
-    chart_type: str, alert: dict, params: dict | None = None,
+    chart_type: str,
+    alert: dict,
+    chosen_alerts: list[dict],
+    params: dict | None = None,
 ) -> bytes | None:
-    """Thin wrapper around storybot/charts.render_chart_for_alert. Tested
+    """Render the article cover via tweet_utils.prepare_chart_grid. Tested
     separately via monkeypatch. May raise; caller catches.
+
+    The facts_bundle is built here (not by the caller) so monkeypatching this
+    function in tests skips the trade-fetch + Gamma calls behind
+    build_enriched_facts_bundle. Same bundle shape twitter_pipeline feeds into
+    compose_chart, so the article cover renders the same hero+tile selection
+    the tweet does.
 
     `params` is the LLM-authored cover_chart_spec.params dict — forwarded so
     fetchers/renderers can use the outcome/token_id the LLM specified instead
     of trying to recover them from the alert dict (the picker SQL strips
     fields like `tokens` and `llm_copy_action`)."""
-    import charts
-    return charts.render_chart_for_alert(chart_type, alert, params=params)
+    from twitter_pipeline import build_enriched_facts_bundle
+    from tweet_utils import prepare_chart_grid
+    facts_bundle, _trades = build_enriched_facts_bundle(chosen_alerts)
+    return prepare_chart_grid(chart_type, alert,
+                              facts_bundle=facts_bundle, params=params)
 
 
 def render_cover_chart(
@@ -675,7 +818,7 @@ def render_cover_chart(
         return None, None
     spec_params = spec.get("params") if isinstance(spec.get("params"), dict) else None
     try:
-        png_bytes = _dispatch_chart_render(chart_type, alert, spec_params)
+        png_bytes = _dispatch_chart_render(chart_type, alert, chosen_alerts, spec_params)
     except Exception as exc:
         log("articlebot_chart_error",
             chart_type=chart_type, alert_id=alert_id,
@@ -774,9 +917,11 @@ def _retry_with_validation_hint(llm_client, transcript: list, error_msg: str,
     """Make ONE more LLM call appending a targeted validation hint.
 
     Appends a user message naming the violated rule, sends the full transcript
-    to the model with tool_choice="none" and json_object response format, and
-    returns the parsed decision dict.  Returns None if the response is not
-    valid JSON (caller treats None as a second failure).
+    to the model with json_object response format (and no tools — Azure rejects
+    `tool_choice="none"` unless `tools` is also passed, and we don't want any
+    more tool calls anyway), and returns the parsed decision dict.  Returns
+    None if the response is not valid JSON (caller treats None as a second
+    failure).
     """
     transcript.append({
         "role": "user",
@@ -791,7 +936,6 @@ def _retry_with_validation_hint(llm_client, transcript: list, error_msg: str,
         messages=transcript,
         temperature=1,
         max_completion_tokens=12000,
-        tool_choice="none",
         response_format={"type": "json_object"},
     )
     if usage is not None:

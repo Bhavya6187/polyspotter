@@ -245,6 +245,163 @@ def test_pick_article_story_orchestrates_stages():
     assert out["alert_ids"] == [1]
     # 2 stage-1 calls + 1 stage-2 call = 3
     assert client.completions.calls == 3
+    # Each chosen_alert should carry event_slug — _derive_scope and the
+    # kickoff message both depend on it, and the JSONB_AGG SQL embeds it
+    # per-alert. Belt-and-suspenders setdefault in pick_article_story
+    # guarantees this even if the SQL or caller drops it.
+    assert all(a.get("event_slug") == "slug-0" for a in out["chosen_alerts"])
+
+
+def test_event_summaries_sql_embeds_event_slug_per_alert():
+    """The JSONB_AGG inside EVENT_SUMMARIES_SQL must include 'event_slug' so
+    each alert dict carries the slug. Without it, _derive_scope finds no
+    ev_slug and prefetch_bundle silently drops event_meta and
+    wallet_event_history — costing 2-3 redundant query() calls per run."""
+    import articlebot
+    assert "'event_slug', a.event_slug" in articlebot.EVENT_SUMMARIES_SQL
+
+
+def test_fetch_picker_wallet_stats_computes_roi_and_avg_pnl():
+    """The MM-vs-sharp disambiguation hinges on roi_pct being correct.
+    Verify division by zero is handled and rows without a wallet are dropped."""
+    import articlebot
+
+    rows = [
+        # Sharp: 80% win rate, healthy ROI
+        {"wallet": "0xabc", "win_rate": 0.8, "closed_positions": 50,
+         "total_pnl": 25000.0, "total_invested": 100000.0},
+        # MM-shaped: 100% win rate but ~3% ROI
+        {"wallet": "0xdef", "win_rate": 1.0, "closed_positions": 31,
+         "total_pnl": 34629.46, "total_invested": 895474.32},
+        # Edge: zero invested → roi_pct must be None, not raise
+        {"wallet": "0x000", "win_rate": None, "closed_positions": 0,
+         "total_pnl": 0.0, "total_invested": 0.0},
+        # Garbage: no wallet → drop
+        {"wallet": None, "win_rate": 0.5},
+    ]
+    with patch.object(articlebot, "query_postgres", return_value=rows):
+        out = articlebot.fetch_picker_wallet_stats(["0xabc", "0xdef", "0x000"])
+
+    assert "0xabc" in out and out["0xabc"]["roi_pct"] == 25.0
+    assert "0xdef" in out
+    assert out["0xdef"]["roi_pct"] == round(34629.46 / 895474.32 * 100, 2)
+    assert out["0xdef"]["avg_pnl_per_closed"] == round(34629.46 / 31, 2)
+    assert "0x000" in out
+    assert out["0x000"]["roi_pct"] is None
+    assert out["0x000"]["avg_pnl_per_closed"] is None
+    assert None not in out
+
+
+def test_fetch_picker_wallet_stats_handles_empty_input():
+    import articlebot
+    assert articlebot.fetch_picker_wallet_stats([]) == {}
+
+
+def test_pick_final_event_attaches_wallet_stats_to_alerts():
+    """When wallet_stats is supplied, every matching alert in the stage-2
+    payload gets a `wallet_stats` field — that's what the prompt's MM
+    heuristic reads."""
+    import articlebot
+
+    finalists = [{
+        "event_slug": "slug-a",
+        "top_composite": 9.0,
+        "event_usd": 1000.0,
+        "alert_count": 1,
+        "strategies_fired": ["new_wallet_large_bet"],
+        "alerts": [
+            {"id": 1, "wallet": "0xsharp", "composite_score": 9.0,
+             "market_title": "M", "total_usd": 5000.0,
+             "llm_headline": "h"},
+            {"id": 2, "wallet": "0xmm", "composite_score": 5.0,
+             "market_title": "M", "total_usd": 3000.0,
+             "llm_headline": "h"},
+        ],
+        "first_alert_at": None, "last_alert_at": None,
+    }]
+
+    captured = {}
+
+    def _capture_create(**kwargs):
+        captured["messages"] = kwargs["messages"]
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(
+                content='{"decision":"skip","event_slug":null,"alert_ids":null,"reason":"r"}'))],
+            usage=SimpleNamespace(
+                prompt_tokens=1, completion_tokens=1, total_tokens=2,
+                prompt_tokens_details=None, completion_tokens_details=None,
+            ),
+        )
+
+    client = SimpleNamespace(chat=SimpleNamespace(
+        completions=SimpleNamespace(create=_capture_create)))
+
+    wallet_stats = {
+        "0xsharp": {"win_rate": 0.8, "closed_positions": 50,
+                    "total_pnl": 25000.0, "total_invested": 100000.0,
+                    "roi_pct": 25.0, "avg_pnl_per_closed": 500.0},
+        "0xmm":    {"win_rate": 1.0, "closed_positions": 31,
+                    "total_pnl": 34629.0, "total_invested": 895474.0,
+                    "roi_pct": 3.87, "avg_pnl_per_closed": 1117.0},
+    }
+
+    articlebot.pick_final_event(client, finalists, recent_event_slugs=[],
+                                wallet_stats=wallet_stats)
+
+    user_msg = captured["messages"][1]["content"]
+    # Both wallets' stats appear in the JSON payload sent to the picker.
+    assert '"wallet_stats"' in user_msg
+    assert '"roi_pct": 25.0' in user_msg
+    assert '"roi_pct": 3.87' in user_msg
+
+
+def test_pick_final_event_passes_through_when_no_wallet_stats():
+    """Backwards compat: omitting wallet_stats keeps the stage-2 payload
+    identical to its pre-feature shape (no wallet_stats key on alerts)."""
+    import articlebot
+
+    finalists = [{
+        "event_slug": "slug-a",
+        "top_composite": 9.0,
+        "event_usd": 1000.0,
+        "alert_count": 1,
+        "strategies_fired": ["new_wallet_large_bet"],
+        "alerts": [{"id": 1, "wallet": "0xabc", "composite_score": 9.0,
+                    "market_title": "M", "total_usd": 5000.0,
+                    "llm_headline": "h"}],
+        "first_alert_at": None, "last_alert_at": None,
+    }]
+
+    captured = {}
+
+    def _capture_create(**kwargs):
+        captured["messages"] = kwargs["messages"]
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(
+                content='{"decision":"skip","event_slug":null,"alert_ids":null,"reason":"r"}'))],
+            usage=SimpleNamespace(
+                prompt_tokens=1, completion_tokens=1, total_tokens=2,
+                prompt_tokens_details=None, completion_tokens_details=None,
+            ),
+        )
+
+    client = SimpleNamespace(chat=SimpleNamespace(
+        completions=SimpleNamespace(create=_capture_create)))
+
+    articlebot.pick_final_event(client, finalists, recent_event_slugs=[])
+
+    assert "wallet_stats" not in captured["messages"][1]["content"]
+
+
+def test_picker_stage2_prompt_documents_mm_heuristic():
+    """The prompt must explain how to read roi_pct, otherwise the model
+    won't use the new wallet_stats field. This is the contract that
+    makes task 5 actually do something."""
+    import articlebot
+    p = articlebot.PICKER_STAGE2_SYSTEM_PROMPT
+    assert "roi_pct" in p
+    assert "market" in p.lower() and "maker" in p.lower()
+    assert "wallet_stats" in p
 
 
 def test_pick_article_story_skips_when_no_events():

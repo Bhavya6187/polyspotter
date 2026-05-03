@@ -79,6 +79,7 @@ CLOB_PATH_ALLOWLIST = ("/prices-history", "/book")
 
 _MARKET_FIELDS_KEEP = (
     "id", "conditionId", "slug", "question",
+    "description",
     "outcomes", "outcomePrices",
     "volume", "volumeNum", "volume24hr", "volume1wk",
     "liquidity", "liquidityNum",
@@ -90,6 +91,12 @@ _MARKET_FIELDS_KEEP = (
     "active", "closed", "archived", "negRisk",
     "groupItemTitle", "line", "sportsMarketType",
 )
+
+# Cap on the resolution-rules description we pass through. Polymarket usually
+# stuffs the full prompt + criteria here, often 400-1500 chars. The first ~800
+# is enough for the writer to ground claims about how the market resolves;
+# longer prose just inflates prompt tokens.
+_MARKET_DESCRIPTION_CAP = 800
 
 _EVENT_FIELDS_KEEP = (
     "id", "slug", "title", "ticker",
@@ -109,6 +116,9 @@ _SIBLING_MARKET_FIELDS = (
 
 def _slim_market(m: dict) -> dict:
     out = {k: m[k] for k in _MARKET_FIELDS_KEEP if k in m}
+    desc = out.get("description")
+    if isinstance(desc, str) and len(desc) > _MARKET_DESCRIPTION_CAP:
+        out["description"] = desc[:_MARKET_DESCRIPTION_CAP].rstrip() + "…"
     evts = m.get("events")
     if isinstance(evts, list):
         out["events"] = [
@@ -349,6 +359,9 @@ def _hex_in_clause(values: list[str]) -> str | None:
 
 PREFETCH_WALLET_CAP = 50           # cap distinct wallets fed to phase-2 IN-clauses
 PREFETCH_EVENT_HISTORY_CAP = 200   # cap rows in wallet_event_history
+PREFETCH_RECENT_ALERTS_CAP = 50    # cap rows in recent_event_alerts_7d
+PREFETCH_PRICES_INTERVAL = "1d"    # /prices-history window (last 24h)
+PREFETCH_PRICES_FIDELITY = 30      # minutes between price points
 
 
 def _run_task(name: str, spec: tuple) -> tuple:
@@ -387,14 +400,39 @@ def _wallets_from_alert_trades(scope_wallets: list[str], alert_trades_data: Any)
     return [w for w, _ in ranked[:PREFETCH_WALLET_CAP]]
 
 
+def _yes_token_ids_from_market_meta(data: Any) -> list[str]:
+    """Extract the Yes-side CLOB token id for each market in a /markets
+    response. Token ids are stored as a JSON-string in `clobTokenIds`."""
+    if not isinstance(data, list):
+        return []
+    out: list[str] = []
+    for m in data:
+        if not isinstance(m, dict):
+            continue
+        raw = m.get("clobTokenIds")
+        try:
+            tids = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if isinstance(tids, list) and tids and isinstance(tids[0], str) and tids[0]:
+            out.append(tids[0])
+    return out
+
+
 def prefetch_bundle(scope: dict) -> dict:
     """Two-phase parallel prefetch of the predictable queries derivable from
     `scope`. Returns {item: {"ok": bool, "data"|"error", "ms": int}}.
 
-    Phase 1 (parallel): alert-id-keyed and event/condition-keyed queries.
-    Phase 2 (parallel, kicked off the moment alert_trades returns): wallet-keyed
-        queries spanning ALL wallets in the picked alerts (named + cluster
-        members surfaced by alert_trades).
+    Phase 1 (parallel): alert-id-keyed and event/condition-keyed queries —
+        alert_trades, tweeted_dedup, market_meta, event_meta,
+        recent_event_alerts_7d, wallet_theses.
+    Phase 2 wallet-keyed (kicked off the moment alert_trades returns):
+        wallet_profiles, wallet_funders, wallet_event_history — spanning
+        ALL wallets in the picked alerts (named + cluster members surfaced
+        by alert_trades).
+    Phase 2 CLOB-keyed (kicked off the moment market_meta returns):
+        prices_history_24h, order_book — for the Yes token of each picked
+        condition_id (the agent can call /book on the No token if needed).
 
     Pre-fetching skips one builder-LLM call per query and avoids the
     scope-vs-cluster gap where cluster wallets were previously unknown until
@@ -427,23 +465,66 @@ def prefetch_bundle(scope: dict) -> dict:
             WHERE alert_id IN ({ids_csv})
         """)
     cid_csv = ",".join(c for c in cids if isinstance(c, str) and _HEX_ID_RE.fullmatch(c))
+    cid_in = _hex_in_clause(cids) if cids else None
     if cid_csv:
         phase1["market_meta"] = ("gamma", "/markets", {"condition_ids": cid_csv})
     if ev_slug:
         phase1["event_meta"] = ("gamma", "/events", {"slug": ev_slug})
+
+    # Recent alerts on the picked event/condition_ids — what the writer uses
+    # to ground claims like "two accounts in 24h" or "first alert in a week".
+    # We OR on event_slug + condition_ids so cluster sibling-market alerts are
+    # included when scope has multiple cids. The top-severity signal headline
+    # is joined in via LATERAL so a single row carries the strongest signal.
+    recent_filters: list[str] = []
+    if ev_slug:
+        recent_filters.append(f"a.event_slug = '{ev_slug}'")
+    if cid_in:
+        recent_filters.append(f"a.condition_id IN {cid_in}")
+    if recent_filters:
+        where_clause = " OR ".join(recent_filters)
+        phase1["recent_event_alerts_7d"] = ("postgres", f"""
+            SELECT a.id, a.wallet, a.alert_type, a.condition_id, a.market_title,
+                   a.outcome, a.side, a.total_usd, a.created_at, a.llm_headline,
+                   sig.signal_headline
+            FROM alerts a
+            LEFT JOIN LATERAL (
+                SELECT headline AS signal_headline
+                FROM alert_signals
+                WHERE alert_id = a.id
+                ORDER BY severity DESC NULLS LAST
+                LIMIT 1
+            ) sig ON true
+            WHERE a.created_at >= NOW() - INTERVAL '7 days'
+              AND ({where_clause})
+            ORDER BY a.created_at DESC
+            LIMIT {PREFETCH_RECENT_ALERTS_CAP}
+        """)
+
+    # Wallet theses on the picked event — a UNIQUE(wallet, event_slug) view
+    # of cross-market positioning, useful for "the squad has a thesis here"
+    # framing. Scoped by event_slug only; wallets follow naturally.
+    if ev_slug:
+        phase1["wallet_theses"] = ("postgres", f"""
+            SELECT wallet, event_slug, thesis_headline, total_usd,
+                   composite_score, markets, created_at, updated_at
+            FROM wallet_theses
+            WHERE event_slug = '{ev_slug}'
+            ORDER BY composite_score DESC NULLS LAST
+        """)
 
     if not phase1 and not scope_wallets:
         return {}
 
     results: dict = {}
     t_start = time.monotonic()
-    max_workers = max(len(phase1), 1) + 4   # headroom for phase 2 to share the pool
+    max_workers = max(len(phase1), 1) + 6   # headroom for phase-2 wallet + CLOB
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
         futs = {n: ex.submit(_run_task, n, s) for n, s in phase1.items()}
 
-        # Phase 2 depends on alert_trades (for cluster wallet discovery). If
-        # alert_trades isn't queued (no alert_ids) we still run phase 2 against
-        # scope.wallets only.
+        # Phase 2 wallet-keyed: depends on alert_trades for cluster wallet
+        # discovery. If alert_trades isn't queued (no alert_ids) we still run
+        # this against scope.wallets only.
         alert_trades_data: Any = None
         if "alert_trades" in futs:
             _, r = futs["alert_trades"].result()
@@ -477,6 +558,31 @@ def prefetch_bundle(scope: dict) -> dict:
                 """)
             for n, s in phase2.items():
                 futs[n] = ex.submit(_run_task, n, s)
+
+        # Phase 2 CLOB-keyed: depends on market_meta to extract clobTokenIds.
+        # We fetch Yes-side prices_history (24h summary) and order_book; the
+        # No side rarely drives the narrative, so the agent can call /book
+        # on the No token via `query` if it wants symmetry.
+        if "market_meta" in futs:
+            _, r = futs["market_meta"].result()
+            results["market_meta"] = r
+            yes_tids: list[str] = []
+            if r.get("ok"):
+                yes_tids = _yes_token_ids_from_market_meta(r["data"])
+            if yes_tids:
+                primary = yes_tids[0]   # the picker promises one canonical market
+                futs["prices_history_24h"] = ex.submit(
+                    _run_task, "prices_history_24h",
+                    ("clob", "/prices-history", {
+                        "market": primary,
+                        "interval": PREFETCH_PRICES_INTERVAL,
+                        "fidelity": PREFETCH_PRICES_FIDELITY,
+                    }),
+                )
+                futs["order_book"] = ex.submit(
+                    _run_task, "order_book",
+                    ("clob", "/book", {"token_id": primary}),
+                )
 
         # Drain everything still pending (phase 1 leftovers + all of phase 2)
         for name, fut in futs.items():
@@ -579,9 +685,14 @@ thread that tells the whole story.
 
    The alerts/market themselves:
      - market_volume_snapshots / orderbook_snapshots → 24h volume + book depth
-     - CLOB /prices-history    → canonical price time-series (PREFER this over
+     - CLOB /prices-history    → canonical price time-series (PREFETCHED for
+                                 the picked Yes token, last 24h, as
+                                 `prices_history_24h`; PREFER this over
                                  price_candles for any price-move claim)
-     - alert_trades            → individual trades backing the alert(s)
+     - CLOB /book              → order-book depth (PREFETCHED for the picked
+                                 Yes token as `order_book`; call /book on
+                                 the No token via `query` if needed)
+     - alert_trades            → individual trades backing the alert(s) (PREFETCHED)
 
    The wallet(s) (usually the richest source of surprise):
      - wallet_profiles               → track record, edge, streaks (rollup; PREFETCHED for all wallets)
@@ -590,11 +701,15 @@ thread that tells the whole story.
      - Data API /trades?user=<wallet> → their recent activity across Polymarket (NOT prefetched)
 
    The tag / event context:
-     - Gamma /events?slug=<event>    → sibling markets, event metadata
+     - Gamma /events?slug=<event>    → sibling markets, event metadata (PREFETCHED as `event_meta`)
      - alerts filtered by tag        → other recent alerts in this vertical
                                        (sports / politics / crypto) — is this
                                        part of a broader pattern or an outlier?
-     - wallet_theses                 → cross-market thesis groupings on this event
+                                       Last 7 days on this event/cids are
+                                       PREFETCHED as `recent_event_alerts_7d`.
+     - wallet_theses                 → cross-market thesis groupings on this
+                                       event (PREFETCHED for the event_slug
+                                       as `wallet_theses`)
 3. Write the thread.
 
 ## What each detection strategy means
@@ -776,8 +891,18 @@ _BUNDLE_DESCRIPTIONS = {
     "wallet_funders":       "SQLite wallet_funders for ALL wallets in alert_trades.",
     "wallet_event_history": ("SQLite wallet_event_history for ALL wallets in alert_trades, scoped to "
                              f"the picked event_slug; top {PREFETCH_EVENT_HISTORY_CAP} rows by usd_value."),
-    "market_meta":          "Gamma /markets?condition_ids=… (current prices, volume, clobTokenIds).",
+    "wallet_theses":        "Postgres wallet_theses for the picked event_slug (cross-market thesis groupings).",
+    "recent_event_alerts_7d": ("Postgres alerts on the picked event_slug or condition_ids in the last 7 days "
+                               f"(top {PREFETCH_RECENT_ALERTS_CAP} by created_at DESC, with top-severity signal_headline)."),
+    "market_meta":          ("Gamma /markets?condition_ids=… — includes question, description (resolution rules, "
+                             f"first {_MARKET_DESCRIPTION_CAP} chars), outcomes, outcomePrices, bestBid, bestAsk, spread, "
+                             "lastTradePrice, oneHourPriceChange, oneDayPriceChange, oneWeekPriceChange, "
+                             "oneMonthPriceChange, volume, volume24hr, volume1wk, liquidity, clobTokenIds, startDate, "
+                             "endDate, gameStartTime, active, closed, archived, groupItemTitle. "
+                             "Do NOT re-fetch /markets to read these fields."),
     "event_meta":           "Gamma /events?slug=… (sibling markets, summary fields only — call /markets for full detail).",
+    "prices_history_24h":   "CLOB /prices-history for the picked market's Yes token, last 24h (summary first/last/min/max + raw points).",
+    "order_book":           "CLOB /book for the picked market's Yes token (top 20 levels per side). Call /book on the No token if needed.",
 }
 
 
