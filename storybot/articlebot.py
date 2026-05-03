@@ -113,7 +113,16 @@ specific bet on a specific market.
     - `wallet_record_card` — when one sharp wallet's track record carries the story
     - `fresh_wallet_card`  — when a brand-new wallet (≤60 days) is the story
     - `price_sparkline`    — when the market's price moved
-    - `volume_bar`         — when there was a volume surge
+    - `volume_bar`         — ONLY when today's 24h volume is ≥5× the
+                             market's 7-day daily-average baseline. The
+                             fetcher hard-rejects multipliers below 5×, so
+                             picking this on a popular market with a high
+                             baseline (e.g. EPL, NBA, presidential markets)
+                             silently produces no cover image. If you don't
+                             have clear evidence of a 5×+ spike — typically
+                             a `pre_event_volume_spike` signal on one of the
+                             chosen alerts, or a volume_x stat tile worth
+                             leading with — pick a different hero.
     - `cluster_card`       — when a coordinated squad with a SHARED FUNDER
                              is the story. ONLY pick this when at least
                              one chosen alert's `cluster_headline` ends
@@ -795,16 +804,37 @@ def _dispatch_chart_render(
                               facts_bundle=facts_bundle, params=params)
 
 
+# Order in which we try fallback heroes when the LLM-chosen one returns None.
+# Most-likely-to-succeed first: wallet_record_card needs only a wallet with a
+# profile; price_sparkline needs price movement; the rest have stricter
+# preconditions (cluster shared funder, fresh-wallet age, 5× volume spike).
+_CHART_TYPES_FALLBACK_ORDER = (
+    "wallet_record_card",
+    "price_sparkline",
+    "cluster_card",
+    "fresh_wallet_card",
+    "volume_bar",
+)
+
+
 def render_cover_chart(
     spec: dict | None,
     chosen_alerts: list[dict],
     out_path: str,
 ) -> tuple[bytes | None, str | None]:
-    """Render the cover chart specified by `cover_chart_spec`.
+    """Render the cover chart specified by `cover_chart_spec`, with a
+    fallback chain.
+
+    Order: (1) the LLM's chosen (chart_type, alert_id) with its params;
+    (2) other chart types on the same alert (carrying the LLM's params so
+    outcome labels still render); (3) every chart type on every other alert
+    in chosen_alerts (no params — outcome footer renders empty). First
+    successful render wins. Falling back from the LLM's pick is logged.
 
     Returns (png_bytes, written_path). Either or both may be None on a soft
-    failure (no chart spec, missing alert, render error, write error). The
-    caller writes png_bytes to the DB; the disk artifact is debug-only.
+    failure (no chart spec, primary alert missing, every attempt failed,
+    write error). The caller writes png_bytes to the DB; the disk artifact
+    is debug-only.
     """
     if not spec:
         return None, None
@@ -812,21 +842,46 @@ def render_cover_chart(
     alert_id = spec.get("alert_id")
     if not chart_type:
         return None, None
-    alert = next((a for a in chosen_alerts if a.get("id") == alert_id), None)
-    if alert is None:
+    primary = next((a for a in chosen_alerts if a.get("id") == alert_id), None)
+    if primary is None:
         log("articlebot_chart_skip", reason=f"alert_id {alert_id} not in chosen_alerts")
         return None, None
     spec_params = spec.get("params") if isinstance(spec.get("params"), dict) else None
-    try:
-        png_bytes = _dispatch_chart_render(chart_type, alert, chosen_alerts, spec_params)
-    except Exception as exc:
-        log("articlebot_chart_error",
-            chart_type=chart_type, alert_id=alert_id,
-            error=f"{type(exc).__name__}: {exc}")
-        return None, None
+
+    attempts: list[tuple[str, dict, dict | None]] = [(chart_type, primary, spec_params)]
+    for ct in _CHART_TYPES_FALLBACK_ORDER:
+        if ct != chart_type:
+            attempts.append((ct, primary, spec_params))
+    for a in chosen_alerts:
+        if a.get("id") == alert_id:
+            continue
+        for ct in _CHART_TYPES_FALLBACK_ORDER:
+            attempts.append((ct, a, None))
+
+    png_bytes: bytes | None = None
+    used_chart_type: str | None = None
+    used_alert_id = None
+    for ct, alert, params in attempts:
+        try:
+            png_bytes = _dispatch_chart_render(ct, alert, chosen_alerts, params)
+        except Exception as exc:
+            log("articlebot_chart_error",
+                chart_type=ct, alert_id=alert.get("id"),
+                error=f"{type(exc).__name__}: {exc}")
+            png_bytes = None
+        if png_bytes:
+            used_chart_type, used_alert_id = ct, alert.get("id")
+            break
+
     if not png_bytes:
         log("articlebot_chart_empty", chart_type=chart_type, alert_id=alert_id)
         return None, None
+
+    if (used_chart_type, used_alert_id) != (chart_type, alert_id):
+        log("articlebot_chart_fallback",
+            requested_chart_type=chart_type, requested_alert_id=alert_id,
+            used_chart_type=used_chart_type, used_alert_id=used_alert_id)
+
     try:
         with open(out_path, "wb") as f:
             f.write(png_bytes)

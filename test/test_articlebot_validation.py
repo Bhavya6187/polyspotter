@@ -181,6 +181,9 @@ def test_article_system_prompt_contains_style_rules_and_article_specifics():
     assert '"cover_chart_spec"' in p
     # Mandatory polyspotter link
     assert "polyspotter.com" in p
+    # volume_bar threshold is surfaced so the LLM doesn't pick it for popular
+    # markets where the 5× cutoff silently rejects the fetcher.
+    assert "5×" in p and "volume_bar" in p
 
 
 def test_render_cover_chart_writes_png_and_returns_path(tmp_path, monkeypatch):
@@ -244,6 +247,62 @@ def test_render_cover_chart_soft_faults_on_render_error(tmp_path, monkeypatch):
     )
     assert out == (None, None)
     assert not (tmp_path / "cover.png").exists()
+
+
+def test_render_cover_chart_falls_back_when_chosen_chart_returns_none(tmp_path, monkeypatch):
+    import articlebot
+
+    # The LLM picked volume_bar, which the fetcher rejects (e.g. no 5× spike).
+    # Fallback should try other chart types on the same alert and succeed.
+    calls: list[tuple[str, int | None]] = []
+
+    def _fake_render(chart_type, alert, chosen_alerts, params=None):
+        calls.append((chart_type, alert.get("id")))
+        if chart_type == "volume_bar":
+            return None
+        if chart_type == "wallet_record_card":
+            return b"\x89PNG\r\n\x1a\nFALLBACK"
+        return None
+
+    monkeypatch.setattr(articlebot, "_dispatch_chart_render", _fake_render)
+
+    spec = {"chart_type": "volume_bar", "alert_id": 7, "params": {}}
+    chosen_alerts = [{"id": 7, "wallet": "0xa", "market_title": "M",
+                      "condition_id": "0xc"}]
+    png_bytes, cover_path = articlebot.render_cover_chart(
+        spec, chosen_alerts, str(tmp_path / "cover.png")
+    )
+    assert png_bytes == b"\x89PNG\r\n\x1a\nFALLBACK"
+    assert cover_path == str(tmp_path / "cover.png")
+    assert (tmp_path / "cover.png").exists()
+    # Volume_bar tried first, then wallet_record_card succeeded.
+    assert calls[0] == ("volume_bar", 7)
+    assert ("wallet_record_card", 7) in calls
+
+
+def test_render_cover_chart_falls_back_to_other_alert_when_primary_dry(tmp_path, monkeypatch):
+    import articlebot
+
+    # Primary alert can't render any chart type; another alert in the chosen
+    # set succeeds. Verifies cross-alert fallback.
+    def _fake_render(chart_type, alert, chosen_alerts, params=None):
+        if alert.get("id") == 1:
+            return None
+        if alert.get("id") == 2 and chart_type == "wallet_record_card":
+            return b"\x89PNG\r\n\x1a\nALT"
+        return None
+
+    monkeypatch.setattr(articlebot, "_dispatch_chart_render", _fake_render)
+
+    spec = {"chart_type": "volume_bar", "alert_id": 1, "params": {}}
+    chosen_alerts = [
+        {"id": 1, "wallet": "0xa", "market_title": "M1", "condition_id": "0xc1"},
+        {"id": 2, "wallet": "0xb", "market_title": "M2", "condition_id": "0xc2"},
+    ]
+    png_bytes, _ = articlebot.render_cover_chart(
+        spec, chosen_alerts, str(tmp_path / "cover.png")
+    )
+    assert png_bytes == b"\x89PNG\r\n\x1a\nALT"
 
 
 def test_render_cover_chart_returns_none_when_alert_id_not_found(tmp_path, monkeypatch):
