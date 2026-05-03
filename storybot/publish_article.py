@@ -4,11 +4,11 @@ Usage:
     python storybot/publish_article.py <run_id>
     DRY_RUN=true python storybot/publish_article.py <run_id>
 
-Prints the teaser tweet (and writes the cover image to /tmp) so you can
-post it manually on Twitter — Twitter's API costs ~20¢ per tweet, so
-we'd rather copy/paste. The article still goes live on polyspotter.com
-and the DB row is flipped to 'published'. After posting, paste the
-tweet URL back at the prompt and we'll fill in tweet_id/posted_url.
+Prints the teaser tweet (and writes the cover image to storybot/articles/)
+so you can post it manually on Twitter — Twitter's API costs ~20¢ per
+tweet, so we'd rather copy/paste. The article still goes live on
+polyspotter.com and the DB row is flipped to 'published'. After posting,
+paste the tweet URL back at the prompt and we'll fill in tweet_id/posted_url.
 """
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from pathlib import Path
 
 import psycopg2
 
+from articlebot_storage import ARTICLES_DIR
 from bot_utils import DATABASE_URL, QUERY_TIMEOUT_SECONDS, log
 from tweet_utils import (
     TWEET_MAX_CHARS,
@@ -123,7 +124,8 @@ def main(argv: list[str]) -> int:
         cover_bytes = bytes(cover_bytes_raw) if cover_bytes_raw else None
         cover_path = None
         if cover_bytes:
-            cover_path = Path("/tmp") / f"{run_id}_cover.png"
+            cover_path = Path(ARTICLES_DIR) / f"{run_id}_cover.png"
+            cover_path.parent.mkdir(parents=True, exist_ok=True)
             cover_path.write_bytes(cover_bytes)
 
         print(f"\n--- Tweet ({_tweet_length(tweet)} twitter chars) ---")

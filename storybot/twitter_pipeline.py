@@ -344,19 +344,47 @@ stands out. You DO NOT write the tweet — that's a later stage.
 
 You see up to 20 compact alerts, sorted by composite_score, each with its
 top signals (strategy + severity + headline), market, wallet, $ size, event,
-tags, and timing.
+tags, timing, and the alert's intended `side` (the outcome the informed
+flow is on — e.g. "Yes", "No", "Over", "Under", a team name).
 
 ## Your job
-1. Find the strongest *story*. A story = one event with one or more alerts
-   that share a thesis. Multiple alerts on the same event_slug or
-   condition_id usually belong together. A single alert is also fine if
-   the signal is strong enough on its own.
+1. Find the strongest *story with directional alpha*. A story = one event
+   where informed flow is pushing in ONE direction that a reader could
+   actually act on. Multiple alerts on the same event_slug or condition_id
+   usually belong together. A single alert is also fine if the signal is
+   strong enough on its own.
 2. Decide skip vs post:
-   - skip if all alerts are small, generic, or lack a clear narrative
-   - post if there's a real surprise: a sharp wallet, coordinated flow,
-     a price/volume move, late-game timing, etc.
-3. If posting, return the alert_ids that belong to that one event-cluster
-   and a one-paragraph event_summary that frames what's surprising.
+   - post if there's a real surprise the reader can act on: a sharp wallet
+     taking a clear side, coordinated flow on one side, a price/volume move
+     in one direction, late-game timing on a specific outcome, etc.
+   - skip if all alerts are small, generic, lack a clear narrative, OR lack
+     a clear directional thesis (see below).
+
+## Directional alpha is required (HARD RULE)
+A tweet without a side is not alpha. The reader needs to know which way
+informed money is leaning so they can decide whether to follow.
+
+When candidate alerts are on the SAME market (same condition_id) but
+disagree on side — e.g. one cluster bought Over and a separate sharp
+wallet bought Under on the same total — that is NOT a story. Sports
+totals and binary markets routinely attract action on both sides; framing
+it as "sharps colliding" reads as analysis, not edge, and gives the
+reader nothing to do. In that situation:
+  (a) prune the cluster to ONLY the alerts on the dominant side (by
+      $ size or by sharpness) and post that as a directional story —
+      provided the remaining side still stands on its own as a surprise; OR
+  (b) skip the event entirely and look for another cluster.
+Never post a cluster whose `alert_ids` mix opposing sides on the same market.
+
+Multi-market clusters (same event, different condition_ids — e.g. moneyline
++ spread + total) can carry alerts on different outcomes because each
+condition_id is a separate bet. That's allowed as long as the alerts
+collectively express ONE coherent thesis on the event (e.g. "team X wins
+big"), not contradictory views.
+
+3. If posting, return the alert_ids that belong to that one directional
+   cluster and a one-paragraph event_summary that frames what's surprising
+   AND names the side the informed flow is on.
 
 ## Output (strict JSON only)
 {
@@ -367,12 +395,16 @@ tags, and timing.
 }
 
 When decision=post:
-- alert_ids must be 1+ real IDs from the list shown to you, all sharing one event.
-- event_summary must be a short paragraph (2-4 sentences) describing the event,
-  the cluster, and the single most surprising fact. Plain English. No tweet
-  voice yet. Downstream stages use this as framing.
+- alert_ids must be 1+ real IDs from the list shown to you, all sharing one
+  event AND (when on the same condition_id) all on the same side.
+- event_summary must be a short paragraph (2-4 sentences) describing the
+  event, the cluster, the side the informed flow is on, and the single
+  most surprising fact. Plain English. No tweet voice yet. Downstream
+  stages use this as framing.
 
 When decision=skip, alert_ids and event_summary should be null.
+Valid skip reasons include: no clear directional thesis, opposing flow
+on the same market, all alerts too small/generic.
 """
 
 

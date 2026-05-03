@@ -282,7 +282,12 @@ _PICKER_FIELDS = (
 
 
 def _compact_alert_for_picker(alert: dict) -> dict:
-    """Trim a full alert row down to the fields the picker needs to judge it."""
+    """Trim a full alert row down to the fields the picker needs to judge it.
+
+    Surfaces the alert's intended side (`llm_copy_action.outcome`) as a
+    top-level `side` field so the picker can detect opposing-flow clusters
+    deterministically instead of inferring direction from headlines.
+    """
     out = {k: alert.get(k) for k in _PICKER_FIELDS if alert.get(k) is not None}
     signals = alert.get("signals") or []
     if signals:
@@ -291,6 +296,15 @@ def _compact_alert_for_picker(alert: dict) -> dict:
              "headline": s.get("headline")}
             for s in signals if isinstance(s, dict)
         ]
+    copy = alert.get("llm_copy_action") or {}
+    if isinstance(copy, str):
+        try:
+            copy = json.loads(copy)
+        except json.JSONDecodeError:
+            copy = {}
+    side = copy.get("outcome") if isinstance(copy, dict) else None
+    if side:
+        out["side"] = side
     return out
 
 
