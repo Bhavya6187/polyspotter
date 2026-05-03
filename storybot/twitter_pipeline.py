@@ -459,8 +459,11 @@ You see:
   delta of 0.03. Threshold: |to - from| >= 0.03 OR
   |to - from| / max(from, to, 0.01) >= 0.10.
 - "volume_bar" — volume bars showing a spike.
-  Pick this iff facts_bundle.has_volume_spike is true OR
-  peak_hour_volume_usd dwarfs other windows.
+  Pick this iff facts_bundle.volume_multiplier_x is non-null AND >= 5.0.
+  has_volume_spike alone isn't enough — the chart's underlying renderer
+  needs the gamma-vs-baseline ratio to clear 5×, and volume_multiplier_x
+  carries that exact ratio. Below 5×, pick whichever OTHER chart type
+  has the strongest supporting fact (or "none").
 - "cluster_card" — multi-wallet cluster card with a SHARED FUNDER.
   Pick this iff facts_bundle.cluster_size >= 3 AND no sharp_wallet record
   dominates (otherwise prefer wallet_record_card and mention the cluster

@@ -330,7 +330,7 @@ def prepare_chart_grid(chart_type: str, alert: dict,
         return None
     enrich_alert_for_charts(alert)
     try:
-        return chart_grid.compose_chart(
+        png = chart_grid.compose_chart(
             hero_type=chart_type,
             alert=alert,
             facts_bundle=facts_bundle,
@@ -341,6 +341,13 @@ def prepare_chart_grid(chart_type: str, alert: dict,
             error=f"{type(exc).__name__}: {exc}",
             chart_type=chart_type, alert_id=alert.get("id"))
         return None
+    if png is None:
+        # compose_chart returns None silently when the hero fetcher's
+        # threshold rejects the alert (e.g. volume_bar requires mult >= 5×).
+        # Without this log the only trace is rendered=false in chart_selected.
+        log("chart_grid_returned_none",
+            chart_type=chart_type, alert_id=alert.get("id"))
+    return png
 
 
 # --- Posting ----------------------------------------------------------------

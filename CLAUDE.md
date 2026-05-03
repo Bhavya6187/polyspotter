@@ -80,8 +80,8 @@ python storybot/articlebot.py        # writes a draft to articles table + .md to
 DRY_RUN=true python storybot/articlebot.py   # writes to storybot/dry_runs/
 
 # After reviewing the draft (storybot/articles/<run_id>.md):
-python storybot/publish_article.py <run_id>          # flips draft → published, posts teaser tweet
-DRY_RUN=true python storybot/publish_article.py <run_id>   # preview + confirm prompt
+python storybot/publish_article.py <run_id>          # prints teaser tweet for manual posting, then flips draft → published
+DRY_RUN=true python storybot/publish_article.py <run_id>   # preview only, no DB update
 ```
 
 Cron: once daily at 13:00 UTC (9am ET) recommended for `articlebot.py`.
