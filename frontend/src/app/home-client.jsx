@@ -8,6 +8,8 @@ import Pagination from "../components/Pagination";
 import Ticker from "../components/Ticker";
 import ThemeToggle from "../components/ThemeToggle";
 import TopThree from "../components/TopThree";
+import TopThreeFollowStrip from "../components/TopThreeFollowStrip";
+import EngagementToast from "../components/EngagementToast";
 import ResolvingSoonStrip from "../components/ResolvingSoonStrip";
 import CommandPalette from "../components/CommandPalette";
 import TopicNav from "../components/TopicNav";
@@ -178,6 +180,8 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
 
       {/* Today's Top 3 */}
       <TopThree />
+      <TopThreeFollowStrip />
+      <div id="top-three-end-sentinel" aria-hidden="true" />
 
       {/* Live ticker — hidden on mobile, duplicates feed */}
       <section aria-label="Live ticker" className="hidden sm:block mb-5 sm:mx-0 sm:rounded-xl sm:overflow-hidden">
@@ -217,6 +221,8 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
           onPageChange={handlePageChange}
         />
       </nav>
+
+      <EngagementToast />
     </main>
   );
 }
