@@ -74,6 +74,55 @@ def test_compose_chart_zero_tiles_falls_back_to_single_chart():
     assert img.size == (charts.CANVAS_W_PX, charts.CANVAS_H_PX)
 
 
+def test_compose_chart_one_tile_has_no_between_slot_dividers():
+    """Regression: when only 1 tile passes thresholds, n_slots is derived
+    from len(tiles) so the tile spans the full right column and no
+    horizontal between-slot dividers are drawn."""
+    import matplotlib.figure
+    from matplotlib.lines import Line2D
+
+    fb = {
+        # Tuned so only the clock tile survives: cluster_total < $25k,
+        # cluster_size 2 < min 3, sharp_record dedup'd by hero, no spike,
+        # no price move, no fresh wallet, distinct_wallets 1 < min 5.
+        "minutes_to_resolution": 1193,
+        "total_usd": 10_000,
+        "cluster_size": 2,
+        "has_volume_spike": False,
+        "volume_multiplier_x": None,
+        "biggest_price_move": None,
+        "has_sharp_wallet": {"record": "20-3"},
+        "has_fresh_wallet": None,
+        "distinct_wallets": 1,
+    }
+    assert len(chart_grid.select_tiles("wallet_record_card", fb)) == 1
+
+    captured = []
+    orig_savefig = matplotlib.figure.Figure.savefig
+
+    def capture(self, *args, **kwargs):
+        captured.append(self)
+        return orig_savefig(self, *args, **kwargs)
+
+    with patch.object(charts, "fetch_wallet_record_card_data",
+                      return_value=_wallet_record_data()), \
+         patch.object(matplotlib.figure.Figure, "savefig", capture):
+        chart_grid.compose_chart(
+            hero_type="wallet_record_card",
+            alert={"id": 1, "wallet": "0xabc"},
+            facts_bundle=fb,
+        )
+
+    fig = captured[0]
+    # 1 hero axes + 1 tile axes — no empty extra slots.
+    assert len(fig.axes) == 2, (
+        f"expected 2 axes (hero + 1 tile), got {len(fig.axes)}")
+    # Only the vertical hero/tile divider; no horizontal between-slot lines.
+    line_artists = [a for a in fig.artists if isinstance(a, Line2D)]
+    assert len(line_artists) == 1, (
+        f"expected 1 Line2D (vertical divider only), got {len(line_artists)}")
+
+
 def test_compose_chart_hero_fetch_returns_none_returns_none():
     fb = {"minutes_to_resolution": 11, "total_usd": 200_000, "cluster_size": 7}
     with patch.object(charts, "fetch_wallet_record_card_data", return_value=None):

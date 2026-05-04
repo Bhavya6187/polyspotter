@@ -278,10 +278,10 @@ def compose_chart(*, hero_type: str, alert: dict, facts_bundle: dict,
     except Exception:
         return None
 
-    # Tile column: 3 vertically stacked regions on the right.
+    # Tile column: one slot per surviving tile, stacked from the top.
     col_x = hero_w_frac
     col_w = 1.0 - hero_w_frac
-    n_slots = 3
+    n_slots = len(tiles)
     slot_h = 1.0 / n_slots
     for i, spec in enumerate(tiles):
         # Slot 0 is the TOP slot — figure y goes 0 (bottom) to 1 (top).
