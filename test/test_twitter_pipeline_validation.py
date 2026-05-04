@@ -105,30 +105,37 @@ def test_validate_allows_dollar_lede_with_record_later():
     assert ok, err
 
 
+_VALIDATOR_OK = json.dumps({"ok": True, "error": None})
+
+
 def test_writer_succeeds_on_first_attempt():
     good = json.dumps({"tweet": "Sharp wallet 29-4. https://polyspotter.com/alert/1"})
-    client = FakeClient([good])
+    client = FakeClient([good, _VALIDATOR_OK])
     decision, err, attempts = twitter_pipeline.write_tweet_with_retry(
         client, [], "summary", {}, {"chart_type": "none", "hook_anchor": "x"})
     assert err is None
     assert attempts == 1
-    assert client.completions.calls == 1
+    # 1 writer + 1 validator call
+    assert client.completions.calls == 2
 
 
 def test_writer_retries_once_on_missing_link():
     bad = json.dumps({"tweet": "No link in this tweet at all"})
     good = json.dumps({"tweet": "Same point. https://polyspotter.com/alert/1"})
-    client = FakeClient([bad, good])
+    # bad fails deterministic check (no link) so validator is skipped on
+    # attempt 1; validator only runs on the successful retry.
+    client = FakeClient([bad, good, _VALIDATOR_OK])
     decision, err, attempts = twitter_pipeline.write_tweet_with_retry(
         client, [], "summary", {}, {"chart_type": "none", "hook_anchor": "x"})
     assert err is None
     assert attempts == 2
-    assert client.completions.calls == 2
+    assert client.completions.calls == 3
 
 
 def test_writer_gives_up_after_two_failures():
     bad1 = json.dumps({"tweet": "no link 1"})
     bad2 = json.dumps({"tweet": "no link 2"})
+    # Both fail deterministic checks → validator never runs.
     client = FakeClient([bad1, bad2])
     decision, err, attempts = twitter_pipeline.write_tweet_with_retry(
         client, [], "summary", {}, {"chart_type": "none", "hook_anchor": "x"})
@@ -142,11 +149,50 @@ def test_writer_retries_once_on_parse_error_then_succeeds():
     """First attempt returns malformed JSON; retry returns valid tweet."""
     bad_json = "not even close to JSON"
     good = json.dumps({"tweet": "Recovered. https://polyspotter.com/alert/1"})
-    client = FakeClient([bad_json, good])
+    client = FakeClient([bad_json, good, _VALIDATOR_OK])
     decision, err, attempts = twitter_pipeline.write_tweet_with_retry(
         client, [], "summary", {}, {"chart_type": "none", "hook_anchor": "x"})
     assert err is None
     assert attempts == 2
+    assert client.completions.calls == 3
+
+
+def test_writer_retries_when_llm_validator_rejects():
+    """Writer + deterministic checks pass, but LLM validator rejects on
+    attempt 1; retry produces a tweet the validator accepts."""
+    writer1 = json.dumps({"tweet": "First draft. https://polyspotter.com/alert/1"})
+    validator_reject = json.dumps({"ok": False, "error": "rule 3: record mismatch"})
+    writer2 = json.dumps({"tweet": "Second draft. https://polyspotter.com/alert/1"})
+    client = FakeClient([writer1, validator_reject, writer2, _VALIDATOR_OK])
+    decision, err, attempts = twitter_pipeline.write_tweet_with_retry(
+        client, [], "summary", {}, {"chart_type": "none", "hook_anchor": "x"})
+    assert err is None
+    assert attempts == 2
+    assert client.completions.calls == 4
+
+
+def test_writer_gives_up_when_llm_validator_rejects_twice():
+    writer = json.dumps({"tweet": "Draft. https://polyspotter.com/alert/1"})
+    validator_reject = json.dumps({"ok": False, "error": "rule 3: record mismatch"})
+    client = FakeClient([writer, validator_reject, writer, validator_reject])
+    decision, err, attempts = twitter_pipeline.write_tweet_with_retry(
+        client, [], "summary", {}, {"chart_type": "none", "hook_anchor": "x"})
+    assert err is not None
+    assert "rule 3" in err
+    assert attempts == 2
+    assert client.completions.calls == 4
+
+
+def test_llm_validator_fails_open_on_parse_error():
+    """If the validator itself returns malformed JSON, treat the tweet as
+    valid — better to ship a borderline draft than block on a flaky validator."""
+    writer = json.dumps({"tweet": "Draft. https://polyspotter.com/alert/1"})
+    validator_garbage = "not json at all"
+    client = FakeClient([writer, validator_garbage])
+    decision, err, attempts = twitter_pipeline.write_tweet_with_retry(
+        client, [], "summary", {}, {"chart_type": "none", "hook_anchor": "x"})
+    assert err is None
+    assert attempts == 1
     assert client.completions.calls == 2
 
 

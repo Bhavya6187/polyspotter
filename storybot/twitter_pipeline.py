@@ -842,42 +842,213 @@ def write_tweet(llm_client, chosen_alerts: list[dict], event_summary: str,
         return {"tweet": "", "_parse_error": f"invalid JSON: {exc}"}
 
 
+SYSTEM_PROMPT_TWEET_VALIDATOR = """You are the fact-checker and style police for a \
+Polymarket tweet bot. You see a candidate tweet plus the exact facts the writer was \
+given. You flag claims that don't reconcile with those facts AND clear style \
+violations. You do NOT verify Polymarket reality, news, or anything outside the \
+provided bundle — bundle errors are not your problem.
+
+You see: tweet, event_summary, facts_bundle, chosen_alerts, chart_type, hook_anchor,
+image_tiles, recent_openers.
+
+## Tier 1 — hard rejections (fact reconciliation)
+
+1. Dollar figures. Every $ in the tweet must round-match facts_bundle.total_usd,
+   has_sharp_wallet.bet_usd, peak_hour_volume_usd, or a defensible sum.
+   Tolerance: ±10% or ±$500, whichever is larger.
+
+2. Volume multiplier. "Nx" / "N times" volume must match
+   facts_bundle.volume_multiplier_x within ±20%. Do NOT accept volume figures
+   from event_summary or alert headlines — those use a different baseline. If
+   volume_multiplier_x is null, the tweet must not claim a volume multiplier.
+
+3. Wallet record. Digits like "732-127", "85%", "110-3" must match
+   facts_bundle.has_sharp_wallet.record / win_pct exactly (round win_pct to
+   nearest %). Records cited that don't appear in the bundle are rejected.
+
+4. Wallet age. "N-day-old account" must be within ±2 days of
+   facts_bundle.has_fresh_wallet.wallet_age_days.
+
+5. Time-to-resolution. Hard clocks ("11 minutes to tip", "first pitch in 90")
+   must match facts_bundle.minutes_to_resolution within ±20%. If
+   minutes_to_resolution > 360, no hard clock allowed; soft "by Tuesday" is fine.
+
+6. Side. The outcome the tweet credits with informed flow must match
+   event_summary and chosen_alerts. Yes when alerts are No → reject.
+
+7. Sharp vs cluster stake. When has_sharp_wallet.bet_usd <= 0.5 * total_usd,
+   the tweet must not imply the sharp wallet bet the full cluster sum.
+
+8. Price move. Specific cents like "32c", "41c", or a delta like "32c → 41c"
+   must match facts_bundle.biggest_price_move.from / .to (×100, nearest cent).
+   If biggest_price_move is null, no specific price flip allowed.
+
+9. Wallet count. "Five accounts", "8 wallets", "three wallets" must match
+   facts_bundle.distinct_wallets or cluster_size within ±1.
+
+## Tier 2 — hard rejections (clear style violations)
+
+10. Banned jargon. Tweet must not contain any of:
+    "deployed capital", "real size", "meaningful size", "conviction flow",
+    "high-conviction", "scan window", "composite score", "alerted flow",
+    "positioning", "near-resolution flag", "priced in", "coordinated burst",
+    "pile-in", "counterpunch", "looked cleaner", "linked wallet",
+    "linked wallets", "wallet trio", "wallet duo", "wallet squad",
+    "informed flow", "smart money flow".
+
+11. Strategy-label leakage. Tweet must not surface raw strategy names as nouns:
+    "wallet clustering", "price impact", "volume spike", "win rate tracking",
+    "new wallet large bet", "concentrated one-sided", "correlated cross-market".
+    Behavior is required, not labels (e.g. "10× the usual flow" not "volume
+    spike"; "three accounts sharing one funder" not "wallet clustering").
+
+12. Hashtags / mentions / emoji budget. Reject any "#" hashtag, any "@"
+    mention, or more than one emoji.
+
+13. Raw wallet addresses. Tweet must not contain a 0x-prefixed address.
+    Wallets are described by record, age, or behavior.
+
+14. Vague chest-thump closer. The final clause must not be: "Not random.",
+    "Something's cooking.", "Worth a look.", "Watch this space.", "Eyes on
+    this.", or any equivalent empty signal-off. Closers must be a concrete
+    clock, stake, or counter-fact.
+
+## Tier 3 — soft rejections (judgment; only flag CLEAR violations)
+
+15. Passive scanner-caption opener. Reject ledes shaped like
+    "The <SIDE> side just got bought…", "<TEAM> money just …",
+    "<N>-wallet <SIDE> cluster…", "<N>x volume spike…" used as a
+    noun-phrase opener with no clock, impact, or behavior.
+
+16. Cumulative-as-just-now. If a $ figure exceeds facts_bundle.total_usd, the
+    tweet must frame it cumulatively ("have built", "now sit at"), not as a
+    fresh push ("just bought", "in the last hour", "minutes before X").
+
+17. Spell-out-what-bet-is-on. Bare outcomes ("Under", "Over", "Yes", "No",
+    "Yes for $40k") without naming what the bet is ON → reject. Required:
+    "Under 7.5 runs", "Yes on Fed cuts in May", "buying No at 12c". Context
+    can come earlier in the same tweet ("US-Iran peace-deal odds slid from
+    79c to 62c… $19k of No" is fine — "No" is anchored).
+
+18. Win-rate-with-count. A bare "wins 88% of the time" → reject. Must be
+    anchored to a count: "88% across 50+ Polymarket bets" or a literal record
+    like "178-20".
+
+19. Lede priority. When facts_bundle.minutes_to_resolution is set and < 60
+    AND the tweet does not lead with the clock → reject (timing beats
+    everything). When facts_bundle.biggest_price_move shows |to-from| >= 0.03
+    AND the tweet does not lead with the impact → reject (impact beats size).
+
+20. Opener mimicry. If the tweet's first 3-4 words match the template/shape
+    of any string in recent_openers → reject. Exact word match isn't
+    required; the SHAPE must differ.
+
+21. Number budget. More than 3 distinct numeric quantities in the tweet body
+    (records like "178-20" count as one). URLs do not count.
+
+22. Rounding. Dollar figures must be rounded ("$78k" / "$2.8M"), not raw
+    ("$78,131.61"). Win-rate records stay exact.
+
+## Output (strict JSON only)
+{
+  "ok": true | false,
+  "error": "<rule number and one short sentence naming what failed>" | null
+}
+
+When ok=false, error must be specific enough for the writer to fix on retry,
+e.g. "rule 2: tweet says '103x' but volume_multiplier_x is 1.25" or
+"rule 17: 'bought $9.6k of No' missing what the bet is ON".
+"""
+
+
+def llm_validate_tweet(llm_client, tweet: str, chosen_alerts: list[dict],
+                       event_summary: str, bundle: dict, chart_pick: dict,
+                       image_tiles: list[str] | None = None,
+                       recent_openers: list[str] | None = None,
+                       *, usage: dict | None = None) -> tuple[bool, str]:
+    """LLM second-pass fact/style check. Returns (ok, error).
+
+    Fails open on validator parse error — we don't want a flaky validator
+    blocking an otherwise-good tweet.
+    """
+    from bot_utils import MODEL, _accumulate_usage, _compact_alert_for_picker, log
+    payload = {
+        "tweet": tweet,
+        "event_summary": event_summary,
+        "facts_bundle": bundle,
+        "chosen_alerts": [_compact_alert_for_picker(a) for a in chosen_alerts],
+        "chart_type": chart_pick.get("chart_type"),
+        "hook_anchor": chart_pick.get("hook_anchor"),
+        "image_tiles": image_tiles or [],
+        "recent_openers": recent_openers or [],
+    }
+    response = llm_client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT_TWEET_VALIDATOR},
+            {"role": "user", "content": json.dumps(payload, default=str, indent=2)},
+        ],
+        temperature=1,
+        max_completion_tokens=3000,
+        reasoning_effort="low",
+        response_format={"type": "json_object"},
+    )
+    if usage is not None:
+        _accumulate_usage(usage, response)
+    content = response.choices[0].message.content or "{}"
+    try:
+        result = json.loads(content)
+    except json.JSONDecodeError as exc:
+        log("llm_validator_parse_error", error=str(exc))
+        return True, ""
+    if result.get("ok"):
+        return True, ""
+    return False, str(result.get("error") or "llm validator rejected tweet")
+
+
+def _validate_combined(llm_client, tweet, chosen_alerts, event_summary, bundle,
+                       chart_pick, image_tiles, recent_openers,
+                       usage) -> tuple[bool, str]:
+    """Deterministic checks first (cheap, fail-fast), then LLM fact/style check."""
+    ok, err = validate_tweet(tweet)
+    if not ok:
+        return False, err
+    return llm_validate_tweet(llm_client, tweet, chosen_alerts, event_summary,
+                              bundle, chart_pick, image_tiles=image_tiles,
+                              recent_openers=recent_openers, usage=usage)
+
+
 def write_tweet_with_retry(llm_client, chosen_alerts, event_summary, bundle,
                            chart_pick, *, image_tiles=None,
                            recent_openers=None,
                            usage=None) -> tuple[dict, str | None, int]:
     """Run stage 4 once; on validation failure, retry once with the error fed back.
 
-    Returns (final_decision_dict, error_or_None, attempts).
+    Validation = deterministic checks (length, banned phrases, link presence,
+    record-led opener) followed by an LLM fact/style check that reconciles the
+    tweet against facts_bundle. Returns (final_decision_dict, error_or_None,
+    attempts).
     """
     from bot_utils import log
-    attempt = 1
-    out = write_tweet(llm_client, chosen_alerts, event_summary, bundle, chart_pick,
-                      image_tiles=image_tiles, recent_openers=recent_openers,
-                      usage=usage)
-    if out.get("_parse_error"):
-        log("validation_retry", error=out["_parse_error"])
-        attempt = 2
+
+    def _attempt(prior_error):
         out = write_tweet(llm_client, chosen_alerts, event_summary, bundle, chart_pick,
                           image_tiles=image_tiles, recent_openers=recent_openers,
-                          usage=usage, prior_error=out["_parse_error"])
+                          usage=usage, prior_error=prior_error)
         if out.get("_parse_error"):
-            return out, out["_parse_error"], attempt
-        ok, err = validate_tweet(out.get("tweet", ""))
-        return (out, None, attempt) if ok else (out, err, attempt)
+            return out, out["_parse_error"]
+        ok, err = _validate_combined(llm_client, out.get("tweet", ""),
+                                     chosen_alerts, event_summary, bundle,
+                                     chart_pick, image_tiles, recent_openers,
+                                     usage)
+        return out, (None if ok else err)
 
-    ok, err = validate_tweet(out.get("tweet", ""))
-    if ok:
-        return out, None, attempt
+    out, err = _attempt(prior_error=None)
+    if err is None:
+        return out, None, 1
     log("validation_retry", error=err)
-    attempt = 2
-    out = write_tweet(llm_client, chosen_alerts, event_summary, bundle, chart_pick,
-                      image_tiles=image_tiles, recent_openers=recent_openers,
-                      usage=usage, prior_error=err)
-    if out.get("_parse_error"):
-        return out, out["_parse_error"], attempt
-    ok, err = validate_tweet(out.get("tweet", ""))
-    return (out, None, attempt) if ok else (out, err, attempt)
+    out, err = _attempt(prior_error=err)
+    return out, err, 2
 
 
 def _select_chosen_alerts(alert_ids: list[int], seed_alerts: list[dict]) -> list[dict]:
