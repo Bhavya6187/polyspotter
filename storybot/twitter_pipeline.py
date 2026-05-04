@@ -404,17 +404,53 @@ When decision=post:
 
 When decision=skip, alert_ids and event_summary should be null.
 Valid skip reasons include: no clear directional thesis, opposing flow
-on the same market, all alerts too small/generic.
+on the same market, all alerts too small/generic, event already covered
+by a recent tweet (see below).
+
+## No back-to-back repeats (HARD RULE)
+The user payload includes `recent_tweets` — the last ~10 tweets we shipped,
+each with the tweet text, the condition_ids it covered, and tweeted_at.
+Do NOT pick a cluster whose alerts re-cover an event we just tweeted:
+
+- Same condition_id as any recent tweet → SKIP (or prune the cluster to
+  alerts on a different condition_id, if the remaining alerts still stand
+  on their own).
+- Same event_slug as a recent tweet, even on a different condition_id, when
+  the recent tweet already framed the same broader thesis (e.g. we already
+  tweeted "Team X to win" on the moneyline and you're picking the spread
+  on the same game with the same directional thesis) → SKIP. A genuinely
+  new angle on the same event (e.g. moneyline tweeted, now a sharp wallet
+  hits the player-prop with a different thesis) is fine — say so in
+  `reason`.
+- A wallet you just spotlighted (record-led story) hitting a different
+  market with a tiny stake is NOT a fresh story → SKIP.
+
+When in doubt about whether two events are "the same story", lean SKIP —
+the cost of a duplicate is high, the cost of a missed alert is low.
 """
 
 
-def pick_event(llm_client, seed_alerts: list[dict], *, usage: dict | None = None) -> dict:
-    """Stage 1: pick an event-cluster to tweet about, or skip."""
+def pick_event(llm_client, seed_alerts: list[dict],
+               *, recent_tweets: list[dict] | None = None,
+               usage: dict | None = None) -> dict:
+    """Stage 1: pick an event-cluster to tweet about, or skip.
+
+    `recent_tweets` is the output of `fetch_recent_tweets` — the last ~10
+    posted tweets with their tweet text and covered condition_ids. The
+    picker uses it to avoid re-covering an event we just tweeted.
+    """
     from bot_utils import MODEL, _accumulate_usage, _compact_alert_for_picker
     compact = [_compact_alert_for_picker(a) for a in seed_alerts]
+    payload = {
+        "alerts": compact,
+        "recent_tweets": recent_tweets or [],
+    }
     user_msg = (
         f"Alerts from the last ~3 hours ({len(compact)} rows), sorted by "
-        f"composite_score:\n\n{json.dumps(compact, default=str, indent=2)}"
+        f"composite_score, plus the last "
+        f"{len(recent_tweets or [])} tweets we shipped (do not re-cover "
+        f"the same event):\n\n"
+        f"{json.dumps(payload, default=str, indent=2)}"
     )
     response = llm_client.chat.completions.create(
         model=MODEL,
@@ -1151,7 +1187,7 @@ violations. You do NOT verify Polymarket reality, news, or anything outside the 
 provided bundle — bundle errors are not your problem.
 
 You see: tweet, event_summary, facts_bundle, chosen_alerts, chart_type, hook_anchor,
-image_tiles, recent_openers.
+image_tiles, recent_openers, recent_tweets.
 
 ## Tier 1 — hard rejections (fact reconciliation)
 
@@ -1215,6 +1251,20 @@ image_tiles, recent_openers.
     this.", or any equivalent empty signal-off. Closers must be a concrete
     clock, stake, or counter-fact.
 
+14b. Recent-event repeat (double-protection backstop on the event picker).
+    `recent_tweets` lists the last ~10 tweets we shipped with their text and
+    the condition_ids each covered. Reject when the candidate tweet
+    re-covers an event we already tweeted:
+    - Any condition_id in chosen_alerts overlaps a condition_ids list in
+      recent_tweets → reject ("rule 14b: condition_id <X> already covered
+      in recent tweet at <ts>").
+    - The candidate tweet describes the same broader story as a recent
+      tweet — same event, same directional thesis, same wallet
+      spotlight — even when the condition_id differs → reject. A genuinely
+      different angle on the same event (a new wallet, a clearly different
+      thesis, a fresh price move) is allowed; lean toward rejecting only
+      on CLEAR overlap.
+
 ## Tier 3 — soft rejections (judgment; only flag CLEAR violations)
 
 15. Passive scanner-caption opener. Reject ledes shaped like
@@ -1267,11 +1317,17 @@ def llm_validate_tweet(llm_client, tweet: str, chosen_alerts: list[dict],
                        event_summary: str, bundle: dict, chart_pick: dict,
                        image_tiles: list[str] | None = None,
                        recent_openers: list[str] | None = None,
+                       recent_tweets: list[dict] | None = None,
                        *, usage: dict | None = None) -> tuple[bool, str]:
     """LLM second-pass fact/style check. Returns (ok, error).
 
     Fails open on validator parse error — we don't want a flaky validator
     blocking an otherwise-good tweet.
+
+    `recent_tweets` is the same list shown to the event picker (last ~10
+    posted tweets with text + condition_ids). The validator uses it as a
+    backstop for rule 14b — if the picker slipped a duplicate event
+    through, the validator catches it here.
     """
     from bot_utils import MODEL, _accumulate_usage, _compact_alert_for_picker, log
     payload = {
@@ -1283,6 +1339,7 @@ def llm_validate_tweet(llm_client, tweet: str, chosen_alerts: list[dict],
         "hook_anchor": chart_pick.get("hook_anchor"),
         "image_tiles": image_tiles or [],
         "recent_openers": recent_openers or [],
+        "recent_tweets": recent_tweets or [],
     }
     response = llm_client.chat.completions.create(
         model=MODEL,
@@ -1309,7 +1366,7 @@ def llm_validate_tweet(llm_client, tweet: str, chosen_alerts: list[dict],
 
 
 def _validate_combined(llm_client, tweet, chosen_alerts, event_summary, bundle,
-                       chart_pick, image_tiles, recent_openers,
+                       chart_pick, image_tiles, recent_openers, recent_tweets,
                        usage) -> tuple[bool, str]:
     """Deterministic checks first (cheap, fail-fast), then LLM fact/style check.
 
@@ -1326,12 +1383,14 @@ def _validate_combined(llm_client, tweet, chosen_alerts, event_summary, bundle,
         return False, err
     return llm_validate_tweet(llm_client, tweet, chosen_alerts, event_summary,
                               bundle, chart_pick, image_tiles=image_tiles,
-                              recent_openers=recent_openers, usage=usage)
+                              recent_openers=recent_openers,
+                              recent_tweets=recent_tweets, usage=usage)
 
 
 def write_tweet_with_retry(llm_client, chosen_alerts, event_summary, bundle,
                            chart_pick, *, image_tiles=None,
                            recent_openers=None,
+                           recent_tweets=None,
                            usage=None,
                            candidate_count: int = 3,
                            ) -> tuple[dict, str | None, int]:
@@ -1389,7 +1448,8 @@ def write_tweet_with_retry(llm_client, chosen_alerts, event_summary, bundle,
         ok, err = llm_validate_tweet(
             llm_client, winner.get("tweet", ""), chosen_alerts, event_summary,
             bundle, chart_pick, image_tiles=image_tiles,
-            recent_openers=recent_openers, usage=usage,
+            recent_openers=recent_openers, recent_tweets=recent_tweets,
+            usage=usage,
         )
         if ok:
             return winner, None, 1
@@ -1412,7 +1472,7 @@ def write_tweet_with_retry(llm_client, chosen_alerts, event_summary, bundle,
         return retry_out, retry_out["_parse_error"], 2
     ok, err = _validate_combined(
         llm_client, retry_out.get("tweet", ""), chosen_alerts, event_summary,
-        bundle, chart_pick, image_tiles, recent_openers, usage,
+        bundle, chart_pick, image_tiles, recent_openers, recent_tweets, usage,
     )
     return retry_out, (None if ok else err), 2
 
@@ -1556,7 +1616,7 @@ def main() -> int:
     )
     from tweet_utils import (
         _build_twitter_api_v1, _build_twitter_client,
-        fetch_recent_tweet_openers,
+        fetch_recent_tweet_openers, fetch_recent_tweets,
         filter_posted_alerts, post_tweet, prepare_chart_grid, record_tweet,
         strip_polyspotter_url,
     )
@@ -1605,11 +1665,18 @@ def main() -> int:
             elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
         return 0
 
+    # Recent tweets — shown to the event picker (and validator) so we don't
+    # re-cover an event we just tweeted. Pull this BEFORE stage 1 since the
+    # picker needs it; the same list is reused by stage 4's validator.
+    recent_tweets = fetch_recent_tweets(limit=10)
+    log("recent_tweets_loaded", run_id=run_id, count=len(recent_tweets))
+
     # Stage 1
     t = time.monotonic()
     log("stage_start", run_id=run_id, stage=1)
     try:
-        pick = pick_event(llm_client, seed_alerts, usage=usage_totals)
+        pick = pick_event(llm_client, seed_alerts,
+                          recent_tweets=recent_tweets, usage=usage_totals)
     except Exception as exc:
         log("llm_usage", run_id=run_id, **usage_totals)
         log("llm_error", run_id=run_id, stage=1,
@@ -1684,6 +1751,7 @@ def main() -> int:
             bundle["facts_bundle"], chart_pick,
             image_tiles=image_tiles_kinds,
             recent_openers=recent_openers,
+            recent_tweets=recent_tweets,
             usage=usage_totals)
     except Exception as exc:
         log("llm_usage", run_id=run_id, **usage_totals)

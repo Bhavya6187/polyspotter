@@ -290,6 +290,53 @@ def fetch_recent_tweet_openers(limit: int = 5) -> list[str]:
     return [o for o in out if o]
 
 
+def fetch_recent_tweets(limit: int = 10) -> list[dict]:
+    """Latest `limit` distinct tweets with their full text and the condition_ids
+    they covered. Newest first. Used by the event picker (and validator) to
+    avoid re-covering the same event back-to-back. Empty list on any failure —
+    callers degrade gracefully without this hint.
+
+    Returns a list of {"tweet": str, "condition_ids": list[str],
+    "tweeted_at": iso str} dicts.
+    """
+    try:
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=QUERY_TIMEOUT_SECONDS)
+    except Exception as exc:
+        log("recent_tweets_db_error", error=f"{type(exc).__name__}: {exc}")
+        return []
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT tweet_id, tweet_text,
+                   MAX(tweeted_at) AS tweeted_at,
+                   array_agg(DISTINCT condition_id) AS condition_ids
+            FROM tweeted_alerts
+            GROUP BY tweet_id, tweet_text
+            ORDER BY MAX(tweeted_at) DESC
+            LIMIT %s
+            """,
+            (int(limit),),
+        )
+        rows = cur.fetchall()
+        cur.close()
+    except Exception as exc:
+        log("recent_tweets_query_error", error=f"{type(exc).__name__}: {exc}")
+        return []
+    finally:
+        conn.close()
+    out: list[dict] = []
+    for tweet_id, tweet_text, tweeted_at, condition_ids in rows:
+        if not tweet_text:
+            continue
+        out.append({
+            "tweet": _POLYSPOTTER_URL_STRIP_RE.sub("", tweet_text).strip(),
+            "condition_ids": [c for c in (condition_ids or []) if c],
+            "tweeted_at": tweeted_at.isoformat() if tweeted_at else None,
+        })
+    return out
+
+
 # --- Chart prep -------------------------------------------------------------
 
 def fetch_alert_trades(alert_id: int) -> list[dict]:
