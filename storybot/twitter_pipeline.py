@@ -586,6 +586,12 @@ You see:
   CHART LABEL, not a tweet opener. Do NOT echo it verbatim. Treat it as a hint
   about which fact the chart will reinforce; you still write the tweet's lede
   in your own plain-English voice.
+- lede_shape_hint (optional): if present, this is the lede SHAPE (timing,
+  impact, size, age, cluster, behavior, stakes) the rerank stage wants you
+  to lean into for THIS candidate. Variant generation calls the writer 2-3
+  times with different hints to diversify openers. Treat it as a steering
+  preference, not a hard rule — pick the hinted shape if the facts support
+  it, fall back to the strongest shape otherwise.
 
 Your job: write a tweet that fits in 280 characters (URLs count as 23 chars).
 
@@ -660,9 +666,18 @@ as a self-contained sentence.
      first, then qualify with the record: "Someone is quietly building
      a $113k thesis across Polymarket's US-Iran meeting markets — and
      the lead wallet is 174-32 on past calls". The digits come second.
+  7. stakes-led — for long-resolution events with no hard clock
+     (minutes_to_resolution > 360 or null). Frame the bet's payoff
+     so the reader feels what's on the line: "If this resolves Yes, the
+     No side eats $19k.", "$50k of Yes is one ruling away from
+     evaporating." Stakes-led ledes outperform timing-led ledes for
+     geopolitical / macro markets, where a "decision day" is days or
+     weeks out and a soft clock reads as filler.
   When timing AND a sharp record both apply, timing wins. When a cluster
   AND a sharp record both apply, the cluster scale or funder link leads,
-  with the record as a one-clause qualifier.
+  with the record as a one-clause qualifier. For long-resolution events
+  (minutes_to_resolution > 360 or null) prefer stakes-led over a soft
+  clock.
 - Pacing: 2-3 short sentences beats one long clause-stack. Aim for ≤20 words
   per sentence. Punchy rhythm > polished prose.
 - Round numbers for readability: "$78k" not "$78,131.61"; "$2.8M" not "$2,789,285.20".
@@ -698,6 +713,35 @@ as a self-contained sentence.
       the other side."
   NEVER vague chest-thumps like "Not random.", "Something's cooking.",
   "Worth a look.". If none of (a)-(c) applies cleanly, end on the link.
+- Cap "Polymarket" at ONE mention in the tweet body. Repeating it 2-3
+  times wastes characters and reads like scanner output. Vary the venue
+  reference: "the line", "this market", "prediction-market bettors",
+  "the market". Drop the venue entirely if the link makes it obvious.
+- Image-text linkage. The chart that ships with this tweet visualizes
+  ONE specific fact (named by hook_anchor and implied by chart_type).
+  The tweet body MUST reference that fact in plain English so the
+  reader's eye routes to the chart instead of treating it as decoration:
+  - chart_type=wallet_record_card → name the record digits ("a 110-3
+    wallet", "the lead wallet is 732-127").
+  - chart_type=fresh_wallet_card → name the wallet age ("a 31-day-old
+    account") or a clear fresh-wallet descriptor ("brand-new account",
+    "fresh wallet", "new account").
+  - chart_type=price_sparkline → name the price move in cents
+    ("79c → 62c", "32c flip") or a percent shift.
+  - chart_type=volume_bar → name the multiplier ("12× usual",
+    "ran 25x").
+  - chart_type=cluster_card → name the wallet count ("three accounts",
+    "8 wallets").
+  When chart_type=none, no anchor is required.
+- The closer (the LAST sentence before the link) MUST do work. Banned
+  closer phrases (vague chest-thumps): "Not random.", "Something's
+  cooking.", "Worth a look.", "Watch this space.", "Eyes on this.",
+  "Stay tuned.", "Buckle up.", "We'll see.", "Let's see.", "Interesting
+  times.", "This could be big.", "Watch closely.", "Keep an eye." Pick
+  a concrete closer instead: a clock, a stake/escalation, a counter-fact,
+  or a reply-bait question ("Cubs or fade?", "Over or under?"). A tweet
+  with only ONE sentence in the body before the URL is rejected — the
+  body needs at least two sentences so the closer has somewhere to live.
 - 0-1 emoji, only if it earns its spot. No hashtags. No @mentions.
 - BANNED jargon: "deployed capital", "real size", "meaningful size", "conviction
   flow", "high-conviction", "scan window", "composite score", "alerted flow",
@@ -767,8 +811,10 @@ wallet link only when the story is about one specific wallet.
 def validate_tweet(text: str) -> tuple[bool, str]:
     """Length / banned-phrase / banned-opener / link presence checks. No JSON parsing."""
     from tweet_utils import (
-        TWEET_MAX_CHARS, _BANNED_TWEET_PHRASES, _POLYSPOTTER_URL_RE,
-        _TWEET_RECORD_OPENER_RE, _tweet_length,
+        TWEET_MAX_CHARS, TWEET_MAX_POLYMARKET_MENTIONS,
+        _BANNED_TWEET_PHRASES, _POLYSPOTTER_URL_RE,
+        _TWEET_RECORD_OPENER_RE, _count_polymarket_mentions_in_body,
+        _tweet_length, check_tweet_closer,
     )
     if not isinstance(text, str) or not text.strip():
         return False, "tweet must be a non-empty string"
@@ -784,15 +830,138 @@ def validate_tweet(text: str) -> tuple[bool, str]:
                        "(e.g. 'A 174-32 account just…'); rewrite the lede "
                        "as behavior, timing, or impact and demote the record "
                        "to a later clause")
+    poly_count = _count_polymarket_mentions_in_body(text)
+    if poly_count > TWEET_MAX_POLYMARKET_MENTIONS:
+        return False, (
+            f"tweet mentions 'Polymarket' {poly_count} times — cap is "
+            f"{TWEET_MAX_POLYMARKET_MENTIONS}; vary the venue reference "
+            "('the line', 'this market', 'prediction market', or drop it)"
+        )
     if not _POLYSPOTTER_URL_RE.search(text):
         return False, "tweet must contain a polyspotter.com deep link"
+    ok_closer, closer_err = check_tweet_closer(text)
+    if not ok_closer:
+        return False, closer_err
+    return True, ""
+
+
+# Chart anchor patterns. Each chart_type the writer might pick has a
+# corresponding "this is the fact the chart visualizes" signal we expect to
+# find somewhere in the tweet body so the chart and text reinforce each
+# other rather than competing for the reader's eye.
+_FRESH_WALLET_AGE_RE = re.compile(
+    r"\b(\d+)\s*[- ]\s*day[- ]?old\b", re.IGNORECASE
+)
+_FRESH_WALLET_DESCRIPTOR_RE = re.compile(
+    r"\b(?:brand[- ]?new|fresh|new)\s+(?:account|wallet)\b", re.IGNORECASE
+)
+_PRICE_CENTS_RE = re.compile(r"\b\d{1,3}\s*c\b", re.IGNORECASE)
+_PRICE_PERCENT_RE = re.compile(r"\b\d{1,3}(?:\.\d+)?\s*%")
+_VOLUME_MULTIPLIER_RE = re.compile(r"\b\d+(?:\.\d+)?\s*[x×]\b", re.IGNORECASE)
+_CLUSTER_DIGIT_COUNT_RE = re.compile(
+    r"\b\d+\s+(?:accounts?|wallets?)\b", re.IGNORECASE
+)
+_CLUSTER_WORD_COUNT_RE = re.compile(
+    r"\b(?:two|three|four|five|six|seven|eight|nine|ten|"
+    r"eleven|twelve|thirteen|fourteen|fifteen|"
+    r"twenty|thirty)\s+(?:accounts?|wallets?)\b",
+    re.IGNORECASE,
+)
+
+
+def validate_tweet_anchor(text: str, chart_pick: dict,
+                          bundle: dict) -> tuple[bool, str]:
+    """Image-text linkage check: the tweet body must reference the fact the
+    chart visualizes, so the reader's eye routes to the chart instead of
+    treating it as decoration.
+
+    chart_type='none' (or missing) always passes. Bundle fields that are
+    null also pass — there's nothing to anchor against.
+
+    Returns (ok, error). Caller threads the error back into the writer
+    retry on failure.
+    """
+    from tweet_utils import _POLYSPOTTER_URL_STRIP_RE
+    if not isinstance(text, str):
+        return False, "tweet must be a string"
+    chart_type = (chart_pick or {}).get("chart_type")
+    if not chart_type or chart_type == "none":
+        return True, ""
+    body = _POLYSPOTTER_URL_STRIP_RE.sub("", text or "")
+    bundle = bundle or {}
+
+    if chart_type == "wallet_record_card":
+        record = ((bundle.get("has_sharp_wallet") or {}).get("record"))
+        if not record:
+            return True, ""
+        if record not in body:
+            return False, (
+                f"chart shows wallet record {record!r} but the tweet "
+                "body does not name it; mention the record digits "
+                "(e.g. 'a 110-3 wallet') so the chart and text reinforce"
+            )
+        return True, ""
+
+    if chart_type == "fresh_wallet_card":
+        info = bundle.get("has_fresh_wallet") or {}
+        age = info.get("wallet_age_days")
+        if age is None:
+            return True, ""
+        if (_FRESH_WALLET_AGE_RE.search(body)
+                or _FRESH_WALLET_DESCRIPTOR_RE.search(body)):
+            return True, ""
+        return False, (
+            f"chart shows a {age}-day-old wallet but the tweet body "
+            "does not reference its age; say "
+            f"'{int(age)}-day-old account' or 'brand-new account' to "
+            "anchor the chart"
+        )
+
+    if chart_type == "price_sparkline":
+        move = bundle.get("biggest_price_move")
+        if not move:
+            return True, ""
+        if _PRICE_CENTS_RE.search(body) or _PRICE_PERCENT_RE.search(body):
+            return True, ""
+        return False, (
+            "chart is a price sparkline but the tweet body does not name "
+            "the price move; add a cent callout (e.g. '79c → 62c') or a "
+            "percent shift to anchor the chart"
+        )
+
+    if chart_type == "volume_bar":
+        mult = bundle.get("volume_multiplier_x")
+        if mult is None:
+            return True, ""
+        if _VOLUME_MULTIPLIER_RE.search(body):
+            return True, ""
+        return False, (
+            "chart is a volume bar but the tweet body does not name the "
+            "volume multiplier (e.g. '12× usual'); anchor the chart with "
+            "a volume callout"
+        )
+
+    if chart_type == "cluster_card":
+        cluster_size = bundle.get("cluster_size")
+        if not cluster_size:
+            return True, ""
+        if (_CLUSTER_DIGIT_COUNT_RE.search(body)
+                or _CLUSTER_WORD_COUNT_RE.search(body)):
+            return True, ""
+        return False, (
+            "chart is a cluster card but the tweet body does not name "
+            "the wallet count (e.g. 'three accounts'); anchor the chart "
+            "with the cluster size"
+        )
+
     return True, ""
 
 
 def _writer_user_message(chosen_alerts: list[dict], event_summary: str,
                          bundle: dict, chart_pick: dict,
                          image_tiles: list[str] | None = None,
-                         recent_openers: list[str] | None = None) -> str:
+                         recent_openers: list[str] | None = None,
+                         lede_shape_hint: str | None = None) -> str:
     from bot_utils import _compact_alert_for_picker
     compact = [_compact_alert_for_picker(a) for a in chosen_alerts]
     payload = {
@@ -803,22 +972,155 @@ def _writer_user_message(chosen_alerts: list[dict], event_summary: str,
         "hook_anchor": chart_pick.get("hook_anchor"),
         "image_tiles": image_tiles or [],
         "recent_openers_to_avoid": recent_openers or [],
+        "lede_shape_hint": lede_shape_hint,
     }
     return json.dumps(payload, default=str, indent=2)
+
+
+# Lede shapes the writer can lean into. Order matches the priority list in
+# SYSTEM_PROMPT_WRITER (timing first, stakes last). _eligible_lede_shapes
+# walks this list and keeps shapes whose facts the bundle supports.
+_LEDE_SHAPES_PRIORITY = (
+    "timing", "impact", "size", "age", "cluster", "behavior", "stakes",
+)
+
+# Bundle thresholds. Mirrors the chart_picker thresholds where they overlap
+# (price move >= 0.03 absolute) so a chart that argues "price moved" lines
+# up with a tweet that opens "price moved".
+_LEDE_PRICE_DELTA_MIN = 0.03
+_LEDE_SIZE_USD_MIN = 10000.0
+_LEDE_TIMING_MAX_MINUTES = 360  # 6h — beyond this, soft clocks read as filler
+_LEDE_CLUSTER_SIZE_MIN = 3
+
+
+def _eligible_lede_shapes(bundle: dict) -> list[str]:
+    """Return the lede shapes whose facts the bundle supports, in priority
+    order. Used to drive multi-candidate generation: each eligible shape
+    becomes one writer call with that shape as a hint."""
+    bundle = bundle or {}
+    out: list[str] = []
+    mtr = bundle.get("minutes_to_resolution")
+    move = bundle.get("biggest_price_move") or {}
+    total = float(bundle.get("total_usd") or 0)
+    fresh = bundle.get("has_fresh_wallet")
+    cluster = int(bundle.get("cluster_size") or 0)
+    sharp = bundle.get("has_sharp_wallet")
+
+    if isinstance(mtr, (int, float)) and 0 < mtr < _LEDE_TIMING_MAX_MINUTES:
+        out.append("timing")
+    if move:
+        try:
+            delta = abs(float(move.get("to") or 0) - float(move.get("from") or 0))
+        except (TypeError, ValueError):
+            delta = 0.0
+        if delta >= _LEDE_PRICE_DELTA_MIN:
+            out.append("impact")
+    if total >= _LEDE_SIZE_USD_MIN:
+        out.append("size")
+    if fresh:
+        out.append("age")
+    if cluster >= _LEDE_CLUSTER_SIZE_MIN:
+        out.append("cluster")
+    if sharp:
+        out.append("behavior")
+    if mtr is None or (isinstance(mtr, (int, float))
+                       and mtr >= _LEDE_TIMING_MAX_MINUTES):
+        out.append("stakes")
+    return out
+
+
+def _pick_candidate_shapes(bundle: dict, n: int = 3) -> list[str]:
+    """Pick up to N lede shapes for candidate generation. Always returns at
+    least one — falls back to 'stakes' if no other shape is eligible, since
+    the stakes frame ("$X is on the line") works for any market."""
+    shapes = _eligible_lede_shapes(bundle)[:max(1, int(n))]
+    if not shapes:
+        shapes = ["stakes"]
+    return shapes
+
+
+# Heuristic rerank signals. Cheap, deterministic — no LLM call.
+_CLOCK_CLOSER_RE = re.compile(
+    r"\b(?:in|by|with|tips?\s+off\s+in|first\s+pitch\s+in|"
+    r"puck\s+drops?\s+in|kickoff\s+in)\s+\d+\s*"
+    r"(?:min(?:ute)?s?|hours?|hr)\b",
+    re.IGNORECASE,
+)
+_DOLLAR_CLOSER_RE = re.compile(r"\$\d")
+_CONTRAST_CLAUSE_RE = re.compile(
+    r"\b(?:but|while|yet|though|whereas)\b", re.IGNORECASE
+)
+
+
+def _score_candidate(text: str, bundle: dict, chart_pick: dict) -> float:
+    """Heuristic score for picking among valid candidates. Higher = better.
+
+    Signals (deterministic, cheap):
+    - Concrete clock closer (e.g. "Tips off in 12 minutes."): +3
+    - Dollar escalation in closer: +2
+    - Contrast/counter clause in closer: +1
+    - Reply-bait question anywhere in body: +1
+    - Length in 200-260 char sweet spot (Twitter-counted): +2
+    - Length > 270 (cramped, near the 280 cap): -1
+
+    The score doesn't replace validation — it ranks among already-valid
+    candidates. Order is the tiebreaker: when scores tie, the highest-
+    priority shape wins (caller passes candidates in priority order).
+    """
+    from tweet_utils import _POLYSPOTTER_URL_STRIP_RE, _tweet_length
+    body = _POLYSPOTTER_URL_STRIP_RE.sub("", text or "").strip()
+    if not body:
+        return 0.0
+
+    # Closer-bearing signals.
+    sentences = []
+    parts = re.split(r"(?<=[.!?])\s+", body)
+    for s in parts:
+        s = s.strip().rstrip(".!?").strip()
+        if s:
+            sentences.append(s)
+    last = sentences[-1] if sentences else ""
+
+    score = 0.0
+    if _CLOCK_CLOSER_RE.search(last):
+        score += 3.0
+    elif _DOLLAR_CLOSER_RE.search(last):
+        score += 2.0
+    elif _CONTRAST_CLAUSE_RE.search(last):
+        score += 1.0
+
+    if "?" in body:
+        score += 1.0
+
+    tlen = _tweet_length(text)
+    if 200 <= tlen <= 260:
+        score += 2.0
+    elif tlen > 270:
+        score -= 1.0
+
+    return score
 
 
 def write_tweet(llm_client, chosen_alerts: list[dict], event_summary: str,
                 bundle: dict, chart_pick: dict, *,
                 image_tiles: list[str] | None = None,
                 recent_openers: list[str] | None = None,
+                lede_shape_hint: str | None = None,
                 usage: dict | None = None,
                 prior_error: str | None = None) -> dict:
-    """Stage 4: compose the tweet. Caller invokes this twice if validation fails."""
+    """Stage 4: compose one candidate tweet.
+
+    `lede_shape_hint` (timing/impact/size/age/cluster/behavior/stakes) steers
+    the writer toward a specific lede shape so multi-candidate generation
+    yields diverse openers. Caller invokes this once per shape and reranks.
+    """
     from bot_utils import MODEL, _accumulate_usage
     messages = [{"role": "system", "content": SYSTEM_PROMPT_WRITER}]
-    user_payload = _writer_user_message(chosen_alerts, event_summary, bundle, chart_pick,
-                                        image_tiles=image_tiles,
-                                        recent_openers=recent_openers)
+    user_payload = _writer_user_message(
+        chosen_alerts, event_summary, bundle, chart_pick,
+        image_tiles=image_tiles, recent_openers=recent_openers,
+        lede_shape_hint=lede_shape_hint,
+    )
     if prior_error:
         user_payload = (
             f"Your previous tweet failed validation: {prior_error}. Regenerate.\n\n"
@@ -1009,8 +1311,17 @@ def llm_validate_tweet(llm_client, tweet: str, chosen_alerts: list[dict],
 def _validate_combined(llm_client, tweet, chosen_alerts, event_summary, bundle,
                        chart_pick, image_tiles, recent_openers,
                        usage) -> tuple[bool, str]:
-    """Deterministic checks first (cheap, fail-fast), then LLM fact/style check."""
+    """Deterministic checks first (cheap, fail-fast), then LLM fact/style check.
+
+    Order: text-shape check → chart-anchor check → LLM validator. The
+    chart-anchor check is deterministic and cheap; running it before the
+    LLM call avoids paying for an LLM validation on a tweet we already
+    know is missing the chart's anchor fact.
+    """
     ok, err = validate_tweet(tweet)
+    if not ok:
+        return False, err
+    ok, err = validate_tweet_anchor(tweet, chart_pick, bundle)
     if not ok:
         return False, err
     return llm_validate_tweet(llm_client, tweet, chosen_alerts, event_summary,
@@ -1021,34 +1332,89 @@ def _validate_combined(llm_client, tweet, chosen_alerts, event_summary, bundle,
 def write_tweet_with_retry(llm_client, chosen_alerts, event_summary, bundle,
                            chart_pick, *, image_tiles=None,
                            recent_openers=None,
-                           usage=None) -> tuple[dict, str | None, int]:
-    """Run stage 4 once; on validation failure, retry once with the error fed back.
+                           usage=None,
+                           candidate_count: int = 3,
+                           ) -> tuple[dict, str | None, int]:
+    """Generate N candidate tweets with diverse lede shapes, validate each,
+    rerank, and return the best.
 
-    Validation = deterministic checks (length, banned phrases, link presence,
-    record-led opener) followed by an LLM fact/style check that reconciles the
-    tweet against facts_bundle. Returns (final_decision_dict, error_or_None,
-    attempts).
+    Round 1: pick up to `candidate_count` lede shapes from the bundle, call
+    the writer once per shape, run cheap deterministic checks (text-shape +
+    chart-anchor) on each candidate. Of the candidates that pass, rank by
+    `_score_candidate` and run the LLM fact/style validator on the winner.
+
+    Round 2 (only on round-1 failure): single retry with the highest-priority
+    shape hint and the round-1 error fed back. Same validation chain.
+
+    Returns (final_decision_dict, error_or_None, attempts) — `attempts` is
+    the number of ROUNDS (1 or 2), not individual writer calls.
     """
     from bot_utils import log
 
-    def _attempt(prior_error):
-        out = write_tweet(llm_client, chosen_alerts, event_summary, bundle, chart_pick,
-                          image_tiles=image_tiles, recent_openers=recent_openers,
-                          usage=usage, prior_error=prior_error)
-        if out.get("_parse_error"):
-            return out, out["_parse_error"]
-        ok, err = _validate_combined(llm_client, out.get("tweet", ""),
-                                     chosen_alerts, event_summary, bundle,
-                                     chart_pick, image_tiles, recent_openers,
-                                     usage)
-        return out, (None if ok else err)
+    shapes = _pick_candidate_shapes(bundle, n=candidate_count)
 
-    out, err = _attempt(prior_error=None)
-    if err is None:
-        return out, None, 1
-    log("validation_retry", error=err)
-    out, err = _attempt(prior_error=err)
-    return out, err, 2
+    candidates: list[tuple[str, dict]] = []  # (shape, decision_dict)
+    last_det_error: str | None = None
+    for shape in shapes:
+        out = write_tweet(
+            llm_client, chosen_alerts, event_summary, bundle, chart_pick,
+            image_tiles=image_tiles, recent_openers=recent_openers,
+            lede_shape_hint=shape, usage=usage,
+        )
+        if out.get("_parse_error"):
+            last_det_error = out["_parse_error"]
+            continue
+        text = out.get("tweet", "")
+        ok, err = validate_tweet(text)
+        if not ok:
+            last_det_error = err
+            continue
+        ok, err = validate_tweet_anchor(text, chart_pick, bundle)
+        if not ok:
+            last_det_error = err
+            continue
+        candidates.append((shape, out))
+
+    if candidates:
+        candidates.sort(
+            key=lambda c: _score_candidate(c[1].get("tweet", ""), bundle, chart_pick),
+            reverse=True,
+        )
+        winning_shape, winner = candidates[0]
+        log("candidate_rerank",
+            shapes=[s for s, _ in candidates],
+            winner_shape=winning_shape,
+            candidate_count=len(candidates),
+            shapes_attempted=shapes)
+        ok, err = llm_validate_tweet(
+            llm_client, winner.get("tweet", ""), chosen_alerts, event_summary,
+            bundle, chart_pick, image_tiles=image_tiles,
+            recent_openers=recent_openers, usage=usage,
+        )
+        if ok:
+            return winner, None, 1
+        log("validation_retry", error=err, shape=winning_shape)
+        retry_shape = winning_shape
+        retry_error = err
+    else:
+        log("all_candidates_failed_deterministic",
+            shapes_attempted=shapes, last_error=last_det_error)
+        retry_shape = shapes[0]
+        retry_error = last_det_error or "all candidates failed deterministic checks"
+
+    # Round 2: single retry with the prior error fed back.
+    retry_out = write_tweet(
+        llm_client, chosen_alerts, event_summary, bundle, chart_pick,
+        image_tiles=image_tiles, recent_openers=recent_openers,
+        lede_shape_hint=retry_shape, prior_error=retry_error, usage=usage,
+    )
+    if retry_out.get("_parse_error"):
+        return retry_out, retry_out["_parse_error"], 2
+    ok, err = _validate_combined(
+        llm_client, retry_out.get("tweet", ""), chosen_alerts, event_summary,
+        bundle, chart_pick, image_tiles, recent_openers, usage,
+    )
+    return retry_out, (None if ok else err), 2
 
 
 def _select_chosen_alerts(alert_ids: list[int], seed_alerts: list[dict]) -> list[dict]:

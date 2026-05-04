@@ -53,6 +53,92 @@ _TWEET_RECORD_OPENER_RE = re.compile(
     re.IGNORECASE,
 )
 
+# "Polymarket" used 2+ times in one tweet wastes characters and reads like
+# scanner output. Cap at 1 in the body (URL stripped) — varies the venue
+# reference ("the line", "this market", "prediction market").
+_POLYMARKET_MENTION_RE = re.compile(r"\bpolymarket\b", re.IGNORECASE)
+TWEET_MAX_POLYMARKET_MENTIONS = 1
+
+
+def _count_polymarket_mentions_in_body(text: str) -> int:
+    """Count 'Polymarket' (case-insensitive) in the tweet body, URL stripped.
+    polyspotter.com URLs are intentionally excluded — they don't read as
+    "Polymarket" mentions to a human."""
+    body = _POLYSPOTTER_URL_STRIP_RE.sub("", text or "")
+    return len(_POLYMARKET_MENTION_RE.findall(body))
+
+
+# Vague chest-thump closers — banned because they're scroll-bait without
+# a concrete payload. The writer prompt's closer rule requires a clock,
+# stake, counter-fact, or reply-bait question; these phrases satisfy none.
+# Substring-matched against the LAST sentence only, so a fact-bearing
+# sentence that incidentally contains one of these phrases isn't penalized.
+_BANNED_CLOSER_PHRASES = (
+    "not random",
+    "something's cooking",
+    "something is cooking",
+    "worth a look",
+    "watch this space",
+    "eyes on this",
+    "stay tuned",
+    "buckle up",
+    "we'll see",
+    "let's see",
+    "interesting times",
+    "this could be big",
+    "watch closely",
+    "keep an eye",
+)
+
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def _split_body_sentences(text: str) -> list[str]:
+    """Strip the polyspotter URL, then split into sentences. Returns the
+    sentence texts (no terminal punctuation). Empty list when body is empty."""
+    body = _POLYSPOTTER_URL_STRIP_RE.sub("", text or "").strip()
+    if not body:
+        return []
+    parts = _SENTENCE_SPLIT_RE.split(body)
+    out = []
+    for s in parts:
+        s = s.strip()
+        if not s:
+            continue
+        # Strip trailing terminal punctuation so the LAST sentence — which
+        # may not end with .!? — compares cleanly against banned phrases.
+        s = s.rstrip(".!?").strip()
+        if s:
+            out.append(s)
+    return out
+
+
+def check_tweet_closer(text: str) -> tuple[bool, str]:
+    """Validator: the body must have a real closer.
+
+    Two failure modes:
+    1. Body is a single sentence — no room for a closer. The writer prompt
+       requires the closer to do work (clock, stake, counter-fact, question)
+       so a one-sentence body lacks the structural closer entirely.
+    2. The last sentence matches a known vague-chest-thump phrase.
+    """
+    sentences = _split_body_sentences(text)
+    if len(sentences) < 2:
+        return False, (
+            "tweet body lacks a closer clause — the body has only 1 "
+            "sentence; add a concrete clock, stake, counter-fact, or "
+            "reply-bait question after the lede"
+        )
+    last_lower = sentences[-1].lower()
+    for phrase in _BANNED_CLOSER_PHRASES:
+        if phrase in last_lower:
+            return False, (
+                f"tweet closer is a vague chest-thump ({phrase!r}); "
+                "replace with a concrete clock, stake, counter-fact, or "
+                "reply-bait question"
+            )
+    return True, ""
+
 
 def _tweet_length(t: str) -> int:
     """Twitter-counted length: every URL counts as TWEET_URL_CHARS regardless of actual length."""
