@@ -1,71 +1,62 @@
-"""Publish a draft articlebot row to polyspotter.com.
+"""Publish a draft articlebot row: post the teaser tweet to Twitter (without
+the article URL), flip the DB row to 'published', then print the article URL
+so the human can add it manually as a reply.
 
 Usage:
     python storybot/publish_article.py <run_id>
     DRY_RUN=true python storybot/publish_article.py <run_id>
 
-Prints the teaser tweet (and writes the cover image to storybot/articles/)
-so you can post it manually on Twitter — Twitter's API costs ~20¢ per
-tweet, so we'd rather copy/paste. The article still goes live on
-polyspotter.com and the DB row is flipped to 'published'. After posting,
-paste the tweet URL back at the prompt and we'll fill in tweet_id/posted_url.
+Twitter charges ~20¢ per tweet that contains a URL, so we keep the article
+URL out of the tweet body and reply with it manually after the fact. The
+cover image is uploaded as media on the original tweet.
 """
 from __future__ import annotations
 
 import os
-import re
 import sys
 from datetime import date
-from pathlib import Path
 
 import psycopg2
 
-from articlebot_storage import ARTICLES_DIR
 from bot_utils import DATABASE_URL, QUERY_TIMEOUT_SECONDS, log
 from tweet_utils import (
     TWEET_MAX_CHARS,
     _BANNED_TWEET_PHRASES,
+    _build_twitter_api_v1,
+    _build_twitter_client,
     _tweet_length,
+    post_tweet,
 )
 
 
 DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
 
 POLYSPOTTER_BASE = "https://polyspotter.com"
-_ARTICLE_URL_PREFIX = POLYSPOTTER_BASE + "/article/"
-
-_TWEET_URL_RE = re.compile(
-    r"^https?://(?:www\.)?(?:x|twitter)\.com/\S*?/status/(\d+)(?:[/?#].*)?$"
-)
 
 
 def _get_conn():
     return psycopg2.connect(DATABASE_URL, connect_timeout=QUERY_TIMEOUT_SECONDS)
 
 
-def _parse_tweet_url(raw: str) -> tuple[str, str] | None:
-    """Return (tweet_id, normalized_url) for a pasted tweet URL, or None."""
-    m = _TWEET_URL_RE.match(raw.strip())
-    if not m:
-        return None
-    tweet_id = m.group(1)
-    return tweet_id, f"https://x.com/i/web/status/{tweet_id}"
-
-
 def _validate_tweet(text: str) -> tuple[bool, str]:
-    """Defensive re-validation in case a human edited the row directly."""
+    """Defensive re-validation in case a human edited the row directly.
+    The article URL is intentionally NOT in the tweet body (added later as
+    a reply, to dodge X's per-URL fee), so we don't check for it here."""
     if _tweet_length(text) > TWEET_MAX_CHARS:
         return False, (
-            f"final tweet exceeds {TWEET_MAX_CHARS} chars "
+            f"tweet exceeds {TWEET_MAX_CHARS} chars "
             f"(twitter-counted={_tweet_length(text)})"
         )
     lower = text.lower()
     for phrase in _BANNED_TWEET_PHRASES:
         if phrase in lower:
             return False, f"tweet contains banned phrase {phrase!r}"
-    if _ARTICLE_URL_PREFIX not in text:
-        return False, "tweet is missing the polyspotter article URL"
     return True, ""
+
+
+def _tweet_url(tweet_id: str) -> str:
+    """Username-free permalink — x.com redirects this to the canonical URL."""
+    return f"https://x.com/i/web/status/{tweet_id}"
 
 
 def main(argv: list[str]) -> int:
@@ -112,69 +103,52 @@ def main(argv: list[str]) -> int:
             )
             return 1
 
-        published_date = date.today()
-        article_url = f"{POLYSPOTTER_BASE}/article/{published_date.isoformat()}/{event_slug}"
-        tweet = f"{tweet_text}\n\n{article_url}"
-
-        ok, err = _validate_tweet(tweet)
+        ok, err = _validate_tweet(tweet_text)
         if not ok:
             print(f"error: {err}", file=sys.stderr)
             return 1
 
+        published_date = date.today()
+        article_url = f"{POLYSPOTTER_BASE}/article/{published_date.isoformat()}/{event_slug}"
         cover_bytes = bytes(cover_bytes_raw) if cover_bytes_raw else None
-        cover_path = None
-        if cover_bytes:
-            cover_path = Path(ARTICLES_DIR) / f"{run_id}_cover.png"
-            cover_path.parent.mkdir(parents=True, exist_ok=True)
-            cover_path.write_bytes(cover_bytes)
 
-        print(f"\n--- Tweet ({_tweet_length(tweet)} twitter chars) ---")
-        print(tweet)
+        print(f"\n--- Tweet ({_tweet_length(tweet_text)} twitter chars) ---")
+        print(tweet_text)
         print("--- end tweet ---")
-        print(f"\nArticle URL: {article_url}")
-        if cover_path:
-            print(f"Cover image: {cover_path} ({len(cover_bytes)} bytes) — attach this to the tweet")
+        if cover_bytes:
+            print(f"Cover image: {len(cover_bytes)} bytes — will be attached to the tweet")
         else:
             print("Cover image: (none)")
 
         if DRY_RUN:
-            print("\n[DRY_RUN] not updating DB.")
+            print(f"\nArticle URL (for manual reply): {article_url}")
+            print("\n[DRY_RUN] not posting, not updating DB.")
             log("publish_article_dryrun", run_id=run_id)
             return 0
 
-        print(
-            "\nCopy the tweet above and post it on Twitter."
-            "\nThen paste the tweet URL below to record it (or press enter to skip)."
-            "\nLeave blank and answer 'n' to abort."
-        )
+        twitter_client = _build_twitter_client()
+        twitter_api_v1 = _build_twitter_api_v1() if cover_bytes is not None else None
         try:
-            pasted = input("Tweet URL: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            pasted = ""
+            tweet_id = post_tweet(
+                tweet_text,
+                twitter_client=twitter_client,
+                twitter_api_v1=twitter_api_v1,
+                media_png=cover_bytes,
+                dry_run=False,
+            )
+        except Exception as exc:
+            log("publish_article_post_error",
+                run_id=run_id, error=f"{type(exc).__name__}: {exc}")
+            print(
+                f"error: failed to post tweet: {type(exc).__name__}: {exc}. "
+                "DB not updated.",
+                file=sys.stderr,
+            )
+            return 1
 
-        tweet_id: str | None = None
-        x_tweet_url: str | None = None
-        if pasted:
-            parsed = _parse_tweet_url(pasted)
-            if parsed is None:
-                print(
-                    f"error: {pasted!r} doesn't look like a tweet URL "
-                    "(expected https://x.com/<user>/status/<id>). DB not updated.",
-                    file=sys.stderr,
-                )
-                return 1
-            tweet_id, x_tweet_url = parsed
-
-        try:
-            answer = input(
-                "Mark article as published? [y/N] "
-            ).strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            answer = ""
-        if answer not in ("y", "yes"):
-            print("aborted — DB not updated.")
-            log("publish_article_aborted", run_id=run_id)
-            return 0
+        posted_url = _tweet_url(tweet_id)
+        log("publish_article_posted",
+            run_id=run_id, tweet_id=tweet_id, posted_url=posted_url)
 
         with conn.cursor() as cur:
             cur.execute(
@@ -187,13 +161,14 @@ def main(argv: list[str]) -> int:
                     posted_at=NOW()
                 WHERE run_id=%s AND status='draft'
                 """,
-                (published_date, tweet_id, x_tweet_url, run_id),
+                (published_date, tweet_id, posted_url, run_id),
             )
             if cur.rowcount != 1:
                 conn.rollback()
                 print(
                     f"error: UPDATE rowcount={cur.rowcount}, expected 1. "
-                    "Concurrent publish? Refusing without committing.",
+                    "Concurrent publish? Tweet was posted but DB was NOT updated — "
+                    f"posted_url={posted_url}",
                     file=sys.stderr,
                 )
                 return 1
@@ -205,11 +180,10 @@ def main(argv: list[str]) -> int:
         published_date=published_date.isoformat())
 
     print(f"\n[publish_article] published run_id={run_id}")
+    print(f"    tweet:   {posted_url}")
     print(f"    article: {article_url}")
-    if x_tweet_url:
-        print(f"    tweet:   {x_tweet_url}")
-    else:
-        print("    tweet:   (no URL recorded)")
+    print(f"\nReply to {posted_url} with this URL to dodge the URL fee:")
+    print(f"    {article_url}")
     return 0
 
 

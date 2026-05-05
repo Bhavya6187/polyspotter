@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import sys
-from datetime import date
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -51,24 +50,24 @@ def test_publish_happy_path_updates_row_and_posts(monkeypatch):
         return "1234567890"
     monkeypatch.setattr(pa, "post_tweet", fake_post_tweet)
 
-    today_iso = date.today().isoformat()
     rc = pa.main(["abc12345"])
     assert rc == 0
 
-    # Tweet body has the article URL appended with today's date and slug
-    assert "https://polyspotter.com/article/" in posted["text"]
-    assert today_iso in posted["text"]
-    assert "/test-event" in posted["text"]
+    # Tweet body is the raw tweet_text — article URL is intentionally NOT
+    # appended (added later as a manual reply to dodge X's per-URL fee).
+    assert posted["text"] == "An account up $2M just dropped $80k on a coin-flip."
+    assert "polyspotter.com" not in posted["text"]
     assert posted["media_png"] == b"\x89PNG\r\n\x1a\nfakepngbytes"
     assert posted["dry_run"] is False
 
-    # UPDATE call has the right shape
+    # UPDATE call has the right shape, with the synthesized x.com permalink
     update_calls = [c for c in fake_cur.execute.call_args_list
                     if "UPDATE articles" in c.args[0]]
     assert len(update_calls) == 1
     upd_sql, upd_params = update_calls[0].args
     assert "status='published'" in upd_sql or "status = 'published'" in upd_sql
     assert "1234567890" in str(upd_params)
+    assert "https://x.com/i/web/status/1234567890" in str(upd_params)
     assert "abc12345" in str(upd_params)
 
 

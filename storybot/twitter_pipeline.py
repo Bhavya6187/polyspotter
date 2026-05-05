@@ -718,16 +718,6 @@ as a self-contained sentence.
   per sentence. Punchy rhythm > polished prose.
 - Round numbers for readability: "$78k" not "$78,131.61"; "$2.8M" not "$2,789,285.20".
   Win-rate records stay exact ("178-20").
-- Stat budget: max 3 distinct numerical STATS in the body (URLs don't
-  count). A "stat" is one fact, not one number — a stat can contain
-  multiple numbers and still count as one. Examples of one stat each:
-  a price flip "34c → 29c" (one fact: the price move, two numbers),
-  a record "178-20" or "50-1", a dollar figure "$8k", a multiplier
-  "12× usual", a wallet count "three accounts", a wallet age "31-day-old",
-  a clock "147 minutes", a percentage "88%". Before submitting, count
-  the STATS, not the digits. If you're at 4+, drop the weakest stat
-  first (usually the soft clock like "147 minutes"). Keep whichever
-  stat anchors the chart (see Image-text linkage above).
 - Refer to wallets by what makes them notable ("a 178-20 wallet", "a fresh account
   up $400k"), not by 0x address.
 - Sharp wallet vs cluster total: when has_sharp_wallet is set AND its bet_usd
@@ -1169,7 +1159,9 @@ def write_tweet(llm_client, chosen_alerts: list[dict], event_summary: str,
     )
     if prior_error:
         user_payload = (
-            f"Your previous tweet failed validation: {prior_error}. Regenerate.\n\n"
+            f"Refinement note for this version: {prior_error}\n"
+            f"Write a fresh draft that resolves the note above and follows "
+            f"the brief below.\n\n"
             + user_payload
         )
     messages.append({"role": "user", "content": user_payload})
@@ -1304,15 +1296,6 @@ image_tiles, recent_openers, recent_tweets.
 20. Opener mimicry. If the tweet's first 3-4 words match the template/shape
     of any string in recent_openers → reject. Exact word match isn't
     required; the SHAPE must differ.
-
-21. Stat budget. More than 3 distinct numerical STATS in the tweet body.
-    URLs do not count. A "stat" is one fact (one signal), not one number
-    — a single stat can contain multiple digits and still count as one.
-    One stat each: a price flip ("34c → 29c", "79c to 62c") = the price
-    move, a record ("178-20", "50-1"), a dollar figure ("$8k"), a
-    multiplier ("12× usual"), a wallet/account count ("three accounts"),
-    a wallet age ("31-day-old"), a clock ("147 minutes"), a percentage
-    ("88%"). Count stats, not digits.
 
 22. Rounding. Dollar figures must be rounded ("$78k" / "$2.8M"), not raw
     ("$78,131.61"). Win-rate records stay exact.
