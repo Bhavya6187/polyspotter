@@ -186,6 +186,7 @@ def test_sync_run_happy_path_updates_db(tmp_path, monkeypatch):
     fake_conn, fake_cur = _patch_conn(monkeypatch, (
         "abc12345", "draft", "alt text", [11, 12]
     ))
+    fake_cur.rowcount = 1
 
     sync.sync_run("abc12345")
 
@@ -265,3 +266,34 @@ def test_sync_run_validation_failure_aborts_no_update(tmp_path, monkeypatch):
     # SELECT only — no UPDATE
     assert fake_cur.execute.call_count == 1
     fake_conn.commit.assert_not_called()
+
+
+def test_sync_run_zero_rowcount_aborts_no_commit(tmp_path, monkeypatch):
+    """Defensive WHERE clause didn't match (race: row flipped to 'published'
+    between SELECT and UPDATE). Must rollback, exit 1, and NOT commit."""
+    import sync_article_from_md as sync
+    import pytest
+
+    monkeypatch.setattr(sync, "ARTICLES_DIR", str(tmp_path))
+    md_path = tmp_path / "abc12345.md"
+    md_path.write_text(_build_md(
+        body=(
+            "Opening hook line that pulls the reader in.\n\n"
+            "## The wallet\n\n" + " ".join(["lorem"] * 200) + "\n\n"
+            "## The bet\n\n" + " ".join(["lorem"] * 200) + "\n\n"
+            "## What to watch\n\n" + " ".join(["lorem"] * 170) + "\n\n"
+            "Closing line. https://polyspotter.com/market/x"
+        ),
+    ))
+    fake_conn, fake_cur = _patch_conn(
+        monkeypatch, ("abc12345", "draft", "alt", [11, 12])
+    )
+    # Status was 'draft' at SELECT time, but a parallel writer flipped it
+    # to 'published' before our UPDATE landed → rowcount=0.
+    fake_cur.rowcount = 0
+
+    with pytest.raises(SystemExit) as exc:
+        sync.sync_run("abc12345")
+    assert exc.value.code == 1
+    fake_conn.commit.assert_not_called()
+    fake_conn.rollback.assert_called_once()

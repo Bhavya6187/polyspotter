@@ -178,12 +178,23 @@ def sync_run(run_id: str) -> None:
                  parsed["body_markdown"], parsed["tweet_text"],
                  word_count, run_id),
             )
+            if cur.rowcount != 1:
+                conn.rollback()
+                log("sync_article_update_zero_rows",
+                    run_id=run_id, rowcount=cur.rowcount)
+                print(
+                    f"error: UPDATE affected {cur.rowcount} rows "
+                    f"(row may have been published or deleted between "
+                    f"the status check and the UPDATE)",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
         conn.commit()
+
+        log("sync_article_done", run_id=run_id, word_count=word_count,
+            headline_chars=len(parsed["headline"]),
+            tweet_chars=len(parsed["tweet_text"]))
+        print(f"[sync] run_id={run_id} headline={parsed['headline']!r} "
+              f"words={word_count} tweet_chars={len(parsed['tweet_text'])}")
     finally:
         conn.close()
-
-    log("sync_article_done", run_id=run_id, word_count=word_count,
-        headline_chars=len(parsed["headline"]),
-        tweet_chars=len(parsed["tweet_text"]))
-    print(f"[sync] run_id={run_id} headline={parsed['headline']!r} "
-          f"words={word_count} tweet_chars={len(parsed['tweet_text'])}")
