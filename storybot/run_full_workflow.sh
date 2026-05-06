@@ -26,7 +26,9 @@ echo "[workflow] running articlebot.py"
 output=$(python storybot/articlebot.py 2>&1 | tee /dev/tty)
 
 # `[articlebot] draft run_id=<hex>` is printed only on the post path.
-# Skip / error paths produce no such line — the workflow exits cleanly.
+# A clean skip (no draft today) produces no such line and we exit 0 below.
+# An articlebot error returns non-zero and set -e already aborted before
+# this point — we never reach the grep on the error path.
 run_id=$(echo "$output" \
     | grep -oP '\[articlebot\] draft run_id=\K[a-f0-9]+' || true)
 
