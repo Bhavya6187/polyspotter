@@ -79,3 +79,22 @@ def _parse_md(md_text: str) -> dict:
         "body_markdown": body,
         "tweet_text": tweet,
     }
+
+
+def _validate_synced(parsed: dict, *, alert_ids: list,
+                     cover_alt_text: str | None) -> tuple[bool, str]:
+    """Run the parsed .md through articlebot's existing validator by building
+    a synthetic decision dict. cover_alt_text and alert_ids come from the DB
+    row (they are not editable via the .md)."""
+    decision = {
+        "decision": "post",
+        "article": {
+            "headline": parsed["headline"],
+            "subhead": parsed["subhead"],
+            "body_markdown": parsed["body_markdown"],
+            "cover_alt_text": cover_alt_text or "",
+        },
+        "tweet_text": parsed["tweet_text"],
+        "alert_ids": list(alert_ids),
+    }
+    return validate_article_decision(decision)

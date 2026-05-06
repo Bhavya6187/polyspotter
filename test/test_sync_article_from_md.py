@@ -107,3 +107,44 @@ def test_parse_md_empty_tweet_errors():
     md = _build_md(tweet="")
     with pytest.raises(ValueError, match="tweet text is empty"):
         sync._parse_md(md)
+
+
+def test_validate_synced_passes_for_clean_edit():
+    import sync_article_from_md as sync
+
+    parsed = {
+        "headline": "Headline",
+        "subhead": "Subhead",
+        "body_markdown": (
+            "Opening hook line that pulls the reader in.\n\n"
+            "## The wallet\n\n" + " ".join(["lorem"] * 200) + "\n\n"
+            "## The bet\n\n" + " ".join(["lorem"] * 200) + "\n\n"
+            "## What to watch\n\n" + " ".join(["lorem"] * 170) + "\n\n"
+            "Closing line. https://polyspotter.com/market/x"
+        ),
+        "tweet_text": "An account up $2M just stacked $80k on a coin-flip.",
+    }
+    ok, err = sync._validate_synced(
+        parsed, alert_ids=[11, 12], cover_alt_text="alt"
+    )
+    assert ok, f"expected pass, got: {err}"
+    assert err == ""
+
+
+def test_validate_synced_fails_when_body_too_short():
+    import sync_article_from_md as sync
+
+    parsed = {
+        "headline": "Headline",
+        "subhead": "Subhead",
+        "body_markdown": (
+            "Tiny body.\n\n## A\n\nx.\n\n## B\n\ny.\n\n## C\n\n"
+            "Close. https://polyspotter.com/market/x"
+        ),
+        "tweet_text": "tweet",
+    }
+    ok, err = sync._validate_synced(
+        parsed, alert_ids=[11, 12], cover_alt_text="alt"
+    )
+    assert not ok
+    assert "word count" in err
