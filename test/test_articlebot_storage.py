@@ -83,6 +83,13 @@ def test_persist_article_writes_md_file_and_inserts_row(tmp_path, monkeypatch):
     assert "abc12345.png" in content
     assert "https://polyspotter.com/market/x" in content
     assert "alert_ids: [11, 12]" in content
+    # New: tweet section bracketed by --- rules
+    assert "## Tweet" in content
+    assert "An account up $2M just stacked $80k on a coin-flip." in content
+    # The .md must contain exactly 2 horizontal rules: one before tweet,
+    # one after tweet (opening the metadata footer). Anything else means
+    # the parser in sync_article_from_md.py will reject the file.
+    assert content.count("\n---\n") == 2
 
     fake_cur.execute.assert_called_once()
     sql, params = fake_cur.execute.call_args.args
