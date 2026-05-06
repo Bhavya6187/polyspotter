@@ -148,3 +148,120 @@ def test_validate_synced_fails_when_body_too_short():
     )
     assert not ok
     assert "word count" in err
+
+
+from unittest.mock import MagicMock
+
+
+def _patch_conn(monkeypatch, fetchone_row, *, expect_update=True):
+    """Wire a fake psycopg2 connection. Returns (fake_conn, fake_cur)."""
+    import sync_article_from_md as sync
+
+    fake_cur = MagicMock()
+    fake_cur.fetchone.return_value = fetchone_row
+    fake_conn = MagicMock()
+    fake_conn.cursor.return_value.__enter__.return_value = fake_cur
+    monkeypatch.setattr(sync, "_get_conn", lambda: fake_conn)
+    return fake_conn, fake_cur
+
+
+def test_sync_run_happy_path_updates_db(tmp_path, monkeypatch):
+    import sync_article_from_md as sync
+
+    monkeypatch.setattr(sync, "ARTICLES_DIR", str(tmp_path))
+    md_path = tmp_path / "abc12345.md"
+    md_path.write_text(_build_md(
+        headline="Edited headline",
+        tweet="Edited tweet text here.",
+        body=(
+            "Opening hook line that pulls the reader in.\n\n"
+            "## The wallet\n\n" + " ".join(["lorem"] * 200) + "\n\n"
+            "## The bet\n\n" + " ".join(["lorem"] * 200) + "\n\n"
+            "## What to watch\n\n" + " ".join(["lorem"] * 170) + "\n\n"
+            "Closing line. https://polyspotter.com/market/x"
+        ),
+    ))
+
+    # Existing draft row in DB
+    fake_conn, fake_cur = _patch_conn(monkeypatch, (
+        "abc12345", "draft", "alt text", [11, 12]
+    ))
+
+    sync.sync_run("abc12345")
+
+    # Two cursor calls: SELECT, then UPDATE
+    assert fake_cur.execute.call_count == 2
+    select_sql = fake_cur.execute.call_args_list[0].args[0]
+    update_sql, update_params = fake_cur.execute.call_args_list[1].args
+    assert "SELECT" in select_sql.upper()
+    assert "UPDATE articles" in update_sql
+    assert "headline" in update_sql
+    assert "tweet_text" in update_sql
+    # Edited values land in params
+    assert "Edited headline" in update_params
+    assert "Edited tweet text here." in update_params
+    assert "abc12345" in update_params
+    fake_conn.commit.assert_called_once()
+
+
+def test_sync_run_missing_row_aborts(tmp_path, monkeypatch):
+    import sync_article_from_md as sync
+    import pytest
+
+    monkeypatch.setattr(sync, "ARTICLES_DIR", str(tmp_path))
+    (tmp_path / "abc12345.md").write_text(_build_md())
+    _patch_conn(monkeypatch, None)  # SELECT returns no row
+
+    with pytest.raises(SystemExit) as exc:
+        sync.sync_run("abc12345")
+    assert exc.value.code == 1
+
+
+def test_sync_run_published_status_aborts(tmp_path, monkeypatch):
+    import sync_article_from_md as sync
+    import pytest
+
+    monkeypatch.setattr(sync, "ARTICLES_DIR", str(tmp_path))
+    (tmp_path / "abc12345.md").write_text(_build_md())
+    _patch_conn(monkeypatch, ("abc12345", "published", "alt", [11, 12]))
+
+    with pytest.raises(SystemExit) as exc:
+        sync.sync_run("abc12345")
+    assert exc.value.code == 1
+
+
+def test_sync_run_missing_md_file_aborts(tmp_path, monkeypatch):
+    import sync_article_from_md as sync
+    import pytest
+
+    monkeypatch.setattr(sync, "ARTICLES_DIR", str(tmp_path))
+    # No .md file written
+    _patch_conn(monkeypatch, ("abc12345", "draft", "alt", [11, 12]))
+
+    with pytest.raises(SystemExit) as exc:
+        sync.sync_run("abc12345")
+    assert exc.value.code == 1
+
+
+def test_sync_run_validation_failure_aborts_no_update(tmp_path, monkeypatch):
+    """Body too short → validate_article_decision rejects → no UPDATE issued."""
+    import sync_article_from_md as sync
+    import pytest
+
+    monkeypatch.setattr(sync, "ARTICLES_DIR", str(tmp_path))
+    md_path = tmp_path / "abc12345.md"
+    md_path.write_text(_build_md(body=(
+        "Tiny.\n\n## A\n\nx.\n\n## B\n\ny.\n\n## C\n\n"
+        "Close. https://polyspotter.com/market/x"
+    )))
+
+    fake_conn, fake_cur = _patch_conn(
+        monkeypatch, ("abc12345", "draft", "alt", [11, 12])
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        sync.sync_run("abc12345")
+    assert exc.value.code == 1
+    # SELECT only — no UPDATE
+    assert fake_cur.execute.call_count == 1
+    fake_conn.commit.assert_not_called()

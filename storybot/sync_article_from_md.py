@@ -98,3 +98,92 @@ def _validate_synced(parsed: dict, *, alert_ids: list,
         "alert_ids": list(alert_ids),
     }
     return validate_article_decision(decision)
+
+
+def _get_conn():
+    """Return a Postgres connection. Hookable in tests via monkeypatch."""
+    return psycopg2.connect(DATABASE_URL, connect_timeout=QUERY_TIMEOUT_SECONDS)
+
+
+def sync_run(run_id: str) -> None:
+    """Parse storybot/articles/<run_id>.md, validate, UPDATE the matching
+    articles row. Calls sys.exit(1) on any failure (missing row, wrong
+    status, missing file, parse error, validation error).
+
+    Only fields editable via the .md are written: headline, subhead,
+    body_markdown, tweet_text, word_count. cover_alt_text, alert_ids,
+    event_slug, cover_bytes are left as-is.
+    """
+    md_path = os.path.join(ARTICLES_DIR, f"{run_id}.md")
+    if not os.path.exists(md_path):
+        log("sync_article_missing_md", run_id=run_id, md_path=md_path)
+        print(f"error: no .md file at {md_path}", file=sys.stderr)
+        sys.exit(1)
+
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT run_id, status, cover_alt_text, alert_ids "
+                "FROM articles WHERE run_id = %s LIMIT 1",
+                (run_id,),
+            )
+            row = cur.fetchone()
+        if row is None:
+            log("sync_article_no_row", run_id=run_id)
+            print(f"error: no articles row for run_id={run_id!r}", file=sys.stderr)
+            sys.exit(1)
+        _, status, cover_alt_text, alert_ids = row
+        if status != "draft":
+            log("sync_article_wrong_status", run_id=run_id, status=status)
+            print(
+                f"error: row status={status!r}, expected 'draft'. "
+                "Refusing to overwrite a published or skipped row.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        with open(md_path) as f:
+            md_text = f.read()
+
+        try:
+            parsed = _parse_md(md_text)
+        except ValueError as exc:
+            log("sync_article_parse_error", run_id=run_id, error=str(exc))
+            print(f"error: failed to parse {md_path}: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        ok, err = _validate_synced(parsed, alert_ids=list(alert_ids or []),
+                                   cover_alt_text=cover_alt_text)
+        if not ok:
+            log("sync_article_validation_error", run_id=run_id, error=err)
+            print(f"error: edited article failed validation: {err}",
+                  file=sys.stderr)
+            sys.exit(1)
+
+        word_count = _word_count(parsed["body_markdown"])
+
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE articles
+                SET headline = %s,
+                    subhead = %s,
+                    body_markdown = %s,
+                    tweet_text = %s,
+                    word_count = %s
+                WHERE run_id = %s AND status = 'draft'
+                """,
+                (parsed["headline"], parsed["subhead"],
+                 parsed["body_markdown"], parsed["tweet_text"],
+                 word_count, run_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    log("sync_article_done", run_id=run_id, word_count=word_count,
+        headline_chars=len(parsed["headline"]),
+        tweet_chars=len(parsed["tweet_text"]))
+    print(f"[sync] run_id={run_id} headline={parsed['headline']!r} "
+          f"words={word_count} tweet_chars={len(parsed['tweet_text'])}")
