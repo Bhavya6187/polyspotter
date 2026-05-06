@@ -198,3 +198,15 @@ def sync_run(run_id: str) -> None:
               f"words={word_count} tweet_chars={len(parsed['tweet_text'])}")
     finally:
         conn.close()
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 1:
+        print("usage: sync_article_from_md.py <run_id>", file=sys.stderr)
+        return 2
+    sync_run(argv[0])
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
