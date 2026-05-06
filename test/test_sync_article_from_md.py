@@ -51,3 +51,59 @@ def test_parse_md_happy_path():
     # Body should not contain the trailing --- or tweet section.
     assert "## Tweet" not in parsed["body_markdown"]
     assert "---" not in parsed["body_markdown"]
+
+
+def test_parse_md_missing_headline_errors():
+    import sync_article_from_md as sync
+    import pytest
+
+    md = _build_md().replace("# Headline", "Headline")
+    with pytest.raises(ValueError, match="could not find headline"):
+        sync._parse_md(md)
+
+
+def test_parse_md_missing_subhead_errors():
+    import sync_article_from_md as sync
+    import pytest
+
+    md = _build_md().replace("*Subhead*", "Subhead")
+    with pytest.raises(ValueError, match="could not find subhead"):
+        sync._parse_md(md)
+
+
+def test_parse_md_missing_tweet_section_errors():
+    import sync_article_from_md as sync
+    import pytest
+
+    md = _build_md().replace("## Tweet", "## Not Tweet")
+    with pytest.raises(ValueError, match="could not find '## Tweet'"):
+        sync._parse_md(md)
+
+
+def test_parse_md_extra_rule_errors():
+    """If Claude introduces a stray --- in the body, we must reject — the
+    parser would otherwise mis-locate the body/tweet boundary."""
+    import sync_article_from_md as sync
+    import pytest
+
+    body_with_rule = (
+        "Opening.\n\n"
+        "## The wallet\n\n"
+        "Wallet line.\n\n---\n\n"   # stray rule inside body
+        "## The bet\n\n"
+        "Bet line.\n\n"
+        "## What to watch\n\n"
+        "Watch line. https://polyspotter.com/market/x"
+    )
+    md = _build_md(body=body_with_rule)
+    with pytest.raises(ValueError, match="expected exactly 2 horizontal rules"):
+        sync._parse_md(md)
+
+
+def test_parse_md_empty_tweet_errors():
+    import sync_article_from_md as sync
+    import pytest
+
+    md = _build_md(tweet="")
+    with pytest.raises(ValueError, match="tweet text is empty"):
+        sync._parse_md(md)
