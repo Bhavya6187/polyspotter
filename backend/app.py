@@ -31,9 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 from database import get_conn, init_db
-from events import get_event_or_fetch, upsert_event
-from seo_generator import generate_seo_content
-from event_seo_generator import generate_event_seo_content
+from events import get_event_or_fetch
 from basketball import get_basketball_data
 from cricket import get_cricket_data
 from models import (
@@ -402,90 +400,11 @@ def ingest(payload: IngestPayload):
         # Cleanup old price candles (keep only 7 days)
         cur.execute("DELETE FROM price_candles WHERE created_at < NOW() - INTERVAL '7 days'")
 
-        # Generate SEO content for markets that don't have it yet.
-        # Throttle reduced from 20 → 10 to make room for event hydration +
-        # event SEO below; total LLM budget per ingest stays comfortably
-        # under the scanner's 60s loop interval.
-        cur.execute("""
-            SELECT condition_id, MAX(market_title) as market_title,
-                   MAX(market_description) as market_description,
-                   MAX(tags) as tags, MAX(end_date::text) as end_date,
-                   SUM(total_usd) as total_usd, COUNT(*) as alert_count,
-                   MAX(scanned_at) as latest_scanned_at
-            FROM alerts
-            WHERE condition_id IS NOT NULL
-              AND seo_generated_at IS NULL
-              AND market_title IS NOT NULL
-            GROUP BY condition_id
-            ORDER BY latest_scanned_at DESC
-            LIMIT 10
-        """)
-        seo_candidates = cur.fetchall()
-
-        seo_generated = 0
-        for row in seo_candidates:
-            cid = row["condition_id"]
-
-            # Gather alert headlines for context
-            cur.execute("""
-                SELECT llm_headline FROM alerts
-                WHERE condition_id = %s AND llm_headline IS NOT NULL
-                ORDER BY composite_score DESC LIMIT 5
-            """, (cid,))
-            headlines = [r["llm_headline"] for r in cur.fetchall()]
-
-            tags_list = []
-            try:
-                tags_list = json.loads(row["tags"] or "[]")
-            except (json.JSONDecodeError, TypeError):
-                pass
-
-            result = generate_seo_content(
-                market_title=row["market_title"],
-                description=row.get("market_description"),
-                tags=tags_list,
-                end_date=row.get("end_date"),
-                total_usd=row["total_usd"] or 0,
-                alert_count=row["alert_count"] or 0,
-                alert_headlines=headlines,
-            )
-
-            if result:
-                faqs_json = json.dumps(result["seo_faqs"])
-                cur.execute("""
-                    UPDATE alerts SET
-                        seo_title = %s,
-                        seo_description = %s,
-                        seo_summary = %s,
-                        seo_faqs = %s,
-                        seo_generated_at = NOW()
-                    WHERE condition_id = %s
-                """, (
-                    result["seo_title"],
-                    result["seo_description"],
-                    result["seo_summary"],
-                    faqs_json,
-                    cid,
-                ))
-                seo_generated += 1
-                print(f"[seo] Generated SEO content for: {row['market_title']}")
-
-        if seo_generated:
-            print(f"[seo] Generated SEO content for {seo_generated} markets.")
-
-        # ---------------------------------------------------------------
-        # Events: touch + hydrate + SEO. Mirrors the market-SEO loop above
-        # and runs on the same /api/ingest cadence. Population strategy:
-        #   1. Touch:    insert placeholder rows for every event_slug seen
-        #                in this ingest batch (cheap, SQL-only).
-        #   2. Hydrate:  for events with title IS NULL, fetch metadata from
-        #                Gamma and UPSERT (≤20 per ingest, ~200ms each).
-        #   3. Generate: for events with title set but seo_generated_at
-        #                NULL, call the LLM and write seo_* (≤5 per ingest,
-        #                ~2s each). Idempotent via NULL guard.
-        # ---------------------------------------------------------------
-
-        # 1. Touch — insert placeholder rows for every event_slug we saw.
+        # Touch placeholder rows for every event_slug seen in this batch.
+        # Hydration (Gamma) and SEO generation (LLM, both market & event)
+        # run out-of-process in backend/seo_worker.py — they were removed
+        # from the request path because external calls inside the DB
+        # transaction caused idle-in-transaction orphans on Postgres.
         distinct_event_slugs = sorted({
             a.event_slug for a in payload.alerts if a.event_slug
         })
@@ -495,106 +414,7 @@ def ingest(payload: IngestPayload):
                 "INSERT INTO events (event_slug) VALUES (%s) ON CONFLICT DO NOTHING",
                 [(s,) for s in distinct_event_slugs],
             )
-            events_touched = cur.rowcount  # newly-inserted only
-
-        # 2. Hydrate — fetch Gamma metadata for events still missing a title.
-        # Prioritize events from this batch (LIMIT after ordering by whether
-        # the slug appears in the ingested set) so freshly-touched rows
-        # become visible quickly.
-        cur.execute("""
-            SELECT event_slug FROM events
-            WHERE title IS NULL
-            ORDER BY fetched_at DESC
-            LIMIT 20
-        """)
-        hydrate_slugs = [r["event_slug"] for r in cur.fetchall()]
-        events_hydrated = 0
-        for slug in hydrate_slugs:
-            # upsert_event opens its own connection; fine inside this block.
-            row = upsert_event(slug)
-            if row and row.get("title"):
-                events_hydrated += 1
-
-        # 3. Generate event SEO for hydrated events that don't have it yet.
-        cur.execute("""
-            SELECT e.event_slug, e.title, e.description, e.end_date::text AS end_date, e.tags
-            FROM events e
-            WHERE e.title IS NOT NULL
-              AND e.seo_generated_at IS NULL
-              AND EXISTS (SELECT 1 FROM alerts a WHERE a.event_slug = e.event_slug)
-            ORDER BY e.last_refreshed_at DESC NULLS LAST
-            LIMIT 5
-        """)
-        event_seo_candidates = cur.fetchall()
-
-        events_seo_generated = 0
-        for row in event_seo_candidates:
-            slug = row["event_slug"]
-
-            # Pull child market titles + top alert headlines for context.
-            cur.execute("""
-                SELECT DISTINCT market_title FROM alerts
-                WHERE event_slug = %s AND market_title IS NOT NULL
-                LIMIT 10
-            """, (slug,))
-            market_titles = [r["market_title"] for r in cur.fetchall()]
-
-            cur.execute("""
-                SELECT llm_headline, total_usd, composite_score FROM alerts
-                WHERE event_slug = %s AND llm_headline IS NOT NULL
-                ORDER BY composite_score DESC LIMIT 5
-            """, (slug,))
-            top_rows = cur.fetchall()
-            headlines = [r["llm_headline"] for r in top_rows]
-
-            cur.execute("""
-                SELECT COUNT(*) AS alert_count, COALESCE(SUM(total_usd), 0) AS total_usd
-                FROM alerts WHERE event_slug = %s
-            """, (slug,))
-            agg = cur.fetchone() or {}
-
-            tags_list: list[str] = []
-            try:
-                raw_tags = row.get("tags") or "[]"
-                parsed = json.loads(raw_tags) if isinstance(raw_tags, str) else raw_tags
-                tags_list = [t.get("label") for t in parsed if isinstance(t, dict) and t.get("label")]
-            except (json.JSONDecodeError, TypeError):
-                pass
-
-            result = generate_event_seo_content(
-                event_title=row["title"],
-                description=row.get("description"),
-                tags=tags_list,
-                end_date=row.get("end_date"),
-                market_titles=market_titles,
-                total_usd=float(agg.get("total_usd") or 0),
-                alert_count=int(agg.get("alert_count") or 0),
-                alert_headlines=headlines,
-            )
-            if result:
-                cur.execute("""
-                    UPDATE events SET
-                        seo_title = %s,
-                        seo_description = %s,
-                        seo_summary = %s,
-                        seo_faqs = %s,
-                        seo_generated_at = NOW()
-                    WHERE event_slug = %s
-                """, (
-                    result["seo_title"],
-                    result["seo_description"],
-                    result["seo_summary"],
-                    json.dumps(result["seo_faqs"]),
-                    slug,
-                ))
-                events_seo_generated += 1
-                print(f"[seo] Generated event SEO for: {row['title']}")
-
-        if events_touched or events_hydrated or events_seo_generated:
-            print(
-                f"[events] touched={events_touched} hydrated={events_hydrated} "
-                f"seo_generated={events_seo_generated}"
-            )
+            events_touched = cur.rowcount
 
     return {
         "status": "ok",
@@ -605,8 +425,6 @@ def ingest(payload: IngestPayload):
         "price_candles": candles_count,
         "theses": theses_count,
         "events_touched": events_touched,
-        "events_hydrated": events_hydrated,
-        "events_seo_generated": events_seo_generated,
     }
 
 
