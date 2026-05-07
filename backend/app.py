@@ -693,8 +693,15 @@ def list_alerts_by_market(
     resolves_within: str | None = Query(None, description="Filter by resolution window: 6h, 24h, 7d"),
     include_resolved: bool = Query(False, description="Include resolved/expired markets"),
     q: str | None = Query(None, description="Search market titles (fuzzy match)"),
+    group_events: bool = Query(
+        False,
+        description="When true, collapse alerts that share an event_slug with 2+ "
+        "child markets into a single event-level row. Standalone markets and "
+        "single-market events render as before. Used by home + tag pages so the "
+        "Bayern–PSG match shows as one card instead of three.",
+    ),
 ):
-    """List alerts grouped by market (condition_id)."""
+    """List alerts grouped by market (condition_id), or smart-grouped by event when group_events=true."""
     conditions = [
         "a.composite_score >= %s",
     ]
@@ -736,23 +743,17 @@ def list_alerts_by_market(
     where = " AND ".join(conditions)
     offset = (page - 1) * per_page
 
+    # When group_events=true we wrap the SELECT in a CTE that identifies
+    # event_slugs covering 2+ child markets in this filter, then groups by
+    # COALESCE(event_slug-when-multi-market, condition_id). Single-market
+    # events and standalone markets fall through to the per-market path
+    # unchanged. Cap event-card alerts at this many to keep cards compact.
+    EVENT_ALERTS_LIMIT = 5
+
     with db() as conn:
         cur = conn.cursor()
 
-        # Count distinct markets and total alerts
-        cur.execute(
-            f"""SELECT COUNT(DISTINCT a.condition_id) as cnt,
-                       COUNT(*) as alert_cnt
-                FROM alerts a WHERE {where} AND a.condition_id IS NOT NULL""",
-            params,
-        )
-        counts = cur.fetchone()
-        total = counts["cnt"]
-        total_alerts = counts["alert_cnt"]
-
-        # Relevance score: title similarity + 0.3 boost if any tag matches.
-        # Keeps strong title matches above tag-only matches (a 0.8 title sim
-        # beats a 0.3 tag bonus), but a tag hit still outranks a weak title match.
+        # Relevance / freshness ordering — same logic for both grouping modes.
         if q_clean:
             order_clause = (
                 "MAX(word_similarity(%s, a.market_title) "
@@ -766,55 +767,157 @@ def list_alerts_by_market(
             order_clause = ""
             order_params = []
 
-        # Get paginated market groups
-        cur.execute(
-            f"""SELECT a.condition_id,
-                       MAX(a.market_title) as market_title,
-                       MAX(a.market_url) as market_url,
-                       MAX(a.market_image) as market_image,
-                       MAX(a.event_slug) as event_slug,
-                       MAX(a.end_date) as end_date,
-                       SUM(a.total_usd) as total_usd,
-                       COUNT(*) as alert_count,
-                       MAX(a.composite_score) as max_score,
-                       MAX(a.scanned_at) as scanned_at,
-                       MAX(a.seo_title) as seo_title,
-                       MAX(a.seo_description) as seo_description,
-                       MAX(a.seo_summary) as seo_summary,
-                       MAX(a.seo_faqs) as seo_faqs
-                FROM alerts a
-                WHERE {where} AND a.condition_id IS NOT NULL
-                GROUP BY a.condition_id
-                ORDER BY {order_clause}scanned_at DESC, max_score DESC
-                LIMIT %s OFFSET %s""",
-            params + order_params + [per_page, offset],
-        )
-        market_rows = cur.fetchall()
+        if not group_events:
+            # ------------ Legacy market-only grouping ------------
+            cur.execute(
+                f"""SELECT COUNT(DISTINCT a.condition_id) as cnt,
+                           COUNT(*) as alert_cnt
+                    FROM alerts a WHERE {where} AND a.condition_id IS NOT NULL""",
+                params,
+            )
+            counts = cur.fetchone()
+            total = counts["cnt"]
+            total_alerts = counts["alert_cnt"]
 
-        # Fetch alerts for each market group
+            cur.execute(
+                f"""SELECT a.condition_id,
+                           MAX(a.market_title) as market_title,
+                           MAX(a.market_url) as market_url,
+                           MAX(a.market_image) as market_image,
+                           MAX(a.event_slug) as event_slug,
+                           MAX(a.end_date) as end_date,
+                           SUM(a.total_usd) as total_usd,
+                           COUNT(*) as alert_count,
+                           MAX(a.composite_score) as max_score,
+                           MAX(a.scanned_at) as scanned_at,
+                           MAX(a.seo_title) as seo_title,
+                           MAX(a.seo_description) as seo_description,
+                           MAX(a.seo_summary) as seo_summary,
+                           MAX(a.seo_faqs) as seo_faqs
+                    FROM alerts a
+                    WHERE {where} AND a.condition_id IS NOT NULL
+                    GROUP BY a.condition_id
+                    ORDER BY {order_clause}scanned_at DESC, max_score DESC
+                    LIMIT %s OFFSET %s""",
+                params + order_params + [per_page, offset],
+            )
+            market_rows = [
+                {**dict(r), "is_event": False, "event_title": None, "event_image": None, "market_count": 1}
+                for r in cur.fetchall()
+            ]
+        else:
+            # ------------ Smart event-aware grouping ------------
+            # Step 1: find slugs whose alerts (in this filter) cover 2+ markets.
+            mm_sql = f"""
+                SELECT a.event_slug
+                FROM alerts a
+                WHERE {where}
+                  AND a.condition_id IS NOT NULL
+                  AND a.event_slug IS NOT NULL
+                GROUP BY a.event_slug
+                HAVING COUNT(DISTINCT a.condition_id) >= 2
+            """
+
+            # Step 2: count distinct groups (events + standalone markets) for pagination.
+            cur.execute(
+                f"""WITH multi_markets AS ({mm_sql})
+                    SELECT COUNT(*) AS cnt FROM (
+                        SELECT DISTINCT
+                          CASE WHEN mm.event_slug IS NOT NULL
+                               THEN a.event_slug ELSE a.condition_id END AS group_key
+                        FROM alerts a
+                        LEFT JOIN multi_markets mm ON mm.event_slug = a.event_slug
+                        WHERE {where} AND a.condition_id IS NOT NULL
+                    ) sub""",
+                params + params,  # `where` appears twice in this query
+            )
+            total = int((cur.fetchone() or {}).get("cnt") or 0)
+
+            cur.execute(
+                f"""SELECT COUNT(*) AS alert_cnt FROM alerts a
+                    WHERE {where} AND a.condition_id IS NOT NULL""",
+                params,
+            )
+            total_alerts = int((cur.fetchone() or {}).get("alert_cnt") or 0)
+
+            # Step 3: paginated group rows.
+            cur.execute(
+                f"""WITH multi_markets AS ({mm_sql})
+                    SELECT
+                      (mm.event_slug IS NOT NULL) AS is_event,
+                      COALESCE(mm.event_slug, a.condition_id) AS group_key,
+                      MAX(a.condition_id) AS condition_id,
+                      MAX(a.event_slug)   AS event_slug,
+                      MAX(e.title)        AS event_title,
+                      MAX(e.image)        AS event_image,
+                      MAX(a.market_title) AS market_title,
+                      MAX(a.market_url)   AS market_url,
+                      MAX(a.market_image) AS market_image,
+                      MAX(a.end_date)     AS end_date,
+                      SUM(a.total_usd)    AS total_usd,
+                      COUNT(*)            AS alert_count,
+                      COUNT(DISTINCT a.condition_id) AS market_count,
+                      MAX(a.composite_score) AS max_score,
+                      MAX(a.scanned_at)   AS scanned_at,
+                      MAX(a.seo_title)    AS seo_title,
+                      MAX(a.seo_description) AS seo_description,
+                      MAX(a.seo_summary)  AS seo_summary,
+                      MAX(a.seo_faqs)     AS seo_faqs
+                    FROM alerts a
+                    LEFT JOIN multi_markets mm ON mm.event_slug = a.event_slug
+                    LEFT JOIN events e ON e.event_slug = a.event_slug
+                    WHERE {where} AND a.condition_id IS NOT NULL
+                    GROUP BY group_key, is_event
+                    ORDER BY {order_clause}scanned_at DESC, max_score DESC
+                    LIMIT %s OFFSET %s""",
+                params + params + order_params + [per_page, offset],
+            )
+            market_rows = [dict(r) for r in cur.fetchall()]
+
+        # Fetch alerts for each group. Event rows query by event_slug + LIMIT;
+        # market rows keep their existing per-condition_id query (full set).
         markets = []
         for mrow in market_rows:
-            cid = mrow["condition_id"]
-            cur.execute(
-                f"""SELECT a.*,
-                           wp.win_rate,
-                           wp.total_pnl,
-                           wp.total_invested,
-                           COALESCE(
-                               (SELECT MAX(t.trade_timestamp)
-                                FROM alert_trades t
-                                WHERE t.alert_id = a.id),
-                               a.scanned_at
-                           ) AS latest_trade_at
-                    FROM alerts a
-                    LEFT JOIN wallet_profiles wp ON wp.wallet = a.wallet
-                    WHERE a.condition_id = %s AND {where}
-                    ORDER BY latest_trade_at DESC""",
-                [cid] + params,
-            )
+            is_event = bool(mrow.get("is_event"))
+            if is_event:
+                cur.execute(
+                    f"""SELECT a.*,
+                               wp.win_rate,
+                               wp.total_pnl,
+                               wp.total_invested,
+                               COALESCE(
+                                   (SELECT MAX(t.trade_timestamp)
+                                    FROM alert_trades t
+                                    WHERE t.alert_id = a.id),
+                                   a.scanned_at
+                               ) AS latest_trade_at
+                        FROM alerts a
+                        LEFT JOIN wallet_profiles wp ON wp.wallet = a.wallet
+                        WHERE a.event_slug = %s AND {where}
+                        ORDER BY a.composite_score DESC, latest_trade_at DESC
+                        LIMIT %s""",
+                    [mrow["event_slug"]] + params + [EVENT_ALERTS_LIMIT],
+                )
+            else:
+                cur.execute(
+                    f"""SELECT a.*,
+                               wp.win_rate,
+                               wp.total_pnl,
+                               wp.total_invested,
+                               COALESCE(
+                                   (SELECT MAX(t.trade_timestamp)
+                                    FROM alert_trades t
+                                    WHERE t.alert_id = a.id),
+                                   a.scanned_at
+                               ) AS latest_trade_at
+                        FROM alerts a
+                        LEFT JOIN wallet_profiles wp ON wp.wallet = a.wallet
+                        WHERE a.condition_id = %s AND {where}
+                        ORDER BY latest_trade_at DESC""",
+                    [mrow["condition_id"]] + params,
+                )
             alert_rows = cur.fetchall()
 
-            # Collect union of tags
             all_tags: list[str] = []
             parsed_alerts = []
             for r in alert_rows:
@@ -832,7 +935,7 @@ def list_alerts_by_market(
 
             markets.append(
                 MarketGroup(
-                    condition_id=cid,
+                    condition_id=mrow["condition_id"],
                     market_title=mrow["market_title"],
                     market_url=mrow["market_url"],
                     market_image=mrow["market_image"],
@@ -848,6 +951,10 @@ def list_alerts_by_market(
                     seo_summary=mrow.get("seo_summary"),
                     seo_faqs=seo_faqs,
                     alerts=parsed_alerts,
+                    is_event=is_event,
+                    event_title=mrow.get("event_title"),
+                    event_image=mrow.get("event_image"),
+                    market_count=int(mrow.get("market_count") or 1),
                 )
             )
 

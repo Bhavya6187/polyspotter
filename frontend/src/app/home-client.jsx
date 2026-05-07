@@ -60,6 +60,7 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
       tag: filtersRef.current.tag,
       resolvesWithin: filtersRef.current.resolvesIn,
       minScore: filtersRef.current.minScore || undefined,
+      groupEvents: true,
     })
       .then((data) => {
         setMarkets(data.markets || []);

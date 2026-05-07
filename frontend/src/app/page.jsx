@@ -9,7 +9,7 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
 async function getHomeData() {
   try {
     const [marketsRes, tagsRes, thesesRes, walletsRes] = await Promise.all([
-      fetch(`${API_URL}/api/alerts/by-market?page=1&per_page=20`, {
+      fetch(`${API_URL}/api/alerts/by-market?page=1&per_page=20&group_events=true`, {
         next: { revalidate: 60 },
       }),
       fetch(`${API_URL}/api/tags`, { next: { revalidate: 60 } }),
@@ -54,8 +54,10 @@ export default async function HomePage() {
     itemListElement: markets.slice(0, 10).map((m, i) => ({
       "@type": "ListItem",
       position: i + 1,
-      name: m.market_title,
-      url: `${SITE_URL}/market/${marketSlug(m.market_title, m.condition_id)}`,
+      name: m.is_event ? (m.event_title || m.market_title) : m.market_title,
+      url: m.is_event && m.event_slug
+        ? `${SITE_URL}/event/${encodeURIComponent(m.event_slug)}`
+        : `${SITE_URL}/market/${marketSlug(m.market_title, m.condition_id)}`,
     })),
   };
 
@@ -191,17 +193,22 @@ export default async function HomePage() {
           <section>
             <h2>Top Smart Money Markets</h2>
             <ol>
-              {markets.slice(0, 10).map((m) => (
-                <li key={m.condition_id}>
-                  <a
-                    href={`/market/${marketSlug(m.market_title, m.condition_id)}`}
-                  >
-                    {m.market_title}
+              {markets.slice(0, 10).map((m) => {
+                const href = m.is_event && m.event_slug
+                  ? `/event/${encodeURIComponent(m.event_slug)}`
+                  : `/market/${marketSlug(m.market_title, m.condition_id)}`;
+                const title = m.is_event ? (m.event_title || m.market_title) : m.market_title;
+                const key = m.is_event ? `e:${m.event_slug}` : `m:${m.condition_id}`;
+                return (
+                <li key={key}>
+                  <a href={href}>
+                    {title}
                   </a>{" "}
                   — {m.alert_count} signal{m.alert_count !== 1 ? "s" : ""},{" "}
                   {usdFmt.format(m.total_usd)} tracked
                 </li>
-              ))}
+              );
+              })}
             </ol>
           </section>
 

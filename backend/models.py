@@ -250,6 +250,15 @@ class MarketGroup(BaseModel):
     seo_faqs: list[dict] | None = None
     alerts: list[AlertOut] = []
 
+    # Smart-grouping fields populated when /api/alerts/by-market is called
+    # with group_events=true. is_event=True rows aggregate alerts across
+    # all child markets sharing event_slug and link to /event/[slug];
+    # is_event=False rows behave like the legacy condition_id-grouped row.
+    is_event: bool = False
+    event_title: str | None = None
+    event_image: str | None = None
+    market_count: int = 1
+
 
 class PaginatedMarkets(BaseModel):
     markets: list[MarketGroup]

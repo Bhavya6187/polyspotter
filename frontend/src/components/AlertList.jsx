@@ -210,6 +210,22 @@ function MarketGroupCard({ market, liveData, index }) {
 
   const marketUrl = market.market_url || alert.market_url;
 
+  // Event-grouped rows (when /api/alerts/by-market is called with
+  // group_events=true) collapse multiple child markets into one card.
+  // We swap title/image/link target for these but leave per-alert content
+  // alone so the inner alert row still shows which child market it's on.
+  const isEvent = !!market.is_event;
+  const displayTitle = isEvent
+    ? (market.event_title || market.market_title || market.event_slug || "—")
+    : (market.market_title ?? "—");
+  const displayImage = isEvent
+    ? (market.event_image || market.market_image)
+    : market.market_image;
+  const cardHref = isEvent && market.event_slug
+    ? `/event/${encodeURIComponent(market.event_slug)}`
+    : `/market/${marketSlug(market.market_title, market.condition_id)}`;
+  const footerCtaText = isEvent ? "View event hub" : "View market";
+
   // Compact row data
   const copyAction = alert.llm_copy_action;
   let compactBet = usdFmt.format(alert.total_usd);
@@ -237,13 +253,13 @@ function MarketGroupCard({ market, liveData, index }) {
     >
       {/* Market header */}
       <Link
-        href={`/market/${marketSlug(market.market_title, market.condition_id)}`}
+        href={cardHref}
         className="group/header flex items-start justify-between gap-3 px-5 py-4 rounded-t-xl transition-all hover:bg-[var(--accent-subtle)]"
       >
         <div className="flex items-center gap-3 min-w-0">
-          {market.market_image && (
+          {displayImage && (
             <Image
-              src={market.market_image}
+              src={displayImage}
               alt=""
               width={32}
               height={32}
@@ -251,12 +267,19 @@ function MarketGroupCard({ market, liveData, index }) {
             />
           )}
           <StrengthMeter maxScore={alert.composite_score} />
-          <span
-            className="text-sm font-semibold leading-snug truncate transition-colors group-hover/header:text-[var(--accent)]"
-            style={{ color: 'var(--text-primary)' }}
-          >
-            {market.market_title ?? "\u2014"}
-          </span>
+          <div className="min-w-0 flex flex-col">
+            <span
+              className="text-sm font-semibold leading-snug truncate transition-colors group-hover/header:text-[var(--accent)]"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              {displayTitle}
+            </span>
+            {isEvent && market.market_count > 1 && (
+              <span className="text-xs uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                Event \u00b7 {market.market_count} markets \u00b7 {market.alert_count} signal{market.alert_count !== 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {isResolved ? (
@@ -346,7 +369,7 @@ function MarketGroupCard({ market, liveData, index }) {
             )}
             <ShareButton
               url={`${typeof window !== 'undefined' ? window.location.origin : ''}/alert/${alert.id}`}
-              title={`PolySpotter: ${market.market_title}`}
+              title={`PolySpotter: ${displayTitle}`}
               text={`Sharp money alert: ${compactBet}`}
               iconOnly
             />
@@ -378,13 +401,13 @@ function MarketGroupCard({ market, liveData, index }) {
             ))}
           </div>
         )}
-        {marketUrl && (
+        {(marketUrl || isEvent) && (
           <Link
-            href={`/market/${marketSlug(market.market_title, market.condition_id)}`}
+            href={cardHref}
             className="inline-flex items-center gap-1 text-xs font-medium transition-colors ml-auto"
             style={{ color: 'var(--text-muted)' }}
           >
-            View market
+            {footerCtaText}
             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
             </svg>
@@ -473,7 +496,7 @@ export default function AlertList({ markets, filters, loading, theses = [] }) {
   return (
     <div className="flex flex-col gap-3">
       {filtered.map((market, i) => (
-        <Fragment key={market.condition_id}>
+        <Fragment key={market.is_event ? `e:${market.event_slug}` : `m:${market.condition_id}`}>
           <MarketGroupCard market={market} liveData={liveData} index={i} />
           {(i + 1) % 4 === 0 && theses[Math.floor(i / 4)] && (
             <ThesisCard thesis={theses[Math.floor(i / 4)]} />

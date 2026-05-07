@@ -100,6 +100,9 @@ async function getTagData(tag, page = 1, resolves = "", severity = "") {
       page: String(page),
       per_page: String(PER_PAGE),
       tag,
+      // Smart-group: events with 2+ child markets render as one card, so the
+      // tag list shows "Bayern–PSG" once instead of three near-identical rows.
+      group_events: "true",
     });
     // When filtering by resolution window the user wants upcoming markets, so
     // drop include_resolved (which otherwise leaks past-resolved markets into
@@ -220,8 +223,10 @@ export default async function TagPage({ params, searchParams }) {
     itemListElement: markets.map((m, i) => ({
       "@type": "ListItem",
       position: i + 1,
-      name: m.market_title,
-      url: `${siteUrl}/market/${marketSlug(m.market_title, m.condition_id)}`,
+      name: m.is_event ? (m.event_title || m.market_title) : m.market_title,
+      url: m.is_event && m.event_slug
+        ? `${siteUrl}/event/${encodeURIComponent(m.event_slug)}`
+        : `${siteUrl}/market/${marketSlug(m.market_title, m.condition_id)}`,
     })),
   };
 
@@ -337,12 +342,16 @@ export default async function TagPage({ params, searchParams }) {
           <section>
             <h2>{display} Markets with Smart Money Signals</h2>
             <ol>
-              {markets.map((m) => (
-                <li key={m.condition_id}>
-                  <a
-                    href={`/market/${marketSlug(m.market_title, m.condition_id)}`}
-                  >
-                    {m.market_title}
+              {markets.map((m) => {
+                const href = m.is_event && m.event_slug
+                  ? `/event/${encodeURIComponent(m.event_slug)}`
+                  : `/market/${marketSlug(m.market_title, m.condition_id)}`;
+                const title = m.is_event ? (m.event_title || m.market_title) : m.market_title;
+                const key = m.is_event ? `e:${m.event_slug}` : `m:${m.condition_id}`;
+                return (
+                <li key={key}>
+                  <a href={href}>
+                    {title}
                   </a>{" "}
                   — {m.alert_count} signal{m.alert_count !== 1 ? "s" : ""},{" "}
                   {usdFmt.format(m.total_usd)} tracked
@@ -350,7 +359,8 @@ export default async function TagPage({ params, searchParams }) {
                     <>. Latest: {m.alerts[0].llm_headline}</>
                   )}
                 </li>
-              ))}
+                );
+              })}
             </ol>
           </section>
         </div>
