@@ -63,7 +63,7 @@ function AlertEntry({ alert, liveData }) {
     const wr = `${Math.round(alert.win_rate * 100)}%`;
     const pnl =
       alert.total_pnl != null
-        ? ` \u00b7 ${alert.total_pnl >= 0 ? "+" : ""}${usdFmt.format(alert.total_pnl)}`
+        ? ` · ${alert.total_pnl >= 0 ? "+" : ""}${usdFmt.format(alert.total_pnl)}`
         : "";
     subtitle = `${wr} win rate${pnl}`;
   }
@@ -301,7 +301,7 @@ function MarketGroupCard({ market, liveData, index }) {
             </span>
             {isMultiEvent && market.market_count > 1 ? (
               <span className="text-xs uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-                Event \u00b7 {market.market_count} markets \u00b7 {market.alert_count} signal{market.alert_count !== 1 ? "s" : ""}
+                Event · {market.market_count} markets · {market.alert_count} signal{market.alert_count !== 1 ? "s" : ""}
               </span>
             ) : marketSubtitle ? (
               <span className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
