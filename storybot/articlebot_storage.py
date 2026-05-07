@@ -29,18 +29,47 @@ def _word_count(text: str) -> int:
 
 
 def _format_md_file(run_id: str, decision: dict, cover_path: str | None) -> str:
-    """Build the paste-ready markdown file body."""
+    """Build the paste-ready markdown file body.
+
+    Layout (parsed back by sync_article_from_md.py):
+        # {headline}
+
+        *{subhead}*
+
+        ![cover](<cover_basename>)   # only if cover_path
+
+        {body_markdown}
+
+        ---
+
+        ## Tweet
+
+        {tweet_text}
+
+        ---
+
+        run_id: ... | event_slug: ... | alert_ids: ...
+        posted_url: <fill in after publishing>
+
+    The two `---` rules and the `## Tweet` heading are load-bearing for the
+    sync parser; do not change without updating sync_article_from_md.py.
+    """
     article = decision.get("article") or {}
     headline = article.get("headline", "")
     subhead = article.get("subhead", "")
     body = article.get("body_markdown", "")
+    tweet_text = decision.get("tweet_text") or ""
     event_slug = decision.get("event_slug") or ""
     alert_ids = decision.get("alert_ids") or []
 
     parts = [f"# {headline}", "", f"*{subhead}*", ""]
     if cover_path:
         parts.extend([f"![cover]({os.path.basename(cover_path)})", ""])
-    parts.extend([body, "", "---",
+    parts.extend([body, "",
+                  "---", "",
+                  "## Tweet", "",
+                  tweet_text, "",
+                  "---", "",
                   f"run_id: {run_id} | event_slug: {event_slug} | "
                   f"alert_ids: {alert_ids}",
                   "posted_url: <fill in after publishing>",
