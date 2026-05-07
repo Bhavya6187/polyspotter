@@ -301,6 +301,15 @@ export default async function MarketPage({ params }) {
             <a href="/">PolySpotter</a> &gt; <span>{title}</span>
           </nav>
 
+          {alerts?.[0]?.event_slug && (
+            <p style={{ fontSize: "0.85rem" }}>
+              Part of:{" "}
+              <a href={`/event/${encodeURIComponent(alerts[0].event_slug)}`}>
+                {alerts[0].event_slug}
+              </a>
+            </p>
+          )}
+
           <h1>{title}</h1>
           {seoSummary && <p>{seoSummary}</p>}
           {live?.description && <p>{live.description}</p>}

@@ -657,3 +657,23 @@ class EventDetail(BaseModel):
     top_wallets: list[EventTopWallet] = []
     related_thesis: ThesisOut | None = None
     related_article: EventRelatedArticle | None = None
+
+
+class EventListItem(BaseModel):
+    """One row in GET /api/events — sitemap and index pages."""
+    slug: str
+    title: str | None = None
+    image: str | None = None
+    end_date: datetime | None = None
+    n_markets: int = 0
+    n_alerts: int = 0
+    total_usd: float = 0
+    tags: list[str] = []
+    last_alert_at: datetime | None = None
+
+
+class PaginatedEvents(BaseModel):
+    events: list[EventListItem]
+    total: int
+    page: int
+    per_page: int

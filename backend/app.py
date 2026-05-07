@@ -64,6 +64,8 @@ from models import (
     EventStats,
     EventTopWallet,
     EventRelatedArticle,
+    EventListItem,
+    PaginatedEvents,
     ThesisOut,
 )
 
@@ -2296,3 +2298,101 @@ def get_event(slug: str):
         related_thesis=related_thesis,
         related_article=related_article,
     )
+
+
+@app.get("/api/events", response_model=PaginatedEvents)
+def list_events(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(100, ge=1, le=500),
+    min_markets: int = Query(1, ge=1, description="Filter to events with >= this many child markets"),
+    min_alerts: int = Query(1, ge=0),
+    include_resolved: bool = Query(True, description="Include resolved/expired events"),
+    tag: str | None = Query(None, description="Filter by event tag label, e.g. 'Sports'"),
+):
+    """List events for sitemap + index pages.
+
+    Source of truth is the alerts table (we only care about events we have
+    alerts on). Joined with the events cache to surface titles/tags/image
+    when available — null-safe for placeholder rows that haven't been
+    hydrated from Gamma yet.
+    """
+    conditions = ["a.event_slug IS NOT NULL"]
+    params: list = []
+    if not include_resolved:
+        conditions.append("(a.end_date IS NULL OR a.end_date > NOW())")
+    if tag:
+        conditions.append("""
+            EXISTS (
+                SELECT 1 FROM jsonb_array_elements(e.tags::jsonb) AS t
+                WHERE LOWER(t->>'label') = LOWER(%s)
+            )
+        """)
+        params.append(tag)
+
+    where = " AND ".join(conditions)
+    offset = (page - 1) * per_page
+
+    # Aggregate per event_slug, then filter on min_markets / min_alerts.
+    # The HAVING clause runs post-aggregate so the COUNT/SUM is correct.
+    agg_sql = f"""
+        SELECT a.event_slug,
+               MAX(e.title)         AS title,
+               MAX(e.image)         AS image,
+               MAX(e.tags)          AS tags,
+               MAX(a.end_date)      AS end_date,
+               MAX(a.scanned_at)    AS last_alert_at,
+               COUNT(DISTINCT a.condition_id) AS n_markets,
+               COUNT(*)             AS n_alerts,
+               COALESCE(SUM(a.total_usd), 0) AS total_usd
+        FROM alerts a
+        LEFT JOIN events e ON e.event_slug = a.event_slug
+        WHERE {where}
+        GROUP BY a.event_slug
+        HAVING COUNT(DISTINCT a.condition_id) >= %s
+           AND COUNT(*) >= %s
+    """
+
+    with db() as conn:
+        cur = conn.cursor()
+
+        # Total count: wrap the agg query as a subselect.
+        cur.execute(
+            f"SELECT COUNT(*) AS cnt FROM ({agg_sql}) sub",
+            params + [min_markets, min_alerts],
+        )
+        total = int((cur.fetchone() or {}).get("cnt") or 0)
+
+        cur.execute(
+            f"""{agg_sql}
+                ORDER BY MAX(a.scanned_at) DESC NULLS LAST
+                LIMIT %s OFFSET %s""",
+            params + [min_markets, min_alerts, per_page, offset],
+        )
+        rows = cur.fetchall()
+
+    events: list[EventListItem] = []
+    for r in rows:
+        tag_labels: list[str] = []
+        raw_tags = r.get("tags") or "[]"
+        try:
+            parsed = json.loads(raw_tags) if isinstance(raw_tags, str) else raw_tags
+            tag_labels = [
+                t.get("label") for t in parsed
+                if isinstance(t, dict) and t.get("label")
+            ]
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        events.append(EventListItem(
+            slug=r["event_slug"],
+            title=r.get("title"),
+            image=r.get("image"),
+            end_date=r.get("end_date"),
+            n_markets=int(r.get("n_markets") or 0),
+            n_alerts=int(r.get("n_alerts") or 0),
+            total_usd=float(r.get("total_usd") or 0),
+            tags=tag_labels,
+            last_alert_at=r.get("last_alert_at"),
+        ))
+
+    return PaginatedEvents(events=events, total=total, page=page, per_page=per_page)

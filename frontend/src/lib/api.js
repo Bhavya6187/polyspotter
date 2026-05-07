@@ -95,3 +95,18 @@ export function fetchBasketballData(conditionId, { title = "", event_slug = "" }
 export function fetchCricketData(conditionId, { title = "", event_slug = "" } = {}) {
   return request(`/api/market/${conditionId}/cricket`, { title, event_slug });
 }
+
+export function fetchEvent(slug) {
+  return request(`/api/event/${encodeURIComponent(slug)}`);
+}
+
+export function fetchEvents({ page, perPage, minMarkets, minAlerts, includeResolved, tag } = {}) {
+  return request("/api/events", {
+    page,
+    per_page: perPage,
+    min_markets: minMarkets,
+    min_alerts: minAlerts,
+    include_resolved: includeResolved,
+    tag: tag || undefined,
+  });
+}

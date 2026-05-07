@@ -65,6 +65,48 @@ async function getArticleEntries() {
   }
 }
 
+async function getEventEntries() {
+  // Only emit URLs for events with 2+ child markets — single-market events
+  // are folded to /market via canonical, so indexing them as /event would
+  // be a duplicate-content signal. Sports games and election-style events
+  // (which always have spread/total/winner-per-candidate variants) make
+  // up the bulk of the multi-market backlog and are the strongest SEO bets.
+  try {
+    const allEvents = [];
+    let page = 1;
+    let totalPages = 1;
+    while (page <= totalPages) {
+      const res = await fetch(
+        `${API_URL}/api/events?per_page=200&page=${page}&min_markets=2&include_resolved=true`,
+        FETCH_OPTS
+      );
+      if (!res.ok) break;
+      const data = await res.json();
+      allEvents.push(...(data.events || []));
+      const total = data.total || 0;
+      totalPages = Math.ceil(total / 200);
+      page++;
+      // Hard cap to prevent runaway loops; 5000 events is more than we
+      // can realistically index and well above current scale.
+      if (page > 25) break;
+    }
+    return allEvents.map((e) => {
+      const isResolved =
+        e.end_date && new Date(e.end_date) <= new Date();
+      return {
+        url: `${SITE_URL}/event/${encodeURIComponent(e.slug)}`,
+        lastModified: e.last_alert_at
+          ? new Date(e.last_alert_at)
+          : (e.end_date ? new Date(e.end_date) : new Date()),
+        changeFrequency: isResolved ? "monthly" : "hourly",
+        priority: isResolved ? 0.5 : 0.7,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 async function getTagEntries() {
   try {
     const res = await fetch(`${API_URL}/api/tags`, FETCH_OPTS);
@@ -113,11 +155,12 @@ export default async function sitemap() {
   // Run all sections in parallel. Each section is self-contained with its own
   // try/catch so one failing upstream (e.g. a /api/theses timeout) degrades
   // only that section instead of collapsing the entire sitemap to the homepage.
-  const [markets, tags, articles] = await Promise.all([
+  const [markets, tags, articles, events] = await Promise.all([
     getMarketEntries(),
     getTagEntries(),
     getArticleEntries(),
+    getEventEntries(),
   ]);
 
-  return [...staticPages, ...articles, ...markets, ...tags];
+  return [...staticPages, ...articles, ...events, ...markets, ...tags];
 }
