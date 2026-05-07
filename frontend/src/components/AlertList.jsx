@@ -210,21 +210,46 @@ function MarketGroupCard({ market, liveData, index }) {
 
   const marketUrl = market.market_url || alert.market_url;
 
-  // Event-grouped rows (when /api/alerts/by-market is called with
-  // group_events=true) collapse multiple child markets into one card.
-  // We swap title/image/link target for these but leave per-alert content
-  // alone so the inner alert row still shows which child market it's on.
-  const isEvent = !!market.is_event;
-  const displayTitle = isEvent
-    ? (market.event_title || market.market_title || market.event_slug || "—")
+  // When /api/alerts/by-market returns event_title (the parent Polymarket
+  // event), surface it as the card's primary title even for single-market
+  // groups. Otherwise the card reads as "O/U 2.5 Rounds" without telling
+  // the user it's UFC 328 — useless without context. is_event=true means
+  // the row collapses 2+ child markets into one event hub; is_event=false
+  // with event_title set means a single-market event whose context is
+  // worth surfacing.
+  const isMultiEvent = !!market.is_event;
+  const hasEventContext = !!(market.event_title && market.event_slug);
+  const displayTitle = hasEventContext
+    ? market.event_title
     : (market.market_title ?? "—");
-  const displayImage = isEvent
+  const displayImage = hasEventContext
     ? (market.event_image || market.market_image)
     : market.market_image;
-  const cardHref = isEvent && market.event_slug
+  const cardHref = hasEventContext
     ? `/event/${encodeURIComponent(market.event_slug)}`
     : `/market/${marketSlug(market.market_title, market.condition_id)}`;
-  const footerCtaText = isEvent ? "View event hub" : "View market";
+  // Subtitle: market title under event title for single-market events,
+  // skipped if titles overlap (e.g. "Strait of Hormuz traffic returns…"
+  // event whose only market repeats the same wording).
+  const titlesOverlap =
+    market.market_title && market.event_title && (
+      market.market_title === market.event_title ||
+      market.market_title.includes(market.event_title) ||
+      market.event_title.includes(market.market_title)
+    );
+  const marketSubtitle =
+    hasEventContext && !isMultiEvent && market.market_title && !titlesOverlap
+      ? market.market_title
+      : null;
+  // Footer CTA: lets users get to the specific market when an event card
+  // shows event title. For multi-market events the per-alert child-market
+  // context is already inside the card.
+  const footerCtaText = isMultiEvent
+    ? "View event hub"
+    : (hasEventContext ? "View market" : "View market");
+  const footerCtaHref = isMultiEvent
+    ? cardHref
+    : `/market/${marketSlug(market.market_title, market.condition_id)}`;
 
   // Compact row data
   const copyAction = alert.llm_copy_action;
@@ -274,11 +299,15 @@ function MarketGroupCard({ market, liveData, index }) {
             >
               {displayTitle}
             </span>
-            {isEvent && market.market_count > 1 && (
+            {isMultiEvent && market.market_count > 1 ? (
               <span className="text-xs uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
                 Event \u00b7 {market.market_count} markets \u00b7 {market.alert_count} signal{market.alert_count !== 1 ? "s" : ""}
               </span>
-            )}
+            ) : marketSubtitle ? (
+              <span className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
+                {marketSubtitle}
+              </span>
+            ) : null}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -401,9 +430,9 @@ function MarketGroupCard({ market, liveData, index }) {
             ))}
           </div>
         )}
-        {(marketUrl || isEvent) && (
+        {(marketUrl || isMultiEvent) && (
           <Link
-            href={cardHref}
+            href={footerCtaHref}
             className="inline-flex items-center gap-1 text-xs font-medium transition-colors ml-auto"
             style={{ color: 'var(--text-muted)' }}
           >
@@ -496,7 +525,7 @@ export default function AlertList({ markets, filters, loading, theses = [] }) {
   return (
     <div className="flex flex-col gap-3">
       {filtered.map((market, i) => (
-        <Fragment key={market.is_event ? `e:${market.event_slug}` : `m:${market.condition_id}`}>
+        <Fragment key={`${market.is_event ? "e" : "m"}:${market.is_event ? market.event_slug : market.condition_id}`}>
           <MarketGroupCard market={market} liveData={liveData} index={i} />
           {(i + 1) % 4 === 0 && theses[Math.floor(i / 4)] && (
             <ThesisCard thesis={theses[Math.floor(i / 4)]} />

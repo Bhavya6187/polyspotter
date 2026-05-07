@@ -51,14 +51,17 @@ export default async function HomePage() {
     description:
       "Large prediction market bets from sharp wallets, updated in real time.",
     numberOfItems: markets.length,
-    itemListElement: markets.slice(0, 10).map((m, i) => ({
-      "@type": "ListItem",
-      position: i + 1,
-      name: m.is_event ? (m.event_title || m.market_title) : m.market_title,
-      url: m.is_event && m.event_slug
-        ? `${SITE_URL}/event/${encodeURIComponent(m.event_slug)}`
-        : `${SITE_URL}/market/${marketSlug(m.market_title, m.condition_id)}`,
-    })),
+    itemListElement: markets.slice(0, 10).map((m, i) => {
+      const hasEventCtx = !!(m.event_title && m.event_slug);
+      return {
+        "@type": "ListItem",
+        position: i + 1,
+        name: hasEventCtx ? m.event_title : m.market_title,
+        url: hasEventCtx
+          ? `${SITE_URL}/event/${encodeURIComponent(m.event_slug)}`
+          : `${SITE_URL}/market/${marketSlug(m.market_title, m.condition_id)}`,
+      };
+    }),
   };
 
   const faqLd = {
@@ -194,11 +197,12 @@ export default async function HomePage() {
             <h2>Top Smart Money Markets</h2>
             <ol>
               {markets.slice(0, 10).map((m) => {
-                const href = m.is_event && m.event_slug
+                const hasEventCtx = !!(m.event_title && m.event_slug);
+                const href = hasEventCtx
                   ? `/event/${encodeURIComponent(m.event_slug)}`
                   : `/market/${marketSlug(m.market_title, m.condition_id)}`;
-                const title = m.is_event ? (m.event_title || m.market_title) : m.market_title;
-                const key = m.is_event ? `e:${m.event_slug}` : `m:${m.condition_id}`;
+                const title = hasEventCtx ? m.event_title : m.market_title;
+                const key = `${m.is_event ? "e" : "m"}:${m.is_event ? m.event_slug : m.condition_id}`;
                 return (
                 <li key={key}>
                   <a href={href}>
