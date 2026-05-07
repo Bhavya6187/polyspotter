@@ -587,3 +587,73 @@ class ArticleListItem(BaseModel):
     event_slug: str
     published_date: str
     headline: str
+
+
+# -- Events ------------------------------------------------------------------
+
+class EventTag(BaseModel):
+    id: str | None = None
+    label: str
+    slug: str | None = None
+
+
+class EventOut(BaseModel):
+    """Event metadata cached from Gamma /events?slug=."""
+    slug: str
+    gamma_event_id: str | None = None
+    title: str | None = None
+    description: str | None = None
+    image: str | None = None
+    icon: str | None = None
+    start_date: datetime | None = None
+    end_date: datetime | None = None
+    tags: list[EventTag] = []
+    seo_title: str | None = None
+    seo_description: str | None = None
+    seo_summary: str | None = None
+    seo_faqs: list[dict] = []
+
+
+class EventMarketSummary(BaseModel):
+    """One child market within an event, with our aggregate signal stats."""
+    condition_id: str
+    market_title: str | None = None
+    market_image: str | None = None
+    end_date: datetime | None = None
+    alert_count: int = 0
+    total_usd: float = 0
+    max_score: float = 0
+
+
+class EventStats(BaseModel):
+    total_markets: int = 0
+    total_alerts: int = 0
+    total_usd: float = 0
+    max_composite_score: float = 0
+    latest_alert_at: datetime | None = None
+
+
+class EventTopWallet(BaseModel):
+    wallet: str
+    total_usd_in_event: float = 0
+    n_markets: int = 0
+    n_alerts: int = 0
+    win_rate: float | None = None
+    total_pnl: float | None = None
+
+
+class EventRelatedArticle(BaseModel):
+    run_id: str
+    published_date: str
+    headline: str
+
+
+class EventDetail(BaseModel):
+    """Full payload for GET /api/event/{slug}."""
+    event: EventOut
+    markets: list[EventMarketSummary] = []
+    stats: EventStats
+    top_alerts: list[AlertOut] = []
+    top_wallets: list[EventTopWallet] = []
+    related_thesis: ThesisOut | None = None
+    related_article: EventRelatedArticle | None = None

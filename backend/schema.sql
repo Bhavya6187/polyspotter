@@ -155,6 +155,35 @@ CREATE TABLE IF NOT EXISTS wallet_theses (
 );
 CREATE INDEX IF NOT EXISTS idx_wallet_theses_score ON wallet_theses (composite_score DESC);
 
+-- events: cached Polymarket event metadata + LLM SEO content per event_slug.
+-- One row per event_slug (e.g. ucl-bay-psg-2026-05-06). Populated lazily on
+-- first /api/event/{slug} request via Gamma /events?slug= and refreshed in
+-- the background for events whose end_date is still in the future. Past
+-- events are immutable so we keep the cached copy indefinitely.
+CREATE TABLE IF NOT EXISTS events (
+    event_slug          TEXT PRIMARY KEY,
+    gamma_event_id      TEXT,
+    title               TEXT,
+    description         TEXT,
+    image               TEXT,
+    icon                TEXT,
+    start_date          TIMESTAMPTZ,
+    end_date            TIMESTAMPTZ,
+    -- JSON array of {id, label, slug} dicts from Gamma
+    tags                TEXT DEFAULT '[]',
+
+    -- LLM-generated SEO (mirrors alerts.seo_*; populated by a separate cron)
+    seo_title           TEXT,
+    seo_description     TEXT,
+    seo_summary         TEXT,
+    seo_faqs            TEXT DEFAULT '[]',   -- JSON array of {question, answer}
+    seo_generated_at    TIMESTAMPTZ,
+
+    fetched_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_refreshed_at   TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_events_end_date ON events(end_date);
+
 -- tweeted_alerts: one row per alert surfaced in a posted tweet. Used by the
 -- Twitter bot (backend/twitter_bot.py) for dedup. Composite tweets produce
 -- multiple rows sharing the same tweet_id and tweet_text.

@@ -31,7 +31,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 from database import get_conn, init_db
+from events import get_event_or_fetch, upsert_event
 from seo_generator import generate_seo_content
+from event_seo_generator import generate_event_seo_content
 from basketball import get_basketball_data
 from cricket import get_cricket_data
 from models import (
@@ -55,6 +57,14 @@ from models import (
     MarketHoldersData,
     ArticleOut,
     ArticleListItem,
+    EventOut,
+    EventTag,
+    EventDetail,
+    EventMarketSummary,
+    EventStats,
+    EventTopWallet,
+    EventRelatedArticle,
+    ThesisOut,
 )
 
 
@@ -390,7 +400,10 @@ def ingest(payload: IngestPayload):
         # Cleanup old price candles (keep only 7 days)
         cur.execute("DELETE FROM price_candles WHERE created_at < NOW() - INTERVAL '7 days'")
 
-        # Generate SEO content for markets that don't have it yet
+        # Generate SEO content for markets that don't have it yet.
+        # Throttle reduced from 20 → 10 to make room for event hydration +
+        # event SEO below; total LLM budget per ingest stays comfortably
+        # under the scanner's 60s loop interval.
         cur.execute("""
             SELECT condition_id, MAX(market_title) as market_title,
                    MAX(market_description) as market_description,
@@ -403,7 +416,7 @@ def ingest(payload: IngestPayload):
               AND market_title IS NOT NULL
             GROUP BY condition_id
             ORDER BY latest_scanned_at DESC
-            LIMIT 20
+            LIMIT 10
         """)
         seo_candidates = cur.fetchall()
 
@@ -458,6 +471,129 @@ def ingest(payload: IngestPayload):
         if seo_generated:
             print(f"[seo] Generated SEO content for {seo_generated} markets.")
 
+        # ---------------------------------------------------------------
+        # Events: touch + hydrate + SEO. Mirrors the market-SEO loop above
+        # and runs on the same /api/ingest cadence. Population strategy:
+        #   1. Touch:    insert placeholder rows for every event_slug seen
+        #                in this ingest batch (cheap, SQL-only).
+        #   2. Hydrate:  for events with title IS NULL, fetch metadata from
+        #                Gamma and UPSERT (≤20 per ingest, ~200ms each).
+        #   3. Generate: for events with title set but seo_generated_at
+        #                NULL, call the LLM and write seo_* (≤5 per ingest,
+        #                ~2s each). Idempotent via NULL guard.
+        # ---------------------------------------------------------------
+
+        # 1. Touch — insert placeholder rows for every event_slug we saw.
+        distinct_event_slugs = sorted({
+            a.event_slug for a in payload.alerts if a.event_slug
+        })
+        events_touched = 0
+        if distinct_event_slugs:
+            cur.executemany(
+                "INSERT INTO events (event_slug) VALUES (%s) ON CONFLICT DO NOTHING",
+                [(s,) for s in distinct_event_slugs],
+            )
+            events_touched = cur.rowcount  # newly-inserted only
+
+        # 2. Hydrate — fetch Gamma metadata for events still missing a title.
+        # Prioritize events from this batch (LIMIT after ordering by whether
+        # the slug appears in the ingested set) so freshly-touched rows
+        # become visible quickly.
+        cur.execute("""
+            SELECT event_slug FROM events
+            WHERE title IS NULL
+            ORDER BY fetched_at DESC
+            LIMIT 20
+        """)
+        hydrate_slugs = [r["event_slug"] for r in cur.fetchall()]
+        events_hydrated = 0
+        for slug in hydrate_slugs:
+            # upsert_event opens its own connection; fine inside this block.
+            row = upsert_event(slug)
+            if row and row.get("title"):
+                events_hydrated += 1
+
+        # 3. Generate event SEO for hydrated events that don't have it yet.
+        cur.execute("""
+            SELECT e.event_slug, e.title, e.description, e.end_date::text AS end_date, e.tags
+            FROM events e
+            WHERE e.title IS NOT NULL
+              AND e.seo_generated_at IS NULL
+              AND EXISTS (SELECT 1 FROM alerts a WHERE a.event_slug = e.event_slug)
+            ORDER BY e.last_refreshed_at DESC NULLS LAST
+            LIMIT 5
+        """)
+        event_seo_candidates = cur.fetchall()
+
+        events_seo_generated = 0
+        for row in event_seo_candidates:
+            slug = row["event_slug"]
+
+            # Pull child market titles + top alert headlines for context.
+            cur.execute("""
+                SELECT DISTINCT market_title FROM alerts
+                WHERE event_slug = %s AND market_title IS NOT NULL
+                LIMIT 10
+            """, (slug,))
+            market_titles = [r["market_title"] for r in cur.fetchall()]
+
+            cur.execute("""
+                SELECT llm_headline, total_usd, composite_score FROM alerts
+                WHERE event_slug = %s AND llm_headline IS NOT NULL
+                ORDER BY composite_score DESC LIMIT 5
+            """, (slug,))
+            top_rows = cur.fetchall()
+            headlines = [r["llm_headline"] for r in top_rows]
+
+            cur.execute("""
+                SELECT COUNT(*) AS alert_count, COALESCE(SUM(total_usd), 0) AS total_usd
+                FROM alerts WHERE event_slug = %s
+            """, (slug,))
+            agg = cur.fetchone() or {}
+
+            tags_list: list[str] = []
+            try:
+                raw_tags = row.get("tags") or "[]"
+                parsed = json.loads(raw_tags) if isinstance(raw_tags, str) else raw_tags
+                tags_list = [t.get("label") for t in parsed if isinstance(t, dict) and t.get("label")]
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+            result = generate_event_seo_content(
+                event_title=row["title"],
+                description=row.get("description"),
+                tags=tags_list,
+                end_date=row.get("end_date"),
+                market_titles=market_titles,
+                total_usd=float(agg.get("total_usd") or 0),
+                alert_count=int(agg.get("alert_count") or 0),
+                alert_headlines=headlines,
+            )
+            if result:
+                cur.execute("""
+                    UPDATE events SET
+                        seo_title = %s,
+                        seo_description = %s,
+                        seo_summary = %s,
+                        seo_faqs = %s,
+                        seo_generated_at = NOW()
+                    WHERE event_slug = %s
+                """, (
+                    result["seo_title"],
+                    result["seo_description"],
+                    result["seo_summary"],
+                    json.dumps(result["seo_faqs"]),
+                    slug,
+                ))
+                events_seo_generated += 1
+                print(f"[seo] Generated event SEO for: {row['title']}")
+
+        if events_touched or events_hydrated or events_seo_generated:
+            print(
+                f"[events] touched={events_touched} hydrated={events_hydrated} "
+                f"seo_generated={events_seo_generated}"
+            )
+
     return {
         "status": "ok",
         "inserted_alerts": inserted_alerts,
@@ -466,6 +602,9 @@ def ingest(payload: IngestPayload):
         "wallet_profiles": len(payload.wallet_profiles),
         "price_candles": candles_count,
         "theses": theses_count,
+        "events_touched": events_touched,
+        "events_hydrated": events_hydrated,
+        "events_seo_generated": events_seo_generated,
     }
 
 
@@ -1938,4 +2077,222 @@ def get_article_cover(run_id: str):
         content=png_bytes,
         media_type="image/png",
         headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Events (SEO event hub pages)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/event/{slug}", response_model=EventDetail)
+def get_event(slug: str):
+    """Event hub: metadata, child markets, aggregate stats, top alerts/wallets.
+
+    The event row is lazy-fetched from Gamma /events?slug= on first hit and
+    cached in the events table. Past-resolved events are kept indefinitely;
+    active events refresh after 7 days. 404 only when both Gamma and our DB
+    have nothing for the slug.
+    """
+    event_row = get_event_or_fetch(slug)
+
+    with db() as conn:
+        cur = conn.cursor()
+
+        # Per-market aggregates for every market we have alerts on in this event
+        cur.execute(
+            """
+            SELECT a.condition_id,
+                   MAX(a.market_title)    AS market_title,
+                   MAX(a.market_image)    AS market_image,
+                   MAX(a.end_date)        AS end_date,
+                   COUNT(*)               AS alert_count,
+                   SUM(a.total_usd)       AS total_usd,
+                   MAX(a.composite_score) AS max_score
+            FROM alerts a
+            WHERE a.event_slug = %s AND a.condition_id IS NOT NULL
+            GROUP BY a.condition_id
+            ORDER BY total_usd DESC
+            """,
+            (slug,),
+        )
+        market_rows = cur.fetchall()
+
+        if event_row is None and not market_rows:
+            raise HTTPException(status_code=404, detail=f"Event not found: {slug}")
+
+        markets = [
+            EventMarketSummary(
+                condition_id=m["condition_id"],
+                market_title=m["market_title"],
+                market_image=m["market_image"],
+                end_date=m["end_date"],
+                alert_count=int(m["alert_count"] or 0),
+                total_usd=float(m["total_usd"] or 0),
+                max_score=float(m["max_score"] or 0),
+            )
+            for m in market_rows
+        ]
+
+        # Aggregate stats across all alerts in the event
+        cur.execute(
+            """
+            SELECT COUNT(*)                          AS total_alerts,
+                   COALESCE(SUM(total_usd), 0)       AS total_usd,
+                   COALESCE(MAX(composite_score), 0) AS max_score,
+                   MAX(scanned_at)                   AS latest_alert_at
+            FROM alerts WHERE event_slug = %s
+            """,
+            (slug,),
+        )
+        stats_row = cur.fetchone() or {}
+        stats = EventStats(
+            total_markets=len(markets),
+            total_alerts=int(stats_row.get("total_alerts") or 0),
+            total_usd=float(stats_row.get("total_usd") or 0),
+            max_composite_score=float(stats_row.get("max_score") or 0),
+            latest_alert_at=stats_row.get("latest_alert_at"),
+        )
+
+        # Top alerts across all markets in the event
+        cur.execute(
+            """
+            SELECT a.*,
+                   wp.win_rate, wp.total_pnl, wp.total_invested
+            FROM alerts a
+            LEFT JOIN wallet_profiles wp ON wp.wallet = a.wallet
+            WHERE a.event_slug = %s
+            ORDER BY a.composite_score DESC
+            LIMIT 10
+            """,
+            (slug,),
+        )
+        top_alerts = [_alert_from_row(r) for r in cur.fetchall()]
+
+        # Top wallets by combined position size in the event
+        cur.execute(
+            """
+            SELECT a.wallet,
+                   SUM(a.total_usd)               AS total_usd_in_event,
+                   COUNT(DISTINCT a.condition_id) AS n_markets,
+                   COUNT(*)                       AS n_alerts,
+                   MAX(wp.win_rate)               AS win_rate,
+                   MAX(wp.total_pnl)              AS total_pnl
+            FROM alerts a
+            LEFT JOIN wallet_profiles wp ON wp.wallet = a.wallet
+            WHERE a.event_slug = %s AND a.wallet IS NOT NULL
+            GROUP BY a.wallet
+            ORDER BY total_usd_in_event DESC
+            LIMIT 10
+            """,
+            (slug,),
+        )
+        top_wallets = [
+            EventTopWallet(
+                wallet=r["wallet"],
+                total_usd_in_event=float(r["total_usd_in_event"] or 0),
+                n_markets=int(r["n_markets"] or 0),
+                n_alerts=int(r["n_alerts"] or 0),
+                win_rate=float(r["win_rate"]) if r["win_rate"] is not None else None,
+                total_pnl=float(r["total_pnl"]) if r["total_pnl"] is not None else None,
+            )
+            for r in cur.fetchall()
+        ]
+
+        # Highest-conviction thesis tied to this event, if any
+        cur.execute(
+            """
+            SELECT wt.*, wp.win_rate, wp.total_pnl, wp.total_invested
+            FROM wallet_theses wt
+            LEFT JOIN wallet_profiles wp ON wp.wallet = wt.wallet
+            WHERE wt.event_slug = %s
+            ORDER BY wt.composite_score DESC
+            LIMIT 1
+            """,
+            (slug,),
+        )
+        thesis_row = cur.fetchone()
+        related_thesis = None
+        if thesis_row:
+            markets_raw = thesis_row.get("markets") or []
+            if isinstance(markets_raw, str):
+                try:
+                    t_markets = json.loads(markets_raw)
+                except (json.JSONDecodeError, TypeError):
+                    t_markets = []
+            else:
+                t_markets = markets_raw
+            related_thesis = ThesisOut(
+                id=thesis_row["id"],
+                wallet=thesis_row["wallet"],
+                event_slug=thesis_row["event_slug"],
+                thesis_headline=thesis_row.get("thesis_headline"),
+                markets=t_markets,
+                total_usd=float(thesis_row.get("total_usd") or 0),
+                composite_score=float(thesis_row.get("composite_score") or 0),
+                win_rate=float(thesis_row["win_rate"]) if thesis_row.get("win_rate") is not None else None,
+                total_pnl=float(thesis_row["total_pnl"]) if thesis_row.get("total_pnl") is not None else None,
+                total_invested=float(thesis_row["total_invested"]) if thesis_row.get("total_invested") is not None else None,
+                created_at=thesis_row.get("created_at"),
+                updated_at=thesis_row.get("updated_at"),
+            )
+
+        # Most recent published article for this event, if any
+        cur.execute(
+            """
+            SELECT run_id, published_date, headline
+            FROM articles
+            WHERE event_slug = %s AND status = 'published'
+            ORDER BY published_date DESC NULLS LAST
+            LIMIT 1
+            """,
+            (slug,),
+        )
+        article_row = cur.fetchone()
+        related_article = None
+        if article_row:
+            pd = article_row.get("published_date")
+            related_article = EventRelatedArticle(
+                run_id=article_row["run_id"],
+                published_date=pd.isoformat() if pd else "",
+                headline=article_row["headline"],
+            )
+
+    if event_row:
+        try:
+            tags_list = json.loads(event_row.get("tags") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            tags_list = []
+        try:
+            faqs_raw = event_row.get("seo_faqs") or "[]"
+            faqs_list = json.loads(faqs_raw) if isinstance(faqs_raw, str) else faqs_raw
+        except (json.JSONDecodeError, TypeError):
+            faqs_list = []
+        event_out = EventOut(
+            slug=slug,
+            gamma_event_id=event_row.get("gamma_event_id"),
+            title=event_row.get("title"),
+            description=event_row.get("description"),
+            image=event_row.get("image"),
+            icon=event_row.get("icon"),
+            start_date=event_row.get("start_date"),
+            end_date=event_row.get("end_date"),
+            tags=[EventTag(**t) for t in tags_list if isinstance(t, dict)],
+            seo_title=event_row.get("seo_title"),
+            seo_description=event_row.get("seo_description"),
+            seo_summary=event_row.get("seo_summary"),
+            seo_faqs=faqs_list,
+        )
+    else:
+        # Slug isn't on Gamma but we have alerts for it — serve a stub the
+        # frontend can fall back to (humanized slug, no description).
+        event_out = EventOut(slug=slug)
+
+    return EventDetail(
+        event=event_out,
+        markets=markets,
+        stats=stats,
+        top_alerts=top_alerts,
+        top_wallets=top_wallets,
+        related_thesis=related_thesis,
+        related_article=related_article,
     )

@@ -35,6 +35,7 @@ def init_db():
             _migrate_add_event_timing(cur)
             _migrate_add_tweeted_alerts(cur)
             _migrate_add_articles(cur)
+            _migrate_add_events_table(cur)
         conn.commit()
     finally:
         conn.close()
@@ -194,4 +195,31 @@ def _migrate_add_articles(cur):
         CREATE INDEX IF NOT EXISTS idx_articles_published_lookup
             ON articles (published_date, event_slug)
             WHERE status = 'published'
+    """)
+
+
+def _migrate_add_events_table(cur):
+    """Create the events table for SEO event hub pages (idempotent)."""
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS events (
+            event_slug          TEXT PRIMARY KEY,
+            gamma_event_id      TEXT,
+            title               TEXT,
+            description         TEXT,
+            image               TEXT,
+            icon                TEXT,
+            start_date          TIMESTAMPTZ,
+            end_date            TIMESTAMPTZ,
+            tags                TEXT DEFAULT '[]',
+            seo_title           TEXT,
+            seo_description     TEXT,
+            seo_summary         TEXT,
+            seo_faqs            TEXT DEFAULT '[]',
+            seo_generated_at    TIMESTAMPTZ,
+            fetched_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            last_refreshed_at   TIMESTAMPTZ
+        )
+    """)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_events_end_date ON events(end_date)
     """)
