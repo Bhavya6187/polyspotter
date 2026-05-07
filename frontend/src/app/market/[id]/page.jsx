@@ -98,6 +98,25 @@ const loadMarketPage = cache(async (partialId) => {
     } catch {}
   }
 
+  // Event metadata for the "Part of: <event>" cross-link. Only fetch when
+  // the market actually belongs to an event (most do; the few that don't
+  // are standalone). Cheap because /api/event/{slug} is cached server-side
+  // for 60s and the response is tiny when only `title` is consumed.
+  const eventSlug = alerts?.[0]?.event_slug || null;
+  let eventTitle = null;
+  if (eventSlug) {
+    try {
+      const evRes = await fetch(
+        `${API_URL}/api/event/${encodeURIComponent(eventSlug)}`,
+        { next: { revalidate: 300 } }
+      );
+      if (evRes.ok) {
+        const evData = await evRes.json();
+        eventTitle = evData?.event?.title || null;
+      }
+    } catch {}
+  }
+
   // LLM-generated SEO fields (title/description/summary/FAQs) live on the
   // market-group record. Fetch once here and expose to both render phases.
   let seoTitle = null;
@@ -131,6 +150,8 @@ const loadMarketPage = cache(async (partialId) => {
     theses,
     basketballData,
     cricketData,
+    eventSlug,
+    eventTitle,
     seoTitle,
     seoDescription,
     seoSummary,
@@ -210,6 +231,8 @@ export default async function MarketPage({ params }) {
     theses,
     basketballData,
     cricketData,
+    eventSlug,
+    eventTitle,
     seoSummary,
     seoFaqs,
   } = await loadMarketPage(partialId);
@@ -301,11 +324,11 @@ export default async function MarketPage({ params }) {
             <a href="/">PolySpotter</a> &gt; <span>{title}</span>
           </nav>
 
-          {alerts?.[0]?.event_slug && (
+          {eventSlug && (
             <p style={{ fontSize: "0.85rem" }}>
               Part of:{" "}
-              <a href={`/event/${encodeURIComponent(alerts[0].event_slug)}`}>
-                {alerts[0].event_slug}
+              <a href={`/event/${encodeURIComponent(eventSlug)}`}>
+                {eventTitle || eventSlug}
               </a>
             </p>
           )}
@@ -428,6 +451,8 @@ export default async function MarketPage({ params }) {
           priceHistory,
           holders,
           theses,
+          eventSlug,
+          eventTitle,
           ...(isBasketball ? { initialGameData: basketballData, eventSlug: alerts?.[0]?.event_slug || "" } : {}),
           ...(isCricket ? { initialCricketData: cricketData, eventSlug: alerts?.[0]?.event_slug || "" } : {}),
         };

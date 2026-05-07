@@ -2321,10 +2321,15 @@ def list_events(
     if not include_resolved:
         conditions.append("(a.end_date IS NULL OR a.end_date > NOW())")
     if tag:
+        # Filter against alerts.tags (per-alert labels) rather than
+        # events.tags (Gamma-hydrated). This matches how /tag/[slug] pages
+        # already work and ensures the filter still finds events whose
+        # `events` row hasn't been hydrated yet — common right after the
+        # touch-only backfill, before /api/ingest grinds through Gamma.
         conditions.append("""
             EXISTS (
-                SELECT 1 FROM jsonb_array_elements(e.tags::jsonb) AS t
-                WHERE LOWER(t->>'label') = LOWER(%s)
+                SELECT 1 FROM jsonb_array_elements_text(a.tags::jsonb) AS t
+                WHERE LOWER(t) = LOWER(%s)
             )
         """)
         params.append(tag)

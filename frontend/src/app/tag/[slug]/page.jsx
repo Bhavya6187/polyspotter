@@ -70,6 +70,30 @@ async function getTagDescription(allTags, tag) {
   return match?.description || null;
 }
 
+async function getTagEvents(tag) {
+  // Multi-market events for this tag — shown as a strip above the markets
+  // list so users can jump to the event hub instead of clicking through
+  // each child market individually. Only first page; the markets list
+  // below carries the long tail.
+  try {
+    const qs = new URLSearchParams({
+      page: "1",
+      per_page: "12",
+      min_markets: "2",
+      include_resolved: "true",
+      tag,
+    });
+    const res = await fetch(`${API_URL}/api/events?${qs.toString()}`, {
+      next: { revalidate: 60 },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.events || [];
+  } catch {
+    return [];
+  }
+}
+
 async function getTagData(tag, page = 1, resolves = "", severity = "") {
   try {
     const qs = new URLSearchParams({
@@ -144,12 +168,17 @@ export default async function TagPage({ params, searchParams }) {
   const tag = tagFromSlug(slug);
   const display = tagDisplayName(tag);
 
-  const [tagData, allTags, walletsRes] = await Promise.all([
+  // Only show the events strip on page 1 — paginated views are deeper into
+  // a long tail where jumping back up to events feels disorienting.
+  const showEventsStrip = page === 1;
+
+  const [tagData, allTags, walletsRes, tagEvents] = await Promise.all([
     getTagData(tag, page, resolves, severity),
     getAllTags(),
     fetch(`${API_URL}/api/wallets/top?limit=10`, { next: { revalidate: 60 } })
       .then((r) => (r.ok ? r.json() : { wallets: [] }))
       .catch(() => ({ wallets: [] })),
+    showEventsStrip ? getTagEvents(tag) : Promise.resolve([]),
   ]);
 
   const { markets, total, total_alerts } = tagData;
@@ -265,6 +294,42 @@ export default async function TagPage({ params, searchParams }) {
       <section aria-label="Filters" className="mb-5">
         <TagFilters slug={tagSlug(tag)} resolves={resolves} severity={severity} />
       </section>
+
+      {/* Multi-market events strip — only on page 1, hidden on deep pagination */}
+      {tagEvents.length > 0 && (
+        <section aria-label="Multi-market events" className="mb-6">
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+            Multi-market events
+          </h2>
+          <div
+            className="flex gap-3 overflow-x-auto pb-2"
+            style={{ scrollbarWidth: "none", msOverflowStyle: "none", WebkitOverflowScrolling: "touch" }}
+          >
+            {tagEvents.map((e) => {
+              const titleText = e.title || e.slug;
+              return (
+                <a
+                  key={e.slug}
+                  href={`/event/${encodeURIComponent(e.slug)}`}
+                  className="shrink-0 w-64 rounded-xl border p-4 transition-colors hover:opacity-90"
+                  style={{ borderColor: "var(--border)", background: "var(--surface-card)" }}
+                >
+                  <div className="text-xs uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                    Event · {e.n_markets} market{e.n_markets !== 1 ? "s" : ""}
+                  </div>
+                  <div className="mt-1 line-clamp-2 font-medium" style={{ color: "var(--text-primary)" }}>
+                    {titleText}
+                  </div>
+                  <div className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                    {e.n_alerts} signal{e.n_alerts !== 1 ? "s" : ""}
+                    {e.total_usd > 0 && ` · ${usdFmt.format(e.total_usd)} tracked`}
+                  </div>
+                </a>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* Server-rendered market list for crawlers */}
       {markets.length > 0 && (

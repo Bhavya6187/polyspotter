@@ -40,6 +40,8 @@ export default function MarketPageClient({
   priceHistory,
   holders,
   theses,
+  eventSlug,
+  eventTitle,
 }) {
   const { data: liveMarket } = useLiveMarket(conditionId);
   const live = liveMarket || initialLive;
@@ -176,6 +178,24 @@ export default function MarketPageClient({
                   )}
                   {resolution}
                 </span>
+              )}
+              {eventSlug && (
+                <Link
+                  href={`/event/${encodeURIComponent(eventSlug)}`}
+                  className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium transition-colors hover:opacity-80"
+                  style={{
+                    background: 'var(--surface-2)',
+                    color: 'var(--text-secondary)',
+                    fontSize: '0.65rem',
+                    border: '1px solid var(--border)',
+                  }}
+                  title={`View event hub: ${eventTitle || eventSlug}`}
+                >
+                  <span aria-hidden>↗</span>
+                  <span className="max-w-[200px] truncate">
+                    {eventTitle || eventSlug}
+                  </span>
+                </Link>
               )}
               {totalUsd > 0 && (
                 <span style={{ fontFamily: 'var(--font-display)' }}>
