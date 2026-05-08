@@ -1,4 +1,7 @@
-import Link from "next/link";
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useTransition } from "react";
 
 const RESOLVE_OPTIONS = [
   { label: "Any", value: "" },
@@ -23,20 +26,24 @@ function buildHref(slug, params) {
   return q ? `/tag/${slug}?${q}` : `/tag/${slug}`;
 }
 
-function Pill({ label, active, href }) {
+function Pill({ label, active, pending, href, onClick }) {
   return (
-    <Link
+    <a
       href={href}
+      onClick={onClick}
+      aria-pressed={active}
       className="rounded-lg px-3 py-1.5 text-xs font-medium transition-all"
       style={{
         background: active ? "var(--accent)" : "var(--surface-card)",
         color: active ? "#fff" : "var(--text-secondary)",
         border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
         boxShadow: active ? "var(--glow-medium)" : "none",
+        opacity: pending ? 0.6 : 1,
+        cursor: pending ? "wait" : "pointer",
       }}
     >
       {label}
-    </Link>
+    </a>
   );
 }
 
@@ -52,8 +59,20 @@ function Label({ children }) {
 }
 
 export default function TagFilters({ slug, resolves = "", severity = "" }) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+
+  const handleClick = (params) => (e) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    e.preventDefault();
+    const href = buildHref(slug, params);
+    startTransition(() => {
+      router.replace(href, { scroll: false });
+    });
+  };
+
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3" aria-busy={isPending}>
       <div className="flex flex-wrap items-center gap-2">
         <Label>Resolves</Label>
         {RESOLVE_OPTIONS.map((opt) => (
@@ -61,7 +80,9 @@ export default function TagFilters({ slug, resolves = "", severity = "" }) {
             key={opt.value || "any"}
             label={opt.label}
             active={resolves === opt.value}
+            pending={isPending}
             href={buildHref(slug, { resolves: opt.value, severity })}
+            onClick={handleClick({ resolves: opt.value, severity })}
           />
         ))}
       </div>
@@ -72,7 +93,9 @@ export default function TagFilters({ slug, resolves = "", severity = "" }) {
             key={opt.value || "all"}
             label={opt.label}
             active={severity === opt.value}
+            pending={isPending}
             href={buildHref(slug, { resolves, severity: opt.value })}
+            onClick={handleClick({ resolves, severity: opt.value })}
           />
         ))}
       </div>
