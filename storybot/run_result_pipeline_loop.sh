@@ -1,22 +1,24 @@
 #!/usr/bin/env bash
-# Runs storybot/twitter_pipeline.py every 5 hours, logging to storybot/logs/.
-# Five hours of wake-up gap yields ~4-5 wake-ups per day; with the picker
-# skipping duplicate or weak-story windows, the actual ship rate lands in
-# the 3-5 tweets/day target.
+# Runs storybot/result_pipeline.py every hour, logging to storybot/logs/.
+# This script does NOT post to Twitter; result_pipeline.py only prints
+# the composed follow-up tweets and saves them to live_runs/result_*.json.
+# Once the format is dialed in, we can flip the post step on inside the
+# script itself.
+#
 # Intended to be launched inside a screen/tmux session:
-#     screen -S twitter
-#     ./storybot/run_twitter_pipeline_loop.sh
-# Detach with C-a d. Reattach with: screen -r twitter
+#     screen -S results
+#     ./storybot/run_result_pipeline_loop.sh
+# Detach with C-a d. Reattach with: screen -r results
 #
 # Pass DRY_RUN=true in the environment to forward it to the pipeline.
 
 set -u
 
-INTERVAL_SECONDS="${INTERVAL_SECONDS:-18000}"  # 5 hours
+INTERVAL_SECONDS="${INTERVAL_SECONDS:-3600}"  # 1 hour
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_DIR="$PROJECT_ROOT/storybot/logs"
-LOG_FILE="$LOG_DIR/twitter_pipeline.log"
+LOG_FILE="$LOG_DIR/result_pipeline.log"
 
 mkdir -p "$LOG_DIR"
 
@@ -25,7 +27,6 @@ source "$PROJECT_ROOT/venv/bin/activate"
 
 cd "$PROJECT_ROOT"
 
-# Make Ctrl-C terminate the loop cleanly instead of just the current python run.
 trap 'echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] loop interrupted, exiting" | tee -a "$LOG_FILE"; exit 0' INT TERM
 
 while true; do
@@ -34,8 +35,7 @@ while true; do
         echo "===== run started $(date -u +%Y-%m-%dT%H:%M:%SZ) ====="
     } | tee -a "$LOG_FILE"
 
-    # stdbuf -oL -eL keeps output line-buffered so the tee'd log updates live.
-    if stdbuf -oL -eL python storybot/twitter_pipeline.py 2>&1 | tee -a "$LOG_FILE"; then
+    if stdbuf -oL -eL python storybot/result_pipeline.py 2>&1 | tee -a "$LOG_FILE"; then
         status="${PIPESTATUS[0]}"
     else
         status="${PIPESTATUS[0]}"
