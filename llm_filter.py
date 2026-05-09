@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -28,6 +29,7 @@ AZURE_OPENAI_API_KEY = os.environ.get("AZURE_OPENAI_API_KEY", "")
 AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
 MODEL = os.environ.get("AZURE_OPENAI_MODEL", "")
 PROMPT_LOG_FILE = Path(__file__).parent / "llm_prompts.jsonl"
+LLM_FILTER_WORKERS = 5
 
 
 def _log_prompt(messages: list[dict], model: str, cache_key: str) -> None:
@@ -551,16 +553,15 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
     kept = []
     discarded = 0
     cached = 0
+    to_evaluate: list[tuple[int, dict, str]] = []
 
+    # Phase 1 — resolve cache hits sequentially (SQLite connection is single-threaded).
     for i, alert in enumerate(alerts, 1):
-        title = alert.get("market_title", "?")
-        score = alert.get("composite_score", 0)
         # Use content-sensitive llm_cache_key when available (clusters
         # include trade_count + score so the LLM re-evaluates when the
         # cluster grows).  Falls back to dedup_key for non-cluster alerts.
         cache_key = alert.get("llm_cache_key") or alert.get("dedup_key", "")
 
-        # Check local cache first
         if cache_key:
             cached_eval = get_llm_evaluation(cache_key)
             if cached_eval is not None:
@@ -582,39 +583,54 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
                 cached += 1
                 continue
 
-        print(f"  [{i}/{len(alerts)}] Evaluating: [{score:.1f}] {title}...", end=" ", flush=True)
+        to_evaluate.append((i, alert, cache_key))
 
+    # Phase 2 — run LLM evaluations in parallel (HTTP-bound).
+    def _worker(item: tuple[int, dict, str]) -> tuple[tuple[int, dict, str], dict | None, Exception | None]:
+        _, alert, _ = item
         try:
-            result = evaluate_alert(alert)
+            return item, evaluate_alert(alert), None
         except Exception as e:
-            print(f"ERROR ({e}) — discarding alert")
-            discarded += 1
-            continue
+            return item, None, e
 
-        interesting = result["interesting"]
-        summary = result["summary"]
-        verdict = "INTERESTING" if interesting else "DISCARDED"
-        print(f"{verdict}")
-        print(f"    Model: {summary}")
-        if interesting:
-            alert["llm_summary"] = summary
-            alert["llm_headline"] = result.get("headline")
-            alert["llm_bullets"] = result.get("bullets", [])
-            alert["llm_copy_action"] = result.get("copy_action", {})
-            kept.append(alert)
-            if cache_key:
-                # Store full result as JSON so we can restore bullets/copy_action from cache
-                cache_data = json.dumps({
-                    "summary": summary,
-                    "headline": result.get("headline"),
-                    "bullets": result.get("bullets", []),
-                    "copy_action": result.get("copy_action", {}),
-                })
-                save_llm_evaluation(cache_key, interesting=True, summary=cache_data)
-        else:
-            discarded += 1
-            if cache_key:
-                save_llm_evaluation(cache_key, interesting=False, summary=summary)
+    if to_evaluate:
+        with ThreadPoolExecutor(max_workers=LLM_FILTER_WORKERS) as executor:
+            futures = [executor.submit(_worker, item) for item in to_evaluate]
+            for future in as_completed(futures):
+                item, result, err = future.result()
+                i, alert, cache_key = item
+                title = alert.get("market_title", "?")
+                score = alert.get("composite_score", 0)
+                prefix = f"  [{i}/{len(alerts)}] Evaluating: [{score:.1f}] {title}..."
+
+                if err is not None:
+                    print(f"{prefix} ERROR ({err}) — discarding alert")
+                    discarded += 1
+                    continue
+
+                interesting = result["interesting"]
+                summary = result["summary"]
+                verdict = "INTERESTING" if interesting else "DISCARDED"
+                print(f"{prefix} {verdict}\n    Model: {summary}")
+
+                if interesting:
+                    alert["llm_summary"] = summary
+                    alert["llm_headline"] = result.get("headline")
+                    alert["llm_bullets"] = result.get("bullets", [])
+                    alert["llm_copy_action"] = result.get("copy_action", {})
+                    kept.append(alert)
+                    if cache_key:
+                        cache_data = json.dumps({
+                            "summary": summary,
+                            "headline": result.get("headline"),
+                            "bullets": result.get("bullets", []),
+                            "copy_action": result.get("copy_action", {}),
+                        })
+                        save_llm_evaluation(cache_key, interesting=True, summary=cache_data)
+                else:
+                    discarded += 1
+                    if cache_key:
+                        save_llm_evaluation(cache_key, interesting=False, summary=summary)
 
     if cached:
         print(f"[llm_filter] {cached} alert(s) resolved from cache.")
