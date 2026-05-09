@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { cache } from "react";
 import { marketSlug } from "../../../lib/slugify";
 import EventPageHeader from "./event-page-header";
+import EventSportOverlay from "./event-sport-overlay";
 
 export const revalidate = 60;
 
@@ -151,6 +152,28 @@ export default async function EventPage({ params }) {
   const relatedThesis = data.related_thesis;
   const relatedArticle = data.related_article;
 
+  // Sport overlay: fetch once server-side using the highest-volume market's
+  // condition_id with the *event* title (parses cleanly into "Team A vs. Team B"
+  // for sports plugins, unlike per-market spread/ML titles). The overlay endpoint
+  // returns 404 when no plugin matches the tags or the title can't be parsed —
+  // we just leave initialOverlay null and the client component renders nothing.
+  const primaryMarket = markets[0];
+  let initialOverlay = null;
+  if (primaryMarket && eventTitle && tags.length > 0) {
+    const overlayParams = new URLSearchParams({
+      title: eventTitle,
+      event_slug: slug,
+    });
+    for (const t of tags) overlayParams.append("tag", t);
+    try {
+      const ovRes = await fetch(
+        `${API_URL}/api/market/${primaryMarket.condition_id}/overlay?${overlayParams}`,
+        { next: { revalidate: 15 } },
+      );
+      if (ovRes.ok) initialOverlay = await ovRes.json();
+    } catch {}
+  }
+
   const [allTags, topWalletsForPalette] = await Promise.all([
     getAllTags(),
     getTopWalletsForCommandPalette(),
@@ -223,6 +246,17 @@ export default async function EventPage({ params }) {
           image={data.event.image}
           summary={seoSummary || description}
         />
+
+        {/* Sport overlay (basketball/cricket banner + match info, when applicable) */}
+        {primaryMarket && (
+          <EventSportOverlay
+            conditionId={primaryMarket.condition_id}
+            title={eventTitle}
+            eventSlug={slug}
+            tags={tags}
+            initialOverlay={initialOverlay}
+          />
+        )}
 
         {/* Markets list — primary content for SEO + UX */}
         {markets.length > 0 && (
