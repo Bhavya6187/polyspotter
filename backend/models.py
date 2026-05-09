@@ -574,6 +574,119 @@ class CricketGameData(BaseModel):
     head_to_head: CricketHeadToHead | None = None
 
 
+# -- MLB game data (proxied from ESPN Baseball API) ----------------------------
+
+class MLBTeam(BaseModel):
+    abbr: str                       # e.g. "NYY"
+    name: str                       # e.g. "Yankees"
+    city: str = ""                  # e.g. "New York"
+    runs: int = 0
+    hits: int = 0
+    errors: int = 0
+    record: str | None = None       # "92-70"
+
+class MLBCount(BaseModel):
+    balls: int = 0
+    strikes: int = 0
+    outs: int = 0
+
+class MLBRunners(BaseModel):
+    on_first: bool = False
+    on_second: bool = False
+    on_third: bool = False
+
+class MLBLinescoreInning(BaseModel):
+    inning: int
+    home_runs: int = 0
+    away_runs: int = 0
+
+class MLBScoringPlay(BaseModel):
+    inning: int
+    half: str = ""                  # "top" | "bot"
+    text: str
+    away_score: int = 0
+    home_score: int = 0
+    team: str = ""                  # abbr of scoring team
+
+class MLBBoxBatter(BaseModel):
+    name: str
+    position: str = ""
+    at_bats: int = 0
+    runs: int = 0
+    hits: int = 0
+    rbi: int = 0
+    walks: int = 0
+    strikeouts: int = 0
+    avg: str = ""
+
+class MLBBoxPitcher(BaseModel):
+    name: str
+    innings_pitched: str = "0.0"
+    hits: int = 0
+    runs: int = 0
+    earned_runs: int = 0
+    walks: int = 0
+    strikeouts: int = 0
+    era: str = ""
+
+class MLBTeamBox(BaseModel):
+    team: str
+    batters: list[MLBBoxBatter] = []
+    pitchers: list[MLBBoxPitcher] = []
+
+class MLBOdds(BaseModel):
+    provider: str = "DraftKings"
+    home_ml: str | None = None      # "+105"
+    away_ml: str | None = None
+    run_line: str | None = None     # "-1.5"
+    total: float | None = None      # 8.5
+
+class MLBVenue(BaseModel):
+    name: str
+    city: str = ""
+
+class MLBWeather(BaseModel):
+    temperature: int | None = None
+    condition: str = ""             # "Clear", "Partly cloudy"
+    wind: str = ""                  # "8 mph SW"
+
+class MLBProbablePitcher(BaseModel):
+    name: str
+    era: str = ""
+    record: str = ""                # "12-7"
+
+class MLBHeadToHead(BaseModel):
+    home_wins: int = 0
+    away_wins: int = 0
+    total: int = 0
+
+class MLBGameData(BaseModel):
+    game_id: str
+    espn_game_id: str | None = None
+    status: str = "pre"             # "pre" | "live" | "final"
+    game_time: str | None = None    # ISO datetime for scheduled first pitch
+    inning: int = 0                 # 1-9+, 0 when pre
+    half: str = ""                  # "top" | "bot" | "mid" | "end"
+    count: MLBCount | None = None
+    runners: MLBRunners | None = None
+    home: MLBTeam
+    away: MLBTeam
+    venue: MLBVenue | None = None
+    weather: MLBWeather | None = None
+    attendance: int | None = None
+    broadcast: str | None = None
+    probable_home: MLBProbablePitcher | None = None
+    probable_away: MLBProbablePitcher | None = None
+    odds: MLBOdds | None = None
+    linescore: list[MLBLinescoreInning] = []
+    scoring_plays: list[MLBScoringPlay] = []
+    home_box: MLBTeamBox | None = None
+    away_box: MLBTeamBox | None = None
+    current_pitcher: str = ""
+    current_batter: str = ""
+    head_to_head: MLBHeadToHead | None = None
+
+
 # -- Articles ----------------------------------------------------------------
 
 class ArticleOut(BaseModel):
