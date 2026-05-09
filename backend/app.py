@@ -34,8 +34,6 @@ from database import get_conn, init_db
 from events import get_event_or_fetch
 import sports
 from sports.base import OverlayResponse
-from sports.basketball import get_basketball_data
-from sports.cricket import get_cricket_data
 from models import (
     IngestPayload,
     AlertOut,
@@ -1720,46 +1718,6 @@ def get_market_overlay(
     if result is None:
         raise HTTPException(status_code=404, detail="no matching game found")
     return result
-
-
-@app.get("/api/market/{condition_id}/basketball")
-def get_market_basketball(
-    condition_id: str,
-    title: str = Query(default="", description="Market title, e.g. 'Clippers vs. Bucks'"),
-    event_slug: str = Query(default="", description="Event slug, e.g. 'nba-min-det-2026-04-02'"),
-):
-    """Get live basketball game data for a market.
-
-    Matches the market title to an NBA/NCAA game and returns live scores,
-    play-by-play, box scores, DraftKings odds, win probability, injuries,
-    and season series. For upcoming games not on today's schedule, uses the
-    event_slug date to find the game on ESPN. Returns null if no matching
-    game is found.
-
-    Pass the market title as a query param to avoid redundant Gamma API calls."""
-    if not title:
-        return None
-
-    league = "nba"  # default, extend later for NCAA detection
-
-    game_data = get_basketball_data(title, [], league=league, event_slug=event_slug)
-    return game_data
-
-
-@app.get("/api/market/{condition_id}/cricket")
-def get_market_cricket(
-    condition_id: str,
-    title: str = Query(default="", description="Market title, e.g. 'Delhi Capitals vs Gujarat Titans'"),
-    event_slug: str = Query(default="", description="Event slug, e.g. 'ipl-dc-gt-2026-04-08'"),
-):
-    """Get live cricket game data for an IPL market.
-
-    Matches the market title to an IPL match and returns live scores,
-    ball-by-ball commentary, scorecard, Bet 365 odds, venue, toss, squads,
-    and head-to-head. Returns null if no matching game is found."""
-    if not title:
-        return None
-    return get_cricket_data(title, event_slug=event_slug)
 
 
 _RANGE_PARAMS = {
