@@ -12,6 +12,10 @@ _PLUGINS: list[SportOverlay] = []
 
 def register(plugin: SportOverlay) -> None:
     """Register a plugin. Called by each plugin module on import."""
+    if not getattr(plugin, "sport_id", None):
+        raise TypeError(f"{type(plugin).__name__} missing sport_id")
+    if not getattr(plugin, "tag_aliases", None):
+        raise TypeError(f"{type(plugin).__name__} missing tag_aliases")
     _PLUGINS.append(plugin)
 
 
