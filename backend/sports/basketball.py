@@ -1029,3 +1029,47 @@ def _extract_espn_fields(
 
     return odds, win_prob, injuries, season_series, predictor, \
         home_pregame, away_pregame, venue, broadcast
+
+
+# ---------------------------------------------------------------------------
+# Plugin wrapper
+# ---------------------------------------------------------------------------
+
+from datetime import datetime, timezone
+
+from sports import register
+from sports.base import OverlayResponse, SportOverlay
+
+
+class BasketballOverlay(SportOverlay):
+    sport_id = "basketball"
+    tag_aliases = ("nba", "basketball", "ncaa", "march madness", "cbb")
+
+    def can_handle(self, title: str, tags: list[str]) -> bool:
+        # Tag check is performed by the registry; here we only verify that
+        # the title parses into two teams.
+        return parse_team_names(title) is not None
+
+    def fetch(
+        self,
+        condition_id: str,
+        title: str,
+        tags: list[str],
+        event_slug: str = "",
+    ) -> OverlayResponse | None:
+        league = "ncaa" if any(t.lower() in ("ncaa", "march madness", "cbb") for t in tags) else "nba"
+        game_data = get_basketball_data(title, list(tags), league=league, event_slug=event_slug)
+        if game_data is None:
+            return None
+        # get_basketball_data returns a Pydantic GameData model.
+        payload = game_data.model_dump()
+        status = payload.get("status", "pre")
+        return OverlayResponse(
+            sport=self.sport_id,
+            status=status,
+            last_updated=datetime.now(timezone.utc).isoformat(),
+            payload=payload,
+        )
+
+
+register(BasketballOverlay())

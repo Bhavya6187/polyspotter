@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { fetchBasketballData } from "../lib/api";
+import { fetchSportOverlay } from "../lib/api";
 
 const POLL_INTERVALS = {
   pre: 60_000,
@@ -7,7 +7,10 @@ const POLL_INTERVALS = {
   final: null,
 };
 
-export default function useBasketballData(conditionId, { initialData = null, title = "", eventSlug = "" } = {}) {
+export default function useSportOverlay(
+  conditionId,
+  { initialData = null, title = "", eventSlug = "", tags = [] } = {},
+) {
   const [data, setData] = useState(initialData);
   const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState(null);
@@ -21,14 +24,22 @@ export default function useBasketballData(conditionId, { initialData = null, tit
     }
   }, []);
 
+  // Stable key for the tags array so the effect doesn't re-fire on identical
+  // arrays-by-reference. Tags rarely change for a given market.
+  const tagsKey = (tags || []).slice().sort().join(",");
+
   useEffect(() => {
-    if (!conditionId) return;
+    if (!conditionId || !title) return;
 
     let cancelled = false;
 
     const load = async () => {
       try {
-        const result = await fetchBasketballData(conditionId, { title, event_slug: eventSlug });
+        const result = await fetchSportOverlay(conditionId, {
+          title,
+          eventSlug,
+          tags,
+        });
         if (cancelled) return;
 
         setData(result);
@@ -40,7 +51,7 @@ export default function useBasketballData(conditionId, { initialData = null, tit
         const interval = POLL_INTERVALS[status] ?? POLL_INTERVALS.pre;
 
         clearPoll();
-        if (interval !== null) {
+        if (interval !== null && result !== null) {
           intervalRef.current = setInterval(load, interval);
         }
       } catch (err) {
@@ -61,7 +72,8 @@ export default function useBasketballData(conditionId, { initialData = null, tit
       cancelled = true;
       clearPoll();
     };
-  }, [conditionId, title, eventSlug, clearPoll]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conditionId, title, eventSlug, tagsKey, clearPoll]);
 
   return { data, loading, error };
 }

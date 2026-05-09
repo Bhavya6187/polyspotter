@@ -32,8 +32,8 @@ from fastapi.responses import Response
 
 from database import get_conn, init_db
 from events import get_event_or_fetch
-from basketball import get_basketball_data
-from cricket import get_cricket_data
+import sports
+from sports.base import OverlayResponse
 from models import (
     IngestPayload,
     AlertOut,
@@ -1693,44 +1693,31 @@ def get_market_live(condition_id: str):
     return data
 
 
-@app.get("/api/market/{condition_id}/basketball")
-def get_market_basketball(
+@app.get("/api/market/{condition_id}/overlay", response_model=OverlayResponse)
+def get_market_overlay(
     condition_id: str,
-    title: str = Query(default="", description="Market title, e.g. 'Clippers vs. Bucks'"),
-    event_slug: str = Query(default="", description="Event slug, e.g. 'nba-min-det-2026-04-02'"),
+    title: str = Query(default="", description="Market title for parsing"),
+    tag: list[str] = Query(default=[], description="Market tags; pass repeated"),
+    event_slug: str = Query(default=""),
 ):
-    """Get live basketball game data for a market.
+    """Dispatch endpoint for sport overlays.
 
-    Matches the market title to an NBA/NCAA game and returns live scores,
-    play-by-play, box scores, DraftKings odds, win probability, injuries,
-    and season series. For upcoming games not on today's schedule, uses the
-    event_slug date to find the game on ESPN. Returns null if no matching
-    game is found.
-
-    Pass the market title as a query param to avoid redundant Gamma API calls."""
+    Resolves a sport plugin from the market's tags and returns the plugin's
+    OverlayResponse. Returns 404 when no plugin matches, when the plugin
+    declines to handle the title, or when the plugin can't find a matching
+    game on today's schedule.
+    """
     if not title:
-        return None
+        raise HTTPException(status_code=400, detail="title is required")
 
-    league = "nba"  # default, extend later for NCAA detection
+    plugin = sports.resolve_for_tags(tag)
+    if plugin is None or not plugin.can_handle(title, tag):
+        raise HTTPException(status_code=404, detail="no overlay plugin matches")
 
-    game_data = get_basketball_data(title, [], league=league, event_slug=event_slug)
-    return game_data
-
-
-@app.get("/api/market/{condition_id}/cricket")
-def get_market_cricket(
-    condition_id: str,
-    title: str = Query(default="", description="Market title, e.g. 'Delhi Capitals vs Gujarat Titans'"),
-    event_slug: str = Query(default="", description="Event slug, e.g. 'ipl-dc-gt-2026-04-08'"),
-):
-    """Get live cricket game data for an IPL market.
-
-    Matches the market title to an IPL match and returns live scores,
-    ball-by-ball commentary, scorecard, Bet 365 odds, venue, toss, squads,
-    and head-to-head. Returns null if no matching game is found."""
-    if not title:
-        return None
-    return get_cricket_data(title, event_slug=event_slug)
+    result = plugin.fetch(condition_id, title, tag, event_slug)
+    if result is None:
+        raise HTTPException(status_code=404, detail="no matching game found")
+    return result
 
 
 _RANGE_PARAMS = {

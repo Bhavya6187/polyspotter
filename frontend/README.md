@@ -51,11 +51,15 @@ src/
 
   hooks/
     useLiveMarket.js            # Live market prices + holders polling
-    useBasketballData.js        # Basketball game data polling
-    useCricketData.js           # Cricket match data polling
+    useSportOverlay.js          # Sport-overlay polling (dispatches via /api/market/{id}/overlay)
     useSpotlight.js             # Rotating hero spotlight
     useCountdown.js             # Market-resolution countdown
     useMediaQuery.js
+
+  sports/                       # Sport-overlay plugin registry
+    registry.js                 # register(sportId, { Banner, Header?, Sidebar? }) / getPlugin
+    index.js                    # Imports each plugin to trigger registration
+    basketball.js / cricket.js  # Sport plugins
 
   lib/
     api.js                      # Backend API client
