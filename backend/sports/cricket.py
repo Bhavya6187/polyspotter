@@ -200,7 +200,7 @@ def _parse_match_status(status_data: dict) -> str:
     if state == "in":
         return "live"
     if state == "post":
-        return "complete"
+        return "final"
     return "pre"
 
 
@@ -743,7 +743,7 @@ def get_cricket_data(
     # may only have a few items (overflow), so the previous page is needed
     # to ensure we have a full feed for the UI.
     balls = _cache_get(match_id, "balls")
-    if balls is None and status in ("live", "complete"):
+    if balls is None and status in ("live", "final"):
         first_page = _fetch_espn_playbyplay(espn_match_id, page=1)
         balls = []
         if first_page:
@@ -815,3 +815,46 @@ def get_cricket_data(
         squads=squads,
         head_to_head=head_to_head,
     )
+
+
+# ---------------------------------------------------------------------------
+# Plugin wrapper
+# ---------------------------------------------------------------------------
+
+from datetime import datetime, timezone
+
+from sports import register
+from sports.base import OverlayResponse, SportOverlay
+
+
+class CricketOverlay(SportOverlay):
+    sport_id = "cricket"
+    tag_aliases = ("cricket", "ipl", "indian premier league")
+
+    def can_handle(self, title: str, tags: list[str]) -> bool:
+        # get_cricket_data does its own internal title parsing; we accept
+        # any title here and let fetch() return None if it can't match.
+        return True
+
+    def fetch(
+        self,
+        condition_id: str,
+        title: str,
+        tags: list[str],
+        event_slug: str = "",
+    ) -> OverlayResponse | None:
+        game_data = get_cricket_data(title, event_slug=event_slug)
+        if game_data is None:
+            return None
+        # get_cricket_data returns a Pydantic CricketGameData model.
+        payload = game_data.model_dump()
+        status = payload.get("status", "pre")
+        return OverlayResponse(
+            sport=self.sport_id,
+            status=status,
+            last_updated=datetime.now(timezone.utc).isoformat(),
+            payload=payload,
+        )
+
+
+register(CricketOverlay())
