@@ -557,7 +557,7 @@ class CricketToss(BaseModel):
 class CricketGameData(BaseModel):
     match_id: str = ""
     espn_match_id: str | None = None
-    status: str = "pre"           # "pre", "live", "complete"
+    status: str = "pre"           # "pre", "live", "final"
     match_time: str | None = None # ISO datetime
     status_text: str = ""         # e.g. "Gujarat Titans won by 5 wickets"
     home: CricketTeam

@@ -40,13 +40,14 @@ Order matters — some strategies depend on data written by earlier ones.
   - `backend/database.py` — PostgreSQL connection via psycopg2 (reads `DATABASE_URL`)
   - `backend/schema.sql` — Postgres schema (alerts, trades, signals, profiles, candles, theses)
   - `backend/models.py` — Pydantic models for request/response schemas
-  - `backend/basketball.py` / `backend/cricket.py` — sport-specific live-game data
+  - `backend/sports/` — sport-overlay plugin framework: `base.py` (SportOverlay ABC + OverlayResponse envelope), `basketball.py`, `cricket.py` (each self-registers on import). New sports register here.
   - `backend/seo_generator.py` — LLM-generated SEO content for market pages
-  - `backend/test_endpoints.py` / `backend/test_basketball.py` — backend tests
+  - `backend/test_endpoints.py` / `backend/test_basketball.py` / `backend/test_sports_registry.py` — backend tests
 - `frontend/` — Next.js 15 web app (React 19, Tailwind CSS 4)
   - `frontend/src/app/` — App Router pages (home, alert, market, wallet, tag, thesis) + `sitemap.js`, `robots.js`, `api/og` dynamic OG images
   - `frontend/src/components/` — UI components (AlertTable, MarketCard, PriceChart, HeroSpotlight, SearchBar, CommandPalette, basketball & cricket overlays, etc.)
-  - `frontend/src/hooks/` — custom React hooks (useLiveMarket, useBasketballData, useCricketData, useSpotlight, useCountdown, useMediaQuery)
+  - `frontend/src/sports/` — frontend sport-overlay registry: `registry.js`, `index.js`, and per-sport plugin files registering `{ Banner, Header?, Sidebar }` slot components
+  - `frontend/src/hooks/` — custom React hooks (useLiveMarket, useSportOverlay, useSpotlight, useCountdown, useMediaQuery)
   - `frontend/src/lib/` — `api.js` (API client), `pseudonym.js`, `slugify.js`, `tiers.js`
 
 ## Environment Setup

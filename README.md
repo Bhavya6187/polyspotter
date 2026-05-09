@@ -73,15 +73,18 @@ backend/                       # Web API (FastAPI + PostgreSQL)
   database.py                  # PostgreSQL connection
   schema.sql                   # Database schema (alerts, trades, signals, profiles, candles, theses)
   models.py                    # Pydantic request/response models
-  basketball.py                # Basketball game data integration
-  cricket.py                   # Cricket match data integration
+  sports/                      # Sport-overlay plugin framework
+    base.py                    # SportOverlay ABC + OverlayResponse envelope
+    basketball.py              # Basketball plugin (self-registers on import)
+    cricket.py                 # Cricket plugin (self-registers on import)
   seo_generator.py             # LLM-generated SEO content for market pages
-  test_endpoints.py / test_basketball.py
+  test_endpoints.py / test_basketball.py / test_sports_registry.py
 frontend/                      # Web dashboard (Next.js 15 + React 19 + Tailwind CSS 4)
   src/app/                     # Pages: home, alert, market, wallet, tag, thesis
                                # + sitemap.js, robots.js, api/og (dynamic OG images)
-  src/components/              # Alerts, markets, wallets, search, basketball & cricket overlays
-  src/hooks/                   # useLiveMarket, useBasketballData, useCricketData, useSpotlight, etc.
+  src/components/              # Alerts, markets, wallets, search, sport overlays
+  src/sports/                  # Frontend sport-overlay plugin registry (Banner/Header/Sidebar slots)
+  src/hooks/                   # useLiveMarket, useSportOverlay, useSpotlight, etc.
   src/lib/                     # api.js, pseudonym.js, slugify.js, tiers.js
 seeder.py                      # Pushes alerts + theses from scanner to backend API
 reset_alerts.py                # Clears alerts from both Postgres and local SQLite cache
@@ -203,8 +206,7 @@ pytest
 | `GET` | `/api/theses/{id}` | Single thesis detail |
 | `GET` | `/api/wallets/top` | Top wallets leaderboard |
 | `GET` | `/api/market/{id}/live` | Live market data (prices, holders) |
-| `GET` | `/api/market/{id}/basketball` | Basketball-specific game data |
-| `GET` | `/api/market/{id}/cricket` | Cricket-specific match data |
+| `GET` | `/api/market/{id}/overlay` | Sport-overlay dispatch (resolves plugin from `tag=` params) |
 | `GET` | `/api/market/{id}/price-history` | Price candle history |
 | `GET` | `/api/market/{id}/holders` | Market holders/positions leaderboard |
 | `GET` | `/api/market/{id}/theses` | Theses for a specific market |
