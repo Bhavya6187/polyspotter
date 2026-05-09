@@ -110,3 +110,23 @@ def test_all_plugins_returns_in_registration_order():
     register(a)
     register(b)
     assert all_plugins() == [a, b]
+
+
+def test_real_plugins_self_register():
+    """Importing the sports package triggers registration of all bundled plugins.
+
+    The autouse fixture clears _PLUGINS before/after each test, so we re-trigger
+    registration here by re-importing the plugin modules (Python's module cache
+    means we have to call register() ourselves rather than reload).
+    """
+    import sports
+    from sports.basketball import BasketballOverlay
+    from sports.cricket import CricketOverlay
+
+    sports.register(BasketballOverlay())
+    sports.register(CricketOverlay())
+
+    assert resolve_for_tags(["nba"]).sport_id == "basketball"
+    assert resolve_for_tags(["ipl"]).sport_id == "cricket"
+    assert resolve_for_tags(["cricket"]).sport_id == "cricket"
+    assert resolve_for_tags(["basketball"]).sport_id == "basketball"

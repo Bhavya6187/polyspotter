@@ -832,9 +832,7 @@ class CricketOverlay(SportOverlay):
     tag_aliases = ("cricket", "ipl", "indian premier league")
 
     def can_handle(self, title: str, tags: list[str]) -> bool:
-        # get_cricket_data does its own internal title parsing; we accept
-        # any title here and let fetch() return None if it can't match.
-        return True
+        return parse_team_names(title) is not None
 
     def fetch(
         self,
