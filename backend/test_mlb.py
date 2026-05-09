@@ -125,6 +125,7 @@ def test_get_mlb_data_parses_fixture_summary():
 
     with patch.object(mlb, "_fetch_espn_scoreboard", return_value=scoreboard), \
          patch.object(mlb, "_fetch_espn_summary", return_value=summary):
+        mlb._game_cache.clear()
         data = mlb.get_mlb_data(title)
 
     assert data is not None
