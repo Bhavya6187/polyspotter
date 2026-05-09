@@ -1,6 +1,8 @@
 """Tests for sport-overlay registry and base contract. No DB or network."""
 import pytest
 from pydantic import ValidationError
+
+from sports import register, resolve_for_tags, all_plugins, SportOverlay
 from sports.base import OverlayResponse
 
 
@@ -35,8 +37,6 @@ def test_overlay_response_status_must_be_valid():
 
 
 def test_register_rejects_plugin_missing_sport_id():
-    from sports import register, SportOverlay
-
     class _Bad(SportOverlay):
         tag_aliases = ("nba",)
         def can_handle(self, title, tags): return True
@@ -47,8 +47,6 @@ def test_register_rejects_plugin_missing_sport_id():
 
 
 def test_register_rejects_plugin_missing_tag_aliases():
-    from sports import register, SportOverlay
-
     class _Bad(SportOverlay):
         sport_id = "stub"
         def can_handle(self, title, tags): return True
@@ -56,9 +54,6 @@ def test_register_rejects_plugin_missing_tag_aliases():
 
     with pytest.raises(TypeError, match="tag_aliases"):
         register(_Bad())
-
-
-from sports import register, resolve_for_tags, all_plugins, SportOverlay
 
 
 class _StubPlugin(SportOverlay):
@@ -83,7 +78,13 @@ def test_resolve_returns_first_matching_plugin():
 
     assert resolve_for_tags(["mlb"]) is b
     assert resolve_for_tags(["nba"]) is a
-    assert resolve_for_tags(["NBA"]) is a  # case-insensitive
+
+
+def test_resolve_handles_case_unknown_and_empty():
+    a = _StubPlugin("basketball", ("nba", "ncaa"))
+    register(a)
+
+    assert resolve_for_tags(["NBA"]) is a       # case-insensitive
     assert resolve_for_tags(["unrelated"]) is None
     assert resolve_for_tags([]) is None
 
