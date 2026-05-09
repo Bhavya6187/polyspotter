@@ -28,6 +28,7 @@ AZURE_OPENAI_API_KEY = os.environ.get("AZURE_OPENAI_API_KEY", "")
 AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
 MODEL = os.environ.get("AZURE_OPENAI_MODEL", "")
 PROMPT_LOG_FILE = Path(__file__).parent / "llm_prompts.jsonl"
+FAILURE_LOG_FILE = Path(__file__).parent / "llm_failures.jsonl"
 
 
 def _log_prompt(messages: list[dict], model: str, cache_key: str) -> None:
@@ -39,6 +40,33 @@ def _log_prompt(messages: list[dict], model: str, cache_key: str) -> None:
         "messages": messages,
     }
     with open(PROMPT_LOG_FILE, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
+def _log_failure(
+    cache_key: str,
+    alert_text: str,
+    finish_reason: str | None,
+    raw_text: str | None,
+    usage: dict,
+    error: str,
+) -> None:
+    """Dump a failed LLM evaluation for offline debugging.
+
+    Captures the prompt, token-usage breakdown (reasoning vs output), raw
+    response text, and the failure mode so we can inspect patterns later.
+    """
+    entry = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "model": MODEL,
+        "cache_key": cache_key,
+        "error": error,
+        "finish_reason": finish_reason,
+        "usage": usage,
+        "raw_text": raw_text,
+        "alert_text": alert_text,
+    }
+    with open(FAILURE_LOG_FILE, "a") as f:
         f.write(json.dumps(entry) + "\n")
 
 
@@ -488,7 +516,7 @@ def evaluate_alert(alert: dict) -> dict:
 
     response = client.chat.completions.create(
         model=MODEL,
-        max_completion_tokens=4000,
+        max_completion_tokens=16000,
         messages=messages,
         response_format=RESPONSE_SCHEMA,
     )
@@ -498,24 +526,50 @@ def evaluate_alert(alert: dict) -> dict:
     if usage and usage.prompt_tokens_details:
         cached_tokens = getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
     prompt_tokens = usage.prompt_tokens if usage else 0
+    completion_tokens = usage.completion_tokens if usage else 0
+    reasoning_tokens = 0
+    if usage and getattr(usage, "completion_tokens_details", None):
+        reasoning_tokens = getattr(usage.completion_tokens_details, "reasoning_tokens", 0) or 0
+
     if cached_tokens:
         print(f"[llm_filter] Cache hit: {cached_tokens}/{prompt_tokens} prompt tokens from cache")
     else:
         print(f"[llm_filter] Cache miss: {prompt_tokens} prompt tokens (none cached)")
 
+    usage_dict = {
+        "prompt_tokens": prompt_tokens,
+        "cached_tokens": cached_tokens,
+        "completion_tokens": completion_tokens,
+        "reasoning_tokens": reasoning_tokens,
+    }
+
+    inconclusive = {
+        "interesting": False,
+        "summary": "LLM evaluation inconclusive — discarded by default.",
+        "bullets": [],
+        "copy_action": {},
+    }
+
     try:
         choice = response.choices[0]
-        text = choice.message.content
-        if choice.finish_reason == "length" or not text:
-            completion_tokens = usage.completion_tokens if usage else 0
-            reasoning_tokens = 0
-            if usage and getattr(usage, "completion_tokens_details", None):
-                reasoning_tokens = getattr(usage.completion_tokens_details, "reasoning_tokens", 0) or 0
-            print(
-                f"[llm_filter] WARNING: empty response (finish_reason={choice.finish_reason}, "
-                f"completion_tokens={completion_tokens}, reasoning_tokens={reasoning_tokens}) — "
-                f"likely hit max_completion_tokens"
-            )
+    except (IndexError, AttributeError) as e:
+        print(f"[llm_filter] WARNING: Malformed response object: {e}")
+        _log_failure(cache_key, alert_text, None, None, usage_dict, error=f"malformed_response: {e}")
+        return inconclusive
+
+    text = choice.message.content
+    finish_reason = choice.finish_reason
+
+    if finish_reason == "length" or not text:
+        print(
+            f"[llm_filter] WARNING: empty response (finish_reason={finish_reason}, "
+            f"completion_tokens={completion_tokens}, reasoning_tokens={reasoning_tokens}) — "
+            f"likely hit max_completion_tokens"
+        )
+        _log_failure(cache_key, alert_text, finish_reason, text, usage_dict, error="empty_or_truncated")
+        return inconclusive
+
+    try:
         result = json.loads(text)
         return {
             "interesting": bool(result.get("interesting")),
@@ -524,14 +578,10 @@ def evaluate_alert(alert: dict) -> dict:
             "bullets": result.get("bullets", []),
             "copy_action": result.get("copy_action", {}),
         }
-    except (json.JSONDecodeError, IndexError, KeyError, TypeError) as e:
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
         print(f"[llm_filter] WARNING: Failed to parse LLM response: {e}")
-        return {
-            "interesting": False,
-            "summary": "LLM evaluation inconclusive — discarded by default.",
-            "bullets": [],
-            "copy_action": {},
-        }
+        _log_failure(cache_key, alert_text, finish_reason, text, usage_dict, error=f"parse_error: {e}")
+        return inconclusive
 
 
 def filter_alerts(alerts: list[dict]) -> list[dict]:
