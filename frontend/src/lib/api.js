@@ -103,14 +103,6 @@ export function fetchMarketTheses(conditionId) {
   return request(`/api/market/${conditionId}/theses`);
 }
 
-export function fetchBasketballData(conditionId, { title = "", event_slug = "" } = {}) {
-  return request(`/api/market/${conditionId}/basketball`, { title, event_slug });
-}
-
-export function fetchCricketData(conditionId, { title = "", event_slug = "" } = {}) {
-  return request(`/api/market/${conditionId}/cricket`, { title, event_slug });
-}
-
 export function fetchEvent(slug) {
   return request(`/api/event/${encodeURIComponent(slug)}`);
 }
