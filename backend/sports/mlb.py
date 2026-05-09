@@ -55,7 +55,7 @@ TEAM_ALIASES: dict[str, str] = {
     "reds": "CIN", "cincinnati": "CIN", "cincinnati reds": "CIN", "cin": "CIN",
     "pirates": "PIT", "pittsburgh": "PIT", "pittsburgh pirates": "PIT", "pit": "PIT",
     # NL West
-    "dodgers": "LAD", "la dodgers": "LAD", "los angeles dodgers": "LAD", "los angeles": "LAD", "lad": "LAD",
+    "dodgers": "LAD", "la dodgers": "LAD", "los angeles dodgers": "LAD", "lad": "LAD",
     "padres": "SD", "san diego": "SD", "san diego padres": "SD", "sd": "SD", "sdp": "SD",
     "giants": "SF", "san francisco": "SF", "san francisco giants": "SF", "sf": "SF", "sfg": "SF",
     "diamondbacks": "ARI", "arizona": "ARI", "arizona diamondbacks": "ARI", "dbacks": "ARI", "ari": "ARI",

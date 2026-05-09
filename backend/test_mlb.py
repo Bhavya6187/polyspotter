@@ -46,7 +46,12 @@ def test_resolve_abbr_basic():
 def test_resolve_abbr_city():
     from sports.mlb import resolve_abbr
     assert resolve_abbr("Boston") == "BOS"
-    assert resolve_abbr("Los Angeles") in {"LAD", "LAA"}  # ambiguous; either accepted
+    # Bare "Los Angeles" is ambiguous (Dodgers vs Angels) and should not
+    # resolve. Disambiguated forms ("LA Dodgers", "Los Angeles Angels")
+    # remain in the alias table and resolve correctly.
+    assert resolve_abbr("Los Angeles") is None
+    assert resolve_abbr("LA Dodgers") == "LAD"
+    assert resolve_abbr("Los Angeles Angels") == "LAA"
 
 
 def test_resolve_abbr_unknown():
