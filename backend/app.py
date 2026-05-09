@@ -1899,7 +1899,7 @@ def resolve_condition_id(partial_id: str):
     return {"condition_id": row["condition_id"]}
 
 
-@app.get("/api/health")
+@app.api_route("/api/health", methods=["GET", "HEAD"])
 def health():
     """Health check. status is "stale" if no alerts produced in the last hour."""
     with db() as conn:
