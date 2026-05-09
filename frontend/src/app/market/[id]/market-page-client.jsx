@@ -11,6 +11,8 @@ import HoldersLeaderboard from "../../../components/HoldersLeaderboard";
 import MarketPulse from "../../../components/MarketPulse";
 import MarketTheses from "../../../components/MarketTheses";
 import useLiveMarket from "../../../hooks/useLiveMarket";
+import useSportOverlay from "../../../hooks/useSportOverlay";
+import { getPlugin } from "../../../sports";
 import ThemeToggle from "../../../components/ThemeToggle";
 import ShareButton from "../../../components/ShareButton";
 import HeaderActions from "../../../components/HeaderActions";
@@ -42,6 +44,7 @@ export default function MarketPageClient({
   theses,
   eventSlug,
   eventTitle,
+  initialOverlay = null,
 }) {
   const { data: liveMarket } = useLiveMarket(conditionId);
   const live = liveMarket || initialLive;
@@ -54,6 +57,18 @@ export default function MarketPageClient({
   const resolution = timeToResolution(endDate);
   const totalUsd = alerts.reduce((sum, a) => sum + (a.total_usd || 0), 0);
   const tags = [...new Set(alerts.flatMap((a) => a.tags || []))];
+
+  const { data: overlay } = useSportOverlay(conditionId, {
+    initialData: initialOverlay,
+    title: live?.title || alerts?.[0]?.market_title || "",
+    eventSlug: eventSlug || alerts?.[0]?.event_slug || "",
+    tags,
+  });
+  const sportPlugin = overlay ? getPlugin(overlay.sport) : null;
+  const Banner = sportPlugin?.Banner ?? null;
+  const Header = sportPlugin?.Header ?? null;
+  const Sidebar = sportPlugin?.Sidebar ?? null;
+  const polymarketPrice = (live?.outcomes || [])[0]?.price;
   const isUrgent = endDate && new Date(endDate).getTime() - Date.now() < 3600000 && new Date(endDate).getTime() - Date.now() > 0;
   const isSoon = endDate && new Date(endDate).getTime() - Date.now() < 86400000 && new Date(endDate).getTime() - Date.now() > 0;
 
@@ -315,6 +330,18 @@ export default function MarketPageClient({
         )}
       </header>
 
+      {/* Sport overlay: Banner */}
+      {Banner && overlay && (
+        <Banner payload={overlay.payload} status={overlay.status} polymarketPrice={polymarketPrice} />
+      )}
+
+      {/* Sport overlay: Header (between banner and grid) */}
+      {Header && overlay && (
+        <div className="mb-4">
+          <Header payload={overlay.payload} status={overlay.status} />
+        </div>
+      )}
+
       {/* Mobile: Price chart before alerts */}
       {priceHistory && priceHistory.history?.length > 1 && (
         <div className="lg:hidden mb-4">
@@ -399,6 +426,11 @@ export default function MarketPageClient({
             spread={live?.spread}
             alerts={alerts}
           />
+
+          {/* Sport overlay: Sidebar (sport-specific widgets) */}
+          {Sidebar && overlay && (
+            <Sidebar payload={overlay.payload} status={overlay.status} />
+          )}
 
           {/* Holders + Pulse */}
           {(holders?.length > 0 || alerts.length > 0) && (

@@ -1,7 +1,5 @@
 import { cache } from "react";
 import MarketPageClient from "./market-page-client";
-import BasketballPageClient from "./basketball-page-client";
-import CricketPageClient from "./cricket-page-client";
 import { partialIdFromSlug, marketSlug } from "../../../lib/slugify";
 
 export const revalidate = 60;
@@ -61,42 +59,21 @@ const loadMarketPage = cache(async (partialId) => {
   const theses = thesesData?.theses || [];
   const title = live?.title || alerts?.[0]?.market_title || "Market";
 
-  const tags = alerts.flatMap((a) => a.tags || []);
-  const basketballTags = ["nba", "basketball", "ncaa", "march madness", "cbb"];
-  const cricketTags = ["cricket", "ipl", "indian premier league"];
-  const maybeBasketball = tags.some((t) =>
-    basketballTags.includes(t.toLowerCase())
-  );
-  const maybeCricket =
-    !maybeBasketball &&
-    tags.some((t) => cricketTags.includes(t.toLowerCase()));
+  const tagSet = [...new Set(alerts.flatMap((a) => a.tags || []))];
+  const overlayParams = new URLSearchParams({
+    title,
+    event_slug: alerts[0]?.event_slug || "",
+  });
+  for (const t of tagSet) overlayParams.append("tag", t);
 
-  let basketballData = null;
-  let cricketData = null;
-  if (maybeBasketball) {
-    const eventSlug = alerts[0]?.event_slug || "";
-    try {
-      const bbParams = new URLSearchParams({ title, event_slug: eventSlug });
-      const bbRes = await fetch(
-        `${API_URL}/api/market/${conditionId}/basketball?${bbParams}`,
-        { next: { revalidate: 15 } }
-      );
-      basketballData = bbRes?.ok ? await bbRes.json() : null;
-    } catch {}
-  } else if (maybeCricket) {
-    const eventSlug = alerts[0]?.event_slug || "";
-    try {
-      const cricketParams = new URLSearchParams({
-        title,
-        event_slug: eventSlug,
-      });
-      const cRes = await fetch(
-        `${API_URL}/api/market/${conditionId}/cricket?${cricketParams}`,
-        { next: { revalidate: 15 } }
-      );
-      cricketData = cRes?.ok ? await cRes.json() : null;
-    } catch {}
-  }
+  let initialOverlay = null;
+  try {
+    const ovRes = await fetch(
+      `${API_URL}/api/market/${conditionId}/overlay?${overlayParams}`,
+      { next: { revalidate: 15 } },
+    );
+    initialOverlay = ovRes?.ok ? await ovRes.json() : null;
+  } catch {}
 
   // Event metadata for the "Part of: <event>" cross-link. Only fetch when
   // the market actually belongs to an event (most do; the few that don't
@@ -148,8 +125,7 @@ const loadMarketPage = cache(async (partialId) => {
     priceHistory,
     holders,
     theses,
-    basketballData,
-    cricketData,
+    initialOverlay,
     eventSlug,
     eventTitle,
     seoTitle,
@@ -229,8 +205,7 @@ export default async function MarketPage({ params }) {
     priceHistory,
     holders,
     theses,
-    basketballData,
-    cricketData,
+    initialOverlay,
     eventSlug,
     eventTitle,
     seoSummary,
@@ -436,28 +411,17 @@ export default async function MarketPage({ params }) {
         </article>
       </div>
 
-      {(() => {
-        const isBasketball = !!basketballData;
-        const isCricket = !isBasketball && !!cricketData;
-        const PageClient = isBasketball
-          ? BasketballPageClient
-          : isCricket
-            ? CricketPageClient
-            : MarketPageClient;
-        const clientProps = {
-          conditionId,
-          initialLive: live,
-          initialAlerts: alerts,
-          priceHistory,
-          holders,
-          theses,
-          eventSlug,
-          eventTitle,
-          ...(isBasketball ? { initialGameData: basketballData, eventSlug: alerts?.[0]?.event_slug || "" } : {}),
-          ...(isCricket ? { initialCricketData: cricketData, eventSlug: alerts?.[0]?.event_slug || "" } : {}),
-        };
-        return <PageClient {...clientProps} />;
-      })()}
+      <MarketPageClient
+        conditionId={conditionId}
+        initialLive={live}
+        initialAlerts={alerts}
+        priceHistory={priceHistory}
+        holders={holders}
+        theses={theses}
+        eventSlug={eventSlug}
+        eventTitle={eventTitle}
+        initialOverlay={initialOverlay}
+      />
     </>
   );
 }
