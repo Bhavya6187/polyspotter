@@ -8,10 +8,16 @@ from sports.base import OverlayResponse
 
 @pytest.fixture(autouse=True)
 def _clean_registry():
+    """Snapshot registry before each test; restore after.
+
+    Each test gets a clean slate (no leakage between tests) but real
+    plugins registered at import time persist across the session.
+    """
     import sports
+    original = list(sports._PLUGINS)
     sports._PLUGINS.clear()
     yield
-    sports._PLUGINS.clear()
+    sports._PLUGINS[:] = original
 
 
 def test_overlay_response_construction():
