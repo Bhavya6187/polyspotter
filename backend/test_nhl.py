@@ -52,3 +52,54 @@ def test_extract_codes_from_slug_invalid():
     from sports.nhl import extract_codes_from_slug
     assert extract_codes_from_slug("nba-lal-bos-2026-04-19") is None
     assert extract_codes_from_slug("") is None
+
+
+import json
+import pathlib
+from unittest.mock import patch
+
+FIXTURE_DIR = pathlib.Path(__file__).parent / "test_fixtures"
+
+
+def _load(name):
+    return json.loads((FIXTURE_DIR / name).read_text())
+
+
+def test_get_nhl_data_parses_fixture_summary():
+    from sports import nhl
+    summary = _load("espn_nhl_summary.json")
+
+    competitors = summary["header"]["competitions"][0]["competitors"]
+    home_abbr = next(c["team"]["abbreviation"] for c in competitors if c["homeAway"] == "home")
+    away_abbr = next(c["team"]["abbreviation"] for c in competitors if c["homeAway"] == "away")
+    home_name = next(c["team"]["displayName"] for c in competitors if c["homeAway"] == "home")
+    away_name = next(c["team"]["displayName"] for c in competitors if c["homeAway"] == "away")
+
+    scoreboard = {"events": [{
+        "id": summary["header"]["id"],
+        "competitions": [{"competitors": [{"team": {"abbreviation": c["team"]["abbreviation"]}} for c in competitors]}],
+    }]}
+
+    with patch.object(nhl, "_fetch_espn_scoreboard", return_value=scoreboard), \
+         patch.object(nhl, "_fetch_espn_summary", return_value=summary):
+        nhl._game_cache.clear()
+        data = nhl.get_nhl_data(f"{away_name} vs {home_name}")
+
+    assert data is not None
+    assert data.home.abbr == nhl._normalize_espn_abbr(home_abbr)
+    assert data.away.abbr == nhl._normalize_espn_abbr(away_abbr)
+    assert data.status in {"pre", "live", "final"}
+
+
+def test_nhl_overlay_can_handle():
+    from sports.nhl import NHLOverlay
+    plugin = NHLOverlay()
+    assert plugin.can_handle("Bruins vs Rangers", ["nhl"]) is True
+    assert plugin.can_handle("random", ["nhl"]) is False
+
+
+def test_nhl_overlay_metadata():
+    from sports.nhl import NHLOverlay
+    p = NHLOverlay()
+    assert p.sport_id == "nhl"
+    assert "nhl" in p.tag_aliases

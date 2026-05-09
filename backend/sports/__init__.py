@@ -44,3 +44,4 @@ __all__ = ["OverlayResponse", "SportOverlay", "register", "all_plugins", "resolv
 from . import basketball  # noqa: E402,F401  registers BasketballOverlay
 from . import cricket  # noqa: E402,F401  registers CricketOverlay
 from . import mlb  # noqa: E402,F401  registers MLBOverlay
+from . import nhl  # noqa: E402,F401  registers NHLOverlay
