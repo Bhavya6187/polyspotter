@@ -103,9 +103,16 @@ export default function MLBScoreBanner({ game, polymarketPrice }) {
         </div>
       </div>
 
-      {polymarketPrice != null && (
-        <div className="border-t px-4 py-2 text-center text-xs" style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}>
-          Polymarket: {(polymarketPrice * 100).toFixed(0)}¢
+      {(game.odds || polymarketPrice != null) && (
+        <div className="flex items-center justify-center gap-4 border-t px-4 py-2 text-center text-xs" style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}>
+          {game.odds && (
+            <span>
+              {game.odds.away_ml && <span><span className="font-semibold" style={{ color: "var(--text-primary)" }}>{away.abbr}</span> {game.odds.away_ml}</span>}
+              {game.odds.home_ml && <span className="ml-3"><span className="font-semibold" style={{ color: "var(--text-primary)" }}>{home.abbr}</span> {game.odds.home_ml}</span>}
+              {game.odds.total != null && <span className="ml-3">O/U {game.odds.total}</span>}
+            </span>
+          )}
+          {polymarketPrice != null && <span>Polymarket: {(polymarketPrice * 100).toFixed(0)}¢</span>}
         </div>
       )}
     </div>
