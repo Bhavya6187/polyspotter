@@ -687,6 +687,96 @@ class MLBGameData(BaseModel):
     head_to_head: MLBHeadToHead | None = None
 
 
+# -- NHL game data (proxied from ESPN Hockey API) ------------------------------
+
+class NHLTeam(BaseModel):
+    abbr: str
+    name: str
+    city: str = ""
+    score: int = 0
+    record: str | None = None
+
+class NHLPowerPlay(BaseModel):
+    on_team: str = ""               # abbr of team on power play, "" if none
+    seconds_left: int = 0
+
+class NHLScoringEvent(BaseModel):
+    period: int
+    time: str = ""                  # "12:34" remaining
+    team: str
+    scorer: str
+    assists: list[str] = []
+    type: str = ""                  # "EV", "PP", "SH", "EN", "PEN"
+    is_gwg: bool = False
+
+class NHLPenalty(BaseModel):
+    period: int
+    time: str = ""
+    team: str
+    player: str
+    infraction: str
+    minutes: int = 2
+
+class NHLGoalieLine(BaseModel):
+    name: str
+    team: str
+    saves: int = 0
+    shots_against: int = 0
+
+class NHLTeamStatsLive(BaseModel):
+    team: str
+    shots: int = 0
+    faceoff_pct: float | None = None
+    hits: int = 0
+    pp_summary: str = ""            # e.g. "1/3"
+    pk_summary: str = ""            # e.g. "2/2"
+
+class NHLTeamSeasonStats(BaseModel):
+    pp_pct: float | None = None
+    pk_pct: float | None = None
+    gf_per_game: float | None = None
+    ga_per_game: float | None = None
+    last_ten: str | None = None     # "7-2-1"
+
+class NHLOdds(BaseModel):
+    provider: str = "DraftKings"
+    home_ml: str | None = None
+    away_ml: str | None = None
+    puck_line: str | None = None
+    total: float | None = None
+
+class NHLVenue(BaseModel):
+    name: str
+    city: str = ""
+
+class NHLHeadToHead(BaseModel):
+    home_wins: int = 0
+    away_wins: int = 0
+    total: int = 0
+
+class NHLGameData(BaseModel):
+    game_id: str
+    espn_game_id: str | None = None
+    status: str = "pre"
+    game_time: str | None = None
+    period: str = ""                # "P1", "P2", "P3", "OT", "SO", "" pre
+    clock: str = ""                 # "12:34"
+    power_play: NHLPowerPlay | None = None
+    home: NHLTeam
+    away: NHLTeam
+    venue: NHLVenue | None = None
+    broadcast: str | None = None
+    attendance: int | None = None
+    odds: NHLOdds | None = None
+    scoring_summary: list[NHLScoringEvent] = []
+    penalties: list[NHLPenalty] = []
+    team_stats_live: list[NHLTeamStatsLive] = []
+    home_team_season: NHLTeamSeasonStats | None = None
+    away_team_season: NHLTeamSeasonStats | None = None
+    goalies: list[NHLGoalieLine] = []
+    head_to_head: NHLHeadToHead | None = None
+
+
 # -- Articles ----------------------------------------------------------------
 
 class ArticleOut(BaseModel):
