@@ -39,7 +39,7 @@ function StatusBadge({ status }) {
       </div>
     );
   }
-  if (status === "complete") {
+  if (status === "final") {
     return (
       <span
         className="rounded px-1.5 py-0.5 text-[0.6rem] font-bold uppercase tracking-wider"
