@@ -3,5 +3,6 @@
 // distinct sport_ids so order is cosmetic.
 import "./basketball";
 import "./cricket";
+import "./mlb";
 
 export { getPlugin, allSportIds } from "./registry";
