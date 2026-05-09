@@ -4,5 +4,6 @@
 import "./basketball";
 import "./cricket";
 import "./mlb";
+import "./nhl";
 
 export { getPlugin, allSportIds } from "./registry";
