@@ -45,3 +45,4 @@ from . import basketball  # noqa: E402,F401  registers BasketballOverlay
 from . import cricket  # noqa: E402,F401  registers CricketOverlay
 from . import mlb  # noqa: E402,F401  registers MLBOverlay
 from . import nhl  # noqa: E402,F401  registers NHLOverlay
+from . import soccer  # noqa: E402,F401  registers SoccerOverlay

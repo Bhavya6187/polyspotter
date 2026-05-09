@@ -82,3 +82,93 @@ def test_extract_codes_from_slug_invalid():
     from sports.soccer import extract_codes_from_slug
     assert extract_codes_from_slug("nba-lal-bos-2026-04-19") is None
     assert extract_codes_from_slug("") is None
+
+
+import json
+import pathlib
+from unittest.mock import patch
+
+FIXTURE_DIR = pathlib.Path(__file__).parent / "test_fixtures"
+
+
+def _load(name):
+    return json.loads((FIXTURE_DIR / name).read_text())
+
+
+def test_get_soccer_data_parses_epl_fixture():
+    from sports import soccer
+    summary = _load("espn_soccer_epl_summary.json")
+    competitors = summary["header"]["competitions"][0]["competitors"]
+    home_name = next(c["team"]["displayName"] for c in competitors if c["homeAway"] == "home")
+    away_name = next(c["team"]["displayName"] for c in competitors if c["homeAway"] == "away")
+    home_abbr = next(c["team"]["abbreviation"] for c in competitors if c["homeAway"] == "home")
+    away_abbr = next(c["team"]["abbreviation"] for c in competitors if c["homeAway"] == "away")
+
+    scoreboard = {"events": [{
+        "id": summary["header"]["id"],
+        "competitions": [{"competitors": [
+            {"team": {"abbreviation": home_abbr, "displayName": home_name}},
+            {"team": {"abbreviation": away_abbr, "displayName": away_name}},
+        ]}],
+    }]}
+
+    with patch.object(soccer, "_fetch_espn_scoreboard", return_value=scoreboard), \
+         patch.object(soccer, "_fetch_espn_summary", return_value=summary):
+        soccer._match_cache.clear()
+        data = soccer.get_soccer_data(f"{away_name} vs {home_name}", tags=["epl"])
+
+    assert data is not None
+    assert data.competition == "EPL"
+    assert data.league_id == "eng.1"
+    assert data.status in {"pre", "live", "final"}
+
+
+def test_get_soccer_data_parses_ucl_fixture_via_name_match():
+    """UCL/WC don't have a hard-coded alias table; team-resolution happens
+    against ESPN's displayName/abbreviation in the scoreboard."""
+    from sports import soccer
+    summary = _load("espn_soccer_ucl_summary.json")
+    competitors = summary["header"]["competitions"][0]["competitors"]
+    home_name = next(c["team"]["displayName"] for c in competitors if c["homeAway"] == "home")
+    away_name = next(c["team"]["displayName"] for c in competitors if c["homeAway"] == "away")
+    home_abbr = next(c["team"]["abbreviation"] for c in competitors if c["homeAway"] == "home")
+    away_abbr = next(c["team"]["abbreviation"] for c in competitors if c["homeAway"] == "away")
+
+    scoreboard = {"events": [{
+        "id": summary["header"]["id"],
+        "competitions": [{"competitors": [
+            {"team": {"abbreviation": home_abbr, "displayName": home_name}},
+            {"team": {"abbreviation": away_abbr, "displayName": away_name}},
+        ]}],
+    }]}
+
+    with patch.object(soccer, "_fetch_espn_scoreboard", return_value=scoreboard), \
+         patch.object(soccer, "_fetch_espn_summary", return_value=summary):
+        soccer._match_cache.clear()
+        data = soccer.get_soccer_data(f"{away_name} vs {home_name}", tags=["ucl"])
+
+    assert data is not None
+    assert data.competition == "UCL"
+    assert data.league_id == "uefa.champions"
+
+
+def test_get_soccer_data_returns_none_when_league_tag_missing():
+    from sports import soccer
+    soccer._match_cache.clear()
+    assert soccer.get_soccer_data("Arsenal vs Liverpool", tags=["la liga"]) is None
+
+
+def test_soccer_overlay_can_handle():
+    from sports.soccer import SoccerOverlay
+    plugin = SoccerOverlay()
+    assert plugin.can_handle("Arsenal vs Liverpool", ["epl"]) is True
+    assert plugin.can_handle("random", ["epl"]) is False
+
+
+def test_soccer_overlay_metadata():
+    from sports.soccer import SoccerOverlay
+    p = SoccerOverlay()
+    assert p.sport_id == "soccer"
+    assert "epl" in p.tag_aliases
+    assert "ucl" in p.tag_aliases
+    assert "world cup" in p.tag_aliases
