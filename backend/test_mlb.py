@@ -158,3 +158,19 @@ def test_mlb_overlay_registers():
     plugin = MLBOverlay()
     assert plugin.sport_id == "mlb"
     assert "mlb" in plugin.tag_aliases
+
+
+def test_can_handle_accepts_run_line_title_when_slug_resolves():
+    from sports.mlb import MLBOverlay
+    plugin = MLBOverlay()
+    assert plugin.can_handle(
+        "Run Line: Yankees -1.5", ["mlb"], "mlb-nyy-bos-2026-05-09"
+    ) is True
+
+
+def test_can_handle_rejects_unparseable_title_with_unresolvable_slug():
+    from sports.mlb import MLBOverlay
+    plugin = MLBOverlay()
+    assert plugin.can_handle(
+        "Run Line: Foo -1.5", ["mlb"], "mlb-zzz-yyy-2026-05-09"
+    ) is False

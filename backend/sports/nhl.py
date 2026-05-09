@@ -490,8 +490,10 @@ class NHLOverlay(SportOverlay):
     sport_id = "nhl"
     tag_aliases = ("nhl", "hockey", "stanley cup")
 
-    def can_handle(self, title: str, tags: list[str]) -> bool:
-        return parse_team_names(title) is not None
+    def can_handle(self, title: str, tags: list[str], event_slug: str = "") -> bool:
+        if parse_team_names(title) is not None:
+            return True
+        return extract_codes_from_slug(event_slug) is not None
 
     def fetch(self, condition_id: str, title: str, tags: list[str], event_slug: str = "") -> OverlayResponse | None:
         data = get_nhl_data(title, event_slug=event_slug)

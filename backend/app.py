@@ -1711,7 +1711,7 @@ def get_market_overlay(
         raise HTTPException(status_code=400, detail="title is required")
 
     plugin = sports.resolve_for_tags(tag)
-    if plugin is None or not plugin.can_handle(title, tag):
+    if plugin is None or not plugin.can_handle(title, tag, event_slug):
         raise HTTPException(status_code=404, detail="no overlay plugin matches")
 
     result = plugin.fetch(condition_id, title, tag, event_slug)

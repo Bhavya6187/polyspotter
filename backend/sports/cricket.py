@@ -831,7 +831,7 @@ class CricketOverlay(SportOverlay):
     sport_id = "cricket"
     tag_aliases = ("cricket", "ipl", "indian premier league")
 
-    def can_handle(self, title: str, tags: list[str]) -> bool:
+    def can_handle(self, title: str, tags: list[str], event_slug: str = "") -> bool:
         return parse_team_names(title) is not None
 
     def fetch(

@@ -27,11 +27,13 @@ class SportOverlay(ABC):
     tag_aliases: tuple[str, ...]
 
     @abstractmethod
-    def can_handle(self, title: str, tags: list[str]) -> bool:
+    def can_handle(self, title: str, tags: list[str], event_slug: str = "") -> bool:
         """Whether this plugin can produce an overlay for this market.
 
-        Should return False fast when the title can't be parsed into teams,
-        even if the tags match. The dispatch endpoint uses this to short-circuit.
+        Should return False fast when neither the title nor the event_slug
+        carry enough info to identify two teams. Spread/moneyline/over-under
+        titles name only one team (e.g. "Spread: Cavaliers (-4.5)"); for those
+        the slug is the only source of the matchup.
         """
 
     @abstractmethod

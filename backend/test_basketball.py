@@ -318,3 +318,30 @@ def test_get_basketball_data_spread_title_no_slug_returns_none():
     from sports.basketball import get_basketball_data
     result = get_basketball_data("Spread: Thunder (-15.5)", [])
     assert result is None
+
+
+def test_can_handle_accepts_spread_title_when_slug_resolves():
+    """Spread/ML/OU titles don't contain 'vs' but the event_slug carries
+    the team tricodes. can_handle must accept these so the dispatcher
+    delegates to fetch(), where the existing slug fallback can run."""
+    from sports.basketball import BasketballOverlay
+    plugin = BasketballOverlay()
+    assert plugin.can_handle(
+        "Spread: Cavaliers (-4.5)", ["NBA"], "nba-det-cle-2026-05-09"
+    ) is True
+
+
+def test_can_handle_rejects_spread_title_with_unresolvable_slug():
+    """Spread title plus a slug whose tokens aren't known teams stays False."""
+    from sports.basketball import BasketballOverlay
+    plugin = BasketballOverlay()
+    assert plugin.can_handle(
+        "Spread: Foo (-4.5)", ["NBA"], "nba-zzz-yyy-2026-05-09"
+    ) is False
+
+
+def test_can_handle_still_accepts_vs_title_without_slug():
+    """Original happy path: 'X vs Y' titles work with no slug."""
+    from sports.basketball import BasketballOverlay
+    plugin = BasketballOverlay()
+    assert plugin.can_handle("Lakers vs Celtics", ["NBA"], "") is True

@@ -1045,10 +1045,13 @@ class BasketballOverlay(SportOverlay):
     sport_id = "basketball"
     tag_aliases = ("nba", "basketball", "ncaa", "march madness", "cbb")
 
-    def can_handle(self, title: str, tags: list[str]) -> bool:
-        # Tag check is performed by the registry; here we only verify that
-        # the title parses into two teams.
-        return parse_team_names(title) is not None
+    def can_handle(self, title: str, tags: list[str], event_slug: str = "") -> bool:
+        # Tag check is performed by the registry; here we accept the market
+        # if EITHER the title parses into two teams OR the event_slug
+        # carries two known tricodes (spread/ML/OU titles only name one team).
+        if parse_team_names(title) is not None:
+            return True
+        return extract_tricodes_from_slug(event_slug) is not None
 
     def fetch(
         self,

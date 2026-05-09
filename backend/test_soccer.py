@@ -172,3 +172,19 @@ def test_soccer_overlay_metadata():
     assert "epl" in p.tag_aliases
     assert "ucl" in p.tag_aliases
     assert "world cup" in p.tag_aliases
+
+
+def test_can_handle_accepts_handicap_title_when_epl_slug_resolves():
+    from sports.soccer import SoccerOverlay
+    plugin = SoccerOverlay()
+    assert plugin.can_handle(
+        "Handicap: Arsenal (-1.5)", ["epl"], "epl-ars-mci-2026-04-19"
+    ) is True
+
+
+def test_can_handle_rejects_handicap_title_with_unresolvable_slug():
+    from sports.soccer import SoccerOverlay
+    plugin = SoccerOverlay()
+    assert plugin.can_handle(
+        "Handicap: Foo (-1.5)", ["epl"], "epl-zzz-yyy-2026-04-19"
+    ) is False

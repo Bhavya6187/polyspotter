@@ -45,7 +45,7 @@ def test_overlay_response_status_must_be_valid():
 def test_register_rejects_plugin_missing_sport_id():
     class _Bad(SportOverlay):
         tag_aliases = ("nba",)
-        def can_handle(self, title, tags): return True
+        def can_handle(self, title, tags, event_slug=""): return True
         def fetch(self, condition_id, title, tags, event_slug=""): return None
 
     with pytest.raises(TypeError, match="sport_id"):
@@ -55,7 +55,7 @@ def test_register_rejects_plugin_missing_sport_id():
 def test_register_rejects_plugin_missing_tag_aliases():
     class _Bad(SportOverlay):
         sport_id = "stub"
-        def can_handle(self, title, tags): return True
+        def can_handle(self, title, tags, event_slug=""): return True
         def fetch(self, condition_id, title, tags, event_slug=""): return None
 
     with pytest.raises(TypeError, match="tag_aliases"):
@@ -69,7 +69,7 @@ class _StubPlugin(SportOverlay):
         self.sport_id = sport_id
         self.tag_aliases = aliases
 
-    def can_handle(self, title, tags):
+    def can_handle(self, title, tags, event_slug=""):
         return True
 
     def fetch(self, condition_id, title, tags, event_slug=""):
@@ -190,7 +190,7 @@ def test_overlay_endpoint_dispatches_to_matching_plugin():
 
 def test_overlay_endpoint_404_when_can_handle_returns_false():
     a = _StubPlugin("basketball", ("nba",))
-    a.can_handle = lambda title, tags: False
+    a.can_handle = lambda title, tags, event_slug="": False
     register(a)
 
     from app import app
@@ -221,3 +221,43 @@ def test_overlay_endpoint_400_when_title_missing():
     client = TestClient(app)
     resp = client.get("/api/market/0xabc/overlay", params={"tag": ["nba"]})
     assert resp.status_code == 400
+
+
+def test_overlay_endpoint_passes_event_slug_to_can_handle():
+    """can_handle must receive event_slug so plugins can accept spread/ML/OU
+    titles whose teams are only resolvable from the slug."""
+    a = _StubPlugin("basketball", ("nba",))
+    captured = {}
+
+    def fake_can_handle(title, tags, event_slug=""):
+        captured["args"] = (title, tags, event_slug)
+        return True
+
+    def fake_fetch(condition_id, title, tags, event_slug=""):
+        return OverlayResponse(
+            sport="basketball",
+            status="live",
+            last_updated="2026-05-08T12:00:00Z",
+            payload={},
+        )
+
+    a.can_handle = fake_can_handle
+    a.fetch = fake_fetch
+    register(a)
+
+    from app import app
+    client = TestClient(app)
+    resp = client.get(
+        "/api/market/0xabc/overlay",
+        params={
+            "title": "Spread: Cavaliers (-4.5)",
+            "tag": ["nba"],
+            "event_slug": "nba-det-cle-2026-05-09",
+        },
+    )
+    assert resp.status_code == 200
+    assert captured["args"] == (
+        "Spread: Cavaliers (-4.5)",
+        ["nba"],
+        "nba-det-cle-2026-05-09",
+    )

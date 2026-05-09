@@ -595,8 +595,10 @@ class MLBOverlay(SportOverlay):
     sport_id = "mlb"
     tag_aliases = ("mlb", "baseball", "world series")
 
-    def can_handle(self, title: str, tags: list[str]) -> bool:
-        return parse_team_names(title) is not None
+    def can_handle(self, title: str, tags: list[str], event_slug: str = "") -> bool:
+        if parse_team_names(title) is not None:
+            return True
+        return extract_codes_from_slug(event_slug) is not None
 
     def fetch(
         self,

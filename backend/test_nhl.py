@@ -103,3 +103,19 @@ def test_nhl_overlay_metadata():
     p = NHLOverlay()
     assert p.sport_id == "nhl"
     assert "nhl" in p.tag_aliases
+
+
+def test_can_handle_accepts_puck_line_title_when_slug_resolves():
+    from sports.nhl import NHLOverlay
+    plugin = NHLOverlay()
+    assert plugin.can_handle(
+        "Puck Line: Bruins (-1.5)", ["nhl"], "nhl-bos-tor-2026-04-15"
+    ) is True
+
+
+def test_can_handle_rejects_unparseable_title_with_unresolvable_slug():
+    from sports.nhl import NHLOverlay
+    plugin = NHLOverlay()
+    assert plugin.can_handle(
+        "Puck Line: Foo (-1.5)", ["nhl"], "nhl-zzz-yyy-2026-04-15"
+    ) is False
