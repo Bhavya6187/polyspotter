@@ -130,3 +130,76 @@ def test_real_plugins_self_register():
     assert resolve_for_tags(["ipl"]).sport_id == "cricket"
     assert resolve_for_tags(["cricket"]).sport_id == "cricket"
     assert resolve_for_tags(["basketball"]).sport_id == "basketball"
+
+
+from fastapi.testclient import TestClient
+
+
+def test_overlay_endpoint_404_when_no_plugin_matches():
+    # Don't pre-register any plugins (autouse fixture clears them).
+    from app import app
+    client = TestClient(app)
+    resp = client.get(
+        "/api/market/0xabc/overlay",
+        params={"title": "Some random market", "tag": ["politics"]},
+    )
+    assert resp.status_code == 404
+
+
+def test_overlay_endpoint_dispatches_to_matching_plugin():
+    a = _StubPlugin("basketball", ("nba",))
+
+    captured = {}
+
+    def fake_fetch(condition_id, title, tags, event_slug=""):
+        captured["args"] = (condition_id, title, tags, event_slug)
+        return OverlayResponse(
+            sport="basketball",
+            status="live",
+            last_updated="2026-05-08T12:00:00Z",
+            payload={"hello": "world"},
+        )
+
+    a.fetch = fake_fetch
+    register(a)
+
+    from app import app
+    client = TestClient(app)
+    resp = client.get(
+        "/api/market/0xabc/overlay",
+        params={"title": "Lakers vs Celtics", "tag": ["nba"], "event_slug": "lal-bos"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["sport"] == "basketball"
+    assert body["status"] == "live"
+    assert body["payload"] == {"hello": "world"}
+    assert captured["args"] == ("0xabc", "Lakers vs Celtics", ["nba"], "lal-bos")
+
+
+def test_overlay_endpoint_404_when_can_handle_returns_false():
+    a = _StubPlugin("basketball", ("nba",))
+    a.can_handle = lambda title, tags: False
+    register(a)
+
+    from app import app
+    client = TestClient(app)
+    resp = client.get(
+        "/api/market/0xabc/overlay",
+        params={"title": "x", "tag": ["nba"]},
+    )
+    assert resp.status_code == 404
+
+
+def test_overlay_endpoint_404_when_fetch_returns_none():
+    a = _StubPlugin("basketball", ("nba",))
+    a.fetch = lambda *a, **k: None
+    register(a)
+
+    from app import app
+    client = TestClient(app)
+    resp = client.get(
+        "/api/market/0xabc/overlay",
+        params={"title": "Lakers vs Celtics", "tag": ["nba"]},
+    )
+    assert resp.status_code == 404

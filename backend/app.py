@@ -32,6 +32,8 @@ from fastapi.responses import Response
 
 from database import get_conn, init_db
 from events import get_event_or_fetch
+import sports
+from sports.base import OverlayResponse
 from sports.basketball import get_basketball_data
 from sports.cricket import get_cricket_data
 from models import (
@@ -1691,6 +1693,33 @@ def get_market_live(condition_id: str):
 
     _live_cache[condition_id] = (now + _LIVE_CACHE_TTL, data)
     return data
+
+
+@app.get("/api/market/{condition_id}/overlay", response_model=OverlayResponse)
+def get_market_overlay(
+    condition_id: str,
+    title: str = Query(default="", description="Market title for parsing"),
+    tag: list[str] = Query(default=[], description="Market tags; pass repeated"),
+    event_slug: str = Query(default=""),
+):
+    """Dispatch endpoint for sport overlays.
+
+    Resolves a sport plugin from the market's tags and returns the plugin's
+    OverlayResponse. Returns 404 when no plugin matches, when the plugin
+    declines to handle the title, or when the plugin can't find a matching
+    game on today's schedule.
+    """
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+
+    plugin = sports.resolve_for_tags(tag)
+    if plugin is None or not plugin.can_handle(title, tag):
+        raise HTTPException(status_code=404, detail="no overlay plugin matches")
+
+    result = plugin.fetch(condition_id, title, tag, event_slug)
+    if result is None:
+        raise HTTPException(status_code=404, detail="no matching game found")
+    return result
 
 
 @app.get("/api/market/{condition_id}/basketball")
