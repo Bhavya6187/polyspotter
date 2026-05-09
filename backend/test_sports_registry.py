@@ -113,23 +113,31 @@ def test_all_plugins_returns_in_registration_order():
 
 
 def test_real_plugins_self_register():
-    """Importing the sports package triggers registration of all bundled plugins.
-
-    The autouse fixture clears _PLUGINS before/after each test, so we re-trigger
-    registration here by re-importing the plugin modules (Python's module cache
-    means we have to call register() ourselves rather than reload).
-    """
+    """Importing the sports package triggers registration of all bundled plugins."""
     import sports
     from sports.basketball import BasketballOverlay
     from sports.cricket import CricketOverlay
+    from sports.mlb import MLBOverlay
+    from sports.nhl import NHLOverlay
+    from sports.soccer import SoccerOverlay
 
     sports.register(BasketballOverlay())
     sports.register(CricketOverlay())
+    sports.register(MLBOverlay())
+    sports.register(NHLOverlay())
+    sports.register(SoccerOverlay())
 
     assert resolve_for_tags(["nba"]).sport_id == "basketball"
     assert resolve_for_tags(["ipl"]).sport_id == "cricket"
     assert resolve_for_tags(["cricket"]).sport_id == "cricket"
     assert resolve_for_tags(["basketball"]).sport_id == "basketball"
+    assert resolve_for_tags(["mlb"]).sport_id == "mlb"
+    assert resolve_for_tags(["baseball"]).sport_id == "mlb"
+    assert resolve_for_tags(["nhl"]).sport_id == "nhl"
+    assert resolve_for_tags(["hockey"]).sport_id == "nhl"
+    assert resolve_for_tags(["epl"]).sport_id == "soccer"
+    assert resolve_for_tags(["champions league"]).sport_id == "soccer"
+    assert resolve_for_tags(["world cup"]).sport_id == "soccer"
 
 
 from fastapi.testclient import TestClient

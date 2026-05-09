@@ -574,6 +574,312 @@ class CricketGameData(BaseModel):
     head_to_head: CricketHeadToHead | None = None
 
 
+# -- MLB game data (proxied from ESPN Baseball API) ----------------------------
+
+class MLBTeam(BaseModel):
+    abbr: str                       # e.g. "NYY"
+    name: str                       # e.g. "Yankees"
+    city: str = ""                  # e.g. "New York"
+    runs: int = 0
+    hits: int = 0
+    errors: int = 0
+    record: str | None = None       # "92-70"
+
+class MLBCount(BaseModel):
+    balls: int = 0
+    strikes: int = 0
+    outs: int = 0
+
+class MLBRunners(BaseModel):
+    on_first: bool = False
+    on_second: bool = False
+    on_third: bool = False
+
+class MLBLinescoreInning(BaseModel):
+    inning: int
+    home_runs: int = 0
+    away_runs: int = 0
+
+class MLBScoringPlay(BaseModel):
+    inning: int
+    half: str = ""                  # "top" | "bot"
+    text: str
+    away_score: int = 0
+    home_score: int = 0
+    team: str = ""                  # abbr of scoring team
+
+class MLBBoxBatter(BaseModel):
+    name: str
+    position: str = ""
+    at_bats: int = 0
+    runs: int = 0
+    hits: int = 0
+    rbi: int = 0
+    walks: int = 0
+    strikeouts: int = 0
+    avg: str = ""
+
+class MLBBoxPitcher(BaseModel):
+    name: str
+    innings_pitched: str = "0.0"
+    hits: int = 0
+    runs: int = 0
+    earned_runs: int = 0
+    walks: int = 0
+    strikeouts: int = 0
+    era: str = ""
+
+class MLBTeamBox(BaseModel):
+    team: str
+    batters: list[MLBBoxBatter] = []
+    pitchers: list[MLBBoxPitcher] = []
+
+class MLBOdds(BaseModel):
+    provider: str = "DraftKings"
+    home_ml: str | None = None      # "+105"
+    away_ml: str | None = None
+    run_line: str | None = None     # "-1.5"
+    total: float | None = None      # 8.5
+
+class MLBVenue(BaseModel):
+    name: str
+    city: str = ""
+
+class MLBWeather(BaseModel):
+    temperature: int | None = None
+    condition: str = ""             # "Clear", "Partly cloudy"
+    wind: str = ""                  # "8 mph SW"
+
+class MLBProbablePitcher(BaseModel):
+    name: str
+    era: str = ""
+    record: str = ""                # "12-7"
+
+class MLBHeadToHead(BaseModel):
+    home_wins: int = 0
+    away_wins: int = 0
+    total: int = 0
+
+class MLBGameData(BaseModel):
+    game_id: str
+    espn_game_id: str | None = None
+    status: str = "pre"             # "pre" | "live" | "final"
+    game_time: str | None = None    # ISO datetime for scheduled first pitch
+    inning: int = 0                 # 1-9+, 0 when pre
+    half: str = ""                  # "top" | "bot" | "mid" | "end"
+    count: MLBCount | None = None
+    runners: MLBRunners | None = None
+    home: MLBTeam
+    away: MLBTeam
+    venue: MLBVenue | None = None
+    weather: MLBWeather | None = None
+    attendance: int | None = None
+    broadcast: str | None = None
+    probable_home: MLBProbablePitcher | None = None
+    probable_away: MLBProbablePitcher | None = None
+    odds: MLBOdds | None = None
+    linescore: list[MLBLinescoreInning] = []
+    scoring_plays: list[MLBScoringPlay] = []
+    home_box: MLBTeamBox | None = None
+    away_box: MLBTeamBox | None = None
+    current_pitcher: str = ""
+    current_batter: str = ""
+    head_to_head: MLBHeadToHead | None = None
+
+
+# -- NHL game data (proxied from ESPN Hockey API) ------------------------------
+
+class NHLTeam(BaseModel):
+    abbr: str
+    name: str
+    city: str = ""
+    score: int = 0
+    record: str | None = None
+
+class NHLPowerPlay(BaseModel):
+    on_team: str = ""               # abbr of team on power play, "" if none
+    seconds_left: int = 0
+
+class NHLScoringEvent(BaseModel):
+    period: int
+    time: str = ""                  # "12:34" remaining
+    team: str
+    scorer: str
+    assists: list[str] = []
+    type: str = ""                  # "EV", "PP", "SH", "EN", "PEN"
+    is_gwg: bool = False
+
+class NHLPenalty(BaseModel):
+    period: int
+    time: str = ""
+    team: str
+    player: str
+    infraction: str
+    minutes: int = 2
+
+class NHLGoalieLine(BaseModel):
+    name: str
+    team: str
+    saves: int = 0
+    shots_against: int = 0
+
+class NHLTeamStatsLive(BaseModel):
+    team: str
+    shots: int = 0
+    faceoff_pct: float | None = None
+    hits: int = 0
+    pp_summary: str = ""            # e.g. "1/3"
+    pk_summary: str = ""            # e.g. "2/2"
+
+class NHLTeamSeasonStats(BaseModel):
+    pp_pct: float | None = None
+    pk_pct: float | None = None
+    gf_per_game: float | None = None
+    ga_per_game: float | None = None
+    last_ten: str | None = None     # "7-2-1"
+
+class NHLOdds(BaseModel):
+    provider: str = "DraftKings"
+    home_ml: str | None = None
+    away_ml: str | None = None
+    puck_line: str | None = None
+    total: float | None = None
+
+class NHLVenue(BaseModel):
+    name: str
+    city: str = ""
+
+class NHLHeadToHead(BaseModel):
+    home_wins: int = 0
+    away_wins: int = 0
+    total: int = 0
+
+class NHLGameData(BaseModel):
+    game_id: str
+    espn_game_id: str | None = None
+    status: str = "pre"
+    game_time: str | None = None
+    period: str = ""                # "P1", "P2", "P3", "OT", "SO", "" pre
+    clock: str = ""                 # "12:34"
+    power_play: NHLPowerPlay | None = None
+    home: NHLTeam
+    away: NHLTeam
+    venue: NHLVenue | None = None
+    broadcast: str | None = None
+    attendance: int | None = None
+    odds: NHLOdds | None = None
+    scoring_summary: list[NHLScoringEvent] = []
+    penalties: list[NHLPenalty] = []
+    team_stats_live: list[NHLTeamStatsLive] = []
+    home_team_season: NHLTeamSeasonStats | None = None
+    away_team_season: NHLTeamSeasonStats | None = None
+    goalies: list[NHLGoalieLine] = []
+    head_to_head: NHLHeadToHead | None = None
+
+
+# -- Soccer game data (proxied from ESPN Soccer API; EPL/UCL/World Cup) --------
+
+class SoccerTeam(BaseModel):
+    abbr: str                       # e.g. "ARS", or 3-letter country code
+    name: str                       # "Arsenal" / "Brazil"
+    city: str = ""
+    score: int = 0
+    record: str | None = None       # "12-3-5"
+    crest_url: str | None = None
+    form: str | None = None         # last-5 result string e.g. "WWDLW", optional
+
+class SoccerGoal(BaseModel):
+    minute: str = ""                # "67'" or "45+2'"
+    team: str                       # abbr
+    scorer: str
+    assist: str = ""
+    type: str = ""                  # "regular" | "penalty" | "own goal" | "free kick"
+
+class SoccerCard(BaseModel):
+    minute: str = ""
+    team: str
+    player: str
+    color: str                      # "yellow" | "red" | "second yellow"
+
+class SoccerSub(BaseModel):
+    minute: str = ""
+    team: str
+    on: str                         # player coming on
+    off: str                        # player coming off
+
+class SoccerStats(BaseModel):
+    """Live match stats for one team."""
+    team: str
+    possession_pct: float | None = None
+    shots: int = 0
+    shots_on_target: int = 0
+    corners: int = 0
+    fouls: int = 0
+    offsides: int = 0
+
+class SoccerLineupPlayer(BaseModel):
+    name: str
+    number: int | None = None
+    position: str = ""
+    is_starter: bool = True
+
+class SoccerLineup(BaseModel):
+    team: str
+    formation: str = ""             # "4-3-3"
+    starters: list[SoccerLineupPlayer] = []
+    bench: list[SoccerLineupPlayer] = []
+
+class SoccerOdds(BaseModel):
+    provider: str = "Bet 365"
+    home_odds: str | None = None
+    draw_odds: str | None = None
+    away_odds: str | None = None
+
+class SoccerVenue(BaseModel):
+    name: str
+    city: str = ""
+
+class SoccerHeadToHead(BaseModel):
+    home_wins: int = 0
+    draws: int = 0
+    away_wins: int = 0
+    total: int = 0
+
+class SoccerAggregate(BaseModel):
+    home: int = 0
+    away: int = 0
+    leg: int = 1                    # 1 or 2
+
+class SoccerPenShootout(BaseModel):
+    home_score: int = 0
+    away_score: int = 0
+    sequence: list[str] = []        # ["ARS-G", "MCI-M", ...] G=goal M=miss
+
+class SoccerGameData(BaseModel):
+    game_id: str
+    espn_game_id: str | None = None
+    competition: str                # "EPL" | "UCL" | "World Cup"
+    competition_round: str = ""     # "Group F · MD3" / "Quarterfinal — 1st Leg"
+    league_id: str = ""             # "eng.1" / "uefa.champions" / "fifa.world"
+    status: str = "pre"
+    game_time: str | None = None
+    minute: str = ""                # "67'" | "HT" | "FT" | "ET" | "PEN"
+    home: SoccerTeam
+    away: SoccerTeam
+    aggregate: SoccerAggregate | None = None
+    pen_shootout: SoccerPenShootout | None = None
+    venue: SoccerVenue | None = None
+    referee: str | None = None
+    attendance: int | None = None
+    odds: SoccerOdds | None = None
+    goals: list[SoccerGoal] = []
+    cards: list[SoccerCard] = []
+    subs: list[SoccerSub] = []
+    match_stats: list[SoccerStats] = []
+    lineups: list[SoccerLineup] = []
+    head_to_head: SoccerHeadToHead | None = None
+
+
 # -- Articles ----------------------------------------------------------------
 
 class ArticleOut(BaseModel):
