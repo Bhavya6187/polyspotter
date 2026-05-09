@@ -57,6 +57,20 @@ export function fetchMarketLive(conditionId) {
   return request(`/api/market/${conditionId}/live`);
 }
 
+export function fetchSportOverlay(conditionId, { title, eventSlug, tags } = {}) {
+  const params = new URLSearchParams();
+  if (title) params.set("title", title);
+  if (eventSlug) params.set("event_slug", eventSlug);
+  for (const t of tags || []) params.append("tag", t);
+  const url = new URL(`/api/market/${conditionId}/overlay`, BASE_URL);
+  url.search = params.toString();
+  return fetch(url).then((res) => {
+    if (res.status === 404) return null;       // no overlay for this market
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    return res.json();
+  });
+}
+
 export function fetchHealth() {
   return request("/api/health");
 }
