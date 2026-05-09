@@ -777,6 +777,109 @@ class NHLGameData(BaseModel):
     head_to_head: NHLHeadToHead | None = None
 
 
+# -- Soccer game data (proxied from ESPN Soccer API; EPL/UCL/World Cup) --------
+
+class SoccerTeam(BaseModel):
+    abbr: str                       # e.g. "ARS", or 3-letter country code
+    name: str                       # "Arsenal" / "Brazil"
+    city: str = ""
+    score: int = 0
+    record: str | None = None       # "12-3-5"
+    crest_url: str | None = None
+    form: str | None = None         # last-5 result string e.g. "WWDLW", optional
+
+class SoccerGoal(BaseModel):
+    minute: str = ""                # "67'" or "45+2'"
+    team: str                       # abbr
+    scorer: str
+    assist: str = ""
+    type: str = ""                  # "regular" | "penalty" | "own goal" | "free kick"
+
+class SoccerCard(BaseModel):
+    minute: str = ""
+    team: str
+    player: str
+    color: str                      # "yellow" | "red" | "second yellow"
+
+class SoccerSub(BaseModel):
+    minute: str = ""
+    team: str
+    on: str                         # player coming on
+    off: str                        # player coming off
+
+class SoccerStats(BaseModel):
+    """Live match stats for one team."""
+    team: str
+    possession_pct: float | None = None
+    shots: int = 0
+    shots_on_target: int = 0
+    corners: int = 0
+    fouls: int = 0
+    offsides: int = 0
+
+class SoccerLineupPlayer(BaseModel):
+    name: str
+    number: int | None = None
+    position: str = ""
+    is_starter: bool = True
+
+class SoccerLineup(BaseModel):
+    team: str
+    formation: str = ""             # "4-3-3"
+    starters: list[SoccerLineupPlayer] = []
+    bench: list[SoccerLineupPlayer] = []
+
+class SoccerOdds(BaseModel):
+    provider: str = "Bet 365"
+    home_odds: str | None = None
+    draw_odds: str | None = None
+    away_odds: str | None = None
+
+class SoccerVenue(BaseModel):
+    name: str
+    city: str = ""
+
+class SoccerHeadToHead(BaseModel):
+    home_wins: int = 0
+    draws: int = 0
+    away_wins: int = 0
+    total: int = 0
+
+class SoccerAggregate(BaseModel):
+    home: int = 0
+    away: int = 0
+    leg: int = 1                    # 1 or 2
+
+class SoccerPenShootout(BaseModel):
+    home_score: int = 0
+    away_score: int = 0
+    sequence: list[str] = []        # ["ARS-G", "MCI-M", ...] G=goal M=miss
+
+class SoccerGameData(BaseModel):
+    game_id: str
+    espn_game_id: str | None = None
+    competition: str                # "EPL" | "UCL" | "World Cup"
+    competition_round: str = ""     # "Group F · MD3" / "Quarterfinal — 1st Leg"
+    league_id: str = ""             # "eng.1" / "uefa.champions" / "fifa.world"
+    status: str = "pre"
+    game_time: str | None = None
+    minute: str = ""                # "67'" | "HT" | "FT" | "ET" | "PEN"
+    home: SoccerTeam
+    away: SoccerTeam
+    aggregate: SoccerAggregate | None = None
+    pen_shootout: SoccerPenShootout | None = None
+    venue: SoccerVenue | None = None
+    referee: str | None = None
+    attendance: int | None = None
+    odds: SoccerOdds | None = None
+    goals: list[SoccerGoal] = []
+    cards: list[SoccerCard] = []
+    subs: list[SoccerSub] = []
+    match_stats: list[SoccerStats] = []
+    lineups: list[SoccerLineup] = []
+    head_to_head: SoccerHeadToHead | None = None
+
+
 # -- Articles ----------------------------------------------------------------
 
 class ArticleOut(BaseModel):
