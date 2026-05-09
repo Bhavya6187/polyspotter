@@ -135,6 +135,9 @@ def test_real_plugins_self_register():
 from fastapi.testclient import TestClient
 
 
+# NOTE: app import is inlined inside each test so it happens AFTER the autouse
+# fixture has cleared _PLUGINS — module-level import would register real plugins
+# before any test runs.
 def test_overlay_endpoint_404_when_no_plugin_matches():
     # Don't pre-register any plugins (autouse fixture clears them).
     from app import app
@@ -203,3 +206,10 @@ def test_overlay_endpoint_404_when_fetch_returns_none():
         params={"title": "Lakers vs Celtics", "tag": ["nba"]},
     )
     assert resp.status_code == 404
+
+
+def test_overlay_endpoint_400_when_title_missing():
+    from app import app
+    client = TestClient(app)
+    resp = client.get("/api/market/0xabc/overlay", params={"tag": ["nba"]})
+    assert resp.status_code == 400
