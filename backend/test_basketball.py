@@ -4,60 +4,60 @@ import pytest
 
 
 def test_parse_team_names_standard():
-    from basketball import parse_team_names
+    from sports.basketball import parse_team_names
     assert parse_team_names("Clippers vs. Bucks") == ("Clippers", "Bucks")
 
 
 def test_parse_team_names_vs_no_dot():
-    from basketball import parse_team_names
+    from sports.basketball import parse_team_names
     assert parse_team_names("Clippers vs Bucks") == ("Clippers", "Bucks")
 
 
 def test_parse_team_names_v():
-    from basketball import parse_team_names
+    from sports.basketball import parse_team_names
     assert parse_team_names("Lakers v Celtics") == ("Lakers", "Celtics")
 
 
 def test_parse_team_names_no_match():
-    from basketball import parse_team_names
+    from sports.basketball import parse_team_names
     assert parse_team_names("Will Bitcoin hit 100k?") is None
 
 
 def test_resolve_tricode_basic():
-    from basketball import resolve_tricode
+    from sports.basketball import resolve_tricode
     assert resolve_tricode("Clippers") == "LAC"
     assert resolve_tricode("bucks") == "MIL"
     assert resolve_tricode("LA Clippers") == "LAC"
 
 
 def test_resolve_tricode_abbreviation():
-    from basketball import resolve_tricode
+    from sports.basketball import resolve_tricode
     assert resolve_tricode("LAC") == "LAC"
     assert resolve_tricode("MIL") == "MIL"
     assert resolve_tricode("GSW") == "GSW"
 
 
 def test_resolve_tricode_city():
-    from basketball import resolve_tricode
+    from sports.basketball import resolve_tricode
     assert resolve_tricode("Milwaukee") == "MIL"
     assert resolve_tricode("Boston") == "BOS"
     assert resolve_tricode("Golden State") == "GSW"
 
 
 def test_resolve_tricode_unknown():
-    from basketball import resolve_tricode
+    from sports.basketball import resolve_tricode
     assert resolve_tricode("Unknown Team XYZ") is None
 
 
 def test_resolve_tricode_76ers():
-    from basketball import resolve_tricode
+    from sports.basketball import resolve_tricode
     assert resolve_tricode("76ers") == "PHI"
     assert resolve_tricode("Sixers") == "PHI"
     assert resolve_tricode("Philadelphia") == "PHI"
 
 
 def test_match_game_from_scoreboard():
-    from basketball import _match_game_in_scoreboard
+    from sports.basketball import _match_game_in_scoreboard
 
     mock_scoreboard = {
         "scoreboard": {
@@ -115,14 +115,14 @@ def test_match_game_from_scoreboard():
 
 
 def test_parse_nba_game_status():
-    from basketball import _parse_game_status
+    from sports.basketball import _parse_game_status
     assert _parse_game_status(1) == "pre"
     assert _parse_game_status(2) == "live"
     assert _parse_game_status(3) == "final"
 
 
 def test_parse_game_clock():
-    from basketball import _parse_game_clock
+    from sports.basketball import _parse_game_clock
     assert _parse_game_clock("PT08M34.00S") == "8:34"
     assert _parse_game_clock("PT00M05.00S") == "0:05"
     assert _parse_game_clock("") == ""
@@ -130,7 +130,7 @@ def test_parse_game_clock():
 
 
 def test_parse_espn_odds():
-    from basketball import _parse_espn_odds
+    from sports.basketball import _parse_espn_odds
 
     mock_pickcenter = [
         {
@@ -153,13 +153,13 @@ def test_parse_espn_odds():
 
 
 def test_parse_espn_odds_empty():
-    from basketball import _parse_espn_odds
+    from sports.basketball import _parse_espn_odds
     assert _parse_espn_odds([], away_abbr="LAC", home_abbr="MIL") is None
     assert _parse_espn_odds(None, away_abbr="LAC", home_abbr="MIL") is None
 
 
 def test_parse_espn_win_probability():
-    from basketball import _parse_espn_win_probability
+    from sports.basketball import _parse_espn_win_probability
 
     mock_winprob = [
         {"homeWinPercentage": 0.32, "playId": 1},
@@ -172,7 +172,7 @@ def test_parse_espn_win_probability():
 
 
 def test_parse_espn_injuries():
-    from basketball import _parse_espn_injuries
+    from sports.basketball import _parse_espn_injuries
 
     mock_injuries = [
         {
@@ -199,7 +199,7 @@ def test_parse_espn_injuries():
 
 
 def test_parse_nba_plays():
-    from basketball import _parse_nba_plays
+    from sports.basketball import _parse_nba_plays
 
     mock_pbp = {
         "game": {
@@ -231,7 +231,7 @@ def test_parse_nba_plays():
 
 
 def test_parse_nba_boxscore():
-    from basketball import _parse_nba_boxscore
+    from sports.basketball import _parse_nba_boxscore
 
     mock_box = {
         "game": {
@@ -277,36 +277,36 @@ def test_parse_nba_boxscore():
 
 
 def test_get_basketball_data_no_match():
-    from basketball import get_basketball_data
+    from sports.basketball import get_basketball_data
     result = get_basketball_data("Will Bitcoin hit 100k?", [])
     assert result is None
 
 
 def test_get_basketball_data_unknown_teams():
-    from basketball import get_basketball_data
+    from sports.basketball import get_basketball_data
     result = get_basketball_data("Unicorns vs. Dragons", ["Sports"])
     assert result is None
 
 
 def test_extract_tricodes_from_slug_nba():
-    from basketball import extract_tricodes_from_slug
+    from sports.basketball import extract_tricodes_from_slug
     assert extract_tricodes_from_slug("nba-phx-okc-2026-04-19") == ("PHX", "OKC")
     assert extract_tricodes_from_slug("nba-min-det-2026-04-02") == ("MIN", "DET")
 
 
 def test_extract_tricodes_from_slug_four_letter():
-    from basketball import extract_tricodes_from_slug
+    from sports.basketball import extract_tricodes_from_slug
     # Some tricodes are 3 letters, some aliases 2 (e.g. BKN/BOS/NYK are 3; ensure 3+3 works)
     assert extract_tricodes_from_slug("nba-bkn-nyk-2026-01-15") == ("BKN", "NYK")
 
 
 def test_extract_tricodes_from_slug_ncaa():
-    from basketball import extract_tricodes_from_slug
+    from sports.basketball import extract_tricodes_from_slug
     assert extract_tricodes_from_slug("ncaa-duke-unc-2026-03-01") is None  # unknown tricodes
 
 
 def test_extract_tricodes_from_slug_invalid():
-    from basketball import extract_tricodes_from_slug
+    from sports.basketball import extract_tricodes_from_slug
     assert extract_tricodes_from_slug("") is None
     assert extract_tricodes_from_slug("nba-phx-okc") is None  # missing date
     assert extract_tricodes_from_slug("nba-zzz-yyy-2026-04-19") is None  # unknown tricodes
@@ -315,6 +315,6 @@ def test_extract_tricodes_from_slug_invalid():
 
 def test_get_basketball_data_spread_title_no_slug_returns_none():
     """Spread-style title with no event_slug cannot resolve teams -> None."""
-    from basketball import get_basketball_data
+    from sports.basketball import get_basketball_data
     result = get_basketball_data("Spread: Thunder (-15.5)", [])
     assert result is None

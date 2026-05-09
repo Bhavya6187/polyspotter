@@ -32,7 +32,7 @@ from fastapi.responses import Response
 
 from database import get_conn, init_db
 from events import get_event_or_fetch
-from basketball import get_basketball_data
+from sports.basketball import get_basketball_data
 from cricket import get_cricket_data
 from models import (
     IngestPayload,

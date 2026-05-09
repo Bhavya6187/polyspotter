@@ -38,3 +38,7 @@ def resolve_for_tags(tags: list[str]) -> SportOverlay | None:
 
 
 __all__ = ["OverlayResponse", "SportOverlay", "register", "all_plugins", "resolve_for_tags"]
+
+# Plugin imports — order determines first-match resolution priority.
+# Plugins self-register on import; keep these LAST so register() is already bound.
+from . import basketball  # noqa: E402,F401  registers BasketballOverlay
