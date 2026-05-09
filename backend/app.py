@@ -1901,12 +1901,27 @@ def resolve_condition_id(partial_id: str):
 
 @app.get("/api/health")
 def health():
-    """Health check."""
+    """Health check. status is "stale" if no alerts produced in the last hour."""
     with db() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) as cnt FROM alerts")
-        count = cur.fetchone()["cnt"]
-    return {"status": "ok", "alert_count": count}
+        cur.execute(
+            """
+            SELECT
+                COUNT(*) AS cnt,
+                MAX(scanned_at) AS latest_scanned_at,
+                EXTRACT(EPOCH FROM (NOW() - MAX(scanned_at)))::BIGINT AS seconds_since_latest
+            FROM alerts
+            """,
+        )
+        row = cur.fetchone()
+    seconds_since = row["seconds_since_latest"]
+    is_fresh = seconds_since is not None and seconds_since <= 3600
+    return {
+        "status": "ok" if is_fresh else "stale",
+        "alert_count": row["cnt"],
+        "latest_scanned_at": row["latest_scanned_at"].isoformat() if row["latest_scanned_at"] else None,
+        "seconds_since_latest_alert": seconds_since,
+    }
 
 
 @app.get("/api/articles", response_model=list[ArticleListItem])
