@@ -1900,8 +1900,9 @@ def resolve_condition_id(partial_id: str):
 
 
 @app.api_route("/api/health", methods=["GET", "HEAD"])
-def health():
-    """Health check. status is "stale" if no alerts produced in the last hour."""
+def health(response: Response):
+    """Health check. Returns 503 when no alerts produced in the last hour so
+    HEAD-only uptime monitors can detect scanner staleness via status code."""
     with db() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -1916,6 +1917,8 @@ def health():
         row = cur.fetchone()
     seconds_since = row["seconds_since_latest"]
     is_fresh = seconds_since is not None and seconds_since <= 3600
+    if not is_fresh:
+        response.status_code = 503
     return {
         "status": "ok" if is_fresh else "stale",
         "alert_count": row["cnt"],
