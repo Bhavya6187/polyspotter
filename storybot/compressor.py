@@ -28,6 +28,61 @@ PASSTHROUGH_BYTES = 2048
 PREVIEW_BYTES = 600
 SHAPE_DEPTH = 3
 
+# Skip the router LLM call entirely when the payload is small enough that
+# whatever the router would pick can't move the needle. The router itself
+# costs ~5k tokens + ~15-30s wall time on each invocation, so for tiny
+# inputs (≤ ROUTER_SKIP_ROWS rows AND ≤ ROUTER_SKIP_BYTES bytes) we
+# passthrough deterministically. Empirically these cases produced
+# `ratio=1.0` passthrough decisions anyway — see compressor_traces in
+# articlebot run bd9c1efb.
+ROUTER_SKIP_ROWS = 30
+ROUTER_SKIP_BYTES = 20480
+
+# Keywords in the agent's intent/hint that pin the backend. Avoids the
+# common failure mode where the builder routes a CLOB intent to gamma
+# (returning identical /markets payloads) — see articlebot runs
+# 0ed1fd63 / 79edb27a / 39c5c12c.
+_BACKEND_HINT_KEYWORDS: tuple[tuple[str, str], ...] = (
+    ("clob /book", "clob"),
+    ("clob book", "clob"),
+    ("clob /prices-history", "clob"),
+    ("clob prices-history", "clob"),
+    ("clob price history", "clob"),
+    ("clob price-history", "clob"),
+    ("/prices-history", "clob"),
+    ("prices-history", "clob"),
+    ("order book", "clob"),
+    ("orderbook depth", "clob"),
+    ("data api /trades", "data_api"),
+    ("data_api /trades", "data_api"),
+)
+
+
+_BACKEND_NAMES = ("clob", "gamma", "data_api", "data api", "sqlite", "postgres")
+
+
+def _coerce_backend_from_intent(intent: str, hint: str | None) -> str | None:
+    """Inspect the agent's natural-language intent + optional hint for
+    backend-pinning keywords. Returns the backend name to force, or None
+    if no keyword matched. Caller (build_query) prepends this as a HARD
+    HINT to the builder prompt.
+
+    Two paths:
+    1. The hint field — when the agent explicitly writes the backend name
+       there ("clob", "gamma", "sqlite", "postgres", "data_api"), trust it.
+    2. The intent body — keyword scan for surface forms like "CLOB /book"
+       or "/prices-history" that disambiguate without a hint."""
+    if hint:
+        h = hint.strip().lower()
+        for name in _BACKEND_NAMES:
+            if name in h:
+                return "data_api" if name == "data api" else name
+    blob = (intent or "").lower() + " " + ((hint or "").lower())
+    for kw, backend in _BACKEND_HINT_KEYWORDS:
+        if kw in blob:
+            return backend
+    return None
+
 # Per-call event buffer. `run_query` sets this to a fresh list while it runs so
 # every `_log` call appends the same dict that goes to stdout. The buffer is
 # then attached to the caller-provided `trace_sink` once the call finishes.
@@ -446,6 +501,15 @@ def build_query(llm_client, *, intent: str, hint: str | None, model: str,
     parts = [f"intent: {intent}"]
     if hint:
         parts.append(f"hint: {hint}")
+    forced_backend = _coerce_backend_from_intent(intent, hint)
+    if forced_backend and not prior_error:
+        # Strong-arm the builder when the intent has unambiguous backend
+        # keywords. Skipped on repair runs so the repair branch can pick
+        # a different backend if the original failed.
+        parts.append(
+            f"BACKEND HINT: this intent must use backend={forced_backend!r}. "
+            "Routing to a different backend will produce empty/wrong data."
+        )
     if scope:
         parts.append(f"scope: {json.dumps(scope, default=str)}")
     if prior_error and prior_plan:
@@ -948,12 +1012,20 @@ def _run_query_inner(llm_client, *, intent: str, hint: str | None, model: str,
         except Exception as exc2:
             return _finish_error("executor", f"{type(exc2).__name__}: {exc2}")
 
-    try:
-        route = route_compression(llm_client, intent=intent, data=raw,
-                                  model=model, usage=call_usage)
-    except Exception as exc:
-        route = {"method": "passthrough", "spec": None,
-                 "_router_error": f"{type(exc).__name__}: {exc}"}
+    # Tiny payloads short-circuit the router LLM call. The router defaults
+    # to passthrough on these anyway, but the LLM round-trip itself costs
+    # ~5k tokens + 15-30s. See ROUTER_SKIP_ROWS / ROUTER_SKIP_BYTES.
+    if probe_rows <= ROUTER_SKIP_ROWS and probe_bytes <= ROUTER_SKIP_BYTES:
+        route = {"method": "passthrough", "spec": None}
+        _log("compressor_route", method="passthrough", short_circuit=True,
+             spec=None, input_rows=probe_rows, input_bytes=probe_bytes)
+    else:
+        try:
+            route = route_compression(llm_client, intent=intent, data=raw,
+                                      model=model, usage=call_usage)
+        except Exception as exc:
+            route = {"method": "passthrough", "spec": None,
+                     "_router_error": f"{type(exc).__name__}: {exc}"}
 
     try:
         compressed = compress(llm_client, intent=intent, data=raw,
@@ -1002,11 +1074,42 @@ def _run_query_inner(llm_client, *, intent: str, hint: str | None, model: str,
         "input_rows": in_rows,
         "input_bytes": in_bytes,
     }
+    # Surface "this returned nothing" loudly so the agent re-queries with a
+    # different intent/backend instead of treating silent [] as confirming
+    # absence. See articlebot runs 0ed1fd63 / 39c5c12c.
+    if _is_empty_result(compressed):
+        result["warning"] = (
+            "result is empty — the backend returned no rows. Try a different "
+            "phrasing or hint a specific backend (e.g. 'CLOB', 'data_api', "
+            "'sqlite', 'postgres') before treating absence as fact."
+        )
     if route.get("_router_error"):
         result["router_error"] = route["_router_error"]
     if route.get("_compress_error"):
         result["compress_error"] = route["_compress_error"]
     return result
+
+
+def _is_empty_result(data: Any) -> bool:
+    """True when a compressed payload carries no useful rows. Treats `None`,
+    empty list, empty dict, and a dict whose only key is `data: []` as empty.
+    Boolean/scalar payloads are never empty (they answered the question)."""
+    if data is None:
+        return True
+    if isinstance(data, list):
+        return len(data) == 0
+    if isinstance(data, dict):
+        if not data:
+            return True
+        # /prices-history compressor wraps the series in {"summary": ..., "history": []}
+        history = data.get("history")
+        if isinstance(history, list) and not history and "summary" not in data:
+            return True
+        # The dispatcher's outer envelope sometimes shows up as {"data": []}
+        inner = data.get("data")
+        if isinstance(inner, list) and not inner and len(data) == 1:
+            return True
+    return False
 
 
 # --- Usage tracking ---------------------------------------------------------

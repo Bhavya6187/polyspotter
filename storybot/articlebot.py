@@ -68,16 +68,35 @@ specific bet on a specific market.
    - The market(s) — Gamma /markets, CLOB /prices-history, /book
    - The event — Gamma /events?slug=…, alerts on the same tag, wallet_theses
    You have ONE research tool: `query(intent, hint?)` — describe WHAT you
-   want in natural language. The compressor picks the backend.
+   want in natural language. The compressor picks the backend. When you
+   need CLOB data specifically, write "CLOB" or "/prices-history" or
+   "/book" in the intent — the compressor pins the backend on those keywords.
+
+   MARKET-MAKER FILTER: when an alert's `wallet_stats.likely_mm = true`
+   (win_rate ≥ 0.95 AND roi_pct < 5% AND closed_positions ≥ 50), the
+   wallet is almost certainly recycling spreads, not directionally
+   betting. Do NOT lead the article with such a wallet, do NOT cite their
+   flow as "real buying" or "directional conviction", and do NOT include
+   their dollar contribution in any "cluster of sharps" total. They make
+   plausible color in a "## The other side" paragraph at most.
+
+   FACT FIDELITY: every win-loss tuple you cite ("165-2", "94-0", etc.)
+   MUST be reachable in the alerts payload or your tool results — the
+   validator rejects body lines whose numbers can't be found in source.
+   When in doubt, run one more `query` for `wallet_profiles` of the
+   wallet to confirm the record before citing it.
 
 3. WRITE the article AND the teaser tweet.
 
 ## Article shape (~500-650 words)
 
 - **Headline** — ≤90 chars. Specific. Stakes baked in. NOT a summary; a hook.
+  If a wallet's record is the hook (e.g. "165-2", "94-0", "31-4"), that
+  record MUST appear in the headline OR subhead — not buried in body.
 - **Subhead** — ≤160 chars. One sentence that adds context the headline
-  doesn't have room for. Don't restate the headline.
-- **Body markdown** — target 500-650 words. HARD CAP: 850 words — the
+  doesn't have room for. Don't restate the headline (validator rejects
+  near-duplicates by Jaccard ≥ 0.5 over content words).
+- **Body markdown** — target 500-650 words. HARD CAP: 700 words — the
   validator rejects anything longer and forces a costly retry, so leave
   yourself margin and cut before submitting if you're near the cap. Three
   to four `## H2` sections. Pick from this menu:
@@ -93,6 +112,14 @@ specific bet on a specific market.
   Open with a 2-3 sentence opening paragraph BEFORE the first H2 — the hook
   paragraph that makes the reader keep reading. Close with a paragraph
   AFTER the last H2 — the catalyst, level, or wallet to track.
+
+  HARD RULE on the opening sentence: it MUST contain a concrete number
+  (a wallet record like "165-2", a dollar size like "$80k", a percentage,
+  or a price in cents) AND must NOT begin with scene-setting templates.
+  The validator rejects openings that match patterns like "One of
+  Polymarket's stranger…" / "There's a curious…" / "is not exactly the…"
+  / "isn't on most people's radar…" — these read as throat-clearing. Lead
+  with the fact; the framing comes second.
 
 - **Polyspotter link(s) MANDATORY** — at least one inline markdown link
   somewhere in the body. These are internal links that boost SEO and let
@@ -148,6 +175,11 @@ article. It is NOT a summary of the article; it is a hook.
   you must NOT include any URL in tweet_text yourself.
 - Lead with the SINGLE most surprising fact. Same hook-led style as the body
   opening, compressed to one or two sentences.
+- The tweet MUST carry forward the strongest specific number from the body's
+  opening — a wallet record like "165-2", a dollar size like "$80k", a price
+  contrast, or a percentage. Validator rejects short tweets (< 220 chars)
+  that contain zero concrete numbers when the body opens with one. Don't
+  paraphrase "165-2 wallet" as "a strong account"; the precision IS the hook.
 - 0-1 emoji, no hashtags, no @mentions.
 - BANNED jargon and CTAs (same list as the body): "deployed capital", "real
   size", "conviction flow", "high-conviction", "scan window", "composite
@@ -471,17 +503,31 @@ def fetch_picker_wallet_stats(wallets: list[str]) -> dict[str, dict]:
             invested = float(r.get("total_invested") or 0)
             pnl = float(r.get("total_pnl") or 0)
             closed = int(r.get("closed_positions") or 0)
+            wr = r.get("win_rate")
+            wr_f = float(wr) if wr is not None else None
         except (TypeError, ValueError):
             continue
         roi_pct = round(pnl / invested * 100, 2) if invested else None
         avg_pnl = round(pnl / closed, 2) if closed else None
+        # Deterministic market-maker heuristic — same thresholds the
+        # picker's stage-2 prompt uses (articlebot.py:415-422). Surfaced
+        # as a flag so the writer can exclude these wallets when citing
+        # supporting evidence (recurring failure: writer cites a 99% wallet
+        # with roi_pct ≈ 0.16% as "real directional buying"). Calibrated
+        # for caller-side filtering — this is a soft hint, not a hard rule.
+        likely_mm = (
+            wr_f is not None and wr_f >= 0.95
+            and roi_pct is not None and roi_pct < 5
+            and closed >= 50
+        )
         out[w] = {
-            "win_rate": r.get("win_rate"),
+            "win_rate": wr,
             "closed_positions": closed,
             "total_pnl": pnl,
             "total_invested": invested,
             "roi_pct": roi_pct,
             "avg_pnl_per_closed": avg_pnl,
+            "likely_mm": likely_mm,
         }
     return out
 
@@ -579,6 +625,60 @@ def pick_final_event(llm_client, finalists: list[dict],
 PICKER_CHUNK_SIZE = 40
 RECENT_ARTICLES_WINDOW_DAYS = 7
 
+# Thresholds for deterministic cover-chart hinting.
+_VOLUME_SPIKE_HINT_MULT = 100.0       # pre_event_volume_spike severity proxy
+_RECORD_CARD_MIN_CLOSED = 50          # wallet_record_card prefers seasoned wallets
+_RECORD_CARD_MIN_ROI_PCT = 15.0       # ... that are clearly directional, not MM
+
+
+def _suggested_chart_type(chosen_alerts: list[dict]) -> str | None:
+    """Deterministic cover-chart suggestion based on signals + wallet stats
+    on the picked alerts. Returns one of the chart_type strings the writer
+    is allowed to pick, or None when no signal stands out (writer chooses).
+
+    Order of preference:
+    1. cluster_card  — when at least one alert's cluster_headline ends with
+       "share funder (linked)" (matches the renderer's hard precondition).
+    2. volume_bar    — when at least one alert has a pre_event_volume_spike
+       signal whose headline cites a >=100× multiplier.
+    3. wallet_record_card — when at least one named wallet has roi_pct ≥ 15%
+       and closed_positions ≥ 50 (a real directional sharp the card flatters).
+    4. price_sparkline — fallback, almost always renderable.
+    """
+    for a in chosen_alerts or []:
+        head = a.get("cluster_headline") or ""
+        if isinstance(head, str) and head.rstrip().endswith("share funder (linked)"):
+            return "cluster_card"
+    for a in chosen_alerts or []:
+        for sig in (a.get("signals") or []):
+            if not isinstance(sig, dict):
+                continue
+            if sig.get("strategy") != "pre_event_volume_spike":
+                continue
+            head = sig.get("headline") or ""
+            m = re.search(r"(\d+(?:\.\d+)?)\s*[xX×]", head)
+            if m:
+                try:
+                    if float(m.group(1)) >= _VOLUME_SPIKE_HINT_MULT:
+                        return "volume_bar"
+                except ValueError:
+                    pass
+    for a in chosen_alerts or []:
+        ws = a.get("wallet_stats") or {}
+        if not isinstance(ws, dict):
+            continue
+        if ws.get("likely_mm"):
+            continue
+        roi = ws.get("roi_pct")
+        closed = ws.get("closed_positions") or 0
+        try:
+            if (roi is not None and float(roi) >= _RECORD_CARD_MIN_ROI_PCT
+                    and int(closed) >= _RECORD_CARD_MIN_CLOSED):
+                return "wallet_record_card"
+        except (TypeError, ValueError):
+            continue
+    return "price_sparkline"
+
 
 def fetch_recent_article_slugs() -> list[str]:
     """event_slugs we've published in the last RECENT_ARTICLES_WINDOW_DAYS
@@ -659,7 +759,13 @@ def pick_article_story(llm_client, *, usage: dict | None = None) -> dict:
         # on alerts[i]['event_slug'] for the event-keyed prefetches.
         for a in chosen_alerts:
             a.setdefault("event_slug", chosen["event_slug"])
+        # Re-attach wallet_stats (with likely_mm) onto the chosen alerts so
+        # the writer kickoff carries the same MM disambiguation context the
+        # picker had. Without this the writer can cite a 99%-WR / 0.16%-ROI
+        # market-maker as a "directional sharp" (recurring failure: 79edb27a).
+        chosen_alerts = _enrich_alerts_with_wallet_stats(chosen_alerts, wallet_stats or {})
         decision["chosen_alerts"] = chosen_alerts
+        decision["suggested_chart_type"] = _suggested_chart_type(chosen_alerts)
 
     return decision
 
@@ -672,9 +778,22 @@ HEADLINE_MAX_CHARS = 90
 SUBHEAD_MAX_CHARS = 160
 COVER_ALT_MAX_CHARS = 320
 BODY_WORD_MIN = 450
-BODY_WORD_MAX = 850
+# Tightened from 850 → 700: the higher cap let the model write loose prose
+# at the ceiling. Hand-edited published articles consistently came in around
+# 570-650 words; cap at 700 to push the model away from cap-padding while
+# still leaving headroom for the longer story shapes.
+BODY_WORD_MAX = 700
 BODY_H2_MIN = 3
 BODY_H2_MAX = 4
+
+# Headline/subhead near-duplication threshold: Jaccard over word sets.
+# Above this, the subhead is restating the headline instead of adding context.
+HEADLINE_SUBHEAD_JACCARD_MAX = 0.5
+
+# A short tweet that doesn't include the body's strongest number (a wallet
+# record, dollar size, percentage) is wasting headroom. Trips a retry only
+# when both conditions hold — short tweet AND a missed concrete fact.
+TWEET_SHORT_THRESHOLD_CHARS = 220
 
 _H2_LINE_RE = re.compile(r"(?m)^## \S")
 _WORD_RE = re.compile(r"\w+")
@@ -683,14 +802,149 @@ _WORD_RE = re.compile(r"\w+")
 # per link and push valid articles over BODY_WORD_MAX.
 _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)\s]+\)")
 
+# Number-bearing tokens for the hook lint and tweet-specificity check:
+# dollar amounts, win-loss tuples, plain percentages, count + entity ("$80k",
+# "165-2", "47%", "92 wins").
+_NUMBER_TOKEN_RE = re.compile(
+    r"\$\d[\d,]*(?:\.\d+)?[KkMm]?\b"     # $80k, $5.95M, $1,200
+    r"|\b\d+\s*[-–]\s*\d+\b"              # 165-2, 165–2, 165 - 2
+    r"|\b\d+(?:\.\d+)?\s*%"               # 47%, 99.5%
+    r"|\b\d+(?:\.\d+)?¢"                  # 60¢, 60.5¢
+)
+
+# Scene-setting opening templates the validator rejects outright. Each of
+# these shipped in a recent run that had to be hand-edited at the lede.
+_BANNED_OPENING_PATTERNS: tuple[re.Pattern, ...] = (
+    re.compile(r"^one of (?:polymarket|the cleanest|the most|the strangest)", re.I),
+    re.compile(r"^there'?s a (?:curious|strange|weird|funny|notable)", re.I),
+    re.compile(r"isn'?t (?:on most people'?s radar|exactly the)", re.I),
+    re.compile(r"is not exactly (?:the|a)", re.I),
+    re.compile(r"^polymarket'?s (?:stranger|cleanest|sharpest) ", re.I),
+)
+
 
 def _word_count(text: str) -> int:
     return len(_WORD_RE.findall(_MD_LINK_RE.sub(r"\1", text)))
 
 
-def validate_article_decision(decision: dict) -> tuple[bool, str]:
+def _opening_paragraph(body_markdown: str) -> str:
+    """Return the prose before the first H2. This is where the hook lives."""
+    body = _MD_LINK_RE.sub(r"\1", body_markdown or "")
+    head, _, _ = body.partition("\n## ")
+    return head.strip()
+
+
+def _has_number_token(text: str) -> bool:
+    """True if `text` contains a dollar amount, win-loss tuple, percentage,
+    or a price in cents — the surface forms a hook is built around."""
+    return bool(_NUMBER_TOKEN_RE.search(text or ""))
+
+
+def _word_set(text: str) -> set[str]:
+    """Lowercase content-word set, used for headline/subhead similarity.
+    Drops short stopwords so e.g. headline 'A 165-2 wallet bet $50k' and
+    subhead 'A wallet bet $50k tonight' don't tie purely on 'a / wallet / bet'."""
+    stop = {"a", "an", "the", "of", "in", "on", "at", "to", "for", "with",
+            "and", "or", "but", "is", "are", "was", "were", "be", "been",
+            "as", "by", "from", "that", "this", "it", "its"}
+    return {w.lower() for w in _WORD_RE.findall(text or "")
+            if len(w) > 1 and w.lower() not in stop}
+
+
+def _jaccard(a: set[str], b: set[str]) -> float:
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+# Win-loss tuple in the article body (e.g. "165-2", "401-6", "62-5"). En-dash
+# allowed for typographic versions. We require BOTH halves to exist as integers
+# in the source data (alerts + tool results). Catches the cleanest hallucination
+# failure mode from recent runs (3b474742, b31c87c6, 4611d23a).
+_WIN_LOSS_TUPLE_RE = re.compile(r"\b(\d+)\s*[-–]\s*(\d+)\b(?!\s*(?:UTC|am|pm|AM|PM|:))")
+# A real win-loss tuple totals at least this many closed positions. Below this
+# the "X-Y" pattern is more likely a score, time, or odds expression.
+_MIN_TUPLE_TOTAL = 10
+
+
+def _collect_source_integers(chosen_alerts: list[dict] | None,
+                             transcript: list | None) -> set[int]:
+    """Bag every integer that appears in the alerts payload or any
+    function_call_output from the agent's research. Used by
+    _validate_numeric_grounding to confirm body-cited numbers exist
+    somewhere in source data."""
+    parts: list[str] = []
+    if chosen_alerts:
+        parts.append(json.dumps(chosen_alerts, default=str))
+    for item in transcript or []:
+        if isinstance(item, dict) and item.get("type") == "function_call_output":
+            out = item.get("output")
+            if isinstance(out, str):
+                parts.append(out)
+    blob = "\n".join(parts)
+    out: set[int] = set()
+    for m in re.finditer(r"\b(\d+)\b", blob):
+        try:
+            out.add(int(m.group(1)))
+        except ValueError:
+            continue
+    return out
+
+
+def _validate_numeric_grounding(body_markdown: str,
+                                chosen_alerts: list[dict] | None,
+                                transcript: list | None) -> tuple[bool, str]:
+    """Best-effort numeric fact-fidelity check.
+
+    Currently focused on win-loss tuples — the cleanest failure mode. A body
+    that cites "165-2 wallet" must have both 165 and 2 reachable in the
+    source data. False positives are possible on legitimately-aggregated
+    numbers, so callers wire this into the existing one-shot retry path
+    rather than treating it as a hard reject.
+
+    Returns (True, '') when alerts/transcript context is missing — this lets
+    test fixtures and dry runs pass without surgery.
+    """
+    if not chosen_alerts and not transcript:
+        return True, ""
+    source_ints = _collect_source_integers(chosen_alerts, transcript)
+    if not source_ints:
+        return True, ""
+    plain_body = _MD_LINK_RE.sub(r"\1", body_markdown or "")
+    for m in _WIN_LOSS_TUPLE_RE.finditer(plain_body):
+        a_s, b_s = m.group(1), m.group(2)
+        try:
+            a, b = int(a_s), int(b_s)
+        except ValueError:
+            continue
+        if a + b < _MIN_TUPLE_TOTAL:
+            continue
+        if a not in source_ints or b not in source_ints:
+            missing = []
+            if a not in source_ints:
+                missing.append(f"{a} (wins)")
+            if b not in source_ints:
+                missing.append(f"{b} (losses)")
+            return False, (
+                f"body cites win-loss tuple {a_s}-{b_s} but "
+                f"{', '.join(missing)} cannot be found in the alerts or your "
+                "tool results. Verify the wallet's actual record before "
+                "citing it, or rewrite the line"
+            )
+    return True, ""
+
+
+def validate_article_decision(decision: dict,
+                              *,
+                              chosen_alerts: list[dict] | None = None,
+                              transcript: list | None = None) -> tuple[bool, str]:
     """Returns (ok, error_message). Mirrors the contract of
-    storybot.validate_decision but for article output shape."""
+    storybot.validate_decision but for article output shape.
+
+    `chosen_alerts` + `transcript` are optional context for the numeric
+    grounding check — pass them from main() so win-loss tuples like
+    "165-2" must be reachable in source data. When omitted (e.g. tests
+    without fixtures), the grounding check is skipped."""
     d = decision.get("decision")
     if d == "skip":
         return True, ""
@@ -712,6 +966,16 @@ def validate_article_decision(decision: dict) -> tuple[bool, str]:
         return False, "article.subhead must be a non-empty string"
     if len(subhead) > SUBHEAD_MAX_CHARS:
         return False, f"article.subhead length {len(subhead)} exceeds {SUBHEAD_MAX_CHARS}"
+    # Reject subheads that just restate the headline. The shape rule is "add
+    # context the headline doesn't have room for"; near-duplication wastes
+    # the slot. Jaccard over content-word sets, stopwords stripped.
+    sim = _jaccard(_word_set(headline), _word_set(subhead))
+    if sim >= HEADLINE_SUBHEAD_JACCARD_MAX:
+        return False, (
+            f"subhead is too similar to headline (Jaccard={sim:.2f} ≥ "
+            f"{HEADLINE_SUBHEAD_JACCARD_MAX}); subhead must add context, "
+            "not restate the headline"
+        )
 
     cover_alt = article.get("cover_alt_text") or ""
     if cover_alt and len(cover_alt) > COVER_ALT_MAX_CHARS:
@@ -731,6 +995,27 @@ def validate_article_decision(decision: dict) -> tuple[bool, str]:
 
     if not _POLYSPOTTER_URL_RE.search(body):
         return False, "body must contain at least one polyspotter.com link"
+
+    # Hook lint: the opening paragraph (before first H2) must contain a
+    # number-bearing token (dollar amount, win-loss tuple, percentage, or
+    # cents price) AND must not match a known scene-setting template.
+    # Recurring failure mode in recent runs: openings like "One of
+    # Polymarket's stranger little tells…" or "A LoL match between X and Y
+    # is not exactly the Super Bowl" — both shipped, both were hand-edited
+    # before publish.
+    opening = _opening_paragraph(body)
+    if not _has_number_token(opening):
+        return False, (
+            "opening paragraph (before first ## H2) lacks a concrete "
+            "number — lead with the wallet record, dollar size, or price "
+            "that makes the story specific"
+        )
+    for pat in _BANNED_OPENING_PATTERNS:
+        if pat.search(opening):
+            return False, (
+                f"opening paragraph matches a banned scene-setting template "
+                f"({pat.pattern!r}) — replace with a fact-led lede"
+            )
 
     body_lower = body.lower()
     for phrase in _BANNED_TWEET_PHRASES:
@@ -759,6 +1044,26 @@ def validate_article_decision(decision: dict) -> tuple[bool, str]:
     if _POLYSPOTTER_URL_RE.search(tweet_text):
         return False, "tweet_text must not contain an inline polyspotter.com URL"
 
+    # Tweet specificity: when the tweet is short AND has NO concrete number
+    # despite the body opening with one, force a retry. Recurring failure:
+    # tweet says "strong accounts" / "a perfect-record account" and leaves
+    # 60-100 chars unused, while the body opens with "165-2 wallet" or
+    # "89-0 account". A hook is precisely what a teaser tweet should carry.
+    # Only fires when tweet has ZERO numbers — this avoids false positives
+    # on legitimate rounding (body "$92,500" vs tweet "$92k").
+    body_has_number = _has_number_token(opening)
+    tweet_has_number = _has_number_token(tweet_text)
+    if (len(tweet_text) < TWEET_SHORT_THRESHOLD_CHARS
+            and body_has_number and not tweet_has_number):
+        sample = (_NUMBER_TOKEN_RE.findall(opening) or [])[:3]
+        return False, (
+            f"tweet_text is short ({len(tweet_text)} chars < "
+            f"{TWEET_SHORT_THRESHOLD_CHARS}) and contains no concrete "
+            f"number, while the article's opening cites {sample}. Pull "
+            "the strongest specific (record, dollar size, percentage) "
+            "into the tweet"
+        )
+
     alert_ids = decision.get("alert_ids") or []
     if not isinstance(alert_ids, list) or not alert_ids:
         return False, "alert_ids must be a non-empty list when decision=post"
@@ -766,6 +1071,10 @@ def validate_article_decision(decision: dict) -> tuple[bool, str]:
         [int(i) for i in alert_ids]
     except (TypeError, ValueError):
         return False, f"alert_ids must be integers, got {alert_ids!r}"
+
+    ok, err = _validate_numeric_grounding(body, chosen_alerts, transcript)
+    if not ok:
+        return False, err
 
     return True, ""
 
@@ -904,14 +1213,42 @@ _LIVE_RUN_DIR = os.path.join(
 _RUN_OUTPUT_DIR = _DRY_RUN_DIR if DRY_RUN else _LIVE_RUN_DIR
 
 
-def _build_kickoff_message(chosen_alerts: list[dict]) -> tuple[str, dict, dict]:
+def _build_kickoff_message(chosen_alerts: list[dict],
+                           *,
+                           suggested_chart_type: str | None = None) -> tuple[str, dict, dict]:
     """Build the article-shaped kickoff message. Returns (message, scope, prefetched).
 
     Uses storybot's prefetched-block format but with article-specific framing.
+    `suggested_chart_type` (optional) is a deterministic hint computed by the
+    picker from signals + wallet stats — surfaced as a "consider X first"
+    nudge so the writer doesn't pick volume_bar on a 1816× spike when the
+    real story is a wallet record (recurring failure: 0ed1fd63 / bd9c1efb).
     """
     scope = storybot._derive_scope(chosen_alerts)
     prefetched = storybot.prefetch_bundle(scope)
     prefix = storybot._format_prefetched_block(prefetched) if prefetched else ""
+    if prefetched:
+        prefix = _scope_header() + prefix
+
+    chart_hint = ""
+    if suggested_chart_type:
+        chart_hint = (
+            "\n\n[cover_chart hint]: based on the signals + wallet stats on "
+            f"these alerts, consider `{suggested_chart_type}` first for "
+            "your `cover_chart_spec.chart_type`. You may pick a different "
+            "type if your story angle calls for it, but this hint reflects "
+            "the strongest precondition currently met (cluster_card requires "
+            "a `(linked)` cluster headline; volume_bar requires a 5×+ spike; "
+            "wallet_record_card looks best for seasoned directional sharps)."
+        )
+
+    cluster_warnings = _detect_cluster_gaps(chosen_alerts, prefetched)
+    cluster_warning_block = ""
+    if cluster_warnings:
+        cluster_warning_block = (
+            "\n\n[cluster_gap warnings]:\n- "
+            + "\n- ".join(cluster_warnings)
+        )
 
     if len(chosen_alerts) == 1:
         payload = json.dumps(chosen_alerts[0], default=str, indent=2)
@@ -921,6 +1258,7 @@ def _build_kickoff_message(chosen_alerts: list[dict]) -> tuple[str, dict, dict]:
             "~600 word X article — or skip if research reveals it's not "
             "actually a great story for a general audience.\n\n"
             f"chosen_alert:\n{payload}"
+            f"{chart_hint}{cluster_warning_block}"
         )
     else:
         slug = chosen_alerts[0].get("event_slug") or "(unknown event)"
@@ -932,8 +1270,99 @@ def _build_kickoff_message(chosen_alerts: list[dict]) -> tuple[str, dict, dict]:
             "write a ~600 word X article — or skip if research reveals it's "
             "not actually a great story for a general audience.\n\n"
             f"chosen_alerts ({len(chosen_alerts)} rows):\n{payload}"
+            f"{chart_hint}{cluster_warning_block}"
         )
     return prefix + body, scope, prefetched
+
+
+_CLUSTER_HEAD_FUNDER_RE = re.compile(
+    r"(\d+)\s+wallets?\s+share\s+funder\s+(0x[0-9a-fA-F]+)", re.I
+)
+
+
+def _detect_cluster_gaps(chosen_alerts: list[dict], prefetched: dict) -> list[str]:
+    """Detect cluster_headline claims that don't match the picked-event's
+    wallet_funders. Recurring failure: an alert's cluster says "8 wallets
+    share funder X" but only 1 of those wallets traded the picked event —
+    the other 7 are on sibling events. The article then describes a
+    "linked cluster" on this event that doesn't exist (39c5c12c).
+
+    Returns a list of warning strings to append to the kickoff so the
+    writer doesn't claim same-event coordination it can't back up."""
+    funders_block = (prefetched or {}).get("wallet_funders") or {}
+    rows = funders_block.get("data") or []
+    funder_to_wallets: dict[str, set[str]] = {}
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        f = row.get("funder")
+        w = row.get("wallet")
+        if isinstance(f, str) and isinstance(w, str):
+            funder_to_wallets.setdefault(f, set()).add(w)
+
+    warnings: list[str] = []
+    seen_combos: set[tuple] = set()
+    for a in chosen_alerts:
+        head = a.get("cluster_headline")
+        if not isinstance(head, str) or not head:
+            continue
+        m = _CLUSTER_HEAD_FUNDER_RE.search(head)
+        if m:
+            try:
+                claimed_n = int(m.group(1))
+            except ValueError:
+                continue
+            funder = m.group(2)
+            actual = len(funder_to_wallets.get(funder, set()))
+            key = (a.get("id"), funder, claimed_n)
+            if key in seen_combos:
+                continue
+            seen_combos.add(key)
+            if claimed_n >= 3 and actual <= 1:
+                warnings.append(
+                    f"alert_id {a.get('id')}: cluster_headline claims "
+                    f"{claimed_n} wallets share funder {funder}, but "
+                    f"prefetched wallet_funders shows only {actual} of "
+                    f"those wallets traded the picked event. The other "
+                    f"{claimed_n - actual} are active on DIFFERENT markets "
+                    "— do NOT describe this event's flow as a 'linked "
+                    "cluster' or 'same-funder squad' in the article. The "
+                    "cluster is real cross-event, not same-event."
+                )
+    return warnings
+
+
+def _scope_header() -> str:
+    """Loud 'what's in / what's NOT in this prefetch' header. Recurring
+    failure modes the agent kept hitting (5bdebe62 / 79edb27a / 39c5c12c):
+    re-querying CLOB for prices already in market_meta; not knowing
+    wallet_event_history is event-scoped; not knowing prices_history is
+    Yes-side only. State each scope explicitly so the agent doesn't burn
+    tool calls re-discovering it."""
+    return (
+        "<prefetch_scope>\n"
+        "READ THIS BEFORE QUERYING. The prefetched bundle below already "
+        "contains the most-likely-needed data — query only for what is NOT "
+        "covered. Specifically:\n"
+        "- `market_meta` already includes bestBid, bestAsk, spread, "
+        "lastTradePrice, oneHourPriceChange, oneDayPriceChange, volume24hr "
+        "for every market in scope — DO NOT call /markets or /book just to "
+        "read these fields.\n"
+        "- `prices_history_24h` and `order_book` are for the Yes-side CLOB "
+        "token only. If your story is on the No side, query /prices-history "
+        "or /book with hint=`CLOB` and the No-side token_id.\n"
+        "- `wallet_event_history` is scoped to the picked event_slug only. "
+        "For a wallet's cross-event history, query the sqlite "
+        "wallet_event_history table without the event_slug filter, or use "
+        "the data_api /trades endpoint.\n"
+        "- Each chosen alert carries a `wallet_stats` block (added by the "
+        "picker) with `roi_pct` and `likely_mm`. When `likely_mm=true` "
+        "(win_rate ≥ 0.95 AND roi_pct < 5% AND closed_positions ≥ 50), "
+        "the wallet's flow is most likely market-making — do NOT cite it "
+        "as 'directional buying' or lead a story with it. Prefer wallets "
+        "with roi_pct ≥ 15% as the headline character.\n"
+        "</prefetch_scope>\n\n"
+    )
 
 
 def _dump_transcript(run_id: str, *, pick: dict, decision: dict | None,
@@ -1045,7 +1474,10 @@ def main() -> int:
     chosen_alerts = pick.get("chosen_alerts") or []
 
     # Stage 3: research + write
-    kickoff, _scope, _prefetched = _build_kickoff_message(chosen_alerts)
+    kickoff, _scope, _prefetched = _build_kickoff_message(
+        chosen_alerts,
+        suggested_chart_type=pick.get("suggested_chart_type"),
+    )
     try:
         decision = storybot.run_agent(
             llm_client,
@@ -1077,7 +1509,9 @@ def main() -> int:
     decision["event_slug"] = pick["event_slug"]
 
     # Validate — with a one-shot retry on first failure
-    ok, err = validate_article_decision(decision)
+    ok, err = validate_article_decision(
+        decision, chosen_alerts=chosen_alerts, transcript=transcript,
+    )
     if not ok:
         log("articlebot_validation_retry", run_id=run_id, error=err)
         retry_decision = _retry_with_validation_hint(
@@ -1085,7 +1519,10 @@ def main() -> int:
         )
         if retry_decision is not None:
             retry_decision["event_slug"] = pick["event_slug"]
-            ok, err = validate_article_decision(retry_decision)
+            ok, err = validate_article_decision(
+                retry_decision,
+                chosen_alerts=chosen_alerts, transcript=transcript,
+            )
             if ok:
                 decision = retry_decision
     if not ok:

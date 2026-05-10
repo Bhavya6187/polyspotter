@@ -8,10 +8,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "storybot"))
 
 
 def _valid_body(word_count: int = 600) -> str:
-    """Build a body with exactly `word_count` words, 3 H2s, 1 polyspotter link."""
+    """Build a body with exactly `word_count` words, 3 H2s, 1 polyspotter link.
+    Opens with a $80k figure so the new fact-led-lede validator passes."""
     body_words = ["lorem"] * (word_count - 30)
     return (
-        "Opening paragraph here that hooks the reader.\n\n"
+        "A 178-20 wallet just stacked $80k on the underdog.\n\n"
         "## The wallet\n\n" + " ".join(body_words[:200]) + "\n\n"
         "## The bet\n\n" + " ".join(body_words[200:400]) + "\n\n"
         "## What to watch\n\n" + " ".join(body_words[400:]) + "\n\n"
@@ -81,16 +82,18 @@ def test_word_count_strips_markdown_links():
 
 
 def test_word_count_links_dont_push_valid_article_over_cap():
-    """An article right under the cap with two long polyspotter links must
-    still validate. Pre-fix the URLs added ~25 fake words and tripped
-    BODY_WORD_MAX."""
+    """An article near the cap with two long polyspotter links must still
+    validate. Pre-fix the URLs added ~25 fake words and tripped
+    BODY_WORD_MAX. Sized to ~660 visible words (under new 700 cap)."""
     import articlebot
-    # Build a body with exactly 800 visible words and two long inline links.
+    # Lede leads with a number to satisfy the fact-led-opening rule.
     body = (
-        "Opening paragraph with [a long market link](https://polyspotter.com/market/will-thomas-massie-be-the-republican-nominee-for-ky-04-0xe3033).\n\n"
-        "## A\n\n" + " ".join(["w"] * 260) + "\n\n"
-        "## B\n\n" + " ".join(["w"] * 260) + "\n\n"
-        "## C\n\n" + " ".join(["w"] * 260) + "\n\n"
+        "A 178-20 wallet stacked $80k. Then [a long market link]"
+        "(https://polyspotter.com/market/will-thomas-massie-be-the-republican-nominee-for-ky-04-0xe3033) "
+        "anchored the rest.\n\n"
+        "## A\n\n" + " ".join(["w"] * 215) + "\n\n"
+        "## B\n\n" + " ".join(["w"] * 215) + "\n\n"
+        "## C\n\n" + " ".join(["w"] * 215) + "\n\n"
         "Close with [an alert](https://polyspotter.com/alert/135546)."
     )
     d = _valid_decision()
@@ -146,9 +149,9 @@ def test_headline_too_long_fails():
 def test_banned_phrase_in_body_fails():
     import articlebot
     d = _valid_decision()
-    # "link below" is in _BANNED_TWEET_PHRASES
+    # "link below" is in _BANNED_TWEET_PHRASES; inject it into the lede.
     d["article"]["body_markdown"] = d["article"]["body_markdown"].replace(
-        "Opening paragraph", "The link below shows")
+        "underdog.", "underdog. The link below shows the chart.")
     ok, err = articlebot.validate_article_decision(d)
     assert not ok and "banned" in err.lower()
 

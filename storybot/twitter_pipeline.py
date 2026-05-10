@@ -33,6 +33,88 @@ _DRY_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dry_run
 _LIVE_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live_runs")
 _RUN_OUTPUT_DIR = _DRY_RUN_DIR if DRY_RUN else _LIVE_RUN_DIR
 
+# Quality floor — applied to each seed alert before the LLM picker runs.
+# An alert must satisfy AT LEAST ONE criterion to enter the picker pool.
+# Goal: cut posting volume by ~60%+ so only genuinely surprising alerts
+# reach Twitter. Engagement signal beats volume signal for follower growth.
+QUALITY_FLOOR_MIN_USD = 25_000          # cluster total USD
+QUALITY_FLOOR_MIN_WIN_RATE = 0.90       # win-rate strategy headline
+QUALITY_FLOOR_MIN_PRICE_MOVE = 0.15     # price-impact strategy headline (15c+)
+# game_start_time IS NULL → non-sports event. Macro / political / crypto
+# stories have a much larger addressable audience than sports props, so
+# they bypass the dollar floor.
+
+_WIN_RATE_HEADLINE_RE = re.compile(r"(\d+)\s*%\s*win\s*rate", re.IGNORECASE)
+_PRICE_MOVE_HEADLINE_RE = re.compile(
+    r"rapid\s+price\s+(?:up|down)\s+(\d+(?:\.\d+)?)\s*%", re.IGNORECASE,
+)
+
+
+def _passes_quality_floor(alert: dict) -> tuple[bool, str]:
+    """True if `alert` satisfies at least one quality-floor criterion.
+
+    Returns (ok, reason_or_blank). When `ok`, `reason` names the criterion
+    that passed (for telemetry / debugging). When not `ok`, `reason` is "".
+    """
+    total_usd = alert.get("total_usd")
+    try:
+        if total_usd is not None and float(total_usd) >= QUALITY_FLOOR_MIN_USD:
+            return True, f"total_usd>={QUALITY_FLOOR_MIN_USD}"
+    except (TypeError, ValueError):
+        pass
+
+    if alert.get("game_start_time") is None:
+        return True, "non_sports"
+
+    for sig in alert.get("signals") or []:
+        if not isinstance(sig, dict):
+            continue
+        strat = sig.get("strategy")
+        headline = sig.get("headline") or ""
+        if strat == "win_rate_tracking":
+            m = _WIN_RATE_HEADLINE_RE.search(headline)
+            if m:
+                try:
+                    pct = int(m.group(1)) / 100.0
+                    if pct >= QUALITY_FLOOR_MIN_WIN_RATE:
+                        return True, f"win_rate>={QUALITY_FLOOR_MIN_WIN_RATE}"
+                except (TypeError, ValueError):
+                    pass
+        elif strat == "price_impact":
+            m = _PRICE_MOVE_HEADLINE_RE.search(headline)
+            if m:
+                try:
+                    move = float(m.group(1)) / 100.0
+                    if move >= QUALITY_FLOOR_MIN_PRICE_MOVE:
+                        return True, f"price_move>={QUALITY_FLOOR_MIN_PRICE_MOVE}"
+                except (TypeError, ValueError):
+                    pass
+
+    return False, ""
+
+
+def _apply_quality_floor(seed_alerts: list[dict]) -> tuple[list[dict], dict]:
+    """Filter seed alerts to the quality-floor survivors. Returns (kept, stats)
+    where stats counts hits per criterion (for telemetry)."""
+    kept: list[dict] = []
+    stats = {"total_usd": 0, "non_sports": 0, "win_rate": 0,
+             "price_move": 0, "dropped": 0}
+    for a in seed_alerts:
+        ok, reason = _passes_quality_floor(a)
+        if not ok:
+            stats["dropped"] += 1
+            continue
+        kept.append(a)
+        if reason.startswith("total_usd"):
+            stats["total_usd"] += 1
+        elif reason == "non_sports":
+            stats["non_sports"] += 1
+        elif reason.startswith("win_rate"):
+            stats["win_rate"] += 1
+        elif reason.startswith("price_move"):
+            stats["price_move"] += 1
+    return kept, stats
+
 
 def _parse_iso(value) -> datetime | None:
     """Parse a Postgres-shaped timestamp into an aware datetime, or return None."""
@@ -1715,6 +1797,30 @@ def main() -> int:
         dropped=pre - len(seed_alerts))
     if not seed_alerts:
         log("skip", run_id=run_id, reason="all seed alerts already tweeted")
+        log("run_end", run_id=run_id, posted=False,
+            elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
+        return 0
+
+    # Quality floor — drop weak seeds before the picker so the LLM only
+    # chooses among genuinely surprising alerts. Cuts posting volume by
+    # design: fewer, higher-conviction tweets engage better than a steady
+    # stream of $5-15k MLB clusters.
+    pre = len(seed_alerts)
+    seed_alerts, floor_stats = _apply_quality_floor(seed_alerts)
+    log("quality_floor",
+        run_id=run_id, before=pre, after=len(seed_alerts),
+        dropped=floor_stats["dropped"],
+        passed_total_usd=floor_stats["total_usd"],
+        passed_non_sports=floor_stats["non_sports"],
+        passed_win_rate=floor_stats["win_rate"],
+        passed_price_move=floor_stats["price_move"],
+        thresholds={
+            "min_usd": QUALITY_FLOOR_MIN_USD,
+            "min_win_rate": QUALITY_FLOOR_MIN_WIN_RATE,
+            "min_price_move": QUALITY_FLOOR_MIN_PRICE_MOVE,
+        })
+    if not seed_alerts:
+        log("skip", run_id=run_id, reason="no alerts cleared the quality floor")
         log("run_end", run_id=run_id, posted=False,
             elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
         return 0

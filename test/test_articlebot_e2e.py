@@ -30,7 +30,7 @@ def _make_llm_response(content: str):
 
 
 _VALID_BODY = (
-    "Opening paragraph that hooks the reader with stakes baked in.\n\n"
+    "A whale just stacked $80k on a coin-flip tonight.\n\n"
     "## The wallet\n\n" + " ".join(["w"] * 200) + "\n\n"
     "## The bet\n\n" + " ".join(["w"] * 200) + "\n\n"
     "## What to watch\n\n" + " ".join(["w"] * 150) + "\n\n"

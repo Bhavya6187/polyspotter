@@ -647,6 +647,8 @@ def _make_dispatcher(llm_client, *, usage: dict | None, scope: dict | None = Non
         }
         if truncated:
             out["truncated"] = True
+        if result.get("warning"):
+            out["warning"] = result["warning"]
         if result.get("router_error"):
             out["router_error"] = result["router_error"]
         if result.get("compress_error"):

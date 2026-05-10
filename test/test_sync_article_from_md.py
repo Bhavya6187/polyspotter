@@ -114,12 +114,12 @@ def test_validate_synced_passes_for_clean_edit():
 
     parsed = {
         "headline": "Headline",
-        "subhead": "Subhead",
+        "subhead": "Subhead about the bet's stakes",
         "body_markdown": (
-            "Opening hook line that pulls the reader in.\n\n"
+            "A 178-20 wallet just stacked $80k on the underdog tonight.\n\n"
             "## The wallet\n\n" + " ".join(["lorem"] * 200) + "\n\n"
             "## The bet\n\n" + " ".join(["lorem"] * 200) + "\n\n"
-            "## What to watch\n\n" + " ".join(["lorem"] * 170) + "\n\n"
+            "## What to watch\n\n" + " ".join(["lorem"] * 50) + "\n\n"
             "Closing line. https://polyspotter.com/market/x"
         ),
         "tweet_text": "An account up $2M just stacked $80k on a coin-flip.",
@@ -172,12 +172,13 @@ def test_sync_run_happy_path_updates_db(tmp_path, monkeypatch):
     md_path = tmp_path / "abc12345.md"
     md_path.write_text(_build_md(
         headline="Edited headline",
-        tweet="Edited tweet text here.",
+        subhead="A different one-liner adding context",
+        tweet="A 178-20 wallet stacked $80k on the underdog before tip-off — receipts say it's their cleanest read in months.",
         body=(
-            "Opening hook line that pulls the reader in.\n\n"
+            "A 178-20 wallet just stacked $80k on the underdog tonight.\n\n"
             "## The wallet\n\n" + " ".join(["lorem"] * 200) + "\n\n"
             "## The bet\n\n" + " ".join(["lorem"] * 200) + "\n\n"
-            "## What to watch\n\n" + " ".join(["lorem"] * 170) + "\n\n"
+            "## What to watch\n\n" + " ".join(["lorem"] * 50) + "\n\n"
             "Closing line. https://polyspotter.com/market/x"
         ),
     ))
@@ -200,7 +201,8 @@ def test_sync_run_happy_path_updates_db(tmp_path, monkeypatch):
     assert "tweet_text" in update_sql
     # Edited values land in params
     assert "Edited headline" in update_params
-    assert "Edited tweet text here." in update_params
+    assert any("178-20" in str(p) for p in update_params), \
+        "edited tweet text should be in update params"
     assert "abc12345" in update_params
     fake_conn.commit.assert_called_once()
 
@@ -277,11 +279,13 @@ def test_sync_run_zero_rowcount_aborts_no_commit(tmp_path, monkeypatch):
     monkeypatch.setattr(sync, "ARTICLES_DIR", str(tmp_path))
     md_path = tmp_path / "abc12345.md"
     md_path.write_text(_build_md(
+        subhead="A different one-liner adding context",
+        tweet="A 178-20 wallet stacked $80k on the underdog before tip-off — receipts say it's their cleanest read in months.",
         body=(
-            "Opening hook line that pulls the reader in.\n\n"
+            "A 178-20 wallet just stacked $80k on the underdog tonight.\n\n"
             "## The wallet\n\n" + " ".join(["lorem"] * 200) + "\n\n"
             "## The bet\n\n" + " ".join(["lorem"] * 200) + "\n\n"
-            "## What to watch\n\n" + " ".join(["lorem"] * 170) + "\n\n"
+            "## What to watch\n\n" + " ".join(["lorem"] * 50) + "\n\n"
             "Closing line. https://polyspotter.com/market/x"
         ),
     ))
