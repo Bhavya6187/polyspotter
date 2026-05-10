@@ -626,8 +626,22 @@ You see:
   times with different hints to diversify openers. Treat it as a steering
   preference, not a hard rule — pick the hinted shape if the facts support
   it, fall back to the strongest shape otherwise.
+- recent_tweets: the last ~10 tweets we shipped (URL-stripped text). Use
+  these to vary your draft from what we just posted — see "Recent tweets
+  to vary from" below.
 
-Your job: write a tweet that fits in 280 characters (URLs count as 23 chars).
+Your job: write a tweet that fits in 280 characters.
+
+## No link — the tweet is the artifact
+This tweet ships WITHOUT a destination URL. The chart image attached to the
+post is the only payload alongside the text. Implications:
+- Do NOT include any URL in your output (no polyspotter.com, no other links).
+  Anything that looks like a URL will be stripped before posting and is
+  wasted prompt effort.
+- The body has to do all the work. There is no "click here" page for the
+  reader to bounce to. Every sentence — including the closer — must
+  reward the reader's attention in-tweet.
+- Spend the full 280-char budget on the body. No char tax for a URL.
 
 ## Image grid
 The chart shipped with this tweet is a grid: a hero panel (corresponding
@@ -644,6 +658,39 @@ template — "$Xk just hit…", "With N minutes to tip…", "A wallet that's…"
 rewrite the lede with a different shape from the priority list above. Variety
 is itself an engagement lever; back-to-back tweets with the same template
 train followers to scroll past.
+
+## Recent tweets to vary from
+The user payload also includes `recent_tweets` — the full text of the last
+~10 tweets we shipped. The opener rule above only covers the first clause;
+this rule covers the whole tweet's shape. Skim them and rotate along these
+axes so your draft doesn't read as the Nth iteration of the same template:
+
+- **Whole-tweet arc.** If your draft has the same sentence count, same
+  ordering of facts (e.g. cluster size → dollars → wallet record → clock),
+  and same closer type as a recent tweet, restructure. Try fewer sentences,
+  a different fact order, or a different closer category (clock vs stake
+  vs counter-fact vs question).
+- **Venue placement.** Scan `recent_tweets` for where "Polymarket" appears.
+  If 2+ recent tweets put "Polymarket" in their FIRST sentence, push it
+  to a later sentence in your draft — or drop it (the attached chart
+  already brands the post). Stacking "on Polymarket" in sentence 1
+  across the timeline trains followers to read these as promo and
+  scroll past.
+- **Fact-type rotation.** Look at what the recent tweets led with: if 2+
+  led with a wallet W-L record ("…wallet is 273-28…"), don't lead with
+  a record this time — lead with timing, price impact, stake size, or
+  account age instead. Same for dollar size, cluster count, volume
+  multiplier. Whatever fact-type dominates recent leads, demote it to
+  a supporting clause in your draft.
+- **Closer rotation.** If 2+ recent tweets close with "First pitch in N
+  minutes." / "Tips in N." / "Match starts in N.", pick a different
+  closer category for yours (a concrete stake, a counter-fact, or a
+  reply-bait question — see closer rules below).
+
+Frame these as steering, not bans: pick the strongest tweet for the facts
+you have, but when two drafts are roughly tied, pick the one that varies
+more from `recent_tweets`. Don't contort the lede shape away from what the
+facts actually support just to be different.
 
 ## Audience
 Sports/markets-curious reader who has never heard of PolySpotter and may not
@@ -737,20 +784,29 @@ as a self-contained sentence.
   "in the last hour", "minutes before X") unless facts_bundle.total_usd backs
   the claim. If a cited dollar figure is larger than facts_bundle.total_usd,
   treat it as cumulative and phrase it accordingly.
-- The closing line earns its spot. Strong closers, in priority order:
-  (a) time-to-resolution if facts_bundle.minutes_to_resolution is set and
-      under ~360: "First pitch in 90 minutes.", "Tips off in 11.",
-      "We'll know by close.";
-  (b) a concrete stake or escalation: "$113k now riding on this thesis.",
-      "Their related exposure on this event is $81k.";
-  (c) a counter-fact that sharpens the conflict: "A $231k whale just took
-      the other side."
+- The closing line earns its spot. There is no link to fall back on —
+  the closer is the LAST thing the reader sees. Strong closers, in
+  priority order:
+  (a) a reply-bait question that invites engagement: "Cubs or fade?",
+      "Over or under?", "Sharp call or chase?". Best growth lever
+      when the facts are ambiguous.
+  (b) a take / opinion that picks a side: "Dumb money chasing a hot
+      streak.", "Cleanest setup we've flagged this week.",
+      "Looks like a fade.". One short, confident sentence.
+  (c) a counter-fact that sharpens the conflict: "A $231k whale just
+      took the other side.", "And the line hasn't moved."
+  (d) a concrete stake or escalation: "$113k now riding on this thesis.",
+      "Their related exposure on this event is $81k."
+  (e) time-to-resolution if facts_bundle.minutes_to_resolution is set
+      and under ~360: "First pitch in 90 minutes.", "Tips off in 11."
+      Use sparingly — recent tweets lean heavily on this and it reads
+      as filler when stacked.
   NEVER vague chest-thumps like "Not random.", "Something's cooking.",
-  "Worth a look.". If none of (a)-(c) applies cleanly, end on the link.
+  "Worth a look.". A closer is REQUIRED — there is no link fallback.
 - Cap "Polymarket" at ONE mention in the tweet body. Repeating it 2-3
   times wastes characters and reads like scanner output. Vary the venue
   reference: "the line", "this market", "prediction-market bettors",
-  "the market". Drop the venue entirely if the link makes it obvious.
+  "the market". Drop the venue entirely if context already implies it.
 - Image-text linkage. The chart that ships with this tweet visualizes
   ONE specific fact (named by hook_anchor and implied by chart_type).
   The tweet body MUST reference that fact in plain English so the
@@ -767,15 +823,16 @@ as a self-contained sentence.
   - chart_type=cluster_card → name the wallet count ("three accounts",
     "8 wallets").
   When chart_type=none, no anchor is required.
-- The closer (the LAST sentence before the link) MUST do work. Banned
+- The closer (the LAST sentence of the tweet) MUST do work. Banned
   closer phrases (vague chest-thumps): "Not random.", "Something's
   cooking.", "Worth a look.", "Watch this space.", "Eyes on this.",
   "Stay tuned.", "Buckle up.", "We'll see.", "Let's see.", "Interesting
   times.", "This could be big.", "Watch closely.", "Keep an eye." Pick
-  a concrete closer instead: a clock, a stake/escalation, a counter-fact,
-  or a reply-bait question ("Cubs or fade?", "Over or under?"). A tweet
-  with only ONE sentence in the body before the URL is rejected — the
-  body needs at least two sentences so the closer has somewhere to live.
+  a concrete closer instead: a reply-bait question ("Cubs or fade?",
+  "Over or under?"), a take, a counter-fact, a stake/escalation, or
+  (sparingly) a clock. A tweet with only ONE sentence is rejected —
+  the body needs at least two sentences so the closer has somewhere
+  to live.
 - 0-1 emoji, only if it earns its spot. No hashtags. No @mentions.
 - BANNED jargon: "deployed capital", "real size", "meaningful size", "conviction
   flow", "high-conviction", "scan window", "composite score", "alerted flow",
@@ -787,6 +844,7 @@ as a self-contained sentence.
 - Banned CTAs: "in bio", "full breakdown", "link below", "more at", "link in bio".
 
 ## Worked examples
+(No examples include URLs — tweets ship without a link.)
 
 ### Sharp-wallet story (the most over-formulaic case)
 
@@ -796,21 +854,21 @@ BAD (record-led, scanner output, no urgency):
 Why it's bad: opens with the literal record, no clock, no stakes, no
 reason for a casual reader to stop scrolling.
 
-GOOD (lead with the cumulative thesis, demote the record to a clause):
+GOOD (lead with the cumulative thesis, demote the record to a clause,
+take as closer):
   "Someone is quietly building a $113k thesis across Polymarket's
   US-Iran meeting markets — and the lead wallet is 174-32 on past
-  calls. Latest add: $2.9k on a meeting by late spring.
-  https://polyspotter.com/alert/130328"
+  calls. Latest add: $2.9k on a meeting by late spring. The market
+  still has it at a coin flip."
 
 ### Timing-led story (the ideal — leans into urgency)
 
 GOOD:
   "With 11 minutes to tip, five Polymarket accounts bought $82k on
   the 76ers to beat the Celtics. Three share one funder. Volume ran
-  99x usual.
-  https://polyspotter.com/alert/131163"
+  99x usual. Sharp call or chase?"
 Why it works: hard clock first three words; size, funder link, then
-volume context. No record number anywhere.
+volume context, with a reply-bait closer. No record number anywhere.
 
 ### Cluster story (when the cluster IS the surprise)
 
@@ -819,34 +877,24 @@ BAD (tile-caption opener):
   bettors bought $20k of No. Volume hit 130x usual."
 Why it's bad: "7-wallet NO cluster" is a chart caption, not a tweet.
 
-GOOD (behavior, scale, time-frame as closer):
-  "Eight Polymarket accounts just bought $23k of No on Finland
-  winning Eurovision 2026, blowing out the market's usual volume
-  by 82x — months before the final."
-
-## Link (mandatory)
-Include exactly one polyspotter.com deep link. Prefer the market page; use a
-wallet link only when the story is about one specific wallet.
-- market: https://polyspotter.com/market/<slug>
-    <slug> = kebab-cased market_title (lowercase, non-alnum → single dash,
-    trim leading/trailing dashes, max 80 chars) + "-" + first 7 chars of
-    condition_id (i.e. "0x" + 5 hex chars).
-- wallet: https://polyspotter.com/wallet/<wallet_address>
-- alert:  https://polyspotter.com/alert/<alert_id>
-- tag:    https://polyspotter.com/tag/<tag-slug>
+GOOD (behavior, scale, take as closer):
+  "Eight Polymarket accounts just bought $23k of No on Finland winning
+  Eurovision 2026, blowing out the market's usual volume by 82x —
+  months before the final. Either someone knows something or this is
+  the most expensive guess of the week."
 
 ## Output (strict JSON only)
 {{
-  "tweet": "<text with one polyspotter.com link>"
+  "tweet": "<text — no URLs>"
 }}
 """
 
 
 def validate_tweet(text: str) -> tuple[bool, str]:
-    """Length / banned-phrase / banned-opener / link presence checks. No JSON parsing."""
+    """Length / banned-phrase / banned-opener / no-URL checks. No JSON parsing."""
     from tweet_utils import (
         TWEET_MAX_CHARS, TWEET_MAX_POLYMARKET_MENTIONS,
-        _BANNED_TWEET_PHRASES, _POLYSPOTTER_URL_RE,
+        _BANNED_TWEET_PHRASES, _URL_RE,
         _TWEET_RECORD_OPENER_RE, _count_polymarket_mentions_in_body,
         _tweet_length, check_tweet_closer,
     )
@@ -871,8 +919,11 @@ def validate_tweet(text: str) -> tuple[bool, str]:
             f"{TWEET_MAX_POLYMARKET_MENTIONS}; vary the venue reference "
             "('the line', 'this market', 'prediction market', or drop it)"
         )
-    if not _POLYSPOTTER_URL_RE.search(text):
-        return False, "tweet must contain a polyspotter.com deep link"
+    if _URL_RE.search(text):
+        return False, ("tweet must not contain any URL — links are stripped "
+                       "before posting, so any URL is wasted characters; "
+                       "rewrite the closer to do real work (question, take, "
+                       "counter-fact, or stake)")
     ok_closer, closer_err = check_tweet_closer(text)
     if not ok_closer:
         return False, closer_err
@@ -995,6 +1046,7 @@ def _writer_user_message(chosen_alerts: list[dict], event_summary: str,
                          bundle: dict, chart_pick: dict,
                          image_tiles: list[str] | None = None,
                          recent_openers: list[str] | None = None,
+                         recent_tweets: list[dict] | None = None,
                          lede_shape_hint: str | None = None) -> str:
     from bot_utils import _compact_alert_for_picker
     compact = [_compact_alert_for_picker(a) for a in chosen_alerts]
@@ -1006,6 +1058,7 @@ def _writer_user_message(chosen_alerts: list[dict], event_summary: str,
         "hook_anchor": chart_pick.get("hook_anchor"),
         "image_tiles": image_tiles or [],
         "recent_openers_to_avoid": recent_openers or [],
+        "recent_tweets": recent_tweets or [],
         "lede_shape_hint": lede_shape_hint,
     }
     return json.dumps(payload, default=str, indent=2)
@@ -1139,6 +1192,7 @@ def write_tweet(llm_client, chosen_alerts: list[dict], event_summary: str,
                 bundle: dict, chart_pick: dict, *,
                 image_tiles: list[str] | None = None,
                 recent_openers: list[str] | None = None,
+                recent_tweets: list[dict] | None = None,
                 lede_shape_hint: str | None = None,
                 usage: dict | None = None,
                 prior_error: str | None = None) -> dict:
@@ -1152,7 +1206,7 @@ def write_tweet(llm_client, chosen_alerts: list[dict], event_summary: str,
     user_payload = _writer_user_message(
         chosen_alerts, event_summary, bundle, chart_pick,
         image_tiles=image_tiles, recent_openers=recent_openers,
-        lede_shape_hint=lede_shape_hint,
+        recent_tweets=recent_tweets, lede_shape_hint=lede_shape_hint,
     )
     if prior_error:
         user_payload = (
@@ -1417,7 +1471,7 @@ def write_tweet_with_retry(llm_client, chosen_alerts, event_summary, bundle,
         out = write_tweet(
             llm_client, chosen_alerts, event_summary, bundle, chart_pick,
             image_tiles=image_tiles, recent_openers=recent_openers,
-            lede_shape_hint=shape, usage=usage,
+            recent_tweets=recent_tweets, lede_shape_hint=shape, usage=usage,
         )
         if out.get("_parse_error"):
             last_det_error = out["_parse_error"]
@@ -1465,7 +1519,8 @@ def write_tweet_with_retry(llm_client, chosen_alerts, event_summary, bundle,
     retry_out = write_tweet(
         llm_client, chosen_alerts, event_summary, bundle, chart_pick,
         image_tiles=image_tiles, recent_openers=recent_openers,
-        lede_shape_hint=retry_shape, prior_error=retry_error, usage=usage,
+        recent_tweets=recent_tweets, lede_shape_hint=retry_shape,
+        prior_error=retry_error, usage=usage,
     )
     if retry_out.get("_parse_error"):
         return retry_out, retry_out["_parse_error"], 2
