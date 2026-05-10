@@ -357,7 +357,8 @@ def pick_finalists_chunk(llm_client, chunk: list[dict],
     compact = [_compact_event_for_picker(e) for e in chunk]
     user_msg = (
         f"{len(compact)} events from the last 24h, sorted by composite_score "
-        f"DESC:\n\n{json.dumps(compact, default=str, indent=2)}"
+        f"DESC:\n\n{json.dumps(compact, default=str, indent=2)}\n\n"
+        f"Reply with a JSON object matching the schema in the instructions."
     )
     try:
         response = llm_client.responses.create(
@@ -533,7 +534,8 @@ def pick_final_event(llm_client, finalists: list[dict],
         f"Stage-2 finalists ({len(compact)} events):\n"
         f"{json.dumps(compact, default=str, indent=2)}\n\n"
         f"recent_event_slugs (already covered in last 7 days, skip unless "
-        f"materially new): {json.dumps(recent_event_slugs)}"
+        f"materially new): {json.dumps(recent_event_slugs)}\n\n"
+        f"Reply with a JSON object matching the schema in the instructions."
     )
 
     try:

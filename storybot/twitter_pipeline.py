@@ -450,7 +450,8 @@ def pick_event(llm_client, seed_alerts: list[dict],
         f"composite_score, plus the last "
         f"{len(recent_tweets or [])} tweets we shipped (do not re-cover "
         f"the same event):\n\n"
-        f"{json.dumps(payload, default=str, indent=2)}"
+        f"{json.dumps(payload, default=str, indent=2)}\n\n"
+        f"Reply with a JSON object matching the schema in the instructions."
     )
     response = llm_client.responses.create(
         model=MODEL,
@@ -570,7 +571,10 @@ def pick_chart(llm_client, chosen_alerts: list[dict], event_summary: str,
     response = llm_client.responses.create(
         model=MODEL,
         instructions=SYSTEM_PROMPT_CHART_PICKER,
-        input=json.dumps(payload, default=str, indent=2),
+        input=(
+            f"{json.dumps(payload, default=str, indent=2)}\n\n"
+            f"Reply with a JSON object matching the schema in the instructions."
+        ),
         max_output_tokens=4000,
         reasoning={"effort": "low"},
         text={"format": {"type": "json_object"}},
@@ -1157,6 +1161,10 @@ def write_tweet(llm_client, chosen_alerts: list[dict], event_summary: str,
             f"the brief below.\n\n"
             + user_payload
         )
+    user_payload = (
+        f"{user_payload}\n\n"
+        f"Reply with a JSON object matching the schema in the instructions."
+    )
     response = llm_client.responses.create(
         model=MODEL,
         instructions=SYSTEM_PROMPT_WRITER,
@@ -1335,7 +1343,10 @@ def llm_validate_tweet(llm_client, tweet: str, chosen_alerts: list[dict],
     response = llm_client.responses.create(
         model=MODEL,
         instructions=SYSTEM_PROMPT_TWEET_VALIDATOR,
-        input=json.dumps(payload, default=str, indent=2),
+        input=(
+            f"{json.dumps(payload, default=str, indent=2)}\n\n"
+            f"Reply with a JSON object matching the schema in the instructions."
+        ),
         max_output_tokens=3000,
         reasoning={"effort": "low"},
         text={"format": {"type": "json_object"}},

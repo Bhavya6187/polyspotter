@@ -233,7 +233,8 @@ def write_tweet(llm_client, seed_alerts: list[dict], *,
     compact = [_compact_alert_for_picker(a) for a in seed_alerts]
     user_msg = (
         f"Alerts from the last ~3 hours ({len(compact)} rows), sorted by "
-        f"composite_score:\n\n{json.dumps(compact, default=str, indent=2)}"
+        f"composite_score:\n\n{json.dumps(compact, default=str, indent=2)}\n\n"
+        f"Reply with a JSON object matching the schema in the instructions."
     )
     response = llm_client.responses.create(
         model=MODEL,

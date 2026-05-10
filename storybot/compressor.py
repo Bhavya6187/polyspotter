@@ -453,6 +453,7 @@ def build_query(llm_client, *, intent: str, hint: str | None, model: str,
             error=prior_error,
             plan=json.dumps(prior_plan, default=str),
         ))
+    parts.append("Reply with a JSON object matching the schema in the instructions.")
     user_msg = "\n\n".join(parts)
 
     t0 = time.monotonic()
@@ -621,7 +622,9 @@ def route_compression(llm_client, *, intent: str, data: Any, model: str,
         "sample": sample,
         "row_count": count,
         "byte_size": size,
-    }, default=str)
+    }, default=str) + (
+        "\n\nReply with a JSON object matching the schema in the instructions."
+    )
 
     t0 = time.monotonic()
     response = llm_client.responses.create(

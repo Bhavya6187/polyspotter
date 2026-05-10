@@ -355,7 +355,10 @@ def compose_result_tweet(llm_client, original_tweet: str,
     response = llm_client.responses.create(
         model=MODEL,
         instructions=SYSTEM_PROMPT_RESULT,
-        input=json.dumps(payload, default=str, indent=2),
+        input=(
+            f"{json.dumps(payload, default=str, indent=2)}\n\n"
+            f"Reply with a JSON object matching the schema in the instructions."
+        ),
         max_output_tokens=2000,
         reasoning={"effort": "low"},
         text={"format": {"type": "json_object"}},

@@ -861,7 +861,10 @@ def build_stage1_user_message(top_alerts: list[dict]) -> str:
             "recently_tweeted_wallet": bool(a.get("recently_tweeted_wallet")),
             "recently_tweeted_market": bool(a.get("recently_tweeted_market")),
         })
-    return json.dumps({"alerts": payload}, default=str)
+    return (
+        json.dumps({"alerts": payload}, default=str)
+        + "\n\nReply with a JSON object matching the schema in the instructions."
+    )
 
 
 def select_shortlist(top_alerts: list[dict], *, llm_client) -> ShortlistDecision:
