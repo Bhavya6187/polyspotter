@@ -282,7 +282,7 @@ RESPONSE_FORMAT = {
                 "description": "2-3 short plain-English bullet points explaining why this trade is interesting. Empty array if not interesting.",
             },
             "copy_action": {
-                "type": "object",
+                "type": ["object", "null"],
                 "properties": {
                     "outcome": {
                         "type": "string",
@@ -298,7 +298,7 @@ RESPONSE_FORMAT = {
                     },
                     "max_price": {
                         "type": "number",
-                        "description": "Suggested max price to enter (entry + ~10% buffer, capped at 0.95).",
+                        "description": "Ceiling to still enter. Compute as entry_price + 0.10 (ten percentage points, additive — NOT 10% relative). Must satisfy max_price - entry_price >= 0.05 and max_price <= 0.95. If entry_price >= 0.90, set max_price = 0.95. Null entire copy_action for multi-outcome SELLs with no defensible BUY.",
                     },
                 },
                 "required": ["outcome", "side", "entry_price", "max_price"],
@@ -598,7 +598,7 @@ def evaluate_alert(alert: dict, alert_text: str | None = None) -> dict:
             "summary": result.get("summary", ""),
             "headline": result.get("headline"),
             "bullets": result.get("bullets", []),
-            "copy_action": result.get("copy_action", {}),
+            "copy_action": result.get("copy_action") or {},
         }
     except (json.JSONDecodeError, KeyError, TypeError) as e:
         print(f"[llm_filter] WARNING: Failed to parse LLM response: {e}")
@@ -683,7 +683,7 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
                     alert["llm_summary"] = extra.get("summary", cached_eval["summary"])
                     alert["llm_headline"] = extra.get("headline")
                     alert["llm_bullets"] = extra.get("bullets", [])
-                    alert["llm_copy_action"] = extra.get("copy_action", {})
+                    alert["llm_copy_action"] = extra.get("copy_action") or {}
                 except (json.JSONDecodeError, TypeError):
                     alert["llm_bullets"] = []
                     alert["llm_copy_action"] = {}
@@ -707,7 +707,7 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
             alert["llm_summary"] = summary
             alert["llm_headline"] = result.get("headline")
             alert["llm_bullets"] = result.get("bullets", [])
-            alert["llm_copy_action"] = result.get("copy_action", {})
+            alert["llm_copy_action"] = result.get("copy_action") or {}
             kept.append(alert)
             if cache_key:
                 cache_data = json.dumps({
