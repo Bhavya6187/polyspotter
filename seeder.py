@@ -629,13 +629,14 @@ def _generate_thesis_headline(thesis: dict) -> str | None:
         endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
         model = os.environ.get("AZURE_OPENAI_MODEL", "")
         client = OpenAI(base_url=endpoint, api_key=api_key)
-        resp = client.chat.completions.create(
+        # Generous budget: max_output_tokens includes reasoning tokens on
+        # GPT-5-class models, so a tight cap can starve the visible output.
+        resp = client.responses.create(
             model=model,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=30,
-            temperature=0.3,
+            input=prompt,
+            max_output_tokens=2000,
         )
-        return resp.choices[0].message.content.strip().strip('"')
+        return (resp.output_text or "").strip().strip('"')
     except Exception:
         return None
 

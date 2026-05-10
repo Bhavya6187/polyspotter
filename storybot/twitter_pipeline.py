@@ -452,20 +452,17 @@ def pick_event(llm_client, seed_alerts: list[dict],
         f"the same event):\n\n"
         f"{json.dumps(payload, default=str, indent=2)}"
     )
-    response = llm_client.chat.completions.create(
+    response = llm_client.responses.create(
         model=MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT_EVENT_PICKER},
-            {"role": "user", "content": user_msg},
-        ],
-        temperature=1,
-        max_completion_tokens=8000,
-        reasoning_effort="medium",
-        response_format={"type": "json_object"},
+        instructions=SYSTEM_PROMPT_EVENT_PICKER,
+        input=user_msg,
+        max_output_tokens=8000,
+        reasoning={"effort": "medium"},
+        text={"format": {"type": "json_object"}},
     )
     if usage is not None:
         _accumulate_usage(usage, response)
-    content = response.choices[0].message.content or "{}"
+    content = response.output_text or "{}"
     try:
         return json.loads(content)
     except json.JSONDecodeError as exc:
@@ -570,20 +567,17 @@ def pick_chart(llm_client, chosen_alerts: list[dict], event_summary: str,
         "facts_bundle": bundle,
         "chosen_alerts": compact,
     }
-    response = llm_client.chat.completions.create(
+    response = llm_client.responses.create(
         model=MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT_CHART_PICKER},
-            {"role": "user", "content": json.dumps(payload, default=str, indent=2)},
-        ],
-        temperature=1,
-        max_completion_tokens=4000,
-        reasoning_effort="low",
-        response_format={"type": "json_object"},
+        instructions=SYSTEM_PROMPT_CHART_PICKER,
+        input=json.dumps(payload, default=str, indent=2),
+        max_output_tokens=4000,
+        reasoning={"effort": "low"},
+        text={"format": {"type": "json_object"}},
     )
     if usage is not None:
         _accumulate_usage(usage, response)
-    content = response.choices[0].message.content or "{}"
+    content = response.output_text or "{}"
     try:
         return json.loads(content)
     except json.JSONDecodeError as exc:
@@ -1151,7 +1145,6 @@ def write_tweet(llm_client, chosen_alerts: list[dict], event_summary: str,
     yields diverse openers. Caller invokes this once per shape and reranks.
     """
     from bot_utils import MODEL, _accumulate_usage
-    messages = [{"role": "system", "content": SYSTEM_PROMPT_WRITER}]
     user_payload = _writer_user_message(
         chosen_alerts, event_summary, bundle, chart_pick,
         image_tiles=image_tiles, recent_openers=recent_openers,
@@ -1164,18 +1157,17 @@ def write_tweet(llm_client, chosen_alerts: list[dict], event_summary: str,
             f"the brief below.\n\n"
             + user_payload
         )
-    messages.append({"role": "user", "content": user_payload})
-    response = llm_client.chat.completions.create(
+    response = llm_client.responses.create(
         model=MODEL,
-        messages=messages,
-        temperature=1,
-        max_completion_tokens=8000,
-        reasoning_effort="medium",
-        response_format={"type": "json_object"},
+        instructions=SYSTEM_PROMPT_WRITER,
+        input=user_payload,
+        max_output_tokens=8000,
+        reasoning={"effort": "medium"},
+        text={"format": {"type": "json_object"}},
     )
     if usage is not None:
         _accumulate_usage(usage, response)
-    content = response.choices[0].message.content or "{}"
+    content = response.output_text or "{}"
     try:
         return json.loads(content)
     except json.JSONDecodeError as exc:
@@ -1340,20 +1332,17 @@ def llm_validate_tweet(llm_client, tweet: str, chosen_alerts: list[dict],
         "recent_openers": recent_openers or [],
         "recent_tweets": recent_tweets or [],
     }
-    response = llm_client.chat.completions.create(
+    response = llm_client.responses.create(
         model=MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT_TWEET_VALIDATOR},
-            {"role": "user", "content": json.dumps(payload, default=str, indent=2)},
-        ],
-        temperature=1,
-        max_completion_tokens=3000,
-        reasoning_effort="low",
-        response_format={"type": "json_object"},
+        instructions=SYSTEM_PROMPT_TWEET_VALIDATOR,
+        input=json.dumps(payload, default=str, indent=2),
+        max_output_tokens=3000,
+        reasoning={"effort": "low"},
+        text={"format": {"type": "json_object"}},
     )
     if usage is not None:
         _accumulate_usage(usage, response)
-    content = response.choices[0].message.content or "{}"
+    content = response.output_text or "{}"
     try:
         result = json.loads(content)
     except json.JSONDecodeError as exc:

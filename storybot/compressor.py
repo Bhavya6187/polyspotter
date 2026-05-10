@@ -165,22 +165,28 @@ def _format_console(event: str, f: dict) -> str:
 
 
 def _extract_usage(response) -> dict:
-    """Pull token counts out of one OpenAI response. Empty dict if no usage attached."""
+    """Pull token counts out of one Responses-API response. Empty dict if no usage attached.
+
+    The downstream dict keys mirror chat-completions naming for log-format
+    stability, but values come from the Responses-API fields
+    (`input_tokens`/`output_tokens`/`input_tokens_details.cached_tokens`/
+    `output_tokens_details.reasoning_tokens`).
+    """
     u = getattr(response, "usage", None)
     if u is None:
         return {}
     out: dict[str, int] = {
         "requests": 1,
-        "prompt_tokens": u.prompt_tokens or 0,
-        "completion_tokens": u.completion_tokens or 0,
-        "total_tokens": u.total_tokens or 0,
+        "prompt_tokens": getattr(u, "input_tokens", 0) or 0,
+        "completion_tokens": getattr(u, "output_tokens", 0) or 0,
+        "total_tokens": getattr(u, "total_tokens", 0) or 0,
     }
-    details = getattr(u, "prompt_tokens_details", None)
+    details = getattr(u, "input_tokens_details", None)
     if details is not None:
         out["cached_prompt_tokens"] = getattr(details, "cached_tokens", 0) or 0
-    cd = getattr(u, "completion_tokens_details", None)
-    if cd is not None:
-        out["reasoning_tokens"] = getattr(cd, "reasoning_tokens", 0) or 0
+    od = getattr(u, "output_tokens_details", None)
+    if od is not None:
+        out["reasoning_tokens"] = getattr(od, "reasoning_tokens", 0) or 0
     return out
 
 
@@ -450,23 +456,20 @@ def build_query(llm_client, *, intent: str, hint: str | None, model: str,
     user_msg = "\n\n".join(parts)
 
     t0 = time.monotonic()
-    response = llm_client.chat.completions.create(
+    response = llm_client.responses.create(
         model=model,
-        messages=[
-            {"role": "system", "content": BUILDER_SYSTEM_PROMPT},
-            {"role": "user", "content": user_msg},
-        ],
-        temperature=1,
-        max_completion_tokens=2000,
-        reasoning_effort="low",
-        response_format={"type": "json_object"},
+        instructions=BUILDER_SYSTEM_PROMPT,
+        input=user_msg,
+        max_output_tokens=2000,
+        reasoning={"effort": "low"},
+        text={"format": {"type": "json_object"}},
     )
     ms = int((time.monotonic() - t0) * 1000)
     delta = _extract_usage(response)
     if usage is not None:
         _merge_usage(usage, delta)
 
-    content = response.choices[0].message.content or "{}"
+    content = response.output_text or "{}"
     try:
         plan = json.loads(content)
     except json.JSONDecodeError as exc:
@@ -621,23 +624,20 @@ def route_compression(llm_client, *, intent: str, data: Any, model: str,
     }, default=str)
 
     t0 = time.monotonic()
-    response = llm_client.chat.completions.create(
+    response = llm_client.responses.create(
         model=model,
-        messages=[
-            {"role": "system", "content": ROUTER_SYSTEM_PROMPT},
-            {"role": "user", "content": user_msg},
-        ],
-        temperature=1,
-        max_completion_tokens=2000,
-        reasoning_effort="low",
-        response_format={"type": "json_object"},
+        instructions=ROUTER_SYSTEM_PROMPT,
+        input=user_msg,
+        max_output_tokens=2000,
+        reasoning={"effort": "low"},
+        text={"format": {"type": "json_object"}},
     )
     ms = int((time.monotonic() - t0) * 1000)
     delta = _extract_usage(response)
     if usage is not None:
         _merge_usage(usage, delta)
 
-    content = response.choices[0].message.content or "{}"
+    content = response.output_text or "{}"
     route = json.loads(content)
     method = route.get("method")
     spec = route.get("spec") if method == "python" else None
@@ -803,21 +803,18 @@ def summarize(llm_client, *, intent: str, data: Any, model: str,
               usage: dict | None = None) -> str:
     user_msg = json.dumps({"intent": intent, "data": data}, default=str)
     t0 = time.monotonic()
-    response = llm_client.chat.completions.create(
+    response = llm_client.responses.create(
         model=model,
-        messages=[
-            {"role": "system", "content": SUMMARIZER_SYSTEM_PROMPT},
-            {"role": "user", "content": user_msg},
-        ],
-        temperature=1,
-        max_completion_tokens=2000,
-        reasoning_effort="medium",
+        instructions=SUMMARIZER_SYSTEM_PROMPT,
+        input=user_msg,
+        max_output_tokens=2000,
+        reasoning={"effort": "medium"},
     )
     ms = int((time.monotonic() - t0) * 1000)
     delta = _extract_usage(response)
     if usage is not None:
         _merge_usage(usage, delta)
-    out = response.choices[0].message.content or ""
+    out = response.output_text or ""
     _log("compressor_summarize",
          input_bytes=len(user_msg),
          output_chars=len(out),

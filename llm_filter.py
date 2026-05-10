@@ -245,55 +245,53 @@ SYSTEM_PROMPT = (
     "- 'Entry at 41¢ implies they see this as a ~2.4x opportunity'"
 )
 
-RESPONSE_SCHEMA = {
+RESPONSE_FORMAT = {
     "type": "json_schema",
-    "json_schema": {
-        "name": "alert_evaluation",
-        "strict": True,
-        "schema": {
-            "type": "object",
-            "properties": {
-                "interesting": {"type": "boolean"},
-                "summary": {
-                    "type": "string",
-                    "description": "1 sentence internal summary for filtering log.",
-                },
-                "headline": {
-                    "type": "string",
-                    "description": "Ultra-short label (under 10 words) describing the bettor or pattern for compact UI display.",
-                },
-                "bullets": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "2-3 short plain-English bullet points explaining why this trade is interesting. Empty array if not interesting.",
-                },
-                "copy_action": {
-                    "type": "object",
-                    "properties": {
-                        "outcome": {
-                            "type": "string",
-                            "description": "The outcome to bet on, e.g. 'Utah' or 'Yes'.",
-                        },
-                        "side": {
-                            "type": "string",
-                            "description": "Always 'BUY'. Sells must be converted to equivalent buys.",
-                        },
-                        "entry_price": {
-                            "type": "number",
-                            "description": "The trader's entry price (0-1 scale).",
-                        },
-                        "max_price": {
-                            "type": "number",
-                            "description": "Suggested max price to enter (entry + ~10% buffer, capped at 0.95).",
-                        },
-                    },
-                    "required": ["outcome", "side", "entry_price", "max_price"],
-                    "additionalProperties": False,
-                },
+    "name": "alert_evaluation",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "interesting": {"type": "boolean"},
+            "summary": {
+                "type": "string",
+                "description": "1 sentence internal summary for filtering log.",
             },
-            "required": ["interesting", "summary", "headline", "bullets", "copy_action"],
-            "additionalProperties": False,
+            "headline": {
+                "type": "string",
+                "description": "Ultra-short label (under 10 words) describing the bettor or pattern for compact UI display.",
+            },
+            "bullets": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "2-3 short plain-English bullet points explaining why this trade is interesting. Empty array if not interesting.",
+            },
+            "copy_action": {
+                "type": "object",
+                "properties": {
+                    "outcome": {
+                        "type": "string",
+                        "description": "The outcome to bet on, e.g. 'Utah' or 'Yes'.",
+                    },
+                    "side": {
+                        "type": "string",
+                        "description": "Always 'BUY'. Sells must be converted to equivalent buys.",
+                    },
+                    "entry_price": {
+                        "type": "number",
+                        "description": "The trader's entry price (0-1 scale).",
+                    },
+                    "max_price": {
+                        "type": "number",
+                        "description": "Suggested max price to enter (entry + ~10% buffer, capped at 0.95).",
+                    },
+                },
+                "required": ["outcome", "side", "entry_price", "max_price"],
+                "additionalProperties": False,
+            },
         },
+        "required": ["interesting", "summary", "headline", "bullets", "copy_action"],
+        "additionalProperties": False,
     },
 }
 
@@ -496,8 +494,12 @@ def _build_prompt(alert: dict) -> str:
     return "\n".join(parts)
 
 
-def evaluate_alert(alert: dict) -> dict:
+def evaluate_alert(alert: dict, alert_text: str | None = None) -> dict:
     """Call GPT to evaluate whether an alert is interesting.
+
+    If `alert_text` is provided, it is used directly (skipping `_build_prompt`).
+    This lets callers build the prompt on a thread that owns the SQLite
+    connection while running the LLM call from a worker thread.
 
     Returns a dict with keys: interesting, summary, bullets, copy_action.
     """
@@ -505,38 +507,36 @@ def evaluate_alert(alert: dict) -> dict:
         return {"interesting": False, "summary": "", "bullets": [], "copy_action": {}}
 
     client = OpenAI(base_url=AZURE_OPENAI_ENDPOINT, api_key=AZURE_OPENAI_API_KEY)
-    alert_text = _build_prompt(alert)
+    if alert_text is None:
+        alert_text = _build_prompt(alert)
 
+    # Logged in chat-style for compatibility with the existing JSONL log
+    # consumers; the API itself receives instructions + input separately.
     messages = [
-        {
-            "role": "developer",
-            "content": SYSTEM_PROMPT,
-        },
-        {
-            "role": "user",
-            "content": alert_text,
-        },
+        {"role": "developer", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": alert_text},
     ]
 
     cache_key = alert.get("llm_cache_key") or alert.get("dedup_key", "")
     _log_prompt(messages, MODEL, cache_key)
 
-    response = client.chat.completions.create(
+    response = client.responses.create(
         model=MODEL,
-        max_completion_tokens=16000,
-        messages=messages,
-        response_format=RESPONSE_SCHEMA,
+        max_output_tokens=16000,
+        instructions=SYSTEM_PROMPT,
+        input=alert_text,
+        text={"format": RESPONSE_FORMAT},
     )
 
     usage = response.usage
     cached_tokens = 0
-    if usage and usage.prompt_tokens_details:
-        cached_tokens = getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
-    prompt_tokens = usage.prompt_tokens if usage else 0
-    completion_tokens = usage.completion_tokens if usage else 0
+    if usage and usage.input_tokens_details:
+        cached_tokens = getattr(usage.input_tokens_details, "cached_tokens", 0) or 0
+    prompt_tokens = usage.input_tokens if usage else 0
+    completion_tokens = usage.output_tokens if usage else 0
     reasoning_tokens = 0
-    if usage and getattr(usage, "completion_tokens_details", None):
-        reasoning_tokens = getattr(usage.completion_tokens_details, "reasoning_tokens", 0) or 0
+    if usage and getattr(usage, "output_tokens_details", None):
+        reasoning_tokens = getattr(usage.output_tokens_details, "reasoning_tokens", 0) or 0
 
     if cached_tokens:
         print(f"[llm_filter] Cache hit: {cached_tokens}/{prompt_tokens} prompt tokens from cache")
@@ -557,23 +557,23 @@ def evaluate_alert(alert: dict) -> dict:
         "copy_action": {},
     }
 
-    try:
-        choice = response.choices[0]
-    except (IndexError, AttributeError) as e:
-        print(f"[llm_filter] WARNING: Malformed response object: {e}")
-        _log_failure(cache_key, alert_text, None, None, usage_dict, error=f"malformed_response: {e}")
-        return inconclusive
+    text = response.output_text
+    status = response.status
+    incomplete_reason = (
+        response.incomplete_details.reason if response.incomplete_details else None
+    )
 
-    text = choice.message.content
-    finish_reason = choice.finish_reason
-
-    if finish_reason == "length" or not text:
+    if status == "incomplete" or not text:
         print(
-            f"[llm_filter] WARNING: empty response (finish_reason={finish_reason}, "
+            f"[llm_filter] WARNING: empty response (status={status}, "
+            f"incomplete_reason={incomplete_reason}, "
             f"completion_tokens={completion_tokens}, reasoning_tokens={reasoning_tokens}) — "
-            f"likely hit max_completion_tokens"
+            f"likely hit max_output_tokens"
         )
-        _log_failure(cache_key, alert_text, finish_reason, text, usage_dict, error="empty_or_truncated")
+        _log_failure(
+            cache_key, alert_text, incomplete_reason or status, text, usage_dict,
+            error="empty_or_truncated",
+        )
         return inconclusive
 
     try:
@@ -627,11 +627,15 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
     ]
 
     # Phase 2: parallel LLM calls for the cache misses.
+    # Build prompts up front on the main thread — `_build_prompt` reads from
+    # SQLite (wallet PnL, positions), and the connection is bound to the
+    # thread that opened it. Workers only do the OpenAI call.
     miss_indices = [i for i, ce in enumerate(cached_evals) if ce is None]
+    prebuilt_prompts: dict[int, str] = {idx: _build_prompt(alerts[idx]) for idx in miss_indices}
 
     def _eval(idx: int) -> tuple[int, dict | None, Exception | None]:
         try:
-            return (idx, evaluate_alert(alerts[idx]), None)
+            return (idx, evaluate_alert(alerts[idx], prebuilt_prompts[idx]), None)
         except Exception as e:
             return (idx, None, e)
 

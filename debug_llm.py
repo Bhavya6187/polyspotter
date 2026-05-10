@@ -7,7 +7,7 @@ import sys
 from openai import OpenAI
 from dotenv import load_dotenv
 
-from llm_filter import SYSTEM_PROMPT, RESPONSE_SCHEMA, _build_prompt, MODEL
+from llm_filter import SYSTEM_PROMPT, RESPONSE_FORMAT, _build_prompt, MODEL
 from db import get_llm_evaluation, save_llm_evaluation
 
 load_dotenv()
@@ -48,22 +48,20 @@ client = OpenAI(base_url=AZURE_OPENAI_ENDPOINT, api_key=AZURE_OPENAI_API_KEY)
 def call_llm(prompt, label):
     """Make an API call and print cache token usage."""
     print(f"=== {label} ===")
-    response = client.chat.completions.create(
+    response = client.responses.create(
         model=MODEL,
-        max_completion_tokens=2000,
-        messages=[
-            {"role": "developer", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
-        response_format=RESPONSE_SCHEMA,
+        max_output_tokens=2000,
+        instructions=SYSTEM_PROMPT,
+        input=prompt,
+        text={"format": RESPONSE_FORMAT},
     )
 
     usage = response.usage
     cached_tokens = 0
-    if usage and usage.prompt_tokens_details:
-        cached_tokens = getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
-    prompt_tokens = usage.prompt_tokens if usage else 0
-    completion_tokens = usage.completion_tokens if usage else 0
+    if usage and usage.input_tokens_details:
+        cached_tokens = getattr(usage.input_tokens_details, "cached_tokens", 0) or 0
+    prompt_tokens = usage.input_tokens if usage else 0
+    completion_tokens = usage.output_tokens if usage else 0
 
     print(f"  Prompt tokens:     {prompt_tokens}")
     print(f"  Completion tokens: {completion_tokens}")
@@ -74,7 +72,7 @@ def call_llm(prompt, label):
     else:
         print(f"  -> NO CACHE HIT (0/{prompt_tokens} tokens cached)")
 
-    text = response.choices[0].message.content
+    text = response.output_text
     result = json.loads(text)
     print(f"  Result: interesting={result['interesting']}, summary={result['summary']}")
     print()

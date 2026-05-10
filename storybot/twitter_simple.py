@@ -235,20 +235,17 @@ def write_tweet(llm_client, seed_alerts: list[dict], *,
         f"Alerts from the last ~3 hours ({len(compact)} rows), sorted by "
         f"composite_score:\n\n{json.dumps(compact, default=str, indent=2)}"
     )
-    response = llm_client.chat.completions.create(
+    response = llm_client.responses.create(
         model=MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_msg},
-        ],
-        temperature=1,
-        max_completion_tokens=20000,
-        reasoning_effort="high",
-        response_format={"type": "json_object"},
+        instructions=SYSTEM_PROMPT,
+        input=user_msg,
+        max_output_tokens=20000,
+        reasoning={"effort": "high"},
+        text={"format": {"type": "json_object"}},
     )
     if usage is not None:
         _accumulate_usage(usage, response)
-    content = response.choices[0].message.content or "{}"
+    content = response.output_text or "{}"
     try:
         return json.loads(content)
     except json.JSONDecodeError as exc:

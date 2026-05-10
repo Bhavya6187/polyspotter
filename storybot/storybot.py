@@ -285,7 +285,8 @@ _BACKENDS = {
 
 
 TOOL_SCHEMAS = [
-    {"type": "function", "function": {
+    {
+        "type": "function",
         "name": "query",
         "description": (
             "Fetch data for research. Describe WHAT you want in `intent` (plain "
@@ -320,7 +321,7 @@ TOOL_SCHEMAS = [
                 },
             },
         },
-    }},
+    },
 ]
 
 
@@ -1014,23 +1015,20 @@ def pick_story(llm_client, seed_alerts: list[dict], *,
         f"composite_score:\n\n{json.dumps(compact, default=str, indent=2)}"
     )
     t0 = time.monotonic()
-    response = llm_client.chat.completions.create(
+    response = llm_client.responses.create(
         model=MODEL,
-        messages=[
-            {"role": "system", "content": PICKER_SYSTEM_PROMPT},
-            {"role": "user", "content": user_msg},
-        ],
-        temperature=1,
-        max_completion_tokens=10000,
-        reasoning_effort="high",
-        response_format={"type": "json_object"},
+        instructions=PICKER_SYSTEM_PROMPT,
+        input=user_msg,
+        max_output_tokens=10000,
+        reasoning={"effort": "high"},
+        text={"format": {"type": "json_object"}},
     )
     elapsed_ms = int((time.monotonic() - t0) * 1000)
     if usage is not None:
         _accumulate_usage(usage, response)
     if timings is not None:
         timings.append({"stage": "pick", "ms": elapsed_ms})
-    content = response.choices[0].message.content or "{}"
+    content = response.output_text or "{}"
     try:
         return json.loads(content)
     except json.JSONDecodeError as exc:
@@ -1072,16 +1070,17 @@ class AgentError(Exception):
     pass
 
 
-def _assistant_tool_message(msg) -> dict:
-    return {
-        "role": "assistant",
-        "content": msg.content,
-        "tool_calls": [
-            {"id": c.id, "type": "function",
-             "function": {"name": c.function.name, "arguments": c.function.arguments}}
-            for c in msg.tool_calls
-        ],
-    }
+def _serialize_output_item(item) -> dict:
+    """Convert a Responses-API output item (Pydantic model) into a dict.
+
+    Items in `response.output` (function_call, reasoning, message, ...) must
+    be carried back as input on the next iteration so the model preserves
+    its reasoning context. Serializing here keeps the transcript JSON-dumpable
+    for `_dump_transcript`.
+    """
+    if hasattr(item, "model_dump"):
+        return item.model_dump(mode="json")
+    return item
 
 
 def run_agent(llm_client, *, chosen_alerts: list[dict],
@@ -1094,14 +1093,17 @@ def run_agent(llm_client, *, chosen_alerts: list[dict],
               json_retry_hint: str | None = None,
               max_tool_calls: int = MAX_TOOL_CALLS,
               max_iterations: int = MAX_ITERATIONS) -> dict:
-    """Drive the function-calling loop until the LLM emits final JSON.
+    """Drive the Responses-API function-calling loop until the LLM emits final JSON.
 
     `chosen_alerts` is the 1+ alerts already picked by `pick_story()` (all
     sharing one `event_slug` when >1); they're injected into the kickoff
     user message so the researcher can go straight to digging.
 
-    If `transcript` is provided, every message (system, user, assistant, tool)
-    is appended in-place — caller retains the full transcript even if we raise.
+    If `transcript` is provided, every input item (user, model output items,
+    tool outputs) is appended in-place — caller retains the full transcript
+    even if we raise. The system prompt itself is sent via the API's
+    `instructions` parameter and is not stored in the transcript.
+
     If `usage` is provided, per-request token totals are accumulated in-place
     — caller retains partial usage even if we raise.
     If `timings` is provided, one entry is appended per research iteration
@@ -1120,12 +1122,15 @@ def run_agent(llm_client, *, chosen_alerts: list[dict],
     that persist per-call traces in their run JSON.
     """
     scope = _derive_scope(chosen_alerts)
-    messages: list[dict] = transcript if transcript is not None else []
-    messages.append({"role": "system", "content": system_prompt})
+    transcript = transcript if transcript is not None else []
     if kickoff_message is None:
         prefetched = prefetch_bundle(scope)
         kickoff_message = build_kickoff_message(chosen_alerts, prefetched=prefetched)
-    messages.append({"role": "user", "content": kickoff_message})
+    transcript.append({
+        "type": "message",
+        "role": "user",
+        "content": kickoff_message,
+    })
     calls_used = 0
     forcing_final = False
     final_json_retries = 0
@@ -1134,26 +1139,33 @@ def run_agent(llm_client, *, chosen_alerts: list[dict],
 
     for iter_idx in range(max_iterations):
         remaining = max_tool_calls - calls_used
-        kwargs = {
+        kwargs: dict = {
             "model": MODEL,
-            "messages": messages,
-            "tools": TOOL_SCHEMAS,
-            "temperature": 1,
-            "max_completion_tokens": 12000,
+            "instructions": system_prompt,
+            "input": transcript,
+            "max_output_tokens": 12000,
         }
         if remaining > 0 and not forcing_final:
+            kwargs["tools"] = TOOL_SCHEMAS
             kwargs["tool_choice"] = "auto"
         else:
-            kwargs["tool_choice"] = "none"
-            kwargs["response_format"] = {"type": "json_object"}
+            # Drop `tools` entirely to force a final answer; cleaner than
+            # tool_choice="none", which Azure rejects unless `tools` is also set.
+            kwargs["text"] = {"format": {"type": "json_object"}}
 
         t_llm = time.monotonic()
-        response = llm_client.chat.completions.create(**kwargs)
+        response = llm_client.responses.create(**kwargs)
         llm_ms = int((time.monotonic() - t_llm) * 1000)
         if usage is not None:
             _accumulate_usage(usage, response)
-        msg = response.choices[0].message
-        tool_calls = getattr(msg, "tool_calls", None)
+
+        output_items = list(response.output or [])
+        # Carry every output item (reasoning, function_call, message) back into
+        # the transcript so reasoning context survives the next request.
+        for item in output_items:
+            transcript.append(_serialize_output_item(item))
+        tool_calls = [it for it in output_items
+                      if getattr(it, "type", None) == "function_call"]
 
         iter_timing = {"stage": "research_iter", "iter": iter_idx + 1,
                        "llm_ms": llm_ms, "tool_calls": []}
@@ -1161,48 +1173,48 @@ def run_agent(llm_client, *, chosen_alerts: list[dict],
             timings.append(iter_timing)
 
         if tool_calls:
-            messages.append(_assistant_tool_message(msg))
             dispatched = 0
             for call in tool_calls:
                 try:
-                    args = json.loads(call.function.arguments or "{}")
+                    args = json.loads(call.arguments or "{}")
                 except json.JSONDecodeError as exc:
                     env = _envelope(error=f"bad arguments JSON: {exc}")
                     tool_ms = 0
                 else:
                     if not forcing_final and dispatched < remaining:
                         t_tool = time.monotonic()
-                        env = dispatch(call.function.name, args)
+                        env = dispatch(call.name, args)
                         tool_ms = int((time.monotonic() - t_tool) * 1000)
                         dispatched += 1
                     else:
                         env = _envelope(error="tool budget exhausted")
                         tool_ms = 0
                 iter_timing["tool_calls"].append({
-                    "name": call.function.name,
+                    "name": call.name,
                     "ms": tool_ms,
                     "error": env.get("error"),
                     "truncated": env.get("truncated", False),
                 })
                 if on_tool_call is not None:
-                    on_tool_call(call.function.name,
+                    on_tool_call(call.name,
                                  args if isinstance(args, dict) else {},
                                  env, tool_ms)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": call.id,
-                    "content": json.dumps(env, default=str),
+                transcript.append({
+                    "type": "function_call_output",
+                    "call_id": call.call_id,
+                    "output": json.dumps(env, default=str),
                 })
             calls_used += dispatched
             if calls_used >= max_tool_calls and not forcing_final:
                 forcing_final = True
-                messages.append({
+                transcript.append({
+                    "type": "message",
                     "role": "user",
                     "content": "Tool budget exhausted. Return your final JSON decision now.",
                 })
             continue
 
-        content = msg.content or ""
+        content = response.output_text or ""
         try:
             return json.loads(content)
         except json.JSONDecodeError as exc:
@@ -1214,12 +1226,14 @@ def run_agent(llm_client, *, chosen_alerts: list[dict],
                     "alert_ids": None,
                 }
             final_json_retries += 1
-            messages.append({"role": "assistant", "content": content})
+            # The model's prior assistant message is already in `transcript`
+            # (appended above as part of `response.output`).
             hint = json_retry_hint or (
                 "Respond with exactly one JSON object and nothing else, "
                 "matching the schema described in your system prompt."
             )
-            messages.append({
+            transcript.append({
+                "type": "message",
                 "role": "user",
                 "content": "Your previous response was empty or not valid JSON. " + hint,
             })

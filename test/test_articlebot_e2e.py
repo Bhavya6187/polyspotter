@@ -12,13 +12,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "storybot"))
 
 
 def _make_llm_response(content: str):
+    """Build a Responses-API style response stub.
+
+    `output_text` is the convenience field consumed by callers; `output` is
+    an empty list because the agent loop also walks it to carry items into
+    the next turn (no tool calls means no items to carry forward in this
+    fixture).
+    """
     return SimpleNamespace(
-        choices=[SimpleNamespace(
-            message=SimpleNamespace(content=content, tool_calls=None),
-        )],
+        output_text=content,
+        output=[],
         usage=SimpleNamespace(
-            prompt_tokens=10, completion_tokens=5, total_tokens=15,
-            prompt_tokens_details=None, completion_tokens_details=None,
+            input_tokens=10, output_tokens=5, total_tokens=15,
+            input_tokens_details=None, output_tokens_details=None,
         ),
     )
 
@@ -86,9 +92,9 @@ def test_articlebot_main_e2e_post(tmp_path, monkeypatch):
         _make_llm_response(_PICK_STAGE2),
         _make_llm_response(_FINAL_DECISION_JSON),
     ])
-    fake_completions = MagicMock()
-    fake_completions.create = lambda **_kw: next(llm_responses)
-    fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+    fake_responses = MagicMock()
+    fake_responses.create = lambda **_kw: next(llm_responses)
+    fake_client = SimpleNamespace(responses=fake_responses)
     monkeypatch.setattr(articlebot, "OpenAI", lambda **_kw: fake_client)
 
     # Stub storybot's prefetch + dispatcher (no real Postgres / Gamma during agent)
@@ -193,9 +199,9 @@ def _make_validation_retry_harness(monkeypatch, tmp_path, agent_response, retry_
         _make_llm_response(agent_response),
         _make_llm_response(retry_response),
     ])
-    fake_completions = MagicMock()
-    fake_completions.create = lambda **_kw: next(llm_responses)
-    fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+    fake_responses = MagicMock()
+    fake_responses.create = lambda **_kw: next(llm_responses)
+    fake_client = SimpleNamespace(responses=fake_responses)
     monkeypatch.setattr(articlebot, "OpenAI", lambda **_kw: fake_client)
 
     monkeypatch.setattr(storybot, "prefetch_bundle", lambda scope: {})

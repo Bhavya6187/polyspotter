@@ -574,7 +574,7 @@ def test_call_gamma_api_rejects_external_path_injection():
 
 def test_tool_schemas_include_all_16_tools():
     schemas = agent.TOOL_SCHEMAS
-    names = {s["function"]["name"] for s in schemas}
+    names = {s["name"] for s in schemas}
     expected = {
         "get_wallet_profile", "get_alert_detail", "get_market_price_history",
         "get_market_holders", "get_market_alerts", "get_event_alerts",
@@ -589,8 +589,8 @@ def test_tool_schemas_include_all_16_tools():
 
 def test_tool_schemas_every_tool_has_projection_param():
     for s in agent.TOOL_SCHEMAS:
-        params = s["function"]["parameters"]["properties"]
-        assert "projection" in params, f"{s['function']['name']} missing projection"
+        params = s["parameters"]["properties"]
+        assert "projection" in params, f"{s['name']} missing projection"
 
 
 def test_dispatch_calls_tool_with_projection():
@@ -651,52 +651,67 @@ def _shortlist(*alert_ids, mode="single", angles=None):
 
 
 class FakeLLMWithTools:
-    """LLM fake that emits either tool_calls or a final content per scripted step.
+    """Responses-API LLM fake that emits either function_call output items or
+    final JSON content per scripted step.
 
     `script` is a list of either:
       - list of (tool_name, arguments_dict) — the model requests those tool calls
-      - dict — final JSON decision (returned as message.content)
+      - dict — final JSON decision (returned as response.output_text)
+      - str — raw text (for malformed-JSON tests)
     """
 
     def __init__(self, script):
         self._script = list(script)
-        self.call_log = []  # List of dicts mirroring create() kwargs (minus messages)
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+        self.call_log = []  # List of dicts mirroring create() kwargs (minus input)
+        self.responses = SimpleNamespace(create=self._create)
 
     def _create(self, **kwargs):
-        self.call_log.append({k: v for k, v in kwargs.items() if k != "messages"})
+        self.call_log.append({k: v for k, v in kwargs.items() if k != "input"})
         if not self._script:
             raise RuntimeError("FakeLLMWithTools script exhausted")
         step = self._script.pop(0)
 
         if isinstance(step, dict):
-            # Final JSON content response, no tool calls.
-            msg = SimpleNamespace(
-                content=json.dumps(step),
-                tool_calls=None,
-                role="assistant",
-            )
-            return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+            return SimpleNamespace(output_text=json.dumps(step), output=[])
 
         if isinstance(step, str):
-            # Raw string content (for malformed JSON tests).
-            msg = SimpleNamespace(
-                content=step,
-                tool_calls=None,
-                role="assistant",
-            )
-            return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+            return SimpleNamespace(output_text=step, output=[])
 
-        # Tool-call step.
+        # Tool-call step. Each item mimics a Responses-API function_call output
+        # item. `model_dump` returns a JSON-serializable dict so the agent loop
+        # can carry the item back into the next request's `input`.
         tc = []
         for i, (name, args) in enumerate(step):
-            tc.append(SimpleNamespace(
-                id=f"call_{len(self.call_log)}_{i}",
-                type="function",
-                function=SimpleNamespace(name=name, arguments=json.dumps(args)),
+            call_id = f"call_{len(self.call_log)}_{i}"
+            item_id = f"fc_{len(self.call_log)}_{i}"
+            arguments = json.dumps(args)
+            tc.append(_FakeFunctionCallItem(
+                id=item_id, call_id=call_id, name=name, arguments=arguments,
             ))
-        msg = SimpleNamespace(content=None, tool_calls=tc, role="assistant")
-        return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        return SimpleNamespace(output_text="", output=tc)
+
+
+class _FakeFunctionCallItem(SimpleNamespace):
+    """Stand-in for openai.types.responses.ResponseFunctionToolCall.
+
+    Carries the four attributes the agent loop reads off the item plus a
+    `model_dump` method so the loop can JSON-serialize it back into input.
+    """
+
+    def __init__(self, *, id, call_id, name, arguments):
+        super().__init__(
+            type="function_call", id=id, call_id=call_id,
+            name=name, arguments=arguments,
+        )
+
+    def model_dump(self, mode=None):
+        return {
+            "type": "function_call",
+            "id": self.id,
+            "call_id": self.call_id,
+            "name": self.name,
+            "arguments": self.arguments,
+        }
 
 
 def _alert(**overrides):
@@ -786,9 +801,11 @@ def test_compose_tweet_exhausts_budget_forcing_final_json():
     )
 
     assert result["decision"] == "skip"
-    # After budget exhaustion, the next LLM call should force tool_choice='none'.
+    # After budget exhaustion, the next LLM call should drop `tools` entirely
+    # (the Responses-API equivalent of forcing the model away from tool calls).
     last_call = llm.call_log[-1]
-    assert last_call.get("tool_choice") == "none"
+    assert "tools" not in last_call
+    assert last_call.get("text") == {"format": {"type": "json_object"}}
 
 
 def test_compose_tweet_single_turn_over_budget_truncates_dispatched():
@@ -888,14 +905,14 @@ def test_compose_tweet_user_message_includes_condition_id_and_event_slug():
     }])
     deps = agent.ToolDeps(http=None, api_url=None, db_conn_pg=None, db_conn_sqlite=None)
 
-    # We don't directly inspect messages in the fake — instead, capture via a
-    # subclass that records the messages list.
+    # We don't directly inspect input items in the fake — instead, capture via
+    # a wrapper that records the input list passed to responses.create().
     captured = {}
-    orig_create = llm.chat.completions.create
+    orig_create = llm.responses.create
     def wrapped(**kwargs):
-        captured["messages"] = kwargs.get("messages")
+        captured["input"] = kwargs.get("input")
         return orig_create(**kwargs)
-    llm.chat.completions.create = wrapped
+    llm.responses.create = wrapped
 
     agent.compose_tweet(
         [
@@ -906,7 +923,7 @@ def test_compose_tweet_user_message_includes_condition_id_and_event_slug():
         shortlist_decision=_shortlist(1, 2),
     )
 
-    user_msg = next(m for m in captured["messages"] if m["role"] == "user")
+    user_msg = next(m for m in captured["input"] if m.get("role") == "user")
     assert "0xunique-for-id-1" in user_msg["content"]
     assert "my-ev" in user_msg["content"]
 
@@ -923,11 +940,11 @@ def test_compose_tweet_filters_top_alerts_to_shortlist():
         "decision": "skip", "reason": "x", "alert_ids": None,
         "tweet": None, "is_composite": False,
     }])
-    orig_create = llm.chat.completions.create
+    orig_create = llm.responses.create
     def wrapped(**kwargs):
-        captured["messages"] = kwargs.get("messages")
+        captured["input"] = kwargs.get("input")
         return orig_create(**kwargs)
-    llm.chat.completions.create = wrapped
+    llm.responses.create = wrapped
 
     deps = agent.ToolDeps(http=None, api_url=None, db_conn_pg=None, db_conn_sqlite=None)
     agent.compose_tweet(
@@ -935,7 +952,7 @@ def test_compose_tweet_filters_top_alerts_to_shortlist():
         llm_client=llm, deps=deps,
         shortlist_decision=_shortlist(1, 3),  # only 1 and 3 are shortlisted
     )
-    user_msg = next(m for m in captured["messages"] if m["role"] == "user")
+    user_msg = next(m for m in captured["input"] if m.get("role") == "user")
     parsed = json.loads(user_msg["content"])
     ids = {int(a["alert_id"]) for a in parsed["alerts"]}
     assert ids == {1, 3}
@@ -947,11 +964,11 @@ def test_compose_tweet_user_message_includes_selection_mode_and_angles():
         "decision": "skip", "reason": "x", "alert_ids": None,
         "tweet": None, "is_composite": False,
     }])
-    orig_create = llm.chat.completions.create
+    orig_create = llm.responses.create
     def wrapped(**kwargs):
-        captured["messages"] = kwargs.get("messages")
+        captured["input"] = kwargs.get("input")
         return orig_create(**kwargs)
-    llm.chat.completions.create = wrapped
+    llm.responses.create = wrapped
 
     deps = agent.ToolDeps(http=None, api_url=None, db_conn_pg=None, db_conn_sqlite=None)
     sd = _shortlist(1, 2, mode="composite", angles={1: "wallet A", 2: "wallet B same funder"})
@@ -959,7 +976,7 @@ def test_compose_tweet_user_message_includes_selection_mode_and_angles():
         [_alert(id=1), _alert(id=2)],
         llm_client=llm, deps=deps, shortlist_decision=sd,
     )
-    user_msg = next(m for m in captured["messages"] if m["role"] == "user")
+    user_msg = next(m for m in captured["input"] if m.get("role") == "user")
     parsed = json.loads(user_msg["content"])
     assert parsed["selection"]["mode"] == "composite"
     assert parsed["selection"]["angles"]["1"] == "wallet A"
@@ -1142,13 +1159,13 @@ def test_validate_shortlist_composite_with_two_items_succeeds():
 # ============================================================================
 
 class FakeStage1LLM:
-    """One-shot LLM fake. Returns the scripted content on first .create() call."""
+    """One-shot Responses-API LLM fake. Returns the scripted text on first .create()."""
 
     def __init__(self, response):
         # response: dict (returned as JSON content) or str (returned raw)
         self._response = response
         self.calls = []
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+        self.responses = SimpleNamespace(create=self._create)
 
     def _create(self, **kwargs):
         self.calls.append(kwargs)
@@ -1156,8 +1173,7 @@ class FakeStage1LLM:
             content = json.dumps(self._response)
         else:
             content = self._response
-        msg = SimpleNamespace(content=content, tool_calls=None, role="assistant")
-        return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        return SimpleNamespace(output_text=content, output=[])
 
 
 def _stage1_alert(**overrides):
@@ -1227,7 +1243,7 @@ def test_select_shortlist_makes_exactly_one_llm_call_with_json_mode():
     assert len(llm.calls) == 1
     call = llm.calls[0]
     assert call["model"] == agent.MODEL
-    assert call["response_format"] == {"type": "json_object"}
+    assert call["text"] == {"format": {"type": "json_object"}}
     assert "tools" not in call  # stage 1 has no tools
 
 
@@ -1239,17 +1255,18 @@ def test_select_shortlist_user_message_includes_editorial_alert_fields():
         [_stage1_alert(id=42, market_title="Tigers vs Red Sox", win_rate=0.91)],
         llm_client=llm,
     )
-    user_msg = next(m for m in llm.calls[0]["messages"] if m["role"] == "user")
+    # The Responses-API call passes the user content directly as `input`.
+    user_text = llm.calls[0]["input"]
     # Required fields appear:
-    assert "42" in user_msg["content"]
-    assert "Tigers vs Red Sox" in user_msg["content"]
+    assert "42" in user_text
+    assert "Tigers vs Red Sox" in user_text
     # Editorial fields are now included:
-    assert "llm_bullets" in user_msg["content"]
-    assert "llm_copy_action" in user_msg["content"]
-    assert "signals" in user_msg["content"]
-    assert "recently_tweeted_wallet" in user_msg["content"]
+    assert "llm_bullets" in user_text
+    assert "llm_copy_action" in user_text
+    assert "signals" in user_text
+    assert "recently_tweeted_wallet" in user_text
     # Trade-level detail still excluded:
-    assert "market_description" not in user_msg["content"]
+    assert "market_description" not in user_text
 
 
 def test_select_shortlist_raises_on_empty_content():
@@ -1258,12 +1275,11 @@ def test_select_shortlist_raises_on_empty_content():
     class EmptyContentLLM:
         def __init__(self):
             self.calls = []
-            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+            self.responses = SimpleNamespace(create=self._create)
 
         def _create(self, **kwargs):
             self.calls.append(kwargs)
-            msg = SimpleNamespace(content=None, tool_calls=None, role="assistant")
-            return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+            return SimpleNamespace(output_text=None, output=[])
 
     llm = EmptyContentLLM()
     with pytest.raises(agent.ShortlistValidationError, match="empty"):

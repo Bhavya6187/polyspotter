@@ -79,7 +79,7 @@ def test_fetch_24h_event_summaries_preserves_alert_signals_field():
 from types import SimpleNamespace
 
 
-class _FakeCompletions:
+class _FakeResponses:
     def __init__(self, contents):
         self._contents = list(contents)
         self.calls = 0
@@ -90,18 +90,25 @@ class _FakeCompletions:
         self.last_kwargs = kwargs
         content = self._contents.pop(0) if self._contents else "{}"
         return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content=content))],
+            output_text=content,
+            output=[],
             usage=SimpleNamespace(
-                prompt_tokens=10, completion_tokens=5, total_tokens=15,
-                prompt_tokens_details=None, completion_tokens_details=None,
+                input_tokens=10, output_tokens=5, total_tokens=15,
+                input_tokens_details=None, output_tokens_details=None,
             ),
         )
 
 
 class _FakeClient:
     def __init__(self, contents):
-        self.completions = _FakeCompletions(contents)
-        self.chat = SimpleNamespace(completions=self.completions)
+        self.responses = _FakeResponses(contents)
+
+    @property
+    def completions(self):
+        # Back-compat shim: the existing tests inspect `.completions.calls` and
+        # `.completions.last_kwargs`. The Responses-API fake exposes the same
+        # attributes via `self.responses`.
+        return self.responses
 
 
 def _ev(slug, score=5.0):
@@ -188,7 +195,7 @@ def test_pick_final_event_passes_recent_slugs_to_prompt():
     articlebot.pick_final_event(client, finalists,
                                 recent_event_slugs=["already-covered"])
 
-    user_msg = client.completions.last_kwargs["messages"][1]["content"]
+    user_msg = client.responses.last_kwargs["input"]
     assert "already-covered" in user_msg
 
 
@@ -323,18 +330,17 @@ def test_pick_final_event_attaches_wallet_stats_to_alerts():
     captured = {}
 
     def _capture_create(**kwargs):
-        captured["messages"] = kwargs["messages"]
+        captured["input"] = kwargs["input"]
         return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(
-                content='{"decision":"skip","event_slug":null,"alert_ids":null,"reason":"r"}'))],
+            output_text='{"decision":"skip","event_slug":null,"alert_ids":null,"reason":"r"}',
+            output=[],
             usage=SimpleNamespace(
-                prompt_tokens=1, completion_tokens=1, total_tokens=2,
-                prompt_tokens_details=None, completion_tokens_details=None,
+                input_tokens=1, output_tokens=1, total_tokens=2,
+                input_tokens_details=None, output_tokens_details=None,
             ),
         )
 
-    client = SimpleNamespace(chat=SimpleNamespace(
-        completions=SimpleNamespace(create=_capture_create)))
+    client = SimpleNamespace(responses=SimpleNamespace(create=_capture_create))
 
     wallet_stats = {
         "0xsharp": {"win_rate": 0.8, "closed_positions": 50,
@@ -348,8 +354,9 @@ def test_pick_final_event_attaches_wallet_stats_to_alerts():
     articlebot.pick_final_event(client, finalists, recent_event_slugs=[],
                                 wallet_stats=wallet_stats)
 
-    user_msg = captured["messages"][1]["content"]
-    # Both wallets' stats appear in the JSON payload sent to the picker.
+    # Stage-2 sends the user payload as a plain `input` string (system prompt
+    # goes via `instructions`); both wallets' stats appear in that JSON.
+    user_msg = captured["input"]
     assert '"wallet_stats"' in user_msg
     assert '"roi_pct": 25.0' in user_msg
     assert '"roi_pct": 3.87' in user_msg
@@ -375,22 +382,21 @@ def test_pick_final_event_passes_through_when_no_wallet_stats():
     captured = {}
 
     def _capture_create(**kwargs):
-        captured["messages"] = kwargs["messages"]
+        captured["input"] = kwargs["input"]
         return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(
-                content='{"decision":"skip","event_slug":null,"alert_ids":null,"reason":"r"}'))],
+            output_text='{"decision":"skip","event_slug":null,"alert_ids":null,"reason":"r"}',
+            output=[],
             usage=SimpleNamespace(
-                prompt_tokens=1, completion_tokens=1, total_tokens=2,
-                prompt_tokens_details=None, completion_tokens_details=None,
+                input_tokens=1, output_tokens=1, total_tokens=2,
+                input_tokens_details=None, output_tokens_details=None,
             ),
         )
 
-    client = SimpleNamespace(chat=SimpleNamespace(
-        completions=SimpleNamespace(create=_capture_create)))
+    client = SimpleNamespace(responses=SimpleNamespace(create=_capture_create))
 
     articlebot.pick_final_event(client, finalists, recent_event_slugs=[])
 
-    assert "wallet_stats" not in captured["messages"][1]["content"]
+    assert "wallet_stats" not in captured["input"]
 
 
 def test_picker_stage2_prompt_documents_mm_heuristic():
@@ -447,18 +453,17 @@ def test_run_agent_does_not_double_prefetch_when_kickoff_message_provided():
 
     def _fake_response():
         return SimpleNamespace(
-            choices=[SimpleNamespace(
-                message=SimpleNamespace(content=final_json, tool_calls=None),
-            )],
+            output_text=final_json,
+            output=[],
             usage=SimpleNamespace(
-                prompt_tokens=5, completion_tokens=5, total_tokens=10,
-                prompt_tokens_details=None, completion_tokens_details=None,
+                input_tokens=5, output_tokens=5, total_tokens=10,
+                input_tokens_details=None, output_tokens_details=None,
             ),
         )
 
-    fake_completions = MagicMock()
-    fake_completions.create.return_value = _fake_response()
-    fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+    fake_responses = MagicMock()
+    fake_responses.create.return_value = _fake_response()
+    fake_client = SimpleNamespace(responses=fake_responses)
 
     mock_prefetch = MagicMock(return_value={})
     with patch.object(storybot, "prefetch_bundle", mock_prefetch):

@@ -42,43 +42,41 @@ SYSTEM_PROMPT = (
     "- seo_faqs (array of objects with 'question' and 'answer' keys): 3-5 FAQ pairs\n"
 )
 
-RESPONSE_SCHEMA = {
+RESPONSE_FORMAT = {
     "type": "json_schema",
-    "json_schema": {
-        "name": "seo_content",
-        "strict": True,
-        "schema": {
-            "type": "object",
-            "properties": {
-                "seo_title": {
-                    "type": "string",
-                    "description": "Keyword-optimized page title, under 60 chars.",
-                },
-                "seo_description": {
-                    "type": "string",
-                    "description": "Click-optimized meta description, under 155 chars.",
-                },
-                "seo_summary": {
-                    "type": "string",
-                    "description": "2-3 sentence plain-language market explainer.",
-                },
-                "seo_faqs": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "question": {"type": "string"},
-                            "answer": {"type": "string"},
-                        },
-                        "required": ["question", "answer"],
-                        "additionalProperties": False,
-                    },
-                    "description": "3-5 FAQ pairs about this market.",
-                },
+    "name": "seo_content",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "seo_title": {
+                "type": "string",
+                "description": "Keyword-optimized page title, under 60 chars.",
             },
-            "required": ["seo_title", "seo_description", "seo_summary", "seo_faqs"],
-            "additionalProperties": False,
+            "seo_description": {
+                "type": "string",
+                "description": "Click-optimized meta description, under 155 chars.",
+            },
+            "seo_summary": {
+                "type": "string",
+                "description": "2-3 sentence plain-language market explainer.",
+            },
+            "seo_faqs": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "question": {"type": "string"},
+                        "answer": {"type": "string"},
+                    },
+                    "required": ["question", "answer"],
+                    "additionalProperties": False,
+                },
+                "description": "3-5 FAQ pairs about this market.",
+            },
         },
+        "required": ["seo_title", "seo_description", "seo_summary", "seo_faqs"],
+        "additionalProperties": False,
     },
 }
 
@@ -136,16 +134,14 @@ def generate_seo_content(
     )
 
     try:
-        response = client.chat.completions.create(
+        response = client.responses.create(
             model=MODEL,
-            max_completion_tokens=2000,
-            messages=[
-                {"role": "developer", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-            response_format=RESPONSE_SCHEMA,
+            max_output_tokens=2000,
+            instructions=SYSTEM_PROMPT,
+            input=user_prompt,
+            text={"format": RESPONSE_FORMAT},
         )
-        text = response.choices[0].message.content
+        text = response.output_text
         result = json.loads(text)
         return {
             "seo_title": result.get("seo_title", ""),

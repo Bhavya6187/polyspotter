@@ -560,7 +560,8 @@ def _projection_param() -> dict:
 
 
 TOOL_SCHEMAS: list[dict] = [
-    {"type": "function", "function": {
+    {
+        "type": "function",
         "name": "get_wallet_profile",
         "description": (
             "Profile + up to 10 recent alerts + up to 20 bet history items for a wallet. "
@@ -570,16 +571,18 @@ TOOL_SCHEMAS: list[dict] = [
             "wallet": {"type": "string"},
             "projection": _projection_param(),
         }},
-    }},
-    {"type": "function", "function": {
+    },
+    {
+        "type": "function",
         "name": "get_alert_detail",
         "description": "Full trades + signals for a single alert id.",
         "parameters": {"type": "object", "required": ["alert_id"], "properties": {
             "alert_id": {"type": "integer"},
             "projection": _projection_param(),
         }},
-    }},
-    {"type": "function", "function": {
+    },
+    {
+        "type": "function",
         "name": "get_market_price_history",
         "description": "Price candles for a market over the last N hours (default 24).",
         "parameters": {"type": "object", "required": ["condition_id"], "properties": {
@@ -587,16 +590,18 @@ TOOL_SCHEMAS: list[dict] = [
             "hours": {"type": "integer", "default": 24},
             "projection": _projection_param(),
         }},
-    }},
-    {"type": "function", "function": {
+    },
+    {
+        "type": "function",
         "name": "get_market_holders",
         "description": "Top holders per outcome for a market.",
         "parameters": {"type": "object", "required": ["condition_id"], "properties": {
             "condition_id": {"type": "string"},
             "projection": _projection_param(),
         }},
-    }},
-    {"type": "function", "function": {
+    },
+    {
+        "type": "function",
         "name": "get_market_alerts",
         "description": "Other PolySpotter alerts on the same market, highest score first.",
         "parameters": {"type": "object", "required": ["condition_id"], "properties": {
@@ -604,8 +609,9 @@ TOOL_SCHEMAS: list[dict] = [
             "limit": {"type": "integer", "default": 10},
             "projection": _projection_param(),
         }},
-    }},
-    {"type": "function", "function": {
+    },
+    {
+        "type": "function",
         "name": "get_event_alerts",
         "description": "Alerts on sibling markets in the same event (e.g., different props on the same game).",
         "parameters": {"type": "object", "required": ["event_slug"], "properties": {
@@ -613,16 +619,18 @@ TOOL_SCHEMAS: list[dict] = [
             "limit": {"type": "integer", "default": 20},
             "projection": _projection_param(),
         }},
-    }},
-    {"type": "function", "function": {
+    },
+    {
+        "type": "function",
         "name": "get_live_market",
         "description": "Live sports/event state (score, clock, phase) when available.",
         "parameters": {"type": "object", "required": ["condition_id"], "properties": {
             "condition_id": {"type": "string"},
             "projection": _projection_param(),
         }},
-    }},
-    {"type": "function", "function": {
+    },
+    {
+        "type": "function",
         "name": "get_theses",
         "description": (
             "Cross-market thesis groupings. Provide exactly one of wallet, condition_id, or event_slug."
@@ -633,8 +641,9 @@ TOOL_SCHEMAS: list[dict] = [
             "event_slug": {"type": "string"},
             "projection": _projection_param(),
         }},
-    }},
-    {"type": "function", "function": {
+    },
+    {
+        "type": "function",
         "name": "search_alerts_by_tag",
         "description": (
             "Alerts in the last N hours whose tags array contains the given tag. "
@@ -646,8 +655,9 @@ TOOL_SCHEMAS: list[dict] = [
             "limit": {"type": "integer", "default": 20},
             "projection": _projection_param(),
         }},
-    }},
-    {"type": "function", "function": {
+    },
+    {
+        "type": "function",
         "name": "get_wallet_pnl_positions",
         "description": "Per-position detail from polybot.db: outcome, avg_price, cur_price, realized_pnl, position_type.",
         "parameters": {"type": "object", "required": ["wallet"], "properties": {
@@ -655,16 +665,18 @@ TOOL_SCHEMAS: list[dict] = [
             "limit": {"type": "integer", "default": 20},
             "projection": _projection_param(),
         }},
-    }},
-    {"type": "function", "function": {
+    },
+    {
+        "type": "function",
         "name": "get_wallet_timing_pattern",
         "description": "How often this wallet bets near resolution: total_flags, distinct_markets, avg/min minutes.",
         "parameters": {"type": "object", "required": ["wallet"], "properties": {
             "wallet": {"type": "string"},
             "projection": _projection_param(),
         }},
-    }},
-    {"type": "function", "function": {
+    },
+    {
+        "type": "function",
         "name": "get_wallet_event_history",
         "description": "Every trade (flagged or not) this wallet made on a given event.",
         "parameters": {"type": "object", "required": ["wallet", "event_slug"], "properties": {
@@ -672,24 +684,27 @@ TOOL_SCHEMAS: list[dict] = [
             "event_slug": {"type": "string"},
             "projection": _projection_param(),
         }},
-    }},
-    {"type": "function", "function": {
+    },
+    {
+        "type": "function",
         "name": "get_funder_cluster",
         "description": "Wallets sharing a funder (Etherscan-derived) with this one.",
         "parameters": {"type": "object", "required": ["wallet"], "properties": {
             "wallet": {"type": "string"},
             "projection": _projection_param(),
         }},
-    }},
-    {"type": "function", "function": {
+    },
+    {
+        "type": "function",
         "name": "get_orderbook_snapshot",
         "description": "Most recent orderbook snapshot per outcome token (spread, depth, mid price).",
         "parameters": {"type": "object", "required": ["condition_id"], "properties": {
             "condition_id": {"type": "string"},
             "projection": _projection_param(),
         }},
-    }},
-    {"type": "function", "function": {
+    },
+    {
+        "type": "function",
         "name": "get_market_volume_history",
         "description": "Recent 24h-volume snapshots for a market, most recent first.",
         "parameters": {"type": "object", "required": ["condition_id"], "properties": {
@@ -697,8 +712,9 @@ TOOL_SCHEMAS: list[dict] = [
             "limit": {"type": "integer", "default": 50},
             "projection": _projection_param(),
         }},
-    }},
-    {"type": "function", "function": {
+    },
+    {
+        "type": "function",
         "name": "call_gamma_api",
         "description": (
             "Generic GET to https://gamma-api.polymarket.com. Allowed path prefixes: "
@@ -709,7 +725,7 @@ TOOL_SCHEMAS: list[dict] = [
             "params": {"type": "object"},
             "projection": _projection_param(),
         }},
-    }},
+    },
 ]
 
 
@@ -856,18 +872,14 @@ def select_shortlist(top_alerts: list[dict], *, llm_client) -> ShortlistDecision
     (twitter_bot.call_llm) is responsible for the fallback path.
     """
     valid_alert_ids = {int(a["id"]) for a in top_alerts}
-    messages = [
-        {"role": "system", "content": STAGE1_SYSTEM_PROMPT},
-        {"role": "user", "content": build_stage1_user_message(top_alerts)},
-    ]
-    response = llm_client.chat.completions.create(
+    response = llm_client.responses.create(
         model=MODEL,
-        messages=messages,
-        response_format={"type": "json_object"},
-        temperature=0.7,
-        max_completion_tokens=2000,
+        instructions=STAGE1_SYSTEM_PROMPT,
+        input=build_stage1_user_message(top_alerts),
+        text={"format": {"type": "json_object"}},
+        max_output_tokens=2000,
     )
-    content = response.choices[0].message.content
+    content = response.output_text
     if not content:
         exc = ShortlistValidationError("empty LLM response content")
         exc.raw_content = ""
@@ -1024,56 +1036,64 @@ def compose_tweet(
         "angles": {str(item.alert_id): item.angle for item in shortlist_decision.shortlist},
     }
 
-    messages: list[dict] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": build_user_message(filtered, selection=selection)},
+    transcript: list[dict] = [
+        {
+            "type": "message",
+            "role": "user",
+            "content": build_user_message(filtered, selection=selection),
+        },
     ]
     tool_calls_used = 0
     forcing_final = False
 
     for _ in range(MAX_ITERATIONS):
         remaining = MAX_TOOL_CALLS - tool_calls_used
-        call_kwargs = {
+        call_kwargs: dict = {
             "model": MODEL,
-            "messages": messages,
-            "tools": TOOL_SCHEMAS,
-            "temperature": 0.7,
-            "max_completion_tokens": 2000,
+            "instructions": SYSTEM_PROMPT,
+            "input": transcript,
+            "max_output_tokens": 2000,
         }
         if remaining > 0 and not forcing_final:
+            call_kwargs["tools"] = TOOL_SCHEMAS
             call_kwargs["tool_choice"] = "auto"
         else:
-            call_kwargs["tool_choice"] = "none"
-            call_kwargs["response_format"] = {"type": "json_object"}
+            # Drop tools entirely to force a final answer; cleaner than
+            # tool_choice="none", which Azure rejects unless `tools` is set.
+            call_kwargs["text"] = {"format": {"type": "json_object"}}
 
-        response = llm_client.chat.completions.create(**call_kwargs)
-        msg = response.choices[0].message
+        response = llm_client.responses.create(**call_kwargs)
 
-        tool_calls = getattr(msg, "tool_calls", None)
+        output_items = list(response.output or [])
+        # Carry every output item back into the transcript so reasoning
+        # context survives the next request (required for reasoning models).
+        for item in output_items:
+            transcript.append(_serialize_output_item(item))
+        tool_calls = [it for it in output_items
+                      if getattr(it, "type", None) == "function_call"]
 
         if tool_calls:
-            # Record the assistant turn exactly as the API expects to echo back.
-            messages.append(_assistant_tool_message(msg))
             dispatched = 0
             for call in tool_calls:
-                args = json.loads(call.function.arguments or "{}")
+                args = json.loads(call.arguments or "{}")
                 if not forcing_final and dispatched < remaining:
-                    env = dispatch_tool(call.function.name, args, deps=deps)
+                    env = dispatch_tool(call.name, args, deps=deps)
                     dispatched += 1
                 else:
                     # Either forcing_final, or this turn exceeds remaining budget.
-                    env = dispatch_tool_over_budget(call.function.name, deps=deps)
+                    env = dispatch_tool_over_budget(call.name, deps=deps)
                 if on_tool_call is not None:
-                    on_tool_call(call.function.name, args, env)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": call.id,
-                    "content": json.dumps(env, default=str),
+                    on_tool_call(call.name, args, env)
+                transcript.append({
+                    "type": "function_call_output",
+                    "call_id": call.call_id,
+                    "output": json.dumps(env, default=str),
                 })
             tool_calls_used += dispatched
             if tool_calls_used >= MAX_TOOL_CALLS and not forcing_final:
                 forcing_final = True
-                messages.append({
+                transcript.append({
+                    "type": "message",
                     "role": "user",
                     "content": (
                         "Tool budget exhausted. Return your final JSON decision now — "
@@ -1083,7 +1103,7 @@ def compose_tweet(
             continue
 
         # No tool calls — expect final JSON content.
-        content = msg.content or ""
+        content = response.output_text or ""
         try:
             return json.loads(content)
         except json.JSONDecodeError as exc:
@@ -1092,20 +1112,13 @@ def compose_tweet(
     raise AgentOutputError("agent exceeded MAX_ITERATIONS without final JSON")
 
 
-def _assistant_tool_message(msg) -> dict:
-    """Shape an assistant message with tool_calls for echoing back to the API."""
-    return {
-        "role": "assistant",
-        "content": msg.content,  # usually None
-        "tool_calls": [
-            {
-                "id": c.id,
-                "type": "function",
-                "function": {
-                    "name": c.function.name,
-                    "arguments": c.function.arguments,
-                },
-            }
-            for c in msg.tool_calls
-        ],
-    }
+def _serialize_output_item(item) -> dict:
+    """Convert a Responses-API output item (Pydantic model) into a dict.
+
+    Items in `response.output` (function_call, reasoning, message, ...) must
+    be carried back as input on the next iteration so the model preserves its
+    reasoning context.
+    """
+    if hasattr(item, "model_dump"):
+        return item.model_dump(mode="json")
+    return item

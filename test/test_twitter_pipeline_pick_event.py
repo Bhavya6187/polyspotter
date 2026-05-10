@@ -10,25 +10,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "storybot"))
 import twitter_pipeline  # noqa: E402
 
 
-class FakeChat:
+class FakeResponses:
     def __init__(self, content: str):
         self._content = content
 
     def create(self, **kwargs):
-        msg = SimpleNamespace(content=self._content)
-        choice = SimpleNamespace(message=msg)
         return SimpleNamespace(
-            choices=[choice],
+            output_text=self._content,
+            output=[],
             usage=SimpleNamespace(
-                prompt_tokens=0, completion_tokens=0, total_tokens=0,
-                prompt_tokens_details=None, completion_tokens_details=None,
+                input_tokens=0, output_tokens=0, total_tokens=0,
+                input_tokens_details=None, output_tokens_details=None,
             ),
         )
 
 
 class FakeClient:
     def __init__(self, content: str):
-        self.chat = SimpleNamespace(completions=FakeChat(content))
+        self.responses = FakeResponses(content)
 
 
 def _seed():

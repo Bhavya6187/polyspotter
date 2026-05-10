@@ -191,12 +191,13 @@ def test_filter_dedup_with_empty_candidate_list_returns_empty():
 # ------------------------------------------------------------------ call_llm --
 
 class FakeLLMClient:
-    """Stand-in that scripts the LLM call sequence.
+    """Responses-API stand-in that scripts the LLM call sequence.
 
     `responses` is a list of steps. Each step is either:
-      - a final decision dict (emitted as message.content)
+      - a final decision dict (emitted as response.output_text JSON)
       - a raw string (for malformed-JSON tests)
-      - a list of (tool_name, arguments_dict) tuples (emitted as tool_calls)
+      - a list of (tool_name, arguments_dict) tuples (emitted as function_call
+        items in response.output)
 
     Each `create()` consumes one step from the list. Stage 1 consumes one step
     (its JSON output); stage 2 consumes 1+ steps (tool rounds + final).
@@ -205,7 +206,7 @@ class FakeLLMClient:
     def __init__(self, responses):
         self._responses = list(responses)
         self.calls = []
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+        self.responses = SimpleNamespace(create=self._create)
 
     def _create(self, **kwargs):
         self.calls.append(kwargs)
@@ -214,26 +215,45 @@ class FakeLLMClient:
         step = self._responses.pop(0)
 
         if isinstance(step, dict):
-            msg = SimpleNamespace(
-                content=json.dumps(step), tool_calls=None, role="assistant",
-            )
-            return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+            return SimpleNamespace(output_text=json.dumps(step), output=[])
 
         if isinstance(step, str):
-            msg = SimpleNamespace(content=step, tool_calls=None, role="assistant")
-            return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+            return SimpleNamespace(output_text=step, output=[])
 
         import uuid as _uuid
         tc = [
-            SimpleNamespace(
-                id=f"call_{_uuid.uuid4().hex[:8]}",
-                type="function",
-                function=SimpleNamespace(name=name, arguments=json.dumps(args)),
+            _FakeFunctionCallItem(
+                call_id=f"call_{_uuid.uuid4().hex[:8]}",
+                item_id=f"fc_{_uuid.uuid4().hex[:8]}",
+                name=name,
+                arguments=json.dumps(args),
             )
             for (name, args) in step
         ]
-        msg = SimpleNamespace(content=None, tool_calls=tc, role="assistant")
-        return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        return SimpleNamespace(output_text="", output=tc)
+
+
+class _FakeFunctionCallItem(SimpleNamespace):
+    """Stand-in for openai.types.responses.ResponseFunctionToolCall.
+
+    Carries the four attributes the agent loop reads off the item plus a
+    `model_dump` method so the loop can JSON-serialize it back into input.
+    """
+
+    def __init__(self, *, call_id, item_id, name, arguments):
+        super().__init__(
+            type="function_call", id=item_id, call_id=call_id,
+            name=name, arguments=arguments,
+        )
+
+    def model_dump(self, mode=None):
+        return {
+            "type": "function_call",
+            "id": self.id,
+            "call_id": self.call_id,
+            "name": self.name,
+            "arguments": self.arguments,
+        }
 
 
 # Reusable stage-1 responses for tests.
@@ -362,17 +382,14 @@ def test_call_llm_stage1_exception_falls_back():
             self._second = second_response
             self._first = True
             self.calls = []
-            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+            self.responses = SimpleNamespace(create=self._create)
 
         def _create(self, **kwargs):
             self.calls.append(kwargs)
             if self._first:
                 self._first = False
                 raise RuntimeError("stage-1 LLM down")
-            msg = SimpleNamespace(
-                content=json.dumps(self._second), tool_calls=None, role="assistant",
-            )
-            return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+            return SimpleNamespace(output_text=json.dumps(self._second), output=[])
 
     client = RaisingThenWorkingLLM(final)
     top_alerts = [_alert(id=1, composite_score=10.0), _alert(id=2, composite_score=8.0)]

@@ -311,23 +311,28 @@ def _compact_alert_for_picker(alert: dict) -> dict:
 # --- LLM usage accumulator ---------------------------------------------------
 
 def _accumulate_usage(usage: dict, response) -> None:
-    """Add the usage numbers from one chat.completions response to a running total.
+    """Add the usage numbers from one Responses-API response to a running total.
 
-    Safe if `response.usage` is None. `cached_prompt_tokens` is sourced from
-    `prompt_tokens_details.cached_tokens` when the endpoint reports it (Azure
-    OpenAI does — it's how we measure prompt-cache hit rate)."""
+    Safe if `response.usage` is None. The downstream dict keys are kept stable
+    (`prompt_tokens`, `completion_tokens`, `cached_prompt_tokens`,
+    `reasoning_tokens`) for compatibility with existing log consumers, even
+    though the underlying Responses API uses `input_tokens` / `output_tokens`.
+    `cached_prompt_tokens` measures the Azure prompt-cache hit rate."""
     u = getattr(response, "usage", None)
     if u is None:
         return
+    input_tokens = getattr(u, "input_tokens", 0) or 0
+    output_tokens = getattr(u, "output_tokens", 0) or 0
+    total_tokens = getattr(u, "total_tokens", 0) or 0
     usage["requests"] = usage.get("requests", 0) + 1
-    usage["prompt_tokens"] = usage.get("prompt_tokens", 0) + (u.prompt_tokens or 0)
-    usage["completion_tokens"] = usage.get("completion_tokens", 0) + (u.completion_tokens or 0)
-    usage["total_tokens"] = usage.get("total_tokens", 0) + (u.total_tokens or 0)
-    details = getattr(u, "prompt_tokens_details", None)
+    usage["prompt_tokens"] = usage.get("prompt_tokens", 0) + input_tokens
+    usage["completion_tokens"] = usage.get("completion_tokens", 0) + output_tokens
+    usage["total_tokens"] = usage.get("total_tokens", 0) + total_tokens
+    details = getattr(u, "input_tokens_details", None)
     if details is not None:
         cached = getattr(details, "cached_tokens", 0) or 0
         usage["cached_prompt_tokens"] = usage.get("cached_prompt_tokens", 0) + cached
-    completion_details = getattr(u, "completion_tokens_details", None)
-    if completion_details is not None:
-        reasoning = getattr(completion_details, "reasoning_tokens", 0) or 0
+    output_details = getattr(u, "output_tokens_details", None)
+    if output_details is not None:
+        reasoning = getattr(output_details, "reasoning_tokens", 0) or 0
         usage["reasoning_tokens"] = usage.get("reasoning_tokens", 0) + reasoning

@@ -11,7 +11,9 @@ import tweet_utils  # noqa: E402
 import twitter_pipeline  # noqa: E402
 
 
-class _FakeCompletions:
+class _FakeResponses:
+    """Responses-API fake: scripted contents are returned as `output_text`."""
+
     def __init__(self, contents: list[str]):
         self._contents = list(contents)
         self.calls = 0
@@ -20,18 +22,25 @@ class _FakeCompletions:
         self.calls += 1
         content = self._contents.pop(0) if self._contents else "{}"
         return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content=content))],
+            output_text=content,
+            output=[],
             usage=SimpleNamespace(
-                prompt_tokens=0, completion_tokens=0, total_tokens=0,
-                prompt_tokens_details=None, completion_tokens_details=None,
+                input_tokens=0, output_tokens=0, total_tokens=0,
+                input_tokens_details=None, output_tokens_details=None,
             ),
         )
 
 
 class FakeClient:
     def __init__(self, contents):
-        self.completions = _FakeCompletions(contents)
-        self.chat = SimpleNamespace(completions=self.completions)
+        self.responses = _FakeResponses(contents)
+
+    @property
+    def completions(self):
+        # Back-compat shim: existing tests inspect `.completions.calls` to count
+        # how many LLM calls happened. The Responses-API fake exposes the same
+        # counter via `self.responses`.
+        return self.responses
 
 
 def test_validate_accepts_short_tweet_with_link():

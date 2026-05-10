@@ -388,24 +388,23 @@ def _shorten_tweet(decision: dict, top_alerts: list[dict], shortlist_decision, *
         "mode": shortlist_decision.mode,
         "angles": {str(item.alert_id): item.angle for item in shortlist_decision.shortlist},
     }
-    retry_messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": build_user_message(filtered, selection=selection)},
-        {"role": "assistant", "content": json.dumps(decision)},
-        {"role": "user", "content": (
-            f"Your tweet was {len(original)} characters, must be ≤{TWEET_MAX_CHARS}. "
-            f"Shorten it, keep the hook and CTA. Return the same JSON format — "
-            f"no tool calls, just the final JSON."
-        )},
-    ]
-    response = llm_client.chat.completions.create(
-        model=MODEL,
-        messages=retry_messages,
-        response_format={"type": "json_object"},
-        temperature=0.7,
-        max_completion_tokens=2000,
+    retry_input = (
+        build_user_message(filtered, selection=selection)
+        + "\n\n[Your previous response]\n"
+        + json.dumps(decision)
+        + "\n\n"
+        + f"Your tweet was {len(original)} characters, must be ≤{TWEET_MAX_CHARS}. "
+        f"Shorten it, keep the hook and CTA. Return the same JSON format — "
+        f"no tool calls, just the final JSON."
     )
-    content = response.choices[0].message.content or "{}"
+    response = llm_client.responses.create(
+        model=MODEL,
+        instructions=SYSTEM_PROMPT,
+        input=retry_input,
+        text={"format": {"type": "json_object"}},
+        max_output_tokens=2000,
+    )
+    content = response.output_text or "{}"
     return json.loads(content)
 
 

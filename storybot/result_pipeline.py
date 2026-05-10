@@ -352,18 +352,15 @@ def compose_result_tweet(llm_client, original_tweet: str,
         },
         "alert_url": alert_url,
     }
-    response = llm_client.chat.completions.create(
+    response = llm_client.responses.create(
         model=MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT_RESULT},
-            {"role": "user", "content": json.dumps(payload, default=str, indent=2)},
-        ],
-        temperature=1,
-        max_completion_tokens=2000,
-        reasoning_effort="low",
-        response_format={"type": "json_object"},
+        instructions=SYSTEM_PROMPT_RESULT,
+        input=json.dumps(payload, default=str, indent=2),
+        max_output_tokens=2000,
+        reasoning={"effort": "low"},
+        text={"format": {"type": "json_object"}},
     )
-    content = response.choices[0].message.content or "{}"
+    content = response.output_text or "{}"
     try:
         parsed = json.loads(content)
     except json.JSONDecodeError:

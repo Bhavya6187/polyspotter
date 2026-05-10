@@ -360,16 +360,13 @@ def pick_finalists_chunk(llm_client, chunk: list[dict],
         f"DESC:\n\n{json.dumps(compact, default=str, indent=2)}"
     )
     try:
-        response = llm_client.chat.completions.create(
+        response = llm_client.responses.create(
             model=MODEL,
-            messages=[
-                {"role": "system", "content": PICKER_STAGE1_SYSTEM_PROMPT},
-                {"role": "user", "content": user_msg},
-            ],
-            temperature=1,
-            max_completion_tokens=4000,
-            reasoning_effort="medium",
-            response_format={"type": "json_object"},
+            instructions=PICKER_STAGE1_SYSTEM_PROMPT,
+            input=user_msg,
+            max_output_tokens=4000,
+            reasoning={"effort": "medium"},
+            text={"format": {"type": "json_object"}},
         )
     except Exception as exc:
         log("articlebot_stage1_error", error=f"{type(exc).__name__}: {exc}")
@@ -378,7 +375,7 @@ def pick_finalists_chunk(llm_client, chunk: list[dict],
     if usage is not None:
         _accumulate_usage(usage, response)
 
-    content = response.choices[0].message.content or "{}"
+    content = response.output_text or "{}"
     try:
         parsed = json.loads(content)
     except json.JSONDecodeError as exc:
@@ -540,16 +537,13 @@ def pick_final_event(llm_client, finalists: list[dict],
     )
 
     try:
-        response = llm_client.chat.completions.create(
+        response = llm_client.responses.create(
             model=MODEL,
-            messages=[
-                {"role": "system", "content": PICKER_STAGE2_SYSTEM_PROMPT},
-                {"role": "user", "content": user_msg},
-            ],
-            temperature=1,
-            max_completion_tokens=8000,
-            reasoning_effort="high",
-            response_format={"type": "json_object"},
+            instructions=PICKER_STAGE2_SYSTEM_PROMPT,
+            input=user_msg,
+            max_output_tokens=8000,
+            reasoning={"effort": "high"},
+            text={"format": {"type": "json_object"}},
         )
     except Exception as exc:
         return {"decision": "skip", "event_slug": None, "alert_ids": None,
@@ -558,7 +552,7 @@ def pick_final_event(llm_client, finalists: list[dict],
     if usage is not None:
         _accumulate_usage(usage, response)
 
-    content = response.choices[0].message.content or "{}"
+    content = response.output_text or "{}"
     try:
         parsed = json.loads(content)
     except json.JSONDecodeError as exc:
@@ -971,14 +965,14 @@ def _retry_with_validation_hint(llm_client, transcript: list, error_msg: str,
                                 usage: dict | None) -> dict | None:
     """Make ONE more LLM call appending a targeted validation hint.
 
-    Appends a user message naming the violated rule, sends the full transcript
-    to the model with json_object response format (and no tools — Azure rejects
-    `tool_choice="none"` unless `tools` is also passed, and we don't want any
-    more tool calls anyway), and returns the parsed decision dict.  Returns
+    Appends a user input item naming the violated rule, sends the full
+    transcript to the model with json_object output (and no tools — we don't
+    want any more tool calls), and returns the parsed decision dict. Returns
     None if the response is not valid JSON (caller treats None as a second
     failure).
     """
     transcript.append({
+        "type": "message",
         "role": "user",
         "content": (
             f"Your previous article failed validation: {error_msg}. "
@@ -986,17 +980,22 @@ def _retry_with_validation_hint(llm_client, transcript: list, error_msg: str,
             "Same schema as before."
         ),
     })
-    response = llm_client.chat.completions.create(
+    response = llm_client.responses.create(
         model=MODEL,
-        messages=transcript,
-        temperature=1,
-        max_completion_tokens=12000,
-        response_format={"type": "json_object"},
+        instructions=SYSTEM_PROMPT,
+        input=transcript,
+        max_output_tokens=12000,
+        text={"format": {"type": "json_object"}},
     )
     if usage is not None:
         _accumulate_usage(usage, response)
-    content = response.choices[0].message.content or "{}"
-    transcript.append({"role": "assistant", "content": content})
+    content = response.output_text or "{}"
+    # Carry every output item back into the transcript for inspection in
+    # `_dump_transcript` (matches what run_agent does).
+    for item in response.output or []:
+        transcript.append(
+            item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+        )
     try:
         return json.loads(content)
     except json.JSONDecodeError:
