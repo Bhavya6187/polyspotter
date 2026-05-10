@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -30,6 +32,11 @@ MODEL = os.environ.get("AZURE_OPENAI_MODEL", "")
 PROMPT_LOG_FILE = Path(__file__).parent / "llm_prompts.jsonl"
 FAILURE_LOG_FILE = Path(__file__).parent / "llm_failures.jsonl"
 
+# Serializes appends to the JSONL log files. Large prompt payloads exceed
+# PIPE_BUF, so concurrent appends from worker threads can interleave bytes
+# and corrupt lines without this lock.
+_LOG_LOCK = threading.Lock()
+
 
 def _log_prompt(messages: list[dict], model: str, cache_key: str) -> None:
     """Append a prompt to the JSONL log file for later analysis."""
@@ -39,7 +46,7 @@ def _log_prompt(messages: list[dict], model: str, cache_key: str) -> None:
         "cache_key": cache_key,
         "messages": messages,
     }
-    with open(PROMPT_LOG_FILE, "a") as f:
+    with _LOG_LOCK, open(PROMPT_LOG_FILE, "a") as f:
         f.write(json.dumps(entry) + "\n")
 
 
@@ -66,7 +73,7 @@ def _log_failure(
         "raw_text": raw_text,
         "alert_text": alert_text,
     }
-    with open(FAILURE_LOG_FILE, "a") as f:
+    with _LOG_LOCK, open(FAILURE_LOG_FILE, "a") as f:
         f.write(json.dumps(entry) + "\n")
 
 
@@ -584,12 +591,21 @@ def evaluate_alert(alert: dict) -> dict:
         return inconclusive
 
 
+LLM_PARALLELISM = 5
+
+
 def filter_alerts(alerts: list[dict]) -> list[dict]:
     """Filter a list of alert dicts through the LLM.
 
     Checks the local SQLite cache first — only calls the LLM for alerts
     that haven't been evaluated before. Both interesting and not-interesting
     verdicts are cached so discarded alerts are never re-evaluated.
+
+    Runs in four phases:
+      1. cache lookups for every alert (sequential local SQLite reads),
+      2. parallel LLM calls for cache misses (ThreadPoolExecutor, LLM_PARALLELISM workers),
+      3. assembly of the kept list in original input order on the main thread,
+      4. cache writes flushed sequentially at the end.
 
     Returns only the alerts the LLM considers interesting, with an
     'llm_summary' field added to each.
@@ -598,44 +614,68 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
         print("[llm_filter] No AZURE_OPENAI_API_KEY set — skipping LLM filter, pushing all alerts.")
         return alerts
 
-    kept = []
+    total = len(alerts)
+
+    # Phase 1: cache lookups. Use content-sensitive llm_cache_key when
+    # available (clusters include trade_count + score so the LLM re-evaluates
+    # when the cluster grows). Falls back to dedup_key for non-cluster alerts.
+    cache_keys: list[str] = [
+        a.get("llm_cache_key") or a.get("dedup_key", "") for a in alerts
+    ]
+    cached_evals: list[dict | None] = [
+        get_llm_evaluation(k) if k else None for k in cache_keys
+    ]
+
+    # Phase 2: parallel LLM calls for the cache misses.
+    miss_indices = [i for i, ce in enumerate(cached_evals) if ce is None]
+
+    def _eval(idx: int) -> tuple[int, dict | None, Exception | None]:
+        try:
+            return (idx, evaluate_alert(alerts[idx]), None)
+        except Exception as e:
+            return (idx, None, e)
+
+    llm_results: dict[int, tuple[dict | None, Exception | None]] = {}
+    if miss_indices:
+        with ThreadPoolExecutor(max_workers=LLM_PARALLELISM) as executor:
+            for idx, result, error in executor.map(_eval, miss_indices):
+                llm_results[idx] = (result, error)
+
+    # Phase 3: assemble kept list in original order on the main thread,
+    # collect pending cache writes.
+    kept: list[dict] = []
     discarded = 0
     cached = 0
+    pending_saves: list[tuple[str, bool, str]] = []
 
-    for i, alert in enumerate(alerts, 1):
+    for i, alert in enumerate(alerts):
         title = alert.get("market_title", "?")
         score = alert.get("composite_score", 0)
-        prefix = f"  [{i}/{len(alerts)}] Evaluating: [{score:.1f}] {title}..."
+        prefix = f"  [{i + 1}/{total}] Evaluating: [{score:.1f}] {title}..."
+        cache_key = cache_keys[i]
+        cached_eval = cached_evals[i]
 
-        # Use content-sensitive llm_cache_key when available (clusters
-        # include trade_count + score so the LLM re-evaluates when the
-        # cluster grows).  Falls back to dedup_key for non-cluster alerts.
-        cache_key = alert.get("llm_cache_key") or alert.get("dedup_key", "")
+        if cached_eval is not None:
+            cached += 1
+            if cached_eval["interesting"]:
+                alert["llm_summary"] = cached_eval["summary"]
+                try:
+                    extra = json.loads(cached_eval["summary"])
+                    alert["llm_summary"] = extra.get("summary", cached_eval["summary"])
+                    alert["llm_headline"] = extra.get("headline")
+                    alert["llm_bullets"] = extra.get("bullets", [])
+                    alert["llm_copy_action"] = extra.get("copy_action", {})
+                except (json.JSONDecodeError, TypeError):
+                    alert["llm_bullets"] = []
+                    alert["llm_copy_action"] = {}
+                kept.append(alert)
+            else:
+                discarded += 1
+            continue
 
-        if cache_key:
-            cached_eval = get_llm_evaluation(cache_key)
-            if cached_eval is not None:
-                if cached_eval["interesting"]:
-                    alert["llm_summary"] = cached_eval["summary"]
-                    try:
-                        extra = json.loads(cached_eval["summary"])
-                        alert["llm_summary"] = extra.get("summary", cached_eval["summary"])
-                        alert["llm_headline"] = extra.get("headline")
-                        alert["llm_bullets"] = extra.get("bullets", [])
-                        alert["llm_copy_action"] = extra.get("copy_action", {})
-                    except (json.JSONDecodeError, TypeError):
-                        alert["llm_bullets"] = []
-                        alert["llm_copy_action"] = {}
-                    kept.append(alert)
-                else:
-                    discarded += 1
-                cached += 1
-                continue
-
-        try:
-            result = evaluate_alert(alert)
-        except Exception as e:
-            print(f"{prefix} ERROR ({e}) — discarding alert")
+        result, error = llm_results[i]
+        if error is not None:
+            print(f"{prefix} ERROR ({error}) — discarding alert")
             discarded += 1
             continue
 
@@ -657,13 +697,17 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
                     "bullets": result.get("bullets", []),
                     "copy_action": result.get("copy_action", {}),
                 })
-                save_llm_evaluation(cache_key, interesting=True, summary=cache_data)
+                pending_saves.append((cache_key, True, cache_data))
         else:
             discarded += 1
             if cache_key:
-                save_llm_evaluation(cache_key, interesting=False, summary=summary)
+                pending_saves.append((cache_key, False, summary))
+
+    # Phase 4: flush cache writes.
+    for cache_key, interesting, summary in pending_saves:
+        save_llm_evaluation(cache_key, interesting=interesting, summary=summary)
 
     if cached:
         print(f"[llm_filter] {cached} alert(s) resolved from cache.")
-    print(f"[llm_filter] Kept {len(kept)}, discarded {discarded} of {len(alerts)} alerts.")
+    print(f"[llm_filter] Kept {len(kept)}, discarded {discarded} of {total} alerts.")
     return kept
