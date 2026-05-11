@@ -32,6 +32,12 @@ DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
 _DRY_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dry_runs")
 _LIVE_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live_runs")
 _RUN_OUTPUT_DIR = _DRY_RUN_DIR if DRY_RUN else _LIVE_RUN_DIR
+_TWITTER_DRAFTS_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "twitter_drafts"
+)
+_DRY_RUN_TWITTER_DRAFTS_DIR = os.path.join(
+    _DRY_RUN_DIR, "twitter_drafts"
+)
 
 # Quality floor — applied to each seed alert before the LLM picker runs.
 # An alert must satisfy AT LEAST ONE criterion to enter the picker pool.
@@ -1773,6 +1779,20 @@ def fetch_data_bundle(alert_ids: list[int], seed_alerts: list[dict]) -> dict:
         "token_map": token_map,
         "facts_bundle": facts_bundle,
     }
+
+
+def _write_draft(run_id: str, tweet: str) -> str:
+    """Persist the drafted tweet body so publish_tweet.py can pick it up.
+
+    Returns the absolute path written. Picks dry_runs/twitter_drafts/ when
+    DRY_RUN, else twitter_drafts/. Creates the parent dir if missing.
+    """
+    out_dir = _DRY_RUN_TWITTER_DRAFTS_DIR if DRY_RUN else _TWITTER_DRAFTS_DIR
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, f"{run_id}.txt")
+    with open(path, "w") as f:
+        f.write(tweet)
+    return path
 
 
 def _dump_transcript(run_id: str, transcript: dict) -> None:
