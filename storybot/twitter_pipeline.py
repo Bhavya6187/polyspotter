@@ -32,6 +32,12 @@ DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
 _DRY_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dry_runs")
 _LIVE_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live_runs")
 _RUN_OUTPUT_DIR = _DRY_RUN_DIR if DRY_RUN else _LIVE_RUN_DIR
+_TWITTER_DRAFTS_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "twitter_drafts"
+)
+_DRY_RUN_TWITTER_DRAFTS_DIR = os.path.join(
+    _DRY_RUN_DIR, "twitter_drafts"
+)
 
 # Quality floor — applied to each seed alert before the LLM picker runs.
 # An alert must satisfy AT LEAST ONE criterion to enter the picker pool.
@@ -1775,6 +1781,20 @@ def fetch_data_bundle(alert_ids: list[int], seed_alerts: list[dict]) -> dict:
     }
 
 
+def _write_draft(run_id: str, tweet: str) -> str:
+    """Persist the drafted tweet body so publish_tweet.py can pick it up.
+
+    Returns the absolute path written. Picks dry_runs/twitter_drafts/ when
+    DRY_RUN, else twitter_drafts/. Creates the parent dir if missing.
+    """
+    out_dir = _DRY_RUN_TWITTER_DRAFTS_DIR if DRY_RUN else _TWITTER_DRAFTS_DIR
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, f"{run_id}.txt")
+    with open(path, "w") as f:
+        f.write(tweet)
+    return path
+
+
 def _dump_transcript(run_id: str, transcript: dict) -> None:
     """Write the full stage transcript to <output_dir>/twitter_pipeline_<run_id>.json.
 
@@ -1797,10 +1817,8 @@ def main() -> int:
         fetch_seed_alerts,
     )
     from tweet_utils import (
-        _build_twitter_api_v1, _build_twitter_client,
         fetch_recent_tweet_openers, fetch_recent_tweets,
-        filter_posted_alerts, post_tweet, prepare_chart_grid, record_tweet,
-        strip_polyspotter_url,
+        filter_posted_alerts, prepare_chart_grid, strip_polyspotter_url,
     )
 
     run_id = uuid.uuid4().hex[:8]
@@ -1829,7 +1847,7 @@ def main() -> int:
         elapsed_ms=int((time.monotonic() - t) * 1000))
     if not seed_alerts:
         log("skip", run_id=run_id, reason="no alerts in last 3 hours")
-        log("run_end", run_id=run_id, posted=False,
+        log("run_end", run_id=run_id, drafted=False,
             elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
         return 0
 
@@ -1843,7 +1861,7 @@ def main() -> int:
         dropped=pre - len(seed_alerts))
     if not seed_alerts:
         log("skip", run_id=run_id, reason="all seed alerts already tweeted")
-        log("run_end", run_id=run_id, posted=False,
+        log("run_end", run_id=run_id, drafted=False,
             elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
         return 0
 
@@ -1867,7 +1885,7 @@ def main() -> int:
         })
     if not seed_alerts:
         log("skip", run_id=run_id, reason="no alerts cleared the quality floor")
-        log("run_end", run_id=run_id, posted=False,
+        log("run_end", run_id=run_id, drafted=False,
             elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
         return 0
 
@@ -1899,7 +1917,7 @@ def main() -> int:
     if pick["decision"] == "skip":
         log("skip", run_id=run_id, reason=pick.get("reason"))
         _dump_transcript(run_id, transcript)
-        log("run_end", run_id=run_id, posted=False,
+        log("run_end", run_id=run_id, drafted=False,
             elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
         return 0
     log("event_picked", run_id=run_id, alert_ids=pick["alert_ids"],
@@ -1995,6 +2013,7 @@ def main() -> int:
         rendered=chart_png is not None,
         bytes_len=(len(chart_png) if chart_png else 0))
 
+    chart_png_path: str | None = None
     if chart_png is not None:
         os.makedirs(_RUN_OUTPUT_DIR, exist_ok=True)
         out_path = os.path.join(_RUN_OUTPUT_DIR, f"twitter_pipeline_{run_id}.png")
@@ -2002,56 +2021,31 @@ def main() -> int:
             with open(out_path, "wb") as f:
                 f.write(chart_png)
             log("chart_saved", run_id=run_id, path=out_path)
+            chart_png_path = out_path
         except OSError as exc:
             log("chart_save_error", run_id=run_id, error=str(exc))
 
+    # publish_meta — everything publish_tweet.py needs to post without
+    # recomputing what the pipeline already decided. Keeping it inside the
+    # transcript JSON (rather than a separate file) means there is one
+    # source-of-truth artifact per run that claude can read for context.
+    transcript["publish_meta"] = {
+        "alert_ids": pick["alert_ids"],
+        "chart_type": chart_pick["chart_type"],
+        "target_alert_id": target_alert_id,
+        "chart_png_path": chart_png_path,
+        "recent_openers": recent_openers,
+        "recent_tweets": recent_tweets,
+    }
+
     _dump_transcript(run_id, transcript)
 
-    # Post
-    try:
-        twitter_client = _build_twitter_client()
-        twitter_api_v1 = _build_twitter_api_v1() if chart_png is not None else None
-        tweet_id = post_tweet(
-            tweet, twitter_client=twitter_client, twitter_api_v1=twitter_api_v1,
-            media_png=chart_png, dry_run=DRY_RUN,
-        )
-    except Exception as exc:
-        log("post_error", run_id=run_id, error=f"{type(exc).__name__}: {exc}")
-        return 1
-
-    log("posted", run_id=run_id, tweet_id=tweet_id, alert_ids=pick["alert_ids"],
-        tweet_length=len(tweet))
+    draft_path = _write_draft(run_id, tweet)
+    log("draft_written", run_id=run_id, path=draft_path, tweet_length=len(tweet))
+    print(f"[twitter_pipeline] draft run_id={run_id}", flush=True)
     print(f"\n--- Tweet ({len(tweet)} chars) ---\n{tweet}\n", flush=True)
 
-    if DRY_RUN:
-        try:
-            answer = input("\nPost this tweet for real? [y/N] ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            answer = ""
-        if answer not in ("y", "yes"):
-            log("run_end", run_id=run_id, posted=True, dry_run=True, tweet_id=tweet_id,
-                elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
-            return 0
-        try:
-            tweet_id = post_tweet(
-                tweet, twitter_client=twitter_client, twitter_api_v1=twitter_api_v1,
-                media_png=chart_png, dry_run=False,
-            )
-        except Exception as exc:
-            log("post_error", run_id=run_id, error=f"{type(exc).__name__}: {exc}")
-            return 1
-        log("posted_after_confirm", run_id=run_id, tweet_id=tweet_id,
-            alert_ids=pick["alert_ids"], tweet_length=len(tweet))
-
-    try:
-        record_tweet([int(i) for i in pick["alert_ids"]], tweet_id, tweet)
-    except Exception as exc:
-        log("record_error", run_id=run_id, error=f"{type(exc).__name__}: {exc}")
-        log("run_end", run_id=run_id, posted=True, tweet_id=tweet_id, recorded=False,
-            elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
-        return 0
-
-    log("run_end", run_id=run_id, posted=True, tweet_id=tweet_id, recorded=True,
+    log("run_end", run_id=run_id, drafted=True,
         elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
     return 0
 
