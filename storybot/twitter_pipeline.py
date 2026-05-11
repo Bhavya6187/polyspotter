@@ -1817,10 +1817,8 @@ def main() -> int:
         fetch_seed_alerts,
     )
     from tweet_utils import (
-        _build_twitter_api_v1, _build_twitter_client,
         fetch_recent_tweet_openers, fetch_recent_tweets,
-        filter_posted_alerts, post_tweet, prepare_chart_grid, record_tweet,
-        strip_polyspotter_url,
+        filter_posted_alerts, prepare_chart_grid, strip_polyspotter_url,
     )
 
     run_id = uuid.uuid4().hex[:8]
@@ -2025,53 +2023,32 @@ def main() -> int:
         except OSError as exc:
             log("chart_save_error", run_id=run_id, error=str(exc))
 
+    # publish_meta — everything publish_tweet.py needs to post without
+    # recomputing what the pipeline already decided. Keeping it inside the
+    # transcript JSON (rather than a separate file) means there is one
+    # source-of-truth artifact per run that claude can read for context.
+    chart_png_path: str | None = None
+    if chart_png is not None:
+        chart_png_path = os.path.join(
+            _RUN_OUTPUT_DIR, f"twitter_pipeline_{run_id}.png"
+        )
+    transcript["publish_meta"] = {
+        "alert_ids": pick["alert_ids"],
+        "chart_type": chart_pick["chart_type"],
+        "target_alert_id": target_alert_id,
+        "chart_png_path": chart_png_path,
+        "recent_openers": recent_openers,
+        "recent_tweets": recent_tweets,
+    }
+
     _dump_transcript(run_id, transcript)
 
-    # Post
-    try:
-        twitter_client = _build_twitter_client()
-        twitter_api_v1 = _build_twitter_api_v1() if chart_png is not None else None
-        tweet_id = post_tweet(
-            tweet, twitter_client=twitter_client, twitter_api_v1=twitter_api_v1,
-            media_png=chart_png, dry_run=DRY_RUN,
-        )
-    except Exception as exc:
-        log("post_error", run_id=run_id, error=f"{type(exc).__name__}: {exc}")
-        return 1
-
-    log("posted", run_id=run_id, tweet_id=tweet_id, alert_ids=pick["alert_ids"],
-        tweet_length=len(tweet))
+    draft_path = _write_draft(run_id, tweet)
+    log("draft_written", run_id=run_id, path=draft_path, tweet_length=len(tweet))
+    print(f"[twitter_pipeline] draft run_id={run_id}", flush=True)
     print(f"\n--- Tweet ({len(tweet)} chars) ---\n{tweet}\n", flush=True)
 
-    if DRY_RUN:
-        try:
-            answer = input("\nPost this tweet for real? [y/N] ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            answer = ""
-        if answer not in ("y", "yes"):
-            log("run_end", run_id=run_id, posted=True, dry_run=True, tweet_id=tweet_id,
-                elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
-            return 0
-        try:
-            tweet_id = post_tweet(
-                tweet, twitter_client=twitter_client, twitter_api_v1=twitter_api_v1,
-                media_png=chart_png, dry_run=False,
-            )
-        except Exception as exc:
-            log("post_error", run_id=run_id, error=f"{type(exc).__name__}: {exc}")
-            return 1
-        log("posted_after_confirm", run_id=run_id, tweet_id=tweet_id,
-            alert_ids=pick["alert_ids"], tweet_length=len(tweet))
-
-    try:
-        record_tweet([int(i) for i in pick["alert_ids"]], tweet_id, tweet)
-    except Exception as exc:
-        log("record_error", run_id=run_id, error=f"{type(exc).__name__}: {exc}")
-        log("run_end", run_id=run_id, posted=True, tweet_id=tweet_id, recorded=False,
-            elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
-        return 0
-
-    log("run_end", run_id=run_id, posted=True, tweet_id=tweet_id, recorded=True,
+    log("run_end", run_id=run_id, drafted=True, run_id_marker=run_id,
         elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
     return 0
 
