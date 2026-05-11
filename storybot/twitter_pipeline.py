@@ -1847,7 +1847,7 @@ def main() -> int:
         elapsed_ms=int((time.monotonic() - t) * 1000))
     if not seed_alerts:
         log("skip", run_id=run_id, reason="no alerts in last 3 hours")
-        log("run_end", run_id=run_id, posted=False,
+        log("run_end", run_id=run_id, drafted=False,
             elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
         return 0
 
@@ -1861,7 +1861,7 @@ def main() -> int:
         dropped=pre - len(seed_alerts))
     if not seed_alerts:
         log("skip", run_id=run_id, reason="all seed alerts already tweeted")
-        log("run_end", run_id=run_id, posted=False,
+        log("run_end", run_id=run_id, drafted=False,
             elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
         return 0
 
@@ -1885,7 +1885,7 @@ def main() -> int:
         })
     if not seed_alerts:
         log("skip", run_id=run_id, reason="no alerts cleared the quality floor")
-        log("run_end", run_id=run_id, posted=False,
+        log("run_end", run_id=run_id, drafted=False,
             elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
         return 0
 
@@ -1917,7 +1917,7 @@ def main() -> int:
     if pick["decision"] == "skip":
         log("skip", run_id=run_id, reason=pick.get("reason"))
         _dump_transcript(run_id, transcript)
-        log("run_end", run_id=run_id, posted=False,
+        log("run_end", run_id=run_id, drafted=False,
             elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
         return 0
     log("event_picked", run_id=run_id, alert_ids=pick["alert_ids"],
@@ -2013,6 +2013,7 @@ def main() -> int:
         rendered=chart_png is not None,
         bytes_len=(len(chart_png) if chart_png else 0))
 
+    chart_png_path: str | None = None
     if chart_png is not None:
         os.makedirs(_RUN_OUTPUT_DIR, exist_ok=True)
         out_path = os.path.join(_RUN_OUTPUT_DIR, f"twitter_pipeline_{run_id}.png")
@@ -2020,6 +2021,7 @@ def main() -> int:
             with open(out_path, "wb") as f:
                 f.write(chart_png)
             log("chart_saved", run_id=run_id, path=out_path)
+            chart_png_path = out_path
         except OSError as exc:
             log("chart_save_error", run_id=run_id, error=str(exc))
 
@@ -2027,11 +2029,6 @@ def main() -> int:
     # recomputing what the pipeline already decided. Keeping it inside the
     # transcript JSON (rather than a separate file) means there is one
     # source-of-truth artifact per run that claude can read for context.
-    chart_png_path: str | None = None
-    if chart_png is not None:
-        chart_png_path = os.path.join(
-            _RUN_OUTPUT_DIR, f"twitter_pipeline_{run_id}.png"
-        )
     transcript["publish_meta"] = {
         "alert_ids": pick["alert_ids"],
         "chart_type": chart_pick["chart_type"],
@@ -2048,7 +2045,7 @@ def main() -> int:
     print(f"[twitter_pipeline] draft run_id={run_id}", flush=True)
     print(f"\n--- Tweet ({len(tweet)} chars) ---\n{tweet}\n", flush=True)
 
-    log("run_end", run_id=run_id, drafted=True, run_id_marker=run_id,
+    log("run_end", run_id=run_id, drafted=True,
         elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
     return 0
 
