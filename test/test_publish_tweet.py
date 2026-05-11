@@ -128,6 +128,57 @@ def test_publish_tweet_missing_publish_meta_returns_1(tmp_path, monkeypatch):
     assert rc == 1
 
 
+def test_publish_tweet_publish_meta_missing_keys_returns_1(tmp_path, monkeypatch):
+    # publish_meta present but missing a required key (chart_png_path)
+    drafts_dir = tmp_path / "twitter_drafts"
+    live_dir = tmp_path / "live_runs"
+    drafts_dir.mkdir()
+    live_dir.mkdir()
+    (drafts_dir / "abc12345.txt").write_text(_TWEET_BODY)
+    transcript = {
+        "run_id": "abc12345",
+        "stages": {},
+        "publish_meta": {
+            "alert_ids": [42],
+            "chart_type": "fresh_wallet_card",
+            "target_alert_id": 42,
+            # chart_png_path intentionally omitted
+        },
+    }
+    (live_dir / "twitter_pipeline_abc12345.json").write_text(json.dumps(transcript))
+    pt = _patch_publisher(monkeypatch, drafts_dir, live_dir)
+
+    called = {"post": False}
+    monkeypatch.setattr(pt, "post_tweet",
+                        lambda *a, **kw: called.__setitem__("post", True) or "x")
+    monkeypatch.setattr(pt, "_build_twitter_client", lambda: __import__("unittest.mock", fromlist=["MagicMock"]).MagicMock())
+
+    rc = pt.main(["abc12345"])
+    assert rc == 1
+    assert called["post"] is False
+
+
+def test_publish_tweet_chart_png_missing_file_returns_1(tmp_path, monkeypatch):
+    # publish_meta.chart_png_path points at a path that does not exist
+    drafts_dir, live_dir = _write_fixture_files(
+        tmp_path, "abc12345", write_chart=False,
+    )
+    transcript_path = live_dir / "twitter_pipeline_abc12345.json"
+    transcript = json.loads(transcript_path.read_text())
+    transcript["publish_meta"]["chart_png_path"] = str(tmp_path / "nowhere.png")
+    transcript_path.write_text(json.dumps(transcript))
+
+    pt = _patch_publisher(monkeypatch, drafts_dir, live_dir)
+    called = {"post": False}
+    monkeypatch.setattr(pt, "post_tweet",
+                        lambda *a, **kw: called.__setitem__("post", True) or "x")
+    monkeypatch.setattr(pt, "_build_twitter_client", lambda: __import__("unittest.mock", fromlist=["MagicMock"]).MagicMock())
+
+    rc = pt.main(["abc12345"])
+    assert rc == 1
+    assert called["post"] is False
+
+
 def test_publish_tweet_validation_failure_does_not_post(tmp_path, monkeypatch):
     # Tweet over 280 chars — validate_tweet should reject.
     long_tweet = "x" * 281

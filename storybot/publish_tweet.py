@@ -53,6 +53,14 @@ def _transcript_path(run_id: str) -> str:
     return os.path.join(LIVE_RUNS_DIR, f"twitter_pipeline_{run_id}.json")
 
 
+# NOTE: This script is not idempotent. Calling publish_tweet.py twice on
+# the same run_id will post the tweet to X twice. The loop shell in
+# run_twitter_pipeline_loop.sh handles idempotency by deleting the draft
+# .txt after a successful publish, so a re-run of the loop with the same
+# run_id will fail the "no draft found" check before reaching post_tweet.
+# Operators running publish_tweet.py manually after a failure should be
+# aware of this — re-running on an already-published run_id will duplicate
+# the tweet.
 def main(argv: list[str]) -> int:
     if len(argv) != 1:
         print("usage: publish_tweet.py <run_id>", file=sys.stderr)
@@ -89,6 +97,15 @@ def main(argv: list[str]) -> int:
             run_id=run_id, missing=missing)
         return 1
     alert_ids = pm["alert_ids"]
+    if (not isinstance(alert_ids, list) or not alert_ids
+            or not all(isinstance(i, int) for i in alert_ids)):
+        print(
+            f"error: publish_meta.alert_ids is malformed: {alert_ids!r}",
+            file=sys.stderr,
+        )
+        log("publish_tweet_alert_ids_malformed",
+            run_id=run_id, alert_ids=alert_ids)
+        return 1
     chart_png_path = pm["chart_png_path"]
 
     chart_png: bytes | None = None
@@ -141,18 +158,22 @@ def main(argv: list[str]) -> int:
         # shell loop doesn't treat this as a publish failure.
         log("publish_tweet_record_error",
             run_id=run_id, error=f"{type(exc).__name__}: {exc}")
+        posted_url = f"https://x.com/i/web/status/{tweet_id}"
         log("publish_tweet_done",
-            run_id=run_id, tweet_id=tweet_id, recorded=False)
+            run_id=run_id, tweet_id=tweet_id, recorded=False, posted_url=posted_url)
         print(
             f"[publish_tweet] posted tweet_id={tweet_id} but record_tweet "
             f"raised — dedup may miss this on the next run.",
             file=sys.stderr,
         )
+        print(f"    tweet: {posted_url}", file=sys.stderr)
         return 0
 
+    posted_url = f"https://x.com/i/web/status/{tweet_id}"
     log("publish_tweet_done",
-        run_id=run_id, tweet_id=tweet_id, recorded=True)
+        run_id=run_id, tweet_id=tweet_id, recorded=True, posted_url=posted_url)
     print(f"[publish_tweet] published run_id={run_id} tweet_id={tweet_id}")
+    print(f"    tweet: {posted_url}")
     return 0
 
 
