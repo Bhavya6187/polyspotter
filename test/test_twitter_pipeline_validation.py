@@ -17,9 +17,11 @@ class _FakeResponses:
     def __init__(self, contents: list[str]):
         self._contents = list(contents)
         self.calls = 0
+        self.inputs: list[str] = []
 
     def create(self, **kwargs):
         self.calls += 1
+        self.inputs.append(kwargs.get("input", ""))
         content = self._contents.pop(0) if self._contents else "{}"
         return SimpleNamespace(
             output_text=content,
@@ -748,3 +750,153 @@ def test_writer_user_message_handles_none_openers():
     )
     payload = json.loads(payload_str)
     assert payload["recent_openers_to_avoid"] == []
+
+
+# --- shape-aware rerank + retry (mirrors validator rule 19) ------------------
+
+def test_score_candidate_boosts_impact_shape_when_price_move_is_big():
+    """When |biggest_price_move| >= 0.03, the validator's rule 19 requires the
+    tweet to lead with the impact. The rerank must mirror that priority so it
+    picks the impact-shape candidate over higher-heuristic-scoring candidates
+    of other shapes."""
+    bundle = {"biggest_price_move": {"from": 0.66, "to": 0.33}}
+    chart = {"chart_type": "none"}
+    text = ("$24k just landed on the Cavs; the lead wallet is 110-3. "
+            "Cleveland or fade?")
+    impact = twitter_pipeline._score_candidate(text, bundle, chart, shape="impact")
+    behavior = twitter_pipeline._score_candidate(text, bundle, chart, shape="behavior")
+    assert impact > behavior
+
+
+def test_score_candidate_no_impact_bonus_when_price_move_below_threshold():
+    """No price move (or |delta| < 0.03) means rule 19's impact priority doesn't
+    fire, so the impact shape shouldn't get a bonus."""
+    bundle = {"biggest_price_move": {"from": 0.5, "to": 0.51}}
+    chart = {"chart_type": "none"}
+    text = ("$24k just landed on the Cavs; the lead wallet is 110-3. "
+            "Cleveland or fade?")
+    impact = twitter_pipeline._score_candidate(text, bundle, chart, shape="impact")
+    behavior = twitter_pipeline._score_candidate(text, bundle, chart, shape="behavior")
+    assert impact == behavior
+
+
+def test_score_candidate_boosts_timing_shape_when_resolution_under_60_min():
+    """When minutes_to_resolution < 60, rule 19 requires leading with the
+    clock. The rerank mirrors that priority."""
+    bundle = {"minutes_to_resolution": 30}
+    chart = {"chart_type": "none"}
+    text = ("$24k just landed on the Cavs; the lead wallet is 110-3. "
+            "Cleveland or fade?")
+    timing = twitter_pipeline._score_candidate(text, bundle, chart, shape="timing")
+    behavior = twitter_pipeline._score_candidate(text, bundle, chart, shape="behavior")
+    assert timing > behavior
+
+
+def test_score_candidate_no_timing_bonus_when_resolution_over_60_min():
+    bundle = {"minutes_to_resolution": 5000}
+    chart = {"chart_type": "none"}
+    text = ("$24k just landed on the Cavs; the lead wallet is 110-3. "
+            "Cleveland or fade?")
+    timing = twitter_pipeline._score_candidate(text, bundle, chart, shape="timing")
+    behavior = twitter_pipeline._score_candidate(text, bundle, chart, shape="behavior")
+    assert timing == behavior
+
+
+def test_score_candidate_default_shape_keeps_old_behavior():
+    """Calls without a `shape` argument keep the pre-shape-aware scoring so
+    callers that don't track shape still work."""
+    bundle = {"biggest_price_move": {"from": 0.66, "to": 0.33}}
+    chart = {"chart_type": "none"}
+    text = ("$24k just landed on the Cavs; the lead wallet is 110-3. "
+            "Cleveland or fade?")
+    # No shape argument → no bonus regardless of bundle.
+    a = twitter_pipeline._score_candidate(text, bundle, chart)
+    b = twitter_pipeline._score_candidate(text, bundle, chart, shape=None)
+    assert a == b
+
+
+def test_rerank_picks_impact_candidate_over_behavior_when_price_move_big():
+    """Reproduction of run 6f0266d7: |price_move| = 0.33 (rule 19 forces
+    impact lede), but the behavior candidate scored higher on heuristics.
+    With shape-aware rerank, the impact candidate wins."""
+    bundle = {
+        "biggest_price_move": {"from": 0.66, "to": 0.33},
+        "minutes_to_resolution": 5000,
+        "has_sharp_wallet": {"wallet": "0xabc", "record": "577-331",
+                             "win_pct": 0.64, "alert_id": 1, "bet_usd": 7000},
+        "total_usd": 7000,
+    }
+    # impact-shape candidate: leads with the price move, weaker closer
+    impact_text = ("One buy just flipped this market from 66c to 33c — $7k of "
+                   "No from a 577-331 wallet. The line still sits at a flip.")
+    # behavior-shape candidate: leads with wallet behavior, stronger closer (?)
+    behavior_text = ("Someone keeps buying No on the meeting market: $7k from "
+                     "a 577-331 wallet. One line moved 66c to 33c. "
+                     "Sharp read or guess?")
+    impact_resp = json.dumps({"tweet": impact_text})
+    behavior_resp = json.dumps({"tweet": behavior_text})
+    # _pick_candidate_shapes for this bundle yields (in priority order):
+    # ["impact", "behavior", "stakes"] (no timing because MTR > 360; no size
+    # because total_usd < 10000; no age/cluster). So writer is called in that
+    # order: impact first, behavior second, stakes third.
+    stakes_text = ("$7k of No is one diplomatic meeting away from doubling. "
+                   "The wallet calling it is 577-331. Sharp read?")
+    stakes_resp = json.dumps({"tweet": stakes_text})
+    client = FakeClient([impact_resp, behavior_resp, stakes_resp, _VALIDATOR_OK])
+    decision, err, attempts = twitter_pipeline.write_tweet_with_retry(
+        client, [], "summary", bundle,
+        {"chart_type": "none", "hook_anchor": "x"})
+    assert err is None
+    assert attempts == 1
+    # The impact candidate should win the rerank despite the behavior candidate
+    # having more heuristic signals (the "?" closer).
+    assert decision["tweet"] == impact_text
+
+
+def test_retry_after_llm_rejection_uses_priority_shape_not_winning_shape():
+    """When the LLM validator rejects the winner, the retry should use the
+    highest-priority eligible shape, not whatever shape happened to win the
+    rerank. Otherwise a rule 19 rejection ("doesn't lead with impact") gets
+    retried with the same wrong shape and fails again."""
+    bundle = {
+        "biggest_price_move": {"from": 0.66, "to": 0.33},
+        "minutes_to_resolution": 5000,
+        "total_usd": 7000,
+        "has_sharp_wallet": {"wallet": "0xabc", "record": "577-331",
+                             "win_pct": 0.64, "alert_id": 1, "bet_usd": 7000},
+    }
+    # impact eligible (|delta|=0.33), behavior eligible (sharp wallet), stakes
+    # eligible (long-resolution event). _pick_candidate_shapes yields
+    # ["impact", "behavior", "stakes"] in priority order.
+    round1 = json.dumps({"tweet":
+        "$7k just hit No on the meeting market; the lead wallet is 577-331. "
+        "Sharp read or guess?"})
+    validator_reject = json.dumps({"ok": False,
+        "error": "rule 19: price moved 66c -> 33c but tweet does not lead "
+                 "with impact"})
+    round2 = json.dumps({"tweet":
+        "One buy just flipped 66c to 33c — $7k of No from a 577-331 wallet. "
+        "Sharp call?"})
+    # 3 round-1 writers + 1 validator-reject + 1 round-2 writer + 1 validator-ok
+    client = FakeClient([round1, round1, round1, validator_reject,
+                         round2, _VALIDATOR_OK])
+    decision, err, attempts = twitter_pipeline.write_tweet_with_retry(
+        client, [], "summary", bundle,
+        {"chart_type": "none", "hook_anchor": "x"})
+    assert err is None
+    assert attempts == 2
+    # The 5th call is the retry writer. Its payload must include the priority
+    # shape ("impact" given this bundle), not whatever shape happened to win
+    # the rerank.
+    retry_payload = json.loads(_extract_user_payload(client.responses.inputs[4]))
+    assert retry_payload["lede_shape_hint"] == "impact"
+
+
+def _extract_user_payload(input_text: str) -> str:
+    """write_tweet wraps the JSON payload with a prefix (refinement note +
+    optional reply directive). Strip them to recover the JSON body so tests
+    can inspect the payload fields."""
+    # The JSON object is the largest balanced { ... } block in the input.
+    start = input_text.find("{")
+    end = input_text.rfind("}")
+    return input_text[start:end + 1] if start >= 0 and end > start else "{}"

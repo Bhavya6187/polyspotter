@@ -866,6 +866,11 @@ as a self-contained sentence.
   "in the last hour", "minutes before X") unless facts_bundle.total_usd backs
   the claim. If a cited dollar figure is larger than facts_bundle.total_usd,
   treat it as cumulative and phrase it accordingly.
+- Volume multipliers: only quote facts_bundle.volume_multiplier_x. Volume
+  figures in event_summary or alert headlines use a different baseline and
+  often disagree with the bundle by 10-100x. If volume_multiplier_x is null,
+  do not claim a volume multiplier at all (no "12x", "ran 30 times the usual",
+  etc.) — switch to a different lede shape instead.
 - The closing line earns its spot. There is no link to fall back on —
   the closer is the LAST thing the reader sees. Strong closers, in
   priority order:
@@ -1221,7 +1226,32 @@ _CONTRAST_CLAUSE_RE = re.compile(
 )
 
 
-def _score_candidate(text: str, bundle: dict, chart_pick: dict) -> float:
+_LEDE_SHAPE_PRIORITY_BONUS = 10.0
+
+
+def _forced_priority_shape(bundle: dict) -> str | None:
+    """Return the lede shape the validator's rule 19 forces, if any.
+
+    Rule 19 forces "timing" when minutes_to_resolution < 60 (timing beats
+    everything) and "impact" when |biggest_price_move| >= 0.03 (impact beats
+    size). Timing wins when both apply.
+    """
+    bundle = bundle or {}
+    mtr = bundle.get("minutes_to_resolution")
+    if isinstance(mtr, (int, float)) and 0 < mtr < 60:
+        return "timing"
+    move = bundle.get("biggest_price_move") or {}
+    try:
+        delta = abs(float(move.get("to") or 0) - float(move.get("from") or 0))
+    except (TypeError, ValueError):
+        delta = 0.0
+    if delta >= _LEDE_PRICE_DELTA_MIN:
+        return "impact"
+    return None
+
+
+def _score_candidate(text: str, bundle: dict, chart_pick: dict,
+                     shape: str | None = None) -> float:
     """Heuristic score for picking among valid candidates. Higher = better.
 
     Signals (deterministic, cheap):
@@ -1231,6 +1261,11 @@ def _score_candidate(text: str, bundle: dict, chart_pick: dict) -> float:
     - Reply-bait question anywhere in body: +1
     - Length in 200-260 char sweet spot (Twitter-counted): +2
     - Length > 270 (cramped, near the 280 cap): -1
+    - Shape matches the validator's forced lede priority (rule 19): +10
+
+    The shape bonus mirrors validator rule 19 — when the bundle forces an
+    impact or timing lede, the rerank must pick that shape or the LLM
+    validator will reject the winner regardless of how clean it reads.
 
     The score doesn't replace validation — it ranks among already-valid
     candidates. Order is the tiebreaker: when scores tie, the highest-
@@ -1266,6 +1301,9 @@ def _score_candidate(text: str, bundle: dict, chart_pick: dict) -> float:
         score += 2.0
     elif tlen > 270:
         score -= 1.0
+
+    if shape and shape == _forced_priority_shape(bundle):
+        score += _LEDE_SHAPE_PRIORITY_BONUS
 
     return score
 
@@ -1571,7 +1609,8 @@ def write_tweet_with_retry(llm_client, chosen_alerts, event_summary, bundle,
 
     if candidates:
         candidates.sort(
-            key=lambda c: _score_candidate(c[1].get("tweet", ""), bundle, chart_pick),
+            key=lambda c: _score_candidate(c[1].get("tweet", ""), bundle,
+                                           chart_pick, shape=c[0]),
             reverse=True,
         )
         winning_shape, winner = candidates[0]
@@ -1588,8 +1627,15 @@ def write_tweet_with_retry(llm_client, chosen_alerts, event_summary, bundle,
         )
         if ok:
             return winner, None, 1
-        log("validation_retry", error=err, shape=winning_shape)
-        retry_shape = winning_shape
+        # Prefer the validator's forced priority shape (rule 19) over the
+        # winning shape — if rule 19 fires, retrying with the same shape
+        # that just lost rule 19 will fail rule 19 again. When no priority
+        # is forced, keep the winning shape so the writer can iterate on
+        # the specific issue.
+        forced = _forced_priority_shape(bundle)
+        retry_shape = forced or winning_shape
+        log("validation_retry", error=err, shape=retry_shape,
+            winning_shape=winning_shape)
         retry_error = err
     else:
         log("all_candidates_failed_deterministic",
