@@ -14,6 +14,7 @@
 # NOT picked up by publish_tweet.py — the chain stops after drafting.
 
 set -u
+set -o pipefail
 
 INTERVAL_SECONDS="${INTERVAL_SECONDS:-18000}"  # 5 hours
 
