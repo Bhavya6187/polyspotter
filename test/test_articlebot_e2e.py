@@ -106,6 +106,14 @@ def test_articlebot_main_e2e_post(tmp_path, monkeypatch):
         return b"\x89PNG\r\n\x1a\n"
     monkeypatch.setattr(articlebot, "_dispatch_chart_render", _fake_render)
 
+    # The eligibility precompute calls charts._fetch_wallet_profiles to decide
+    # whether wallet_record_card can render. Stub it so 0xabc is eligible.
+    import charts
+    monkeypatch.setattr(charts, "_fetch_wallet_profiles", lambda ws: {
+        w: {"wins": 50, "losses": 10, "win_rate": 0.83, "first_seen_at": None}
+        for w in ws
+    })
+
     # Redirect storage to tmp_path
     monkeypatch.setattr(st, "ARTICLES_DIR", str(tmp_path))
     fake_conn = MagicMock()
@@ -209,6 +217,13 @@ def _make_validation_retry_harness(monkeypatch, tmp_path, agent_response, retry_
     def _fake_render(chart_type, alert, chosen_alerts, params=None):
         return b"\x89PNG\r\n\x1a\n"
     monkeypatch.setattr(articlebot, "_dispatch_chart_render", _fake_render)
+
+    # See test_articlebot_main_e2e_post for why this stub is needed.
+    import charts
+    monkeypatch.setattr(charts, "_fetch_wallet_profiles", lambda ws: {
+        w: {"wins": 50, "losses": 10, "win_rate": 0.83, "first_seen_at": None}
+        for w in ws
+    })
 
     monkeypatch.setattr(st, "ARTICLES_DIR", str(tmp_path))
     fake_conn = MagicMock()

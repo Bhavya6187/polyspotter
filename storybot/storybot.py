@@ -1095,7 +1095,8 @@ def run_agent(llm_client, *, chosen_alerts: list[dict],
               kickoff_message: str | None = None,
               json_retry_hint: str | None = None,
               max_tool_calls: int = MAX_TOOL_CALLS,
-              max_iterations: int = MAX_ITERATIONS) -> dict:
+              max_iterations: int = MAX_ITERATIONS,
+              skip_kickoff: bool = False) -> dict:
     """Drive the Responses-API function-calling loop until the LLM emits final JSON.
 
     `chosen_alerts` is the 1+ alerts already picked by `pick_story()` (all
@@ -1126,14 +1127,15 @@ def run_agent(llm_client, *, chosen_alerts: list[dict],
     """
     scope = _derive_scope(chosen_alerts)
     transcript = transcript if transcript is not None else []
-    if kickoff_message is None:
-        prefetched = prefetch_bundle(scope)
-        kickoff_message = build_kickoff_message(chosen_alerts, prefetched=prefetched)
-    transcript.append({
-        "type": "message",
-        "role": "user",
-        "content": kickoff_message,
-    })
+    if not skip_kickoff:
+        if kickoff_message is None:
+            prefetched = prefetch_bundle(scope)
+            kickoff_message = build_kickoff_message(chosen_alerts, prefetched=prefetched)
+        transcript.append({
+            "type": "message",
+            "role": "user",
+            "content": kickoff_message,
+        })
     calls_used = 0
     forcing_final = False
     final_json_retries = 0

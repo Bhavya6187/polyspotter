@@ -70,7 +70,7 @@ def test_numeric_grounding_rejects_ungrounded_win_loss_tuple():
         d, chosen_alerts=chosen_alerts, transcript=transcript,
     )
     assert not ok
-    assert "178-20" in err and "cannot be found" in err
+    assert "178-20" in err and "not grounded" in err
 
 
 def test_numeric_grounding_passes_when_tuple_halves_in_alerts():
@@ -500,3 +500,206 @@ def test_router_short_circuit_thresholds():
     import compressor
     assert compressor.ROUTER_SKIP_ROWS >= 30
     assert compressor.ROUTER_SKIP_BYTES >= 20480
+
+
+# --- Fix #10: per-chart-type eligibility menu (run 801ec740) ---------------
+#
+# The LLM kept pairing wallet_record_card with the headline-$ alert even
+# when its wallet had < 10 resolved bets (the renderer's floor), producing
+# a blank cover. Eligibility is computed once and surfaced as a hard menu
+# in the kickoff + enforced by the validator.
+
+def _mock_fetch_wallet_profiles(monkeypatch, eligible_wallets: set[str]):
+    """Patch charts._fetch_wallet_profiles to return rows only for the wallets
+    we consider eligible (mimics the >= WALLET_RECORD_MIN_BETS filter)."""
+    import charts
+
+    def _fake(wallets):
+        return {w: {"wins": 50, "losses": 10, "win_rate": 0.83,
+                    "first_seen_at": None}
+                for w in wallets if w in eligible_wallets}
+
+    monkeypatch.setattr(charts, "_fetch_wallet_profiles", _fake)
+
+
+def test_chart_eligibility_wallet_record_card_requires_profile(monkeypatch):
+    """Mirror of run 801ec740: alert 150130's wallet has 6 bets (no profile
+    row), so wallet_record_card must NOT list it. The sibling alert 149450
+    whose wallet HAS a profile is eligible."""
+    import articlebot
+    _mock_fetch_wallet_profiles(monkeypatch, {"0xWITH_PROFILE"})
+    alerts = [
+        {"id": 150130, "wallet": "0xNO_PROFILE",
+         "cluster_headline": "", "signals": []},
+        {"id": 149450, "wallet": "0xWITH_PROFILE",
+         "cluster_headline": "", "signals": []},
+    ]
+    elig = articlebot._compute_chart_eligibility(alerts)
+    assert elig["wallet_record_card"] == [149450]
+
+
+def test_chart_eligibility_fresh_wallet_via_signal(monkeypatch):
+    import articlebot
+    _mock_fetch_wallet_profiles(monkeypatch, set())
+    alerts = [
+        {"id": 1, "wallet": "0xA", "cluster_headline": "",
+         "signals": [{"strategy": "new_wallet_large_bet", "headline": "fresh wallet"}]},
+        {"id": 2, "wallet": "0xB", "cluster_headline": "",
+         "signals": [{"strategy": "correlated_cross_market"}]},
+    ]
+    elig = articlebot._compute_chart_eligibility(alerts)
+    assert elig["fresh_wallet_card"] == [1]
+
+
+def test_chart_eligibility_cluster_card_via_linked_funder_headline(monkeypatch):
+    import articlebot
+    _mock_fetch_wallet_profiles(monkeypatch, set())
+    alerts = [
+        {"id": 1, "wallet": "0xA", "signals": [],
+         "cluster_headline": "3 wallets, $10k — 2 share funder (linked)"},
+        {"id": 2, "wallet": "0xB", "signals": [],
+         "cluster_headline": "2 wallets, $5k — same direction"},
+    ]
+    elig = articlebot._compute_chart_eligibility(alerts)
+    assert elig["cluster_card"] == [1]
+
+
+def test_chart_eligibility_volume_bar_via_signal(monkeypatch):
+    import articlebot
+    _mock_fetch_wallet_profiles(monkeypatch, set())
+    alerts = [
+        {"id": 1, "wallet": "0xA", "cluster_headline": "",
+         "signals": [{"strategy": "pre_event_volume_spike", "headline": "12x"}]},
+        {"id": 2, "wallet": "0xB", "cluster_headline": "",
+         "signals": [{"strategy": "correlated_cross_market"}]},
+    ]
+    elig = articlebot._compute_chart_eligibility(alerts)
+    assert elig["volume_bar"] == [1]
+
+
+def test_chart_eligibility_price_sparkline_is_permissive(monkeypatch):
+    """price_sparkline needs CLOB history we don't pre-fetch — all alerts
+    are eligible; the fallback chain handles dead-flat markets."""
+    import articlebot
+    _mock_fetch_wallet_profiles(monkeypatch, set())
+    alerts = [
+        {"id": 1, "wallet": "0xA", "cluster_headline": "", "signals": []},
+        {"id": 2, "wallet": "0xB", "cluster_headline": "", "signals": []},
+    ]
+    elig = articlebot._compute_chart_eligibility(alerts)
+    assert elig["price_sparkline"] == [1, 2]
+
+
+def test_chart_eligibility_handles_string_signals(monkeypatch):
+    """alert['signals'] coming from JSONB raw text shouldn't crash the check."""
+    import articlebot, json
+    _mock_fetch_wallet_profiles(monkeypatch, set())
+    alerts = [
+        {"id": 1, "wallet": "0xA", "cluster_headline": "",
+         "signals": json.dumps([{"strategy": "new_wallet_large_bet"}])},
+    ]
+    elig = articlebot._compute_chart_eligibility(alerts)
+    assert elig["fresh_wallet_card"] == [1]
+
+
+def test_chart_eligibility_db_error_is_soft(monkeypatch):
+    """If wallet_profiles lookup blows up, we still return an eligibility
+    map — wallet_record_card just ends up empty. The article can still
+    render with a different chart_type or no cover."""
+    import articlebot, charts
+
+    def _boom(_):
+        raise RuntimeError("simulated DB outage")
+
+    monkeypatch.setattr(charts, "_fetch_wallet_profiles", _boom)
+    alerts = [{"id": 1, "wallet": "0xA", "cluster_headline": "", "signals": []}]
+    elig = articlebot._compute_chart_eligibility(alerts)
+    assert elig["wallet_record_card"] == []
+    assert elig["price_sparkline"] == [1]
+
+
+def test_format_chart_eligibility_marks_suggested():
+    import articlebot
+    block = articlebot._format_chart_eligibility(
+        {"wallet_record_card": [149450], "fresh_wallet_card": [],
+         "cluster_card": [], "volume_bar": [], "price_sparkline": [1, 2]},
+        suggested_chart_type="wallet_record_card",
+    )
+    assert "wallet_record_card: [149450]" in block
+    assert "<- suggested" in block
+    assert "fresh_wallet_card: [(none)]" in block
+
+
+# --- Cover-chart-spec validator ---
+
+def _decision_with_cover_spec(spec):
+    """Reuse the valid decision fixture but with an explicit cover_chart_spec."""
+    base = _decision()  # imports articlebot internally, so safe in pytest
+    base["cover_chart_spec"] = spec
+    return base
+
+
+def test_validate_cover_chart_spec_accepts_null():
+    import articlebot
+    d = _decision_with_cover_spec(None)
+    eligibility = {ct: [] for ct in articlebot._COVER_CHART_TYPES}
+    ok, err = articlebot.validate_article_decision(
+        d, chart_eligibility=eligibility,
+    )
+    assert ok, err
+
+
+def test_validate_cover_chart_spec_rejects_ineligible_alert():
+    """Mirror of run 801ec740: LLM picks wallet_record_card with alert 150130,
+    but eligibility for that chart_type lists only [149450]."""
+    import articlebot
+    d = _decision_with_cover_spec({
+        "chart_type": "wallet_record_card",
+        "alert_id": 150130,
+        "params": {"outcome": "No"},
+    })
+    eligibility = {
+        "wallet_record_card": [149450],
+        "fresh_wallet_card": [],
+        "cluster_card": [],
+        "volume_bar": [],
+        "price_sparkline": [149450, 150130],
+    }
+    ok, err = articlebot.validate_article_decision(
+        d, chart_eligibility=eligibility,
+    )
+    assert not ok
+    assert "wallet_record_card" in err and "150130" in err
+    assert "149450" in err  # error tells the writer which ids ARE eligible
+
+
+def test_validate_cover_chart_spec_accepts_eligible_pair():
+    import articlebot
+    d = _decision_with_cover_spec({
+        "chart_type": "wallet_record_card",
+        "alert_id": 149450,
+        "params": {"outcome": "Yes"},
+    })
+    eligibility = {
+        "wallet_record_card": [149450],
+        "fresh_wallet_card": [],
+        "cluster_card": [],
+        "volume_bar": [],
+        "price_sparkline": [149450],
+    }
+    ok, err = articlebot.validate_article_decision(
+        d, chart_eligibility=eligibility,
+    )
+    assert ok, err
+
+
+def test_validate_cover_chart_spec_skipped_without_eligibility():
+    """Back-compat: existing call sites that don't pass `chart_eligibility`
+    keep working (the spec is just not checked)."""
+    import articlebot
+    d = _decision_with_cover_spec({
+        "chart_type": "wallet_record_card", "alert_id": 999999,
+        "params": {"outcome": "No"},
+    })
+    ok, err = articlebot.validate_article_decision(d)
+    assert ok, err

@@ -397,7 +397,7 @@ def pick_finalists_chunk(llm_client, chunk: list[dict],
             model=MODEL,
             instructions=PICKER_STAGE1_SYSTEM_PROMPT,
             input=user_msg,
-            max_output_tokens=4000,
+            max_output_tokens=12000,
             reasoning={"effort": "medium"},
             text={"format": {"type": "json_object"}},
         )
@@ -680,6 +680,125 @@ def _suggested_chart_type(chosen_alerts: list[dict]) -> str | None:
     return "price_sparkline"
 
 
+# Chart types the writer is allowed to pick, in the order they're surfaced
+# in the kickoff. Mirrors render_cover_chart's fallback order.
+_COVER_CHART_TYPES: tuple[str, ...] = (
+    "wallet_record_card",
+    "fresh_wallet_card",
+    "cluster_card",
+    "volume_bar",
+    "price_sparkline",
+)
+
+
+def _has_strategy_signal(alert: dict, strategies: tuple[str, ...]) -> bool:
+    """True if `alert['signals']` contains a dict with `strategy` in `strategies`.
+    Tolerates the JSONB-string shape that some test fixtures pass."""
+    sigs = alert.get("signals") or []
+    if isinstance(sigs, str):
+        try:
+            sigs = json.loads(sigs)
+        except (json.JSONDecodeError, ValueError):
+            return False
+    if not isinstance(sigs, list):
+        return False
+    for s in sigs:
+        if isinstance(s, dict) and s.get("strategy") in strategies:
+            return True
+    return False
+
+
+def _compute_chart_eligibility(chosen_alerts: list[dict]) -> dict[str, list[int]]:
+    """Per-chart-type eligible alert_ids — surfaced in the kickoff as a hard
+    menu the LLM's `cover_chart_spec` must pick from.
+
+    Each chart fetcher has a precondition that, when missed, returns None and
+    produces a blank cover. The picker's `suggested_chart_type` is a single
+    hint that doesn't tell the LLM *which alert* the suggestion applies to,
+    and the writer routinely pairs the right chart type with the wrong alert
+    (recurring failure 801ec740: wallet_record_card on a wallet with 6
+    resolved bets, below the fetcher's 10-bet floor).
+
+    Checks are proxies — signal presence + one batched DB query — not
+    byte-equivalent to the fetchers, but tight enough to keep the LLM from
+    picking known-bad pairs:
+
+    - `wallet_record_card`: alert.wallet exists in `wallet_profiles` with
+      >= WALLET_RECORD_MIN_BETS resolved bets. Batched DB query.
+    - `fresh_wallet_card`: alert has a `new_wallet_large_bet` signal — the
+      strategy that fires when a wallet is within the fetcher's age window.
+    - `cluster_card`: alert.cluster_headline ends with "share funder
+      (linked)" — same precondition the renderer relies on and the
+      `_suggested_chart_type` selector uses.
+    - `volume_bar`: alert has a `pre_event_volume_spike` signal (strategy
+      threshold is 10x; renderer requires >= 5x).
+    - `price_sparkline`: permissive — fetcher needs CLOB price history
+      we can't pre-check without HTTP, and almost every liquid market
+      moves at least 1¢ over 24h. Every alert is eligible; the
+      fallback chain handles dead-flat markets.
+    """
+    out: dict[str, list[int]] = {ct: [] for ct in _COVER_CHART_TYPES}
+    if not chosen_alerts:
+        return out
+
+    # The only DB-touching check — batched into one query via the existing
+    # helper, which already applies the >= WALLET_RECORD_MIN_BETS filter.
+    wallets = sorted({a["wallet"] for a in chosen_alerts
+                      if isinstance(a.get("wallet"), str)})
+    profiles: dict[str, dict] = {}
+    if wallets:
+        try:
+            from charts import _fetch_wallet_profiles
+            profiles = _fetch_wallet_profiles(wallets)
+        except Exception as exc:
+            log("articlebot_chart_eligibility_db_error",
+                error=f"{type(exc).__name__}: {exc}")
+            profiles = {}
+
+    for a in chosen_alerts:
+        aid = a.get("id")
+        if not isinstance(aid, int):
+            continue
+        w = a.get("wallet")
+        if isinstance(w, str) and w in profiles:
+            out["wallet_record_card"].append(aid)
+        if _has_strategy_signal(a, ("new_wallet_large_bet",)):
+            out["fresh_wallet_card"].append(aid)
+        head = a.get("cluster_headline") or ""
+        if isinstance(head, str) and head.rstrip().endswith("share funder (linked)"):
+            out["cluster_card"].append(aid)
+        if _has_strategy_signal(a, ("pre_event_volume_spike",)):
+            out["volume_bar"].append(aid)
+        out["price_sparkline"].append(aid)
+
+    return out
+
+
+def _format_chart_eligibility(
+    eligibility: dict[str, list[int]],
+    *,
+    suggested_chart_type: str | None = None,
+) -> str:
+    """Render the eligibility table for the kickoff. Emits `(none)` for empty
+    lists so the LLM doesn't pick a chart type with no valid alert_id."""
+    lines = [
+        "",
+        "[cover_chart eligibility]: your `cover_chart_spec.alert_id` MUST be one of",
+        "the eligible alert_ids for the `chart_type` you pick. Pairing a chart_type",
+        "with an alert_id outside this menu silently produces a blank cover; if no",
+        "row fits your story, set `cover_chart_spec` to null. The picker's hint",
+        "(suggested) reflects the strongest precondition met across these alerts —",
+        "you may pick a different row if your angle calls for it, but it must come",
+        "from this menu.",
+    ]
+    for ct in _COVER_CHART_TYPES:
+        ids = eligibility.get(ct, [])
+        ids_str = ", ".join(str(i) for i in ids) if ids else "(none)"
+        suffix = "  <- suggested" if ct == suggested_chart_type else ""
+        lines.append(f"- {ct}: [{ids_str}]{suffix}")
+    return "\n".join(lines)
+
+
 def fetch_recent_article_slugs() -> list[str]:
     """event_slugs we've published in the last RECENT_ARTICLES_WINDOW_DAYS
     days (skipped rows excluded — see spec § Decisions)."""
@@ -861,7 +980,7 @@ def _jaccard(a: set[str], b: set[str]) -> float:
 # allowed for typographic versions. We require BOTH halves to exist as integers
 # in the source data (alerts + tool results). Catches the cleanest hallucination
 # failure mode from recent runs (3b474742, b31c87c6, 4611d23a).
-_WIN_LOSS_TUPLE_RE = re.compile(r"\b(\d+)\s*[-–]\s*(\d+)\b(?!\s*(?:UTC|am|pm|AM|PM|:))")
+_WIN_LOSS_TUPLE_RE = re.compile(r"\b(\d+)\s*[-–]\s*(\d+)\b(?!\s*(?:UTC|am|pm|AM|PM|:|¢|%))")
 # A real win-loss tuple totals at least this many closed positions. Below this
 # the "X-Y" pattern is more likely a score, time, or odds expression.
 _MIN_TUPLE_TOTAL = 10
@@ -911,6 +1030,8 @@ def _validate_numeric_grounding(body_markdown: str,
     if not source_ints:
         return True, ""
     plain_body = _MD_LINK_RE.sub(r"\1", body_markdown or "")
+    failures: list[str] = []
+    seen: set[tuple[int, int]] = set()
     for m in _WIN_LOSS_TUPLE_RE.finditer(plain_body):
         a_s, b_s = m.group(1), m.group(2)
         try:
@@ -919,32 +1040,82 @@ def _validate_numeric_grounding(body_markdown: str,
             continue
         if a + b < _MIN_TUPLE_TOTAL:
             continue
+        if (a, b) in seen:
+            continue
+        seen.add((a, b))
         if a not in source_ints or b not in source_ints:
             missing = []
             if a not in source_ints:
                 missing.append(f"{a} (wins)")
             if b not in source_ints:
                 missing.append(f"{b} (losses)")
-            return False, (
-                f"body cites win-loss tuple {a_s}-{b_s} but "
-                f"{', '.join(missing)} cannot be found in the alerts or your "
-                "tool results. Verify the wallet's actual record before "
-                "citing it, or rewrite the line"
-            )
+            failures.append(f"{a_s}-{b_s} [{', '.join(missing)} not in source]")
+    if not failures:
+        return True, ""
+    return False, (
+        "body cites win-loss tuples that are not grounded in the alerts "
+        f"or your tool results: {'; '.join(failures)}. For each, either "
+        "call the `query` tool to fetch the wallet's actual closed-position "
+        "record (wallet_profiles row, or wallet positions via the data_api) "
+        "and re-cite the verified numbers, or rewrite the line to drop the "
+        "specific tuple"
+    )
+
+
+def _validate_cover_chart_spec(spec, eligibility: dict[str, list[int]]
+                               ) -> tuple[bool, str]:
+    """Check the LLM's `cover_chart_spec` against the precomputed eligibility
+    menu. Spec is allowed to be null (no cover) — only validated when present.
+    """
+    if spec is None:
+        return True, ""
+    if not isinstance(spec, dict):
+        return False, "cover_chart_spec must be an object or null"
+    ct = spec.get("chart_type")
+    aid = spec.get("alert_id")
+    if ct is None and aid is None:
+        return True, ""  # treated as null
+    if ct not in eligibility:
+        return False, (
+            f"cover_chart_spec.chart_type {ct!r} is not one of "
+            f"{sorted(eligibility.keys())}; pick a chart_type from the "
+            "kickoff's [cover_chart eligibility] menu or set cover_chart_spec to null"
+        )
+    try:
+        aid_int = int(aid)
+    except (TypeError, ValueError):
+        return False, (
+            f"cover_chart_spec.alert_id must be an integer, got {aid!r}"
+        )
+    eligible_ids = eligibility[ct]
+    if aid_int not in eligible_ids:
+        eligible_str = (", ".join(str(i) for i in eligible_ids)
+                        if eligible_ids
+                        else "(none — pick a different chart_type or set cover_chart_spec to null)")
+        return False, (
+            f"cover_chart_spec pairs chart_type={ct!r} with alert_id={aid_int}, "
+            f"but that alert is not in the eligibility menu for {ct!r}. "
+            f"Eligible alert_ids for {ct!r}: [{eligible_str}]"
+        )
     return True, ""
 
 
 def validate_article_decision(decision: dict,
                               *,
                               chosen_alerts: list[dict] | None = None,
-                              transcript: list | None = None) -> tuple[bool, str]:
+                              transcript: list | None = None,
+                              chart_eligibility: dict[str, list[int]] | None = None,
+                              ) -> tuple[bool, str]:
     """Returns (ok, error_message). Mirrors the contract of
     storybot.validate_decision but for article output shape.
 
     `chosen_alerts` + `transcript` are optional context for the numeric
     grounding check — pass them from main() so win-loss tuples like
     "165-2" must be reachable in source data. When omitted (e.g. tests
-    without fixtures), the grounding check is skipped."""
+    without fixtures), the grounding check is skipped.
+    `chart_eligibility` (optional) constrains `cover_chart_spec` to
+    (chart_type, alert_id) pairs the renderer can actually produce; when
+    omitted the cover spec is not checked (back-compat for fixtures)."""
     d = decision.get("decision")
     if d == "skip":
         return True, ""
@@ -1075,6 +1246,13 @@ def validate_article_decision(decision: dict,
     ok, err = _validate_numeric_grounding(body, chosen_alerts, transcript)
     if not ok:
         return False, err
+
+    if chart_eligibility is not None:
+        ok, err = _validate_cover_chart_spec(
+            decision.get("cover_chart_spec"), chart_eligibility,
+        )
+        if not ok:
+            return False, err
 
     return True, ""
 
@@ -1215,7 +1393,9 @@ _RUN_OUTPUT_DIR = _DRY_RUN_DIR if DRY_RUN else _LIVE_RUN_DIR
 
 def _build_kickoff_message(chosen_alerts: list[dict],
                            *,
-                           suggested_chart_type: str | None = None) -> tuple[str, dict, dict]:
+                           suggested_chart_type: str | None = None,
+                           chart_eligibility: dict[str, list[int]] | None = None,
+                           ) -> tuple[str, dict, dict]:
     """Build the article-shaped kickoff message. Returns (message, scope, prefetched).
 
     Uses storybot's prefetched-block format but with article-specific framing.
@@ -1223,6 +1403,10 @@ def _build_kickoff_message(chosen_alerts: list[dict],
     picker from signals + wallet stats — surfaced as a "consider X first"
     nudge so the writer doesn't pick volume_bar on a 1816× spike when the
     real story is a wallet record (recurring failure: 0ed1fd63 / bd9c1efb).
+    `chart_eligibility` (optional) is the per-chart-type list of eligible
+    alert_ids computed by `_compute_chart_eligibility`; surfaced as a hard
+    menu so the writer doesn't pair a chart type with an alert whose
+    precondition the renderer would reject (recurring failure: 801ec740).
     """
     scope = storybot._derive_scope(chosen_alerts)
     prefetched = storybot.prefetch_bundle(scope)
@@ -1231,7 +1415,11 @@ def _build_kickoff_message(chosen_alerts: list[dict],
         prefix = _scope_header() + prefix
 
     chart_hint = ""
-    if suggested_chart_type:
+    if chart_eligibility is not None:
+        chart_hint = "\n\n" + _format_chart_eligibility(
+            chart_eligibility, suggested_chart_type=suggested_chart_type,
+        )
+    elif suggested_chart_type:
         chart_hint = (
             "\n\n[cover_chart hint]: based on the signals + wallet stats on "
             f"these alerts, consider `{suggested_chart_type}` first for "
@@ -1392,45 +1580,85 @@ def _dump_transcript(run_id: str, *, pick: dict, decision: dict | None,
     return path
 
 
-def _retry_with_validation_hint(llm_client, transcript: list, error_msg: str,
-                                usage: dict | None) -> dict | None:
-    """Make ONE more LLM call appending a targeted validation hint.
+# Retry budget for the self-correction loop. Each attempt re-enters the agent
+# loop with tools available, so the model can `query` the actual record before
+# re-emitting. Bound the tool calls per attempt so a runaway can't burn the
+# whole tool budget.
+VALIDATION_MAX_ATTEMPTS = 3
+VALIDATION_TOOL_CALLS_PER_ATTEMPT = 8
+VALIDATION_ITERATIONS_PER_ATTEMPT = 10
 
-    Appends a user input item naming the violated rule, sends the full
-    transcript to the model with json_object output (and no tools — we don't
-    want any more tool calls), and returns the parsed decision dict. Returns
-    None if the response is not valid JSON (caller treats None as a second
-    failure).
+
+def _retry_with_validation_loop(
+    llm_client,
+    *,
+    transcript: list,
+    chosen_alerts: list[dict],
+    initial_error: str,
+    usage: dict | None,
+    compressor_traces: list[dict] | None,
+    run_id: str,
+    chart_eligibility: dict[str, list[int]] | None = None,
+) -> tuple[dict | None, str]:
+    """Loop up to VALIDATION_MAX_ATTEMPTS times to fix validation issues.
+
+    Each attempt appends a targeted hint to the transcript, re-enters
+    `storybot.run_agent` with `skip_kickoff=True` so tools are available
+    (the model can `query` to verify a wallet's record before re-emitting),
+    then re-validates. Returns (decision, "") on success or
+    (last_decision_or_None, last_error) if every attempt fails.
     """
-    transcript.append({
-        "type": "message",
-        "role": "user",
-        "content": (
-            f"Your previous article failed validation: {error_msg}. "
-            "Please return a corrected JSON object that fixes this issue. "
-            "Same schema as before."
-        ),
-    })
-    response = llm_client.responses.create(
-        model=MODEL,
-        instructions=SYSTEM_PROMPT,
-        input=transcript,
-        max_output_tokens=12000,
-        text={"format": {"type": "json_object"}},
-    )
-    if usage is not None:
-        _accumulate_usage(usage, response)
-    content = response.output_text or "{}"
-    # Carry every output item back into the transcript for inspection in
-    # `_dump_transcript` (matches what run_agent does).
-    for item in response.output or []:
-        transcript.append(
-            item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+    last_decision: dict | None = None
+    last_error = initial_error
+
+    for attempt in range(1, VALIDATION_MAX_ATTEMPTS + 1):
+        transcript.append({
+            "type": "message",
+            "role": "user",
+            "content": (
+                f"Your previous article failed validation: {last_error}. "
+                "You may call the `query` tool to verify uncertain facts "
+                "before re-emitting. Either fix the JSON with grounded "
+                "numbers, or rewrite affected lines to drop the specific "
+                "unverifiable claims. Return one JSON object, same schema."
+            ),
+        })
+        try:
+            decision = storybot.run_agent(
+                llm_client,
+                chosen_alerts=chosen_alerts,
+                transcript=transcript,
+                usage=usage,
+                compressor_traces=compressor_traces,
+                system_prompt=SYSTEM_PROMPT,
+                max_tool_calls=VALIDATION_TOOL_CALLS_PER_ATTEMPT,
+                max_iterations=VALIDATION_ITERATIONS_PER_ATTEMPT,
+                skip_kickoff=True,
+            )
+        except Exception as exc:
+            last_error = f"{type(exc).__name__}: {exc}"
+            log("articlebot_validation_retry_error", run_id=run_id,
+                attempt=attempt, error=last_error)
+            continue
+
+        last_decision = decision
+        # Caller sets event_slug on the original decision; do the same here
+        # so validate_article_decision sees a complete object.
+        decision["event_slug"] = (chosen_alerts[0].get("event_slug")
+                                  if chosen_alerts else None)
+        ok, err = validate_article_decision(
+            decision, chosen_alerts=chosen_alerts, transcript=transcript,
+            chart_eligibility=chart_eligibility,
         )
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        return None  # caller treats None as a second failure
+        if ok:
+            log("articlebot_validation_recovered", run_id=run_id,
+                attempt=attempt)
+            return decision, ""
+        log("articlebot_validation_retry", run_id=run_id,
+            attempt=attempt, error=err)
+        last_error = err
+
+    return last_decision, last_error
 
 
 def main() -> int:
@@ -1473,10 +1701,16 @@ def main() -> int:
 
     chosen_alerts = pick.get("chosen_alerts") or []
 
+    # Pre-compute the per-chart-type eligible alert_ids ONCE. Used by both
+    # the kickoff (surfaced as a hard menu) and the validator (enforces the
+    # LLM's pair). See _compute_chart_eligibility for the per-type proxies.
+    chart_eligibility = _compute_chart_eligibility(chosen_alerts)
+
     # Stage 3: research + write
     kickoff, _scope, _prefetched = _build_kickoff_message(
         chosen_alerts,
         suggested_chart_type=pick.get("suggested_chart_type"),
+        chart_eligibility=chart_eligibility,
     )
     try:
         decision = storybot.run_agent(
@@ -1508,23 +1742,27 @@ def main() -> int:
     # Carry the chosen event_slug into the decision (downstream needs it)
     decision["event_slug"] = pick["event_slug"]
 
-    # Validate — with a one-shot retry on first failure
+    # Validate — with a multi-attempt self-correction loop on failure
     ok, err = validate_article_decision(
         decision, chosen_alerts=chosen_alerts, transcript=transcript,
+        chart_eligibility=chart_eligibility,
     )
     if not ok:
-        log("articlebot_validation_retry", run_id=run_id, error=err)
-        retry_decision = _retry_with_validation_hint(
-            llm_client, messages_list, err, usage_totals,
+        log("articlebot_validation_retry", run_id=run_id, attempt=0, error=err)
+        retry_decision, err = _retry_with_validation_loop(
+            llm_client,
+            transcript=messages_list,
+            chosen_alerts=chosen_alerts,
+            initial_error=err,
+            usage=usage_totals,
+            compressor_traces=compressor_traces,
+            run_id=run_id,
+            chart_eligibility=chart_eligibility,
         )
-        if retry_decision is not None:
+        if retry_decision is not None and not err:
             retry_decision["event_slug"] = pick["event_slug"]
-            ok, err = validate_article_decision(
-                retry_decision,
-                chosen_alerts=chosen_alerts, transcript=transcript,
-            )
-            if ok:
-                decision = retry_decision
+            decision = retry_decision
+            ok = True
     if not ok:
         log("articlebot_validation_error", run_id=run_id, error=err)
         if not DRY_RUN:
