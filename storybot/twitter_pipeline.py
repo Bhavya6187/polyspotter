@@ -15,6 +15,7 @@ import time
 import uuid
 from collections import Counter
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 # Make the project root importable so `import db` works when this script
 # is run directly (cron / manual run from storybot/), not just under pytest.
@@ -134,6 +135,99 @@ def _parse_iso(value) -> datetime | None:
         except ValueError:
             return None
         return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return None
+
+
+# --- Cadence gate ---------------------------------------------------------
+# The bot has a reach problem: posts that land in an empty feed at a bad
+# hour flop, and flops suppress later posts. The fix is cadence — draft only
+# inside peak ET windows, at most once per window and DAILY_POST_CAP per day.
+# All helpers below are pure (now + recent_tweets in) so they unit-test
+# cleanly; main() calls _cadence_skip_reason and skips before any LLM work.
+
+# Audience is US sports/politics/crypto. Windows are defined in ET so DST
+# shifts apply automatically via zoneinfo.
+_AUDIENCE_TZ = ZoneInfo("America/New_York")
+
+# Peak posting windows as half-open [start_hour, end_hour) ranges in ET.
+PEAK_WINDOWS: dict[str, tuple[int, int]] = {
+    "morning": (8, 10),
+    "midday": (12, 14),
+    "evening": (18, 22),
+}
+
+# Max tweets per ET calendar day. Three windows, cap of 2 -> at most two used.
+DAILY_POST_CAP = 2
+
+
+def _current_peak_window(now: datetime) -> str | None:
+    """Return the PEAK_WINDOWS id `now` falls in (evaluated in ET), or None
+    if `now` is outside every window.
+
+    A naive `now` is assumed to be UTC. Conversion to ET goes through
+    zoneinfo so daylight-saving shifts are handled correctly.
+    """
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    hour = now.astimezone(_AUDIENCE_TZ).hour
+    for window_id, (start, end) in PEAK_WINDOWS.items():
+        if start <= hour < end:
+            return window_id
+    return None
+
+
+def _posts_today(recent_tweets: list[dict], now: datetime) -> int:
+    """Count tweets in `recent_tweets` posted on the same ET calendar day as
+    `now`. Rows with a missing or unparseable `tweeted_at` are ignored."""
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    today = now.astimezone(_AUDIENCE_TZ).date()
+    count = 0
+    for row in recent_tweets or []:
+        dt = _parse_iso(row.get("tweeted_at"))
+        if dt is None:
+            continue
+        if dt.astimezone(_AUDIENCE_TZ).date() == today:
+            count += 1
+    return count
+
+
+def _posts_in_window(recent_tweets: list[dict], window: str,
+                     now: datetime) -> int:
+    """Count tweets in `recent_tweets` posted inside `window`'s ET hour block
+    on the same ET calendar day as `now`. `window` must be a PEAK_WINDOWS
+    key. Rows with a missing or unparseable `tweeted_at` are ignored."""
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    start, end = PEAK_WINDOWS[window]
+    today = now.astimezone(_AUDIENCE_TZ).date()
+    count = 0
+    for row in recent_tweets or []:
+        dt = _parse_iso(row.get("tweeted_at"))
+        if dt is None:
+            continue
+        et = dt.astimezone(_AUDIENCE_TZ)
+        if et.date() == today and start <= et.hour < end:
+            count += 1
+    return count
+
+
+def _cadence_skip_reason(now: datetime,
+                         recent_tweets: list[dict]) -> str | None:
+    """Return a human-readable skip reason if the cadence gate should block
+    this run, or None to proceed.
+
+    Checks, in order: outside every peak window -> DAILY_POST_CAP reached
+    for the ET day -> this window already used. DRY_RUN bypassing is the
+    caller's responsibility, not this function's.
+    """
+    window = _current_peak_window(now)
+    if window is None:
+        return "outside peak window"
+    if _posts_today(recent_tweets, now) >= DAILY_POST_CAP:
+        return "daily cap reached"
+    if _posts_in_window(recent_tweets, window, now) >= 1:
+        return f"already posted in {window}"
     return None
 
 
@@ -1836,6 +1930,27 @@ def main() -> int:
     run_start_t = time.monotonic()
     transcript: dict = {"run_id": run_id, "stages": {}}
 
+    # Cadence gate — draft only inside a peak ET window, at most once per
+    # window and DAILY_POST_CAP times per ET day. Most hourly wake-ups skip
+    # here, before the seed fetch and any LLM call. DRY_RUN bypasses the
+    # gate so previews run at any hour. recent_tweets is fetched here (it
+    # used to be fetched after the quality floor) and threaded into the
+    # event picker and the stage-4 validator unchanged.
+    now = datetime.now(timezone.utc)
+    recent_tweets = fetch_recent_tweets(limit=10)
+    log("recent_tweets_loaded", run_id=run_id, count=len(recent_tweets))
+    if not DRY_RUN:
+        skip_reason = _cadence_skip_reason(now, recent_tweets)
+        log("cadence_gate", run_id=run_id,
+            window=_current_peak_window(now),
+            posts_today=_posts_today(recent_tweets, now),
+            skip_reason=skip_reason)
+        if skip_reason:
+            log("skip", run_id=run_id, reason=skip_reason)
+            log("run_end", run_id=run_id, drafted=False,
+                elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
+            return 0
+
     # Seed
     t = time.monotonic()
     try:
@@ -1888,12 +2003,6 @@ def main() -> int:
         log("run_end", run_id=run_id, drafted=False,
             elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
         return 0
-
-    # Recent tweets — shown to the event picker (and validator) so we don't
-    # re-cover an event we just tweeted. Pull this BEFORE stage 1 since the
-    # picker needs it; the same list is reused by stage 4's validator.
-    recent_tweets = fetch_recent_tweets(limit=10)
-    log("recent_tweets_loaded", run_id=run_id, count=len(recent_tweets))
 
     # Stage 1
     t = time.monotonic()
