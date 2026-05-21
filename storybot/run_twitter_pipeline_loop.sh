@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Runs storybot/twitter_pipeline.py every 5 hours, then has Claude Code
-# review/edit the draft, then publishes via storybot/publish_tweet.py.
-# Five hours of wake-up gap yields ~4-5 wake-ups per day; with the picker
-# skipping duplicate or weak-story windows, the actual ship rate lands in
-# the 3-5 tweets/day target.
+# Runs storybot/twitter_pipeline.py hourly, then has Claude Code review/edit
+# the draft, then publishes via storybot/publish_tweet.py.
+# The pipeline self-gates on a cadence window (see _cadence_skip_reason in
+# storybot/twitter_pipeline.py): it only drafts inside peak ET windows, at
+# most once per window and twice per ET day. Most hourly wake-ups skip
+# immediately, before any LLM call; the ship rate lands at ~1-2 tweets/day.
 # Intended to be launched inside a screen/tmux session:
 #     screen -S twitter
 #     ./storybot/run_twitter_pipeline_loop.sh
@@ -16,7 +17,7 @@
 set -u
 set -o pipefail
 
-INTERVAL_SECONDS="${INTERVAL_SECONDS:-18000}"  # 5 hours
+INTERVAL_SECONDS="${INTERVAL_SECONDS:-3600}"  # 1 hour
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_DIR="$PROJECT_ROOT/storybot/logs"
