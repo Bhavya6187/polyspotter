@@ -126,3 +126,47 @@ def test_posts_in_window_excludes_prior_day_same_window():
     now = datetime(2026, 1, 16, 0, 0, tzinfo=timezone.utc)  # 19:00 ET Jan 15
     recent = [_tw("2026-01-15T00:00:00+00:00")]  # 19:00 ET Jan 14 — prior day
     assert twitter_pipeline._posts_in_window(recent, "evening", now) == 0
+
+
+def test_posts_in_window_ignores_bad_or_missing_timestamp():
+    now = datetime(2026, 1, 16, 0, 0, tzinfo=timezone.utc)  # 19:00 ET Jan 15
+    recent = [_tw(None), _tw("not-a-date"), {"tweet": "x"}]
+    assert twitter_pipeline._posts_in_window(recent, "evening", now) == 0
+
+
+def test_posts_in_window_boundary_is_half_open():
+    # evening window is [18, 22) ET. 22:00 ET (window end) must be excluded.
+    # Jan 2026 -> EST (UTC-5): 22:00 ET Jan 15 = 03:00 UTC Jan 16.
+    now = datetime(2026, 1, 16, 4, 0, tzinfo=timezone.utc)  # 23:00 ET Jan 15
+    recent = [_tw("2026-01-16T03:00:00+00:00")]  # 22:00 ET Jan 15 — at end
+    assert twitter_pipeline._posts_in_window(recent, "evening", now) == 0
+
+
+# --- _cadence_skip_reason -------------------------------------------------
+
+def test_cadence_skip_reason_outside_window():
+    now = datetime(2026, 1, 15, 8, 0, tzinfo=timezone.utc)  # 03:00 ET
+    assert (twitter_pipeline._cadence_skip_reason(now, [])
+            == "outside peak window")
+
+
+def test_cadence_skip_reason_proceeds_when_clear():
+    now = datetime(2026, 1, 15, 14, 0, tzinfo=timezone.utc)  # 09:00 ET morning
+    assert twitter_pipeline._cadence_skip_reason(now, []) is None
+
+
+def test_cadence_skip_reason_daily_cap():
+    now = datetime(2026, 1, 15, 14, 0, tzinfo=timezone.utc)  # 09:00 ET morning
+    recent = [
+        _tw("2026-01-15T13:00:00+00:00"),  # 08:00 ET Jan 15
+        _tw("2026-01-15T18:00:00+00:00"),  # 13:00 ET Jan 15
+    ]
+    assert (twitter_pipeline._cadence_skip_reason(now, recent)
+            == "daily cap reached")
+
+
+def test_cadence_skip_reason_window_already_used():
+    now = datetime(2026, 1, 15, 14, 30, tzinfo=timezone.utc)  # 09:30 ET morning
+    recent = [_tw("2026-01-15T13:30:00+00:00")]  # 08:30 ET Jan 15 — morning
+    assert (twitter_pipeline._cadence_skip_reason(now, recent)
+            == "already posted in morning")

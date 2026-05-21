@@ -212,6 +212,25 @@ def _posts_in_window(recent_tweets: list[dict], window: str,
     return count
 
 
+def _cadence_skip_reason(now: datetime,
+                         recent_tweets: list[dict]) -> str | None:
+    """Return a human-readable skip reason if the cadence gate should block
+    this run, or None to proceed.
+
+    Checks, in order: outside every peak window -> DAILY_POST_CAP reached
+    for the ET day -> this window already used. DRY_RUN bypassing is the
+    caller's responsibility, not this function's.
+    """
+    window = _current_peak_window(now)
+    if window is None:
+        return "outside peak window"
+    if _posts_today(recent_tweets, now) >= DAILY_POST_CAP:
+        return "daily cap reached"
+    if _posts_in_window(recent_tweets, window, now) >= 1:
+        return f"already posted in {window}"
+    return None
+
+
 # Min resolved P&L positions for a wallet's record to be a "story".
 # Mirrors detection_strategies.win_rate_tracking.MIN_RESOLVED_BETS and
 # storybot.charts.WALLET_RECORD_MIN_BETS so the bundle, the chart picker,
