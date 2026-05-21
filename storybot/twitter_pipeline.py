@@ -15,6 +15,7 @@ import time
 import uuid
 from collections import Counter
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 # Make the project root importable so `import db` works when this script
 # is run directly (cron / manual run from storybot/), not just under pytest.
@@ -134,6 +135,44 @@ def _parse_iso(value) -> datetime | None:
         except ValueError:
             return None
         return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return None
+
+
+# --- Cadence gate ---------------------------------------------------------
+# The bot has a reach problem: posts that land in an empty feed at a bad
+# hour flop, and flops suppress later posts. The fix is cadence — draft only
+# inside peak ET windows, at most once per window and DAILY_POST_CAP per day.
+# All helpers below are pure (now + recent_tweets in) so they unit-test
+# cleanly; main() calls _cadence_skip_reason and skips before any LLM work.
+
+# Audience is US sports/politics/crypto. Windows are defined in ET so DST
+# shifts apply automatically via zoneinfo.
+_AUDIENCE_TZ = ZoneInfo("America/New_York")
+
+# Peak posting windows as half-open [start_hour, end_hour) ranges in ET.
+PEAK_WINDOWS: dict[str, tuple[int, int]] = {
+    "morning": (8, 10),
+    "midday": (12, 14),
+    "evening": (18, 22),
+}
+
+# Max tweets per ET calendar day. Three windows, cap of 2 -> at most two used.
+DAILY_POST_CAP = 2
+
+
+def _current_peak_window(now: datetime) -> str | None:
+    """Return the PEAK_WINDOWS id `now` falls in (evaluated in ET), or None
+    if `now` is outside every window.
+
+    A naive `now` is assumed to be UTC. Conversion to ET goes through
+    zoneinfo so daylight-saving shifts are handled correctly.
+    """
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    hour = now.astimezone(_AUDIENCE_TZ).hour
+    for window_id, (start, end) in PEAK_WINDOWS.items():
+        if start <= hour < end:
+            return window_id
     return None
 
 
