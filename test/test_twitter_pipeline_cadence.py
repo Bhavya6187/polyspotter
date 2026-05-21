@@ -94,3 +94,35 @@ def test_posts_today_ignores_bad_or_missing_timestamp():
 def test_posts_today_empty():
     now = datetime(2026, 1, 15, 18, 0, tzinfo=timezone.utc)
     assert twitter_pipeline._posts_today([], now) == 0
+
+
+def test_posts_today_counts_across_utc_midnight():
+    # now = Jan 16 02:00 UTC = 21:00 ET Jan 15 (ET day is still Jan 15).
+    now = datetime(2026, 1, 16, 2, 0, tzinfo=timezone.utc)
+    recent = [
+        _tw("2026-01-16T01:00:00+00:00"),  # 20:00 ET Jan 15 — today (ET)
+        _tw("2026-01-15T18:00:00+00:00"),  # 13:00 ET Jan 15 — today (ET)
+        _tw("2026-01-16T06:00:00+00:00"),  # 01:00 ET Jan 16 — tomorrow (ET)
+    ]
+    assert twitter_pipeline._posts_today(recent, now) == 2
+
+
+# --- _posts_in_window -----------------------------------------------------
+
+def test_posts_in_window_counts_same_window_same_day():
+    # now = Jan 16 00:00 UTC = 19:00 ET Jan 15 (evening).
+    now = datetime(2026, 1, 16, 0, 0, tzinfo=timezone.utc)
+    recent = [_tw("2026-01-15T23:30:00+00:00")]  # 18:30 ET Jan 15 — evening
+    assert twitter_pipeline._posts_in_window(recent, "evening", now) == 1
+
+
+def test_posts_in_window_excludes_other_window():
+    now = datetime(2026, 1, 16, 0, 0, tzinfo=timezone.utc)  # 19:00 ET Jan 15
+    recent = [_tw("2026-01-15T14:00:00+00:00")]  # 09:00 ET Jan 15 — morning
+    assert twitter_pipeline._posts_in_window(recent, "evening", now) == 0
+
+
+def test_posts_in_window_excludes_prior_day_same_window():
+    now = datetime(2026, 1, 16, 0, 0, tzinfo=timezone.utc)  # 19:00 ET Jan 15
+    recent = [_tw("2026-01-15T00:00:00+00:00")]  # 19:00 ET Jan 14 — prior day
+    assert twitter_pipeline._posts_in_window(recent, "evening", now) == 0

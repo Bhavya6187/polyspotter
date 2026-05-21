@@ -192,6 +192,26 @@ def _posts_today(recent_tweets: list[dict], now: datetime) -> int:
     return count
 
 
+def _posts_in_window(recent_tweets: list[dict], window: str,
+                     now: datetime) -> int:
+    """Count tweets in `recent_tweets` posted inside `window`'s ET hour block
+    on the same ET calendar day as `now`. `window` must be a PEAK_WINDOWS
+    key. Rows with a missing or unparseable `tweeted_at` are ignored."""
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    start, end = PEAK_WINDOWS[window]
+    today = now.astimezone(_AUDIENCE_TZ).date()
+    count = 0
+    for row in recent_tweets or []:
+        dt = _parse_iso(row.get("tweeted_at"))
+        if dt is None:
+            continue
+        et = dt.astimezone(_AUDIENCE_TZ)
+        if et.date() == today and start <= et.hour < end:
+            count += 1
+    return count
+
+
 # Min resolved P&L positions for a wallet's record to be a "story".
 # Mirrors detection_strategies.win_rate_tracking.MIN_RESOLVED_BETS and
 # storybot.charts.WALLET_RECORD_MIN_BETS so the bundle, the chart picker,
