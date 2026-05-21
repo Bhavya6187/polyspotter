@@ -1930,6 +1930,27 @@ def main() -> int:
     run_start_t = time.monotonic()
     transcript: dict = {"run_id": run_id, "stages": {}}
 
+    # Cadence gate — draft only inside a peak ET window, at most once per
+    # window and DAILY_POST_CAP times per ET day. Most hourly wake-ups skip
+    # here, before the seed fetch and any LLM call. DRY_RUN bypasses the
+    # gate so previews run at any hour. recent_tweets is fetched here (it
+    # used to be fetched after the quality floor) and threaded into the
+    # event picker and the stage-4 validator unchanged.
+    now = datetime.now(timezone.utc)
+    recent_tweets = fetch_recent_tweets(limit=10)
+    log("recent_tweets_loaded", run_id=run_id, count=len(recent_tweets))
+    if not DRY_RUN:
+        skip_reason = _cadence_skip_reason(now, recent_tweets)
+        log("cadence_gate", run_id=run_id,
+            window=_current_peak_window(now),
+            posts_today=_posts_today(recent_tweets, now),
+            skip_reason=skip_reason)
+        if skip_reason:
+            log("skip", run_id=run_id, reason=skip_reason)
+            log("run_end", run_id=run_id, drafted=False,
+                elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
+            return 0
+
     # Seed
     t = time.monotonic()
     try:
@@ -1982,12 +2003,6 @@ def main() -> int:
         log("run_end", run_id=run_id, drafted=False,
             elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
         return 0
-
-    # Recent tweets — shown to the event picker (and validator) so we don't
-    # re-cover an event we just tweeted. Pull this BEFORE stage 1 since the
-    # picker needs it; the same list is reused by stage 4's validator.
-    recent_tweets = fetch_recent_tweets(limit=10)
-    log("recent_tweets_loaded", run_id=run_id, count=len(recent_tweets))
 
     # Stage 1
     t = time.monotonic()

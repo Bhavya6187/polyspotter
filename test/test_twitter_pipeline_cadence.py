@@ -150,6 +150,18 @@ def test_cadence_skip_reason_outside_window():
             == "outside peak window")
 
 
+def test_cadence_skip_reason_outside_window_short_circuits_before_counts():
+    # Outside every window, with 2 posts already today — the outside-window
+    # check must win (it runs before the count checks).
+    now = datetime(2026, 1, 15, 8, 0, tzinfo=timezone.utc)  # 03:00 ET — no window
+    recent = [
+        _tw("2026-01-15T13:00:00+00:00"),  # 08:00 ET Jan 15
+        _tw("2026-01-15T18:00:00+00:00"),  # 13:00 ET Jan 15
+    ]
+    assert (twitter_pipeline._cadence_skip_reason(now, recent)
+            == "outside peak window")
+
+
 def test_cadence_skip_reason_proceeds_when_clear():
     now = datetime(2026, 1, 15, 14, 0, tzinfo=timezone.utc)  # 09:00 ET morning
     assert twitter_pipeline._cadence_skip_reason(now, []) is None
