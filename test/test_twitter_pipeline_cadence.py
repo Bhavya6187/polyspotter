@@ -61,3 +61,36 @@ def test_current_peak_window_dst_discriminator_winter():
 def test_current_peak_window_naive_treated_as_utc():
     now = datetime(2026, 1, 15, 14, 0)  # naive -> assumed UTC -> 09:00 ET
     assert twitter_pipeline._current_peak_window(now) == "morning"
+
+
+def test_current_peak_window_boundaries_are_half_open():
+    # 08:00 ET (window start) is IN morning; 10:00 ET (window end) is OUT.
+    # Jan 2026 -> EST (UTC-5): 08:00 ET = 13:00 UTC, 10:00 ET = 15:00 UTC.
+    start = datetime(2026, 1, 15, 13, 0, tzinfo=timezone.utc)
+    end = datetime(2026, 1, 15, 15, 0, tzinfo=timezone.utc)
+    assert twitter_pipeline._current_peak_window(start) == "morning"
+    assert twitter_pipeline._current_peak_window(end) is None
+
+
+# --- _posts_today ---------------------------------------------------------
+
+def test_posts_today_counts_same_et_day():
+    # now = Jan 15 2026 18:00 UTC = 13:00 ET Jan 15.
+    now = datetime(2026, 1, 15, 18, 0, tzinfo=timezone.utc)
+    recent = [
+        _tw("2026-01-15T14:00:00+00:00"),  # 09:00 ET Jan 15 — today
+        _tw("2026-01-15T20:00:00+00:00"),  # 15:00 ET Jan 15 — today
+        _tw("2026-01-14T20:00:00+00:00"),  # 15:00 ET Jan 14 — yesterday
+    ]
+    assert twitter_pipeline._posts_today(recent, now) == 2
+
+
+def test_posts_today_ignores_bad_or_missing_timestamp():
+    now = datetime(2026, 1, 15, 18, 0, tzinfo=timezone.utc)
+    recent = [_tw(None), _tw("not-a-date"), {"tweet": "x"}]
+    assert twitter_pipeline._posts_today(recent, now) == 0
+
+
+def test_posts_today_empty():
+    now = datetime(2026, 1, 15, 18, 0, tzinfo=timezone.utc)
+    assert twitter_pipeline._posts_today([], now) == 0
