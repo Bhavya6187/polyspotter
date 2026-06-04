@@ -11,6 +11,7 @@ import re
 import time as _time
 
 import requests as _requests
+from cachetools import LRUCache
 
 from models import (
     CricketGameData, CricketTeam, CricketInnings, BatsmanEntry,
@@ -602,7 +603,7 @@ _CACHE_TTL = {
     "summary":      60,
 }
 
-_match_cache: dict[str, dict[str, tuple[float, object]]] = {}
+_match_cache: LRUCache = LRUCache(maxsize=200)
 
 
 def _cache_get(match_id: str, field: str):

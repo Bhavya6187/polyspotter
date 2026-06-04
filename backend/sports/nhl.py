@@ -10,6 +10,7 @@ import re
 import time as _time
 
 import requests as _requests
+from cachetools import LRUCache
 
 from models import (
     NHLGameData, NHLTeam, NHLPowerPlay, NHLScoringEvent, NHLPenalty,
@@ -369,7 +370,7 @@ def _parse_goalies(boxscore: dict | None) -> list[NHLGoalieLine]:
 # ---------------------------------------------------------------------------
 
 _CACHE_TTL = {"score": 15, "events": 15, "box": 30, "odds": 60, "venue": 300, "head_to_head": 300, "scoreboard": 60, "summary": 60}
-_game_cache: dict[str, dict[str, tuple[float, object]]] = {}
+_game_cache: LRUCache = LRUCache(maxsize=200)
 
 
 def _cache_get(key: str, field: str):

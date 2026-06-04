@@ -12,6 +12,7 @@ import re
 import time as _time
 
 import requests as _requests
+from cachetools import LRUCache
 
 from models import (
     SoccerGameData, SoccerTeam, SoccerGoal, SoccerCard, SoccerSub,
@@ -461,7 +462,7 @@ def _parse_head_to_head(series_data: list | None) -> SoccerHeadToHead | None:
 # ---------------------------------------------------------------------------
 
 _CACHE_TTL = {"score": 15, "events": 15, "lineups": 30, "match_stats": 30, "odds": 60, "venue": 300, "head_to_head": 300, "scoreboard": 60, "summary": 60}
-_match_cache: dict[str, dict[str, tuple[float, object]]] = {}
+_match_cache: LRUCache = LRUCache(maxsize=500)
 
 
 def _cache_get(key: str, field: str):

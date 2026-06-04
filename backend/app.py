@@ -23,6 +23,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 import requests as _requests
+from cachetools import LRUCache
 
 # Load .env from project root (one level up from backend/)
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
@@ -1123,7 +1124,7 @@ _RESOLVING_SOON_TTL = 60  # seconds
 # outcomePrices). The /api/resolving-soon response is already 60s-cached, but
 # this inner cache is shared with any other endpoint that wants a fresh
 # "is this market actually still live?" check and outlives single-request work.
-_gamma_status_cache: dict[str, tuple[float, dict]] = {}
+_gamma_status_cache: LRUCache = LRUCache(maxsize=2000)
 _GAMMA_STATUS_TTL = 60  # seconds
 
 
@@ -1556,14 +1557,15 @@ GAMMA_API = "https://gamma-api.polymarket.com"
 CLOB_API = "https://clob.polymarket.com"
 DATA_API = "https://data-api.polymarket.com"
 
-# Simple in-memory cache: key -> (expiry_ts, data)
-_live_cache: dict[str, tuple[float, LiveMarketData]] = {}
+# Simple in-memory cache: key -> (expiry_ts, data). Bounded LRU so unbounded
+# crawler traffic over many condition_ids can't blow up RSS.
+_live_cache: LRUCache = LRUCache(maxsize=5000)
 _LIVE_CACHE_TTL = 30  # seconds
 
-_price_history_cache: dict[str, tuple[float, "PriceHistoryData"]] = {}
+_price_history_cache: LRUCache = LRUCache(maxsize=5000)
 _PRICE_HISTORY_CACHE_TTL = 60  # seconds
 
-_holders_cache: dict[str, tuple[float, "MarketHoldersData"]] = {}
+_holders_cache: LRUCache = LRUCache(maxsize=5000)
 _HOLDERS_CACHE_TTL = 300  # 5 minutes
 
 

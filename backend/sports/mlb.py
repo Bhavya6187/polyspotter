@@ -10,6 +10,7 @@ import re
 import time as _time
 
 import requests as _requests
+from cachetools import LRUCache
 
 from models import (
     MLBGameData, MLBTeam, MLBCount, MLBRunners, MLBLinescoreInning,
@@ -455,7 +456,7 @@ _CACHE_TTL = {
     "score": 15, "plays": 15, "linescore": 30, "box": 30, "odds": 60,
     "venue": 300, "head_to_head": 300, "scoreboard": 60, "summary": 60,
 }
-_game_cache: dict[str, dict[str, tuple[float, object]]] = {}
+_game_cache: LRUCache = LRUCache(maxsize=200)
 
 
 def _cache_get(key: str, field: str):

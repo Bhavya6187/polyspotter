@@ -12,6 +12,7 @@ import time as _time
 from typing import Optional
 
 import requests as _requests
+from cachetools import LRUCache
 
 from models import (
     GameData, GameTeam, GameOdds, SpreadInfo, MoneylineInfo,
@@ -635,7 +636,7 @@ _CACHE_TTL = {
     "espn":           60,
 }
 
-_game_cache: dict[str, dict[str, tuple[float, object]]] = {}
+_game_cache: LRUCache = LRUCache(maxsize=200)
 
 
 def _cache_get(game_id: str, field: str):
