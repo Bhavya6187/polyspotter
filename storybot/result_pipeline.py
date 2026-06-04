@@ -2,14 +2,17 @@
 Result pipeline: post-resolution follow-ups for tweets we already shipped.
 
 For each tweet recorded in `tweeted_alerts` whose underlying Polymarket
-markets have all resolved, compute the cluster's realized W/L + P&L and
-have the LLM compose a short follow-up tweet. The follow-up is printed
-to stdout and saved as a `live_runs/result_<tweet_id>.json` artifact;
-nothing is posted to Twitter yet — that's a deliberate choice so the
-voice/format can be tuned against real outputs first.
+markets have all resolved, compute the cluster's realized W/L + P&L. A
+curated, win-weighted selection (`select_results`, honesty floor for big
+losses) decides which resolved calls to draft today; for each chosen one the
+LLM composes a short link-free follow-up tweet and a scorecard image is
+rendered. Outputs per chosen tweet: a draft `.txt` in `result_drafts/`, a
+`result_<tweet_id>.png` scorecard, and a `live_runs/result_<tweet_id>.json`
+artifact. This script does NOT post to Twitter — `publish_result.py` does.
 
-Dedup: the artifact file's existence means "we've already produced a
-result for this tweet". Re-runs of the script skip it.
+Dedup: a row in the `result_tweets` Postgres table (via
+`result_store.result_exists`) means "we've already settled this tweet".
+Re-runs skip it before any LLM/render work.
 
 Run via cron:
     python storybot/result_pipeline.py
@@ -201,6 +204,7 @@ def fetch_alert_trades(alert_ids: list[int]) -> list[dict]:
                    usd_value, size, price
             FROM alert_trades
             WHERE alert_id = ANY(%s)
+            ORDER BY condition_id, alert_id
             """,
             ([int(i) for i in alert_ids],),
         )
@@ -512,8 +516,10 @@ def _aggregate_for_candidate(tweet: dict) -> dict | None:
 
 def process_tweet(llm_client, tweet: dict) -> str:
     """Returns one of: 'skipped_dedup', 'skipped_unresolved',
-    'skipped_no_trades', 'composed', 'composed_no_pl'."""
+    'composed', 'composed_no_pl'."""
     tweet_id = str(tweet["tweet_id"])
+    # main()'s pre-pass already filters settled tweets, so this rarely fires
+    # from the normal flow — it's a guard for direct/standalone callers.
     if result_store.result_exists(tweet_id):
         return "skipped_dedup"
 
