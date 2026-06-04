@@ -36,6 +36,7 @@ def init_db():
             _migrate_add_tweeted_alerts(cur)
             _migrate_add_articles(cur)
             _migrate_add_events_table(cur)
+            _migrate_add_graded_calls(cur)
         conn.commit()
     finally:
         conn.close()
@@ -222,4 +223,28 @@ def _migrate_add_events_table(cur):
     """)
     cur.execute("""
         CREATE INDEX IF NOT EXISTS idx_events_end_date ON events(end_date)
+    """)
+
+
+def _migrate_add_graded_calls(cur):
+    """Create the graded_calls table (idempotent)."""
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS graded_calls (
+            condition_id     TEXT PRIMARY KEY,
+            alert_id         INTEGER NOT NULL,
+            event_slug       TEXT,
+            market_title     TEXT,
+            outcome          TEXT NOT NULL,
+            entry_price      DOUBLE PRECISION NOT NULL,
+            resolved_outcome TEXT NOT NULL,
+            won              BOOLEAN NOT NULL,
+            return_pct       DOUBLE PRECISION NOT NULL,
+            composite_score  DOUBLE PRECISION NOT NULL,
+            resolved_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            graded_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_graded_calls_resolved
+            ON graded_calls(resolved_at DESC)
     """)

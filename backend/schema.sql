@@ -199,3 +199,22 @@ CREATE TABLE IF NOT EXISTS tweeted_alerts (
 CREATE INDEX IF NOT EXISTS idx_tweeted_alerts_wallet_market
     ON tweeted_alerts (wallet, condition_id, tweeted_at DESC);
 
+-- graded_calls: one row per resolved market we featured. "The call" is the
+-- highest-composite_score alert on that market; we grade it $100-flat,
+-- hold-to-resolution. Powers /api/scoreboard (the public track record).
+CREATE TABLE IF NOT EXISTS graded_calls (
+    condition_id     TEXT PRIMARY KEY,          -- one call per market
+    alert_id         INTEGER NOT NULL,          -- the chosen alert
+    event_slug       TEXT,
+    market_title     TEXT,
+    outcome          TEXT NOT NULL,             -- copy_action.outcome
+    entry_price      DOUBLE PRECISION NOT NULL, -- copy_action.entry_price
+    resolved_outcome TEXT NOT NULL,             -- winning outcome from Gamma
+    won              BOOLEAN NOT NULL,
+    return_pct       DOUBLE PRECISION NOT NULL, -- (1-entry)/entry if won else -1.0
+    composite_score  DOUBLE PRECISION NOT NULL,
+    resolved_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    graded_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_graded_calls_resolved ON graded_calls(resolved_at DESC);
+

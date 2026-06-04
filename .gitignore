@@ -29,4 +29,4 @@ storybot/articles/*.png
 storybot/articles/*.json
 storybot/logs/*
 !storybot/articles/.gitkeep
-docs/superpowers/
+docs/superpowers/.superpowers/
