@@ -13,13 +13,14 @@ def winning_outcome(outcomes, prices, threshold: float = RESOLVED_THRESHOLD):
     """Return the decided outcome name, or None if not (cleanly) resolved.
 
     Decided = the outcomes/prices line up and exactly one price >= threshold.
-    50-50 and still-trading markets return None (left ungraded)."""
+    50-50, still-trading, and ambiguous (multiple winners) markets return None
+    (left ungraded)."""
     if not outcomes or not prices or len(outcomes) != len(prices):
         return None
-    top = max(prices)
-    if top < threshold:
+    above = [i for i, p in enumerate(prices) if p >= threshold]
+    if len(above) != 1:
         return None
-    return outcomes[prices.index(top)]
+    return outcomes[above[0]]
 
 
 def is_won(copy_outcome: str, resolved_outcome: str) -> bool:

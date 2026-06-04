@@ -16,6 +16,12 @@ def test_winning_outcome_bad_shapes_return_none():
     assert winning_outcome(["Yes"], [0.99, 0.01]) is None       # length mismatch
 
 
+def test_winning_outcome_multiple_above_threshold_returns_none():
+    # If two outcomes are both >= threshold (shouldn't happen on a real binary
+    # market, but guard anyway), the market isn't cleanly decided -> None.
+    assert winning_outcome(["A", "B"], [0.99, 0.99]) is None
+
+
 def test_is_won_case_insensitive():
     assert is_won("San Diego Padres", "san diego padres ") is True
     assert is_won("Padres", "Phillies") is False
