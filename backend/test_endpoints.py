@@ -1137,3 +1137,62 @@ def test_articles_list_returns_published_only_ordered_desc():
         with db() as conn:
             cur = conn.cursor()
             cur.execute("DELETE FROM articles WHERE run_id LIKE 'TEST_list_%%'")
+
+
+# ---------------------------------------------------------------------------
+# /api/markets/sitemap endpoint tests
+# ---------------------------------------------------------------------------
+
+@skip_no_db
+class TestMarketsSitemap:
+    def test_returns_slim_rows_deduped_by_condition_id(self):
+        """One row per condition_id, with only the slim sitemap fields and no
+        heavy alert blobs — even when a market has multiple alerts."""
+        with db() as conn:
+            cur = conn.cursor()
+            _seed_alert(cur, condition_id="test_sm_a", market_title="TEST: Market A",
+                        dedup_key="test_sm_a1")
+            _seed_alert(cur, condition_id="test_sm_a", market_title="TEST: Market A",
+                        dedup_key="test_sm_a2")  # second alert, same market
+            _seed_alert(cur, condition_id="test_sm_b", market_title="TEST: Market B",
+                        dedup_key="test_sm_b1")
+
+        resp = client.get("/api/markets/sitemap?per_page=5000")
+        assert resp.status_code == 200
+        body = resp.json()
+        rows = {r["condition_id"]: r for r in body["markets"]
+                if r["condition_id"] in ("test_sm_a", "test_sm_b")}
+        # Deduped: one row per condition_id despite two alerts on test_sm_a.
+        assert set(rows) == {"test_sm_a", "test_sm_b"}
+        # Slim projection only — no per-market alert array or SEO blobs.
+        assert set(rows["test_sm_a"].keys()) == {
+            "condition_id", "market_title", "end_date", "scanned_at"}
+        assert rows["test_sm_a"]["market_title"] == "TEST: Market A"
+
+    def test_includes_resolved_markets(self):
+        """Resolved markets are evergreen SEO targets and must be included."""
+        past = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+        with db() as conn:
+            cur = conn.cursor()
+            _seed_alert(cur, condition_id="test_sm_resolved",
+                        market_title="TEST: Resolved Market",
+                        end_date=past, dedup_key="test_sm_res1")
+
+        resp = client.get("/api/markets/sitemap?per_page=5000")
+        assert resp.status_code == 200
+        cids = {r["condition_id"] for r in resp.json()["markets"]}
+        assert "test_sm_resolved" in cids
+
+    def test_pagination_shape(self):
+        with db() as conn:
+            cur = conn.cursor()
+            _seed_alert(cur, condition_id="test_sm_pg", market_title="TEST: Pg",
+                        dedup_key="test_sm_pg1")
+
+        resp = client.get("/api/markets/sitemap?page=1&per_page=1")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert {"markets", "total", "page", "per_page"} <= body.keys()
+        assert body["page"] == 1
+        assert body["per_page"] == 1
+        assert len(body["markets"]) <= 1

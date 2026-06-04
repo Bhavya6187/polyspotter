@@ -22,6 +22,7 @@ export default function robots() {
     // discover the wallet sitemap without a manual GSC submission.
     sitemap: [
       `${SITE_URL}/sitemap.xml`,
+      `${SITE_URL}/sitemap-markets.xml`,
       `${SITE_URL}/sitemap-wallets.xml`,
     ],
   };

@@ -893,6 +893,64 @@ def wallets_sitemap(
     }
 
 
+@app.get("/api/markets/sitemap")
+def markets_sitemap(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(1000, ge=1, le=5000),
+):
+    """Return paginated market entries for sitemap generation.
+
+    One row per condition_id that appears in an alert, with a slim projection
+    (title + dates only — no per-market alert blobs or SEO fields). The full
+    by-market endpoint runs an N+1 alerts query per market and returns ~8MB
+    pages, which made paging all ~19k markets at build time take ~16 minutes
+    and time out the sitemap. This single GROUP BY query returns kilobytes per
+    page so /sitemap-markets.xml can page through everything in seconds.
+
+    Includes resolved markets: they're evergreen SEO targets. Ordered by
+    recency so the freshest markets land on the first pages and rank first
+    even if a later page fails.
+    """
+    offset = (page - 1) * per_page
+    with db() as conn:
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT COUNT(DISTINCT condition_id) AS total
+            FROM alerts
+            WHERE condition_id IS NOT NULL
+        """)
+        total = cur.fetchone()["total"]
+
+        cur.execute("""
+            SELECT condition_id,
+                   MAX(market_title) AS market_title,
+                   MAX(end_date)     AS end_date,
+                   MAX(scanned_at)   AS scanned_at
+            FROM alerts
+            WHERE condition_id IS NOT NULL
+            GROUP BY condition_id
+            ORDER BY MAX(scanned_at) DESC, condition_id ASC
+            LIMIT %s OFFSET %s
+        """, (per_page, offset))
+        rows = cur.fetchall()
+
+    return {
+        "markets": [
+            {
+                "condition_id": r["condition_id"],
+                "market_title": r["market_title"],
+                "end_date": r["end_date"].isoformat() if r["end_date"] else None,
+                "scanned_at": r["scanned_at"].isoformat() if r["scanned_at"] else None,
+            }
+            for r in rows
+        ],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    }
+
+
 @app.get("/api/wallets/{wallet_address}", response_model=WalletProfileDetailOut)
 def get_wallet(wallet_address: str):
     """Get wallet profile with stats from DB (accumulated by seeder) and

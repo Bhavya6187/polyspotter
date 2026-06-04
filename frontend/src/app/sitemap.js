@@ -1,5 +1,3 @@
-import { marketSlug } from "../lib/slugify";
-
 // Regenerate at most hourly — avoids hammering the API on every crawler hit
 // while keeping the sitemap fresh enough for Google's typical crawl cadence.
 export const revalidate = 3600;
@@ -9,45 +7,12 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
 
 const FETCH_OPTS = { next: { revalidate: 3600 } };
 
-async function getMarketEntries() {
-  try {
-    const allMarkets = [];
-    let page = 1;
-    let totalPages = 1;
-    // include_resolved=true: resolved markets are prime evergreen SEO targets
-    // ("did X happen", "[past event] outcome") and Polymarket itself doesn't
-    // rank strongly for these. Our alerts contain unique historical narrative
-    // that isn't available on polymarket.com. Excludes ~85% of indexable URLs.
-    while (page <= totalPages) {
-      const res = await fetch(
-        `${API_URL}/api/alerts/by-market?per_page=100&page=${page}&include_resolved=true`,
-        FETCH_OPTS
-      );
-      if (!res.ok) break;
-      const data = await res.json();
-      allMarkets.push(...(data.markets || []));
-      const total = data.total || 0;
-      totalPages = Math.ceil(total / 100);
-      page++;
-    }
-    return allMarkets.map((market) => {
-      // Resolved markets change infrequently (outcome is fixed), so give them
-      // a lower crawl-budget signal. Open markets still get hourly freshness.
-      const isResolved =
-        market.end_date && new Date(market.end_date) <= new Date();
-      return {
-        url: `${SITE_URL}/market/${marketSlug(market.market_title, market.condition_id)}`,
-        lastModified: market.scanned_at
-          ? new Date(market.scanned_at)
-          : new Date(),
-        changeFrequency: isResolved ? "monthly" : "hourly",
-        priority: isResolved ? 0.5 : 0.8,
-      };
-    });
-  } catch {
-    return [];
-  }
-}
+// Market pages live in a dedicated /sitemap-markets.xml route. They're the
+// largest section (~19k URLs) and paging them through the heavy by-market
+// endpoint here was timing out the build's static-generation step, so they
+// moved to a force-dynamic route backed by the slim /api/markets/sitemap
+// endpoint — same split as wallets (/sitemap-wallets.xml). Keeping them out
+// of this build-prerendered sitemap is what keeps the build fast.
 
 async function getArticleEntries() {
   try {
@@ -155,12 +120,11 @@ export default async function sitemap() {
   // Run all sections in parallel. Each section is self-contained with its own
   // try/catch so one failing upstream (e.g. a /api/theses timeout) degrades
   // only that section instead of collapsing the entire sitemap to the homepage.
-  const [markets, tags, articles, events] = await Promise.all([
-    getMarketEntries(),
+  const [tags, articles, events] = await Promise.all([
     getTagEntries(),
     getArticleEntries(),
     getEventEntries(),
   ]);
 
-  return [...staticPages, ...articles, ...events, ...markets, ...tags];
+  return [...staticPages, ...articles, ...events, ...tags];
 }
