@@ -36,6 +36,7 @@ CHART_TYPES = (
     "wallet_record_card",
     "fresh_wallet_card",
     "cluster_card",
+    "result_scorecard",
     "none",
 )
 
@@ -133,6 +134,56 @@ def _draw_wallet_record_card(ax, data: WalletRecordCardData) -> None:
 def render_wallet_record_card(data: WalletRecordCardData) -> bytes:
     fig, ax = _new_figure()
     _draw_wallet_record_card(ax, data)
+    return _figure_to_png_bytes(fig)
+
+
+# ----------------------- result_scorecard -----------------------
+
+class ResultScorecardData(TypedDict):
+    verdict: str             # "CASHED" | "BURNED" | "MIXED" | "WASH"
+    net_pl_usd: float        # signed
+    record_str: str          # trade W-L, e.g. "3-1"
+    event_label: str         # "Padres-Phillies Over 7.5 runs"
+    outcome_side: str        # the side the cluster was on
+    flagged_days_ago: int
+
+
+def _draw_result_scorecard(ax, data: ResultScorecardData) -> None:
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis("off")
+    verdict = (data.get("verdict") or "WASH").upper()
+    net = float(data.get("net_pl_usd") or 0.0)
+    if verdict == "CASHED":
+        color, mark = ACCENT, "✓"   # green check
+    elif verdict == "BURNED":
+        color, mark = LOSS, "✗"     # red cross
+    else:
+        color, mark = MUTED, "–"    # neutral en-dash
+
+    sign = "+" if net > 0 else ("-" if net < 0 else "")
+    net_str = f"{sign}{_format_usd(abs(net))}" if verdict != "WASH" else "BROKE EVEN"
+
+    ax.text(0.5, 0.74, f"{mark}  {verdict}", color=color, fontsize=58,
+            ha="center", va="center", weight="bold")
+    ax.text(0.5, 0.50, net_str, color=color, fontsize=72,
+            ha="center", va="center", weight="bold")
+    ax.text(0.5, 0.31, data.get("event_label") or "", color=FG, fontsize=26,
+            ha="center", va="center")
+    side = data.get("outcome_side") or ""
+    record = data.get("record_str") or ""
+    sub = f"Flagged side: {side}   ·   Trades: {record}" if side else f"Trades: {record}"
+    ax.text(0.5, 0.20, sub, color=MUTED, fontsize=20, ha="center", va="center")
+    days = int(data.get("flagged_days_ago") or 0)
+    when = "today" if days <= 0 else (f"{days} day ago" if days == 1
+                                      else f"{days} days ago")
+    ax.text(0.5, 0.08, f"PolySpotter flagged this {when}", color=MUTED,
+            fontsize=18, ha="center", va="center")
+
+
+def render_result_scorecard(data: ResultScorecardData) -> bytes:
+    fig, ax = _new_figure()
+    _draw_result_scorecard(ax, data)
     return _figure_to_png_bytes(fig)
 
 
