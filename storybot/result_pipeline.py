@@ -60,6 +60,74 @@ RESULT_LOOKBACK_DAYS = 14
 RESULT_MIN_AGE_MINUTES = 60
 
 
+# Curated result selection. We do NOT post every resolved call — we post a
+# small, win-weighted set per day, but never hide a big loss (honesty floor),
+# because a visibly all-wins record reads as cherry-picked and destroys the
+# trust the whole accountability layer exists to build.
+RESULT_DAILY_CAP = 2
+RESULT_WIN_BIAS = 0.8            # target fraction of posted results that are wins
+RESULT_LOSS_NOTABLE_USD = 20000.0  # a loss this big is ALWAYS eligible
+RESULT_WASH_BAND = 0.01         # |net_pl| within 1% of invested -> "wash"
+
+
+def classify_outcome(aggregate: dict) -> str:
+    """'cashed' | 'burned' | 'wash' from net P&L vs invested."""
+    net = float(aggregate.get("net_pl_usd") or 0.0)
+    invested = float(aggregate.get("total_invested_usd") or 0.0)
+    if invested > 0 and abs(net) <= RESULT_WASH_BAND * invested:
+        return "wash"
+    return "cashed" if net > 0 else "burned"
+
+
+def select_results(candidates: list[dict], *, posted_today: list[bool],
+                   daily_cap: int = RESULT_DAILY_CAP,
+                   win_bias: float = RESULT_WIN_BIAS,
+                   loss_notable_usd: float = RESULT_LOSS_NOTABLE_USD) -> list[dict]:
+    """Pick which resolved calls to post today.
+
+    candidates: dicts with keys is_win(bool), net_pl_usd(float),
+    notability(float >= 0), plus any caller payload (e.g. 'id').
+    posted_today: is_win flags already posted this ET day (cap + win-share).
+
+    Rules: wins are always eligible; losses are eligible only if notable
+    (>= loss_notable_usd). When a slot is free, force a win if the running
+    win share is below win_bias; otherwise take whichever remaining item is
+    the bigger story (higher notability). Deterministic.
+    """
+    slots = max(0, int(daily_cap) - len(posted_today))
+    if slots <= 0:
+        return []
+    wins = sorted([c for c in candidates if c.get("is_win")],
+                  key=lambda c: c.get("notability", 0.0), reverse=True)
+    losses = sorted(
+        [c for c in candidates
+         if not c.get("is_win")
+         and abs(float(c.get("net_pl_usd") or 0.0)) >= loss_notable_usd],
+        key=lambda c: c.get("notability", 0.0), reverse=True)
+
+    selected: list[dict] = []
+    posted = list(posted_today)
+    wi, li = 0, 0
+    while len(selected) < slots and (wi < len(wins) or li < len(losses)):
+        nxt_win = wins[wi] if wi < len(wins) else None
+        nxt_loss = losses[li] if li < len(losses) else None
+        total = len(posted)
+        share = (sum(1 for w in posted if w) / total) if total else 0.0
+        if nxt_loss is None:
+            pick_win = True
+        elif nxt_win is None:
+            pick_win = False
+        elif share < win_bias:
+            pick_win = True  # below target -> must add a win
+        else:
+            pick_win = nxt_win.get("notability", 0.0) >= nxt_loss.get("notability", 0.0)
+        if pick_win:
+            selected.append(nxt_win); posted.append(True); wi += 1
+        else:
+            selected.append(nxt_loss); posted.append(False); li += 1
+    return selected
+
+
 # --- Tweet candidates --------------------------------------------------------
 
 def fetch_candidate_tweets() -> list[dict]:
