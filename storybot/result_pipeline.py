@@ -33,7 +33,9 @@ from psycopg2.extras import RealDictCursor
 
 load_dotenv()
 
+import charts
 import gamma_cache
+import result_store
 from openai import OpenAI
 
 from bot_utils import (
@@ -49,6 +51,8 @@ DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
 _LIVE_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live_runs")
 _DRY_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dry_runs")
 _RUN_OUTPUT_DIR = _DRY_RUN_DIR if DRY_RUN else _LIVE_RUN_DIR
+_RESULT_DRAFTS_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "result_drafts")
 
 # How far back to look for tweets that might now have a result. Anything
 # older than this is treated as "stale, never resolved" and skipped — we'd
@@ -469,40 +473,82 @@ def _save_artifact(tweet_id: str, payload: dict) -> None:
         json.dump(payload, f, default=str, indent=2)
 
 
-def process_tweet(llm_client, tweet: dict) -> str:
-    """Returns one of: 'skipped_dedup', 'skipped_unresolved',
-    'skipped_no_trades', 'composed', 'composed_no_pl'."""
-    tweet_id = str(tweet["tweet_id"])
-    if os.path.exists(_artifact_path(tweet_id)):
-        return "skipped_dedup"
+def _write_result_draft(tweet_id: str, text: str) -> str:
+    os.makedirs(_RESULT_DRAFTS_DIR, exist_ok=True)
+    path = os.path.join(_RESULT_DRAFTS_DIR, f"{tweet_id}.txt")
+    with open(path, "w") as f:
+        f.write(text)
+    return path
 
+
+def _write_scorecard_png(tweet_id: str, png: bytes) -> str:
+    os.makedirs(_RUN_OUTPUT_DIR, exist_ok=True)
+    path = os.path.join(_RUN_OUTPUT_DIR, f"result_{tweet_id}.png")
+    with open(path, "wb") as f:
+        f.write(png)
+    return path
+
+
+def _aggregate_for_candidate(tweet: dict) -> dict | None:
+    """Resolve every market the tweet covered and aggregate P&L. Returns the
+    aggregate dict, or None if any market is unresolved or there are no trades.
+    Pure-ish: no LLM, no writes — safe to call in the selection pre-pass."""
     alert_ids = [int(i) for i in (tweet.get("alert_ids") or []) if i is not None]
     condition_ids = [c for c in (tweet.get("condition_ids") or []) if c]
     if not alert_ids or not condition_ids:
-        return "skipped_no_trades"
-
+        return None
     resolutions: dict[str, dict] = {}
     for cid in condition_ids:
         res = _resolution_for_market(cid)
         if res is None:
-            return "skipped_unresolved"
+            return None
         resolutions[cid] = res
-
     trades = fetch_alert_trades(alert_ids)
     if not trades:
-        return "skipped_no_trades"
-
+        return None
     aggregate = aggregate_result(trades, resolutions)
-    if aggregate["n_trades"] == 0:
-        return "skipped_no_trades"
+    return aggregate if aggregate["n_trades"] > 0 else None
+
+
+def process_tweet(llm_client, tweet: dict) -> str:
+    """Returns one of: 'skipped_dedup', 'skipped_unresolved',
+    'skipped_no_trades', 'composed', 'composed_no_pl'."""
+    tweet_id = str(tweet["tweet_id"])
+    if result_store.result_exists(tweet_id):
+        return "skipped_dedup"
+
+    aggregate = _aggregate_for_candidate(tweet)
+    if aggregate is None:
+        return "skipped_unresolved"
+
+    alert_ids = [int(i) for i in (tweet.get("alert_ids") or []) if i is not None]
+    condition_ids = [c for c in (tweet.get("condition_ids") or []) if c]
 
     # Alert metadata feeds the artifact's event/market labels below.
     meta = fetch_alert_meta(alert_ids)
     primary = meta.get(alert_ids[0]) or {}
+    event_label = (primary.get("market_title")
+                   or primary.get("event_slug") or "this market")
+
+    outcome_side = ""
+    if aggregate["by_market"]:
+        outcome_side = next(iter(aggregate["by_market"].values()))["side_bet"]
+
+    flagged_days_ago = 0
+    ta = tweet.get("tweeted_at")
+    if hasattr(ta, "tzinfo"):
+        when = ta if ta.tzinfo else ta.replace(tzinfo=timezone.utc)
+        flagged_days_ago = (datetime.now(timezone.utc) - when).days
 
     result_tweet = compose_result_tweet(
         llm_client, tweet.get("tweet_text") or "", aggregate,
     )
+    scorecard = build_scorecard_data(aggregate, event_label=event_label,
+                                     outcome_side=outcome_side,
+                                     flagged_days_ago=flagged_days_ago)
+    png = charts.render_result_scorecard(scorecard)
+    png_path = _write_scorecard_png(tweet_id, png)
+    draft_path = _write_result_draft(tweet_id, result_tweet) if result_tweet else None
 
     artifact = {
         "tweet_id": tweet_id,
@@ -512,13 +558,13 @@ def process_tweet(llm_client, tweet: dict) -> str:
         "condition_ids": condition_ids,
         "primary_event_slug": primary.get("event_slug"),
         "primary_market_title": primary.get("market_title"),
-        "resolutions": {
-            cid: {"winning_outcome": r["winning_outcome"],
-                  "question": r.get("question")}
-            for cid, r in resolutions.items()
-        },
         "aggregate": aggregate,
         "result_tweet": result_tweet,
+        "outcome": classify_outcome(aggregate),
+        "event_label": event_label,
+        "outcome_side": outcome_side,
+        "scorecard_png_path": png_path,
+        "result_draft_path": draft_path,
         "composed_at": datetime.now(timezone.utc).isoformat(),
         "posted_to_twitter": False,
     }
@@ -530,6 +576,7 @@ def process_tweet(llm_client, tweet: dict) -> str:
     print(f"Original: {tweet.get('tweet_text')}")
     print(f"Result:   {result_tweet or '<empty — LLM returned no tweet>'}")
     print()
+    print(f"[result_pipeline] draft original_tweet_id={tweet_id}", flush=True)
 
     return "composed" if result_tweet else "composed_no_pl"
 
@@ -556,7 +603,32 @@ def main() -> int:
     counters = {"composed": 0, "composed_no_pl": 0, "skipped_dedup": 0,
                 "skipped_unresolved": 0, "skipped_no_trades": 0,
                 "errors": 0}
+
+    now = datetime.now(timezone.utc)
+    posted_today = result_store.todays_posted_outcomes(now)
+
+    scored: list[dict] = []
     for tweet in candidates:
+        tid = str(tweet["tweet_id"])
+        if result_store.result_exists(tid):
+            counters["skipped_dedup"] += 1
+            continue
+        agg = _aggregate_for_candidate(tweet)
+        if agg is None:
+            counters["skipped_unresolved"] += 1
+            continue
+        net = float(agg["net_pl_usd"])
+        scored.append({
+            "tweet": tweet, "aggregate": agg,
+            "is_win": classify_outcome(agg) == "cashed",
+            "net_pl_usd": net, "notability": abs(net),
+        })
+
+    chosen = select_results(scored, posted_today=posted_today)
+    log("results_selected", candidates=len(scored), chosen=len(chosen))
+
+    for item in chosen:
+        tweet = item["tweet"]
         tweet_id = str(tweet["tweet_id"])
         try:
             outcome = process_tweet(llm_client, tweet)
