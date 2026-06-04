@@ -397,7 +397,7 @@ Same voice as the original: short, factual, scoreboard-clear. NOT smug,
 NOT meme-y, NOT analyst-speak. The reader should be able to tell at a
 glance whether the sharps cashed or got burned.
 
-## Required structure (2 sentences max)
+## Required structure (exactly 2 sentences — both required)
 1. Lead with the result. State who won the market and what the cluster
    was on. Round dollar figures: "$28k", "$6.2k". One sentence.
 2. State the realized P&L in plain English: "Cashed +$31k", "Burned -$28k",
@@ -405,6 +405,7 @@ glance whether the sharps cashed or got burned.
 3. No link. The scorecard image carries the brand — spend every character on the result.
 
 ## Rules
+- The tweet MUST be two sentences: the result lead, then a SEPARATE P&L sentence ending with '.'. A one-sentence tweet is rejected by the publisher — never merge the lead and the P&L into a single sentence.
 - Keep total under 270 characters. No URL — it would be stripped.
 - Do NOT include any URL; links are stripped before posting.
 - Reference the original event/team names — the reader should not need
@@ -582,9 +583,13 @@ def process_tweet(llm_client, tweet: dict) -> str:
     print(f"Original: {tweet.get('tweet_text')}")
     print(f"Result:   {result_tweet or '<empty — LLM returned no tweet>'}")
     print()
-    print(f"[result_pipeline] draft original_tweet_id={tweet_id}", flush=True)
-
-    return "composed" if result_tweet else "composed_no_pl"
+    # Only emit the loop's draft marker when we actually wrote a draft .txt
+    # (i.e. result_tweet was truthy). On composed_no_pl no draft exists, so
+    # the loop must not try to publish a nonexistent file.
+    if draft_path:
+        print(f"[result_pipeline] draft original_tweet_id={tweet_id}", flush=True)
+        return "composed"
+    return "composed_no_pl"
 
 
 # --- Entry point ------------------------------------------------------------

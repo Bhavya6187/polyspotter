@@ -140,7 +140,10 @@ def render_wallet_record_card(data: WalletRecordCardData) -> bytes:
 # ----------------------- result_scorecard -----------------------
 
 class ResultScorecardData(TypedDict):
-    verdict: str             # "CASHED" | "BURNED" | "MIXED" | "WASH"
+    verdict: str             # "CASHED" | "BURNED" | "WASH" (classify_outcome
+                             # emits only these three; "MIXED" is accepted
+                             # defensively — rendered neutrally by the else
+                             # branch below — but not currently produced)
     net_pl_usd: float        # signed
     record_str: str          # trade W-L, e.g. "3-1"
     event_label: str         # "Padres-Phillies Over 7.5 runs"

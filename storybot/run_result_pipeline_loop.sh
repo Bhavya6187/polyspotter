@@ -12,6 +12,10 @@
 #
 # Pass DRY_RUN=true in the environment to forward it to the pipeline. Note
 # that DRY_RUN never posts to X (post_tweet returns a dryrun id).
+#
+# Results are intentionally NOT peak-window gated (unlike the twitter loop)
+# because they post on market resolution and are volume-capped at
+# RESULT_DAILY_CAP/day in result_pipeline.py.
 
 set -u
 set -o pipefail
@@ -50,7 +54,7 @@ while true; do
           | while read -r rid; do
             echo "[loop] result draft $rid — invoking claude to edit" | tee -a "$LOG_FILE"
 
-            prompt="Review and edit the result tweet draft at @storybot/result_drafts/$rid.txt — edit the file directly. The full computed result (W/L, net P&L, per-market breakdown) is in @storybot/live_runs/result_$rid.json; the scorecard image that will attach is @storybot/live_runs/result_$rid.png. Verify every dollar and W-L number in the tweet matches the artifact's aggregate, keep it under 270 chars, no URLs (they're stripped), and stay neutral on wins and losses (no gloating, no excuses). publish_result.py runs right after you finish and re-validates."
+            prompt="Review and edit the result tweet draft at @storybot/result_drafts/$rid.txt — edit the file directly. The full computed result (W/L, net P&L, per-market breakdown) is in @storybot/live_runs/result_$rid.json; the scorecard image that will attach is @storybot/live_runs/result_$rid.png. Verify every dollar and W-L number in the tweet matches the artifact's aggregate, keep it under 270 chars, no URLs (they're stripped), and stay neutral on wins and losses (no gloating, no excuses). The tweet must be at least two sentences (a result lead, then a separate sentence stating the P&L like 'Cashed +\$31k.' or 'Burned -\$28k.') — publish_result.py re-runs validate_tweet (see @storybot/twitter_pipeline.py), which rejects single-sentence tweets. publish_result.py runs right after you finish and re-validates."
 
             if claude -p "$prompt" --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"; then
                 if python storybot/publish_result.py "$rid" 2>&1 | tee -a "$LOG_FILE"; then
