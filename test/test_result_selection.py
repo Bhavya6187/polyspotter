@@ -60,3 +60,34 @@ def test_win_bias_forces_win_when_share_below_target():
     picked = [c["id"] for c in rp.select_results(
         cands, posted_today=[], daily_cap=1, win_bias=0.8)]
     assert picked == ["w"]
+
+
+def test_win_then_notable_loss_then_win_when_bias_satisfied():
+    # Core policy: with a 2/day cap and the day's first win banking share=1.0,
+    # the second slot can afford a notable loss. Here cap=3 so we see the full
+    # arc: win first (forces win at share 0.0), then the big loss is admitted
+    # (share now 1.0 >= 0.8), then a win resumes.
+    cands = [
+        {"id": "w1", "is_win": True, "net_pl_usd": 30000.0, "notability": 30000.0},
+        {"id": "L", "is_win": False, "net_pl_usd": -45000.0, "notability": 45000.0},
+        {"id": "w2", "is_win": True, "net_pl_usd": 10000.0, "notability": 10000.0},
+    ]
+    picked = [c["id"] for c in rp.select_results(
+        cands, posted_today=[], daily_cap=3, win_bias=0.8)]
+    assert picked == ["w1", "L", "w2"]
+
+
+def test_multiple_notable_losses_ordered_by_notability():
+    # When only losses are eligible, they fill in notability order under the cap.
+    cands = [
+        {"id": "L_small", "is_win": False, "net_pl_usd": -25000.0, "notability": 25000.0},
+        {"id": "L_big", "is_win": False, "net_pl_usd": -90000.0, "notability": 90000.0},
+    ]
+    picked = [c["id"] for c in rp.select_results(
+        cands, posted_today=[True, True], daily_cap=4)]
+    assert picked == ["L_big", "L_small"]
+
+
+def test_over_posted_today_returns_empty():
+    cands = [{"id": "w", "is_win": True, "net_pl_usd": 9000.0, "notability": 9000.0}]
+    assert rp.select_results(cands, posted_today=[True, True, True], daily_cap=2) == []

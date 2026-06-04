@@ -111,6 +111,11 @@ def select_results(candidates: list[dict], *, posted_today: list[bool],
     while len(selected) < slots and (wi < len(wins) or li < len(losses)):
         nxt_win = wins[wi] if wi < len(wins) else None
         nxt_loss = losses[li] if li < len(losses) else None
+        # `share` is the win fraction over today's already-posted results PLUS
+        # what we've selected so far this run — i.e. cumulative within the ET
+        # day. So once enough wins are banked, the next slot can "afford" a
+        # notable loss; a fresh day (empty posted) starts at 0.0 and forces a
+        # win first.
         total = len(posted)
         share = (sum(1 for w in posted if w) / total) if total else 0.0
         if nxt_loss is None:
