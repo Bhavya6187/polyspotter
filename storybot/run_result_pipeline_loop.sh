@@ -46,7 +46,7 @@ while true; do
         echo "[loop] result_pipeline.py exited $status — skipping this iteration" | tee -a "$LOG_FILE"
     else
         echo "$output" \
-          | grep -oP '\[result_pipeline\] draft original_tweet_id=\K[0-9]+' \
+          | { grep -oP '\[result_pipeline\] draft original_tweet_id=\K[0-9]+' || true; } \
           | while read -r rid; do
             echo "[loop] result draft $rid — invoking claude to edit" | tee -a "$LOG_FILE"
 
