@@ -8,7 +8,7 @@ monkeypatch a single seam.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import psycopg2
@@ -17,6 +17,11 @@ from psycopg2.extras import RealDictCursor
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 QUERY_TIMEOUT_SECONDS = 10
 _AUDIENCE_TZ = ZoneInfo("America/New_York")
+
+# The single outcome string that counts as a win. Shared so producers
+# (publish_result.py) and this win-mapping agree on the literal — a typo
+# would otherwise silently classify a win as a loss.
+WIN_OUTCOME = "cashed"
 
 
 def _run(query: str, params: tuple, fetch: bool = False):
@@ -75,11 +80,14 @@ def todays_posted_outcomes(now: datetime) -> list[bool]:
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     today = now.astimezone(_AUDIENCE_TZ).date()
+    # Bind the lookback window to the passed-in `now`, not the DB clock, so the
+    # SQL prefilter and the Python ET-day filter agree on which day is "today"
+    # even when a caller passes a non-present `now` (backfill/replay).
+    window_start = now - timedelta(days=2)
     rows = _run(
         "SELECT posted_at, outcome FROM result_tweets "
-        "WHERE posted_at IS NOT NULL "
-        "AND posted_at >= NOW() - INTERVAL '2 days'",
-        (), fetch=True,
+        "WHERE posted_at IS NOT NULL AND posted_at >= %s",
+        (window_start,), fetch=True,
     ) or []
     out: list[bool] = []
     for r in rows:
@@ -89,5 +97,5 @@ def todays_posted_outcomes(now: datetime) -> list[bool]:
         if pa.tzinfo is None:
             pa = pa.replace(tzinfo=timezone.utc)
         if pa.astimezone(_AUDIENCE_TZ).date() == today:
-            out.append((r.get("outcome") or "") == "cashed")
+            out.append((r.get("outcome") or "") == WIN_OUTCOME)
     return out
