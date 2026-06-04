@@ -79,6 +79,21 @@ def classify_outcome(aggregate: dict) -> str:
     return "cashed" if net > 0 else "burned"
 
 
+def build_scorecard_data(aggregate: dict, *, event_label: str,
+                         outcome_side: str, flagged_days_ago: int) -> dict:
+    """Map an aggregate_result() dict to ResultScorecardData for the renderer."""
+    verdict = classify_outcome(aggregate).upper()  # CASHED | BURNED | WASH
+    return {
+        "verdict": verdict,
+        "net_pl_usd": float(aggregate.get("net_pl_usd") or 0.0),
+        "record_str": f"{int(aggregate.get('n_won') or 0)}-"
+                      f"{int(aggregate.get('n_lost') or 0)}",
+        "event_label": event_label,
+        "outcome_side": outcome_side,
+        "flagged_days_ago": int(flagged_days_ago),
+    }
+
+
 def select_results(candidates: list[dict], *, posted_today: list[bool],
                    daily_cap: int = RESULT_DAILY_CAP,
                    win_bias: float = RESULT_WIN_BIAS,
@@ -368,22 +383,22 @@ You will receive:
     - total_payout_usd: what the winning side cashed (0 if all lost).
     - net_pl_usd: payout minus invested.
     - by_market: per-market breakdown {winning_outcome, side_bet, usd_invested, pl, won}.
-- alert_url: a polyspotter.com link to include verbatim at the end.
 
 ## Voice
 Same voice as the original: short, factual, scoreboard-clear. NOT smug,
 NOT meme-y, NOT analyst-speak. The reader should be able to tell at a
 glance whether the sharps cashed or got burned.
 
-## Required structure (2 sentences max + URL)
+## Required structure (2 sentences max)
 1. Lead with the result. State who won the market and what the cluster
    was on. Round dollar figures: "$28k", "$6.2k". One sentence.
 2. State the realized P&L in plain English: "Cashed +$31k", "Burned -$28k",
    or for split outcomes "Net +$4k across the two markets." One sentence.
-3. End with the polyspotter URL on its own line if it fits, else inline.
+3. No link. The scorecard image carries the brand — spend every character on the result.
 
 ## Rules
-- Keep total under 240 characters (URL counts as 23).
+- Keep total under 270 characters. No URL — it would be stripped.
+- Do NOT include any URL; links are stripped before posting.
 - Reference the original event/team names — the reader should not need
   to remember the prior tweet to follow.
 - No hashtags, no emojis, no @mentions.
@@ -396,13 +411,12 @@ glance whether the sharps cashed or got burned.
 
 ## Output (strict JSON only)
 {
-  "tweet": "<text with one polyspotter.com link>"
+  "tweet": "<link-free result text>"
 }
 """
 
 
-def compose_result_tweet(llm_client, original_tweet: str,
-                         result: dict, alert_url: str) -> str:
+def compose_result_tweet(llm_client, original_tweet: str, result: dict) -> str:
     """One LLM call to produce the follow-up tweet text. Returns the raw
     string the model emitted; caller is responsible for any further
     validation (currently we just print it)."""
@@ -423,7 +437,6 @@ def compose_result_tweet(llm_client, original_tweet: str,
                 for v in result["by_market"].values()
             ],
         },
-        "alert_url": alert_url,
     }
     response = llm_client.responses.create(
         model=MODEL,
@@ -483,18 +496,12 @@ def process_tweet(llm_client, tweet: dict) -> str:
     if aggregate["n_trades"] == 0:
         return "skipped_no_trades"
 
-    # Pick a polyspotter URL: prefer the alert link of the first alert in
-    # the tweet, falling back to nothing if alert metadata is missing.
+    # Alert metadata feeds the artifact's event/market labels below.
     meta = fetch_alert_meta(alert_ids)
     primary = meta.get(alert_ids[0]) or {}
-    alert_url = (
-        f"https://polyspotter.com/alert/{alert_ids[0]}"
-        if alert_ids else ""
-    )
 
     result_tweet = compose_result_tweet(
-        llm_client, tweet.get("tweet_text") or "",
-        aggregate, alert_url,
+        llm_client, tweet.get("tweet_text") or "", aggregate,
     )
 
     artifact = {

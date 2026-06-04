@@ -91,3 +91,16 @@ def test_multiple_notable_losses_ordered_by_notability():
 def test_over_posted_today_returns_empty():
     cands = [{"id": "w", "is_win": True, "net_pl_usd": 9000.0, "notability": 9000.0}]
     assert rp.select_results(cands, posted_today=[True, True, True], daily_cap=2) == []
+
+
+def test_build_scorecard_data_maps_aggregate_to_card():
+    aggregate = {"n_won": 3, "n_lost": 1, "net_pl_usd": 31000.0,
+                 "total_invested_usd": 20000.0}
+    card = rp.build_scorecard_data(
+        aggregate, event_label="Padres-Phillies Over 7.5 runs",
+        outcome_side="Over 7.5 runs", flagged_days_ago=2)
+    assert card["verdict"] == "CASHED"
+    assert card["record_str"] == "3-1"
+    assert card["net_pl_usd"] == 31000.0
+    assert card["event_label"] == "Padres-Phillies Over 7.5 runs"
+    assert card["flagged_days_ago"] == 2
