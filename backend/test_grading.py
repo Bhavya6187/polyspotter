@@ -40,3 +40,42 @@ def test_pick_call_takes_highest_score():
         {"id": 3, "composite_score": 9.0},
     ]
     assert pick_call(alerts)["id"] == 2
+
+
+from datetime import datetime, timedelta, timezone
+from grading import summarize
+
+
+def _row(won, return_pct, days_ago):
+    return {
+        "won": won,
+        "return_pct": return_pct,
+        "resolved_at": datetime.now(timezone.utc) - timedelta(days=days_ago),
+    }
+
+
+def test_summarize_window_and_alltime():
+    rows = [
+        _row(True, 1.0, 1),    # in window
+        _row(True, 0.5, 5),    # in window
+        _row(False, -1.0, 10), # in window
+        _row(True, 2.0, 45),   # outside 30d window, in all-time
+    ]
+    out = summarize(rows, window_days=30)
+    # window: 2 wins / 1 loss
+    assert out["window"]["wins"] == 2
+    assert out["window"]["losses"] == 1
+    assert round(out["window"]["hit_rate"], 3) == round(2 / 3, 3)
+    # mean return over window rows = (1.0 + 0.5 - 1.0) / 3
+    assert round(out["window"]["copy_return_pct"], 4) == round(0.5 / 3, 4)
+    # all-time includes the 45-day-old win
+    assert out["all_time"]["wins"] == 3
+    assert out["all_time"]["losses"] == 1
+
+
+def test_summarize_empty():
+    out = summarize([], window_days=30)
+    assert out["window"]["wins"] == 0
+    assert out["window"]["losses"] == 0
+    assert out["window"]["hit_rate"] == 0.0
+    assert out["window"]["copy_return_pct"] == 0.0
