@@ -62,7 +62,7 @@ Reuses the existing settlement detection already in the backend (`_is_market_set
 Unique on `condition_id` (one call per market).
 
 **Grading job** (`backend/grade_worker.py`, cron ~ every 30–60 min):
-1. Find featured markets with resolved status not yet in `graded_calls`. "Featured" = above the homepage `composite_score` threshold (same threshold the homepage list uses), so it matches what readers saw.
+1. Find featured markets with resolved status not yet in `graded_calls`. The record covers high-conviction deduped calls at `composite_score >= 2.0` — a deliberate quality floor. Note this is stricter than the homepage feed (which has no min-score), so the record reflects only calls we'd stand behind.
 2. For each, pick top-score alert as the call.
 3. Fetch resolution via existing Gamma settlement helper; determine winning outcome.
 4. Compute `won` + `return_pct`; upsert into `graded_calls`.

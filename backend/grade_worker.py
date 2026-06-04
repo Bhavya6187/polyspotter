@@ -14,6 +14,7 @@ import json
 import sys
 from contextlib import closing
 from pathlib import Path
+from datetime import datetime, timezone
 
 import requests
 from dotenv import load_dotenv
@@ -24,7 +25,7 @@ from database import get_conn  # noqa: E402
 from grading import winning_outcome, is_won, copy_return, pick_call  # noqa: E402
 
 GAMMA_API = "https://gamma-api.polymarket.com"
-SCORE_THRESHOLD = 2.0   # "featured" floor — matches the homepage list
+SCORE_THRESHOLD = 2.0   # high-conviction floor for the public track record (NOT the homepage's min-score, which is 0)
 BATCH_LIMIT = 50        # markets to consider per pass
 
 
@@ -64,6 +65,7 @@ def grade_once(conn, fetch=fetch_market) -> int:
               AND a.composite_score >= %s
               AND a.llm_copy_action IS NOT NULL
               AND a.llm_copy_action <> '{}'
+              AND COALESCE(a.event_end_estimate, a.end_date) <= NOW()
               AND NOT EXISTS (
                   SELECT 1 FROM graded_calls g WHERE g.condition_id = a.condition_id
               )
@@ -89,7 +91,7 @@ def _grade_market(conn, cid, fetch) -> bool:
     bad/missing copy_action, bad entry)."""
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT id, composite_score, event_slug, market_title, llm_copy_action
+            SELECT id, composite_score, event_slug, market_title, llm_copy_action, event_end_estimate
             FROM alerts
             WHERE condition_id = %s AND composite_score >= %s
               AND llm_copy_action IS NOT NULL AND llm_copy_action <> '{}'
@@ -121,19 +123,26 @@ def _grade_market(conn, cid, fetch) -> bool:
     if not (0 < entry < 1):
         return False
 
+    if not any(is_won(outcome, o) for o in market["outcomes"]):
+        print(f"[grade_worker] {cid}: copy outcome {outcome!r} not among "
+              f"market outcomes {market['outcomes']}; skipping", flush=True)
+        return False
+
     won = is_won(outcome, resolved)
     ret = copy_return(entry, won)
+
+    resolved_at = call.get("event_end_estimate") or datetime.now(timezone.utc)
 
     with conn.cursor() as cur:
         cur.execute("""
             INSERT INTO graded_calls
                 (condition_id, alert_id, event_slug, market_title, outcome,
-                 entry_price, resolved_outcome, won, return_pct, composite_score)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 entry_price, resolved_outcome, won, return_pct, composite_score, resolved_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (condition_id) DO NOTHING
         """, (
             cid, call["id"], call.get("event_slug"), call.get("market_title"),
-            outcome, entry, resolved, won, ret, call["composite_score"],
+            outcome, float(entry), resolved, won, ret, call["composite_score"], resolved_at,
         ))
     print(f"[grade_worker] {call.get('market_title')}: "
           f"{'WON' if won else 'LOST'} {ret:+.0%}", flush=True)

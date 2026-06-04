@@ -277,3 +277,49 @@ def test_grade_once_one_poison_market_does_not_abort_batch():
     assert graded == 1
     assert len(cur.upserts) == 1
     assert cur.upserts[0][1] == 2   # only the good market's call graded
+
+
+from datetime import datetime as _dt, timezone as _tz
+
+FIXED_T = _dt(2026, 6, 5, 0, 10, tzinfo=_tz.utc)
+
+
+def test_grade_once_resolved_at_uses_event_end_estimate():
+    cid = "0xtime"
+    cur = _FakeCursor(
+        candidate_rows=[{"condition_id": cid}],
+        alert_rows_by_cid={cid: [
+            {"id": 10, "composite_score": 14.0, "event_slug": "mlb-x",
+             "market_title": "Padres vs Phillies", "event_end_estimate": FIXED_T,
+             "llm_copy_action": '{"outcome": "San Diego Padres", "entry_price": 0.38}'},
+        ]},
+    )
+    conn = _FakeConn(cur)
+
+    def fake_fetch(condition_id):
+        return {"outcomes": ["San Diego Padres", "Philadelphia Phillies"],
+                "prices": [0.99, 0.01]}
+
+    graded = grade_once(conn, fake_fetch)
+    assert graded == 1
+    assert cur.upserts[0][10] == FIXED_T   # resolved_at = real event time
+
+
+def test_grade_once_skips_mislabeled_outcome():
+    cid = "0xmislabel"
+    cur = _FakeCursor(
+        candidate_rows=[{"condition_id": cid}],
+        alert_rows_by_cid={cid: [
+            {"id": 1, "composite_score": 14.0, "event_slug": "nba-z",
+             "market_title": "Jazz vs Nuggets",
+             "llm_copy_action": '{"outcome": "Utah Jazz", "entry_price": 0.5}'},
+        ]},
+    )
+    conn = _FakeConn(cur)
+
+    def fake_fetch(condition_id):
+        return {"outcomes": ["Utah", "Denver"], "prices": [0.99, 0.01]}  # resolves "Utah"
+
+    graded = grade_once(conn, fake_fetch)
+    assert graded == 0
+    assert cur.upserts == []

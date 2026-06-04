@@ -26,7 +26,7 @@
 
 Definitions locked from the spec:
 - **Unit of record:** one row per resolved featured market = the alert with the highest `composite_score` on that market.
-- **Featured:** `composite_score >= SCORE_THRESHOLD` (use `2.0`, the floor the homepage list already applies; defined as a constant so it is changeable).
+- **Featured:** `composite_score >= SCORE_THRESHOLD` (`2.0` is a deliberate high-conviction floor for the track record, stricter than the homepage feed which applies no min-score; defined as a constant so it is changeable).
 - **Copy return:** `$100` flat per call; `won → (1 - entry_price) / entry_price`; `lost → -1.0`. Headline % = equal-weight **mean** of `return_pct`.
 - **Resolution:** winning outcome = `outcomes[argmax(outcomePrices)]` when `max(prices) >= 0.98`; else ungraded. 50-50 (both ≈0.5) excluded.
 
