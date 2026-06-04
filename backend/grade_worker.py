@@ -74,52 +74,70 @@ def grade_once(conn, fetch=fetch_market) -> int:
 
     graded = 0
     for cid in candidate_cids:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id, composite_score, event_slug, market_title, llm_copy_action
-                FROM alerts
-                WHERE condition_id = %s AND composite_score >= %s
-                  AND llm_copy_action IS NOT NULL AND llm_copy_action <> '{}'
-            """, (cid, SCORE_THRESHOLD))
-            alerts = cur.fetchall()
-        if not alerts:
-            continue
-
-        market = fetch(cid)
-        if not market:
-            continue
-        resolved = winning_outcome(market["outcomes"], market["prices"])
-        if resolved is None:
-            continue  # not cleanly decided — leave ungraded, retry next pass
-
-        call = pick_call(alerts)
         try:
-            action = json.loads(call["llm_copy_action"])
-        except (json.JSONDecodeError, TypeError):
+            if _grade_market(conn, cid, fetch):
+                graded += 1
+        except Exception as e:
+            print(f"[grade_worker] error grading {cid}: {e}", flush=True)
             continue
-        outcome = action.get("outcome")
-        entry = action.get("entry_price")
-        if not outcome or entry in (None, 0):
-            continue
-
-        won = is_won(outcome, resolved)
-        ret = copy_return(float(entry), won)
-
-        with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO graded_calls
-                    (condition_id, alert_id, event_slug, market_title, outcome,
-                     entry_price, resolved_outcome, won, return_pct, composite_score)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (condition_id) DO NOTHING
-            """, (
-                cid, call["id"], call.get("event_slug"), call.get("market_title"),
-                outcome, float(entry), resolved, won, ret, call["composite_score"],
-            ))
-        graded += 1
-        print(f"[grade_worker] {call.get('market_title')}: "
-              f"{'WON' if won else 'LOST'} {ret:+.0%}", flush=True)
     return graded
+
+
+def _grade_market(conn, cid, fetch) -> bool:
+    """Grade a single market. Returns True if a row was graded (inserted),
+    False if the market was skipped (no alerts, fetch None, unresolved,
+    bad/missing copy_action, bad entry)."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT id, composite_score, event_slug, market_title, llm_copy_action
+            FROM alerts
+            WHERE condition_id = %s AND composite_score >= %s
+              AND llm_copy_action IS NOT NULL AND llm_copy_action <> '{}'
+        """, (cid, SCORE_THRESHOLD))
+        alerts = cur.fetchall()
+    if not alerts:
+        return False
+
+    market = fetch(cid)
+    if not market:
+        return False
+    resolved = winning_outcome(market["outcomes"], market["prices"])
+    if resolved is None:
+        return False  # not cleanly decided — leave ungraded, retry next pass
+
+    call = pick_call(alerts)
+    try:
+        action = json.loads(call["llm_copy_action"])
+    except (json.JSONDecodeError, TypeError):
+        return False
+    outcome = action.get("outcome")
+    entry = action.get("entry_price")
+    if not outcome or entry is None:
+        return False
+    try:
+        entry = float(entry)
+    except (ValueError, TypeError):
+        return False
+    if not (0 < entry < 1):
+        return False
+
+    won = is_won(outcome, resolved)
+    ret = copy_return(entry, won)
+
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO graded_calls
+                (condition_id, alert_id, event_slug, market_title, outcome,
+                 entry_price, resolved_outcome, won, return_pct, composite_score)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (condition_id) DO NOTHING
+        """, (
+            cid, call["id"], call.get("event_slug"), call.get("market_title"),
+            outcome, entry, resolved, won, ret, call["composite_score"],
+        ))
+    print(f"[grade_worker] {call.get('market_title')}: "
+          f"{'WON' if won else 'LOST'} {ret:+.0%}", flush=True)
+    return True
 
 
 def main() -> int:

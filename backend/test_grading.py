@@ -163,3 +163,117 @@ def test_grade_once_skips_unresolved():
     graded = grade_once(conn, fake_fetch)
     assert graded == 0
     assert cur.upserts == []
+
+
+def test_grade_once_grades_a_lost_call():
+    cid = "0xlost"
+    cur = _FakeCursor(
+        candidate_rows=[{"condition_id": cid}],
+        alert_rows_by_cid={cid: [
+            {"id": 7, "composite_score": 14.0, "event_slug": "mlb-y",
+             "market_title": "Padres vs Phillies",
+             "llm_copy_action": '{"outcome": "San Diego Padres", "entry_price": 0.38}'},
+        ]},
+    )
+    conn = _FakeConn(cur)
+
+    def fake_fetch(condition_id):
+        # Phillies win -> the Padres call loses
+        return {"outcomes": ["San Diego Padres", "Philadelphia Phillies"],
+                "prices": [0.01, 0.99]}
+
+    graded = grade_once(conn, fake_fetch)
+    assert graded == 1
+    params = cur.upserts[0]
+    assert params[7] is False        # won
+    assert params[8] == -1.0         # return_pct
+
+
+def test_grade_once_skips_entry_price_zero():
+    cid = "0xzero"
+    cur = _FakeCursor(
+        candidate_rows=[{"condition_id": cid}],
+        alert_rows_by_cid={cid: [
+            {"id": 1, "composite_score": 5.0, "event_slug": "e", "market_title": "m",
+             "llm_copy_action": '{"outcome": "Yes", "entry_price": 0}'},
+        ]},
+    )
+    conn = _FakeConn(cur)
+
+    def fake_fetch(condition_id):
+        return {"outcomes": ["Yes", "No"], "prices": [0.99, 0.01]}  # resolved
+
+    graded = grade_once(conn, fake_fetch)
+    assert graded == 0
+    assert cur.upserts == []
+
+
+def test_grade_once_skips_bad_copy_action_json():
+    cid = "0xbadjson"
+    cur = _FakeCursor(
+        candidate_rows=[{"condition_id": cid}],
+        alert_rows_by_cid={cid: [
+            {"id": 1, "composite_score": 5.0, "event_slug": "e", "market_title": "m",
+             "llm_copy_action": "not json"},
+        ]},
+    )
+    conn = _FakeConn(cur)
+
+    def fake_fetch(condition_id):
+        return {"outcomes": ["Yes", "No"], "prices": [0.99, 0.01]}  # resolved
+
+    graded = grade_once(conn, fake_fetch)
+    assert graded == 0
+    assert cur.upserts == []
+
+
+def test_grade_once_dedup_picks_highest_score():
+    cid = "0xdedup"
+    cur = _FakeCursor(
+        candidate_rows=[{"condition_id": cid}],
+        alert_rows_by_cid={cid: [
+            {"id": 1, "composite_score": 5.0, "event_slug": "e", "market_title": "m",
+             "llm_copy_action": '{"outcome": "No", "entry_price": 0.40}'},
+            {"id": 2, "composite_score": 14.0, "event_slug": "e", "market_title": "m",
+             "llm_copy_action": '{"outcome": "Yes", "entry_price": 0.38}'},
+        ]},
+    )
+    conn = _FakeConn(cur)
+
+    def fake_fetch(condition_id):
+        # "Yes" wins -> alert 2's call (the higher-score one) is correct
+        return {"outcomes": ["Yes", "No"], "prices": [0.99, 0.01]}
+
+    graded = grade_once(conn, fake_fetch)
+    assert graded == 1
+    params = cur.upserts[0]
+    assert params[1] == 2            # alert_id of the higher-score call
+
+
+def test_grade_once_one_poison_market_does_not_abort_batch():
+    good = "0xgood"
+    poison = "0xpoison"
+    cur = _FakeCursor(
+        candidate_rows=[{"condition_id": poison}, {"condition_id": good}],
+        alert_rows_by_cid={
+            poison: [
+                {"id": 1, "composite_score": 14.0, "event_slug": "e", "market_title": "m",
+                 "llm_copy_action": '{"outcome": "Yes", "entry_price": 0.38}'},
+            ],
+            good: [
+                {"id": 2, "composite_score": 14.0, "event_slug": "e", "market_title": "m",
+                 "llm_copy_action": '{"outcome": "Yes", "entry_price": 0.38}'},
+            ],
+        },
+    )
+    conn = _FakeConn(cur)
+
+    def fake_fetch(condition_id):
+        if condition_id == poison:
+            raise ValueError("boom")
+        return {"outcomes": ["Yes", "No"], "prices": [0.99, 0.01]}
+
+    graded = grade_once(conn, fake_fetch)
+    assert graded == 1
+    assert len(cur.upserts) == 1
+    assert cur.upserts[0][1] == 2   # only the good market's call graded
