@@ -26,3 +26,11 @@ def test_result_scorecard_renders_png_bytes_for_each_verdict():
 
 def test_result_scorecard_is_registered_chart_type():
     assert "result_scorecard" in charts.CHART_TYPES
+
+
+def test_result_scorecard_unknown_verdict_and_missing_fields_do_not_raise():
+    # Defensive: an unexpected verdict and missing keys must still render bytes.
+    png = charts.render_result_scorecard({"verdict": "MIXED", "net_pl_usd": 4000.0})
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    png2 = charts.render_result_scorecard({})  # all defaults
+    assert png2[:8] == b"\x89PNG\r\n\x1a\n"

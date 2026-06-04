@@ -165,15 +165,16 @@ def _draw_result_scorecard(ax, data: ResultScorecardData) -> None:
     net_str = f"{sign}{_format_usd(abs(net))}" if verdict != "WASH" else "BROKE EVEN"
 
     ax.text(0.5, 0.74, f"{mark}  {verdict}", color=color, fontsize=58,
-            ha="center", va="center", weight="bold")
+            ha="center", va="center", fontweight="bold")
     ax.text(0.5, 0.50, net_str, color=color, fontsize=72,
-            ha="center", va="center", weight="bold")
+            ha="center", va="center", fontweight="bold")
     ax.text(0.5, 0.31, data.get("event_label") or "", color=FG, fontsize=26,
-            ha="center", va="center")
+            ha="center", va="center", wrap=True)
     side = data.get("outcome_side") or ""
     record = data.get("record_str") or ""
     sub = f"Flagged side: {side}   ·   Trades: {record}" if side else f"Trades: {record}"
-    ax.text(0.5, 0.20, sub, color=MUTED, fontsize=20, ha="center", va="center")
+    ax.text(0.5, 0.20, sub, color=MUTED, fontsize=20, ha="center", va="center",
+            wrap=True)
     days = int(data.get("flagged_days_ago") or 0)
     when = "today" if days <= 0 else (f"{days} day ago" if days == 1
                                       else f"{days} days ago")
