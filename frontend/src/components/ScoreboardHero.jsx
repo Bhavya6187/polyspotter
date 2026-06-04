@@ -5,11 +5,13 @@
 const MIN_GRADED = 10;
 
 function asPct(fraction) {
+  if (!Number.isFinite(fraction)) return "—";
   return `${Math.round(fraction * 100)}%`;
 }
 
 function asSignedPct(fraction) {
-  const v = Math.round(fraction * 100);
+  if (!Number.isFinite(fraction)) return "—";
+  const v = Math.round(fraction * 100) || 0; // `|| 0` normalizes -0 to 0
   return `${v >= 0 ? "+" : ""}${v}%`;
 }
 

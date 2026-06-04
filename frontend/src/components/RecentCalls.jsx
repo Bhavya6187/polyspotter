@@ -3,7 +3,8 @@ import Link from "next/link";
 const MIN_RECEIPTS = 3;
 
 function asSignedPct(fraction) {
-  const v = Math.round(fraction * 100);
+  if (!Number.isFinite(fraction)) return "—";
+  const v = Math.round(fraction * 100) || 0; // `|| 0` normalizes -0 to 0
   return `${v >= 0 ? "+" : ""}${v}%`;
 }
 
@@ -14,7 +15,8 @@ function Chip({ call }) {
       className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs"
       style={{ background: "var(--surface-1)", border: "1px solid var(--border)" }}
     >
-      <span style={{ color }}>{call.won ? "✓" : "✗"}</span>
+      <span aria-hidden="true" style={{ color }}>{call.won ? "✓" : "✗"}</span>
+      <span className="sr-only">{call.won ? "Won:" : "Lost:"}</span>
       <span style={{ color: "var(--text-primary)" }}>{call.outcome}</span>
       <span style={{ color }} className="tabular-nums">
         {asSignedPct(call.return_pct)}
