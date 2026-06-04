@@ -992,3 +992,28 @@ class PaginatedEvents(BaseModel):
     total: int
     page: int
     per_page: int
+
+
+# -- Scoreboard (grading engine) ---------------------------------------------
+
+class ScoreboardWindow(BaseModel):
+    wins: int
+    losses: int
+    hit_rate: float
+    copy_return_pct: float
+
+
+class ScoreboardRecentCall(BaseModel):
+    market_title: str | None = None
+    outcome: str
+    won: bool
+    return_pct: float
+    event_slug: str | None = None
+    resolved_at: datetime
+
+
+class ScoreboardResponse(BaseModel):
+    window_days: int
+    window: ScoreboardWindow
+    all_time: ScoreboardWindow
+    recent: list[ScoreboardRecentCall]

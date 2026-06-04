@@ -66,7 +66,9 @@ from models import (
     EventListItem,
     PaginatedEvents,
     ThesisOut,
+    ScoreboardResponse,
 )
+from grading import summarize
 
 
 @asynccontextmanager
@@ -1275,6 +1277,53 @@ def get_resolving_soon():
     results = _fetch_resolving_soon()
     _resolving_soon_cache = (now + _RESOLVING_SOON_TTL, results)
     return results
+
+
+_SCOREBOARD_TTL = 120  # seconds
+_scoreboard_cache: tuple[float, dict] | None = None
+
+
+def _scoreboard_rows() -> list[dict]:
+    """Raw graded_calls rows (newest first). Separated out so tests can fake it."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT market_title, outcome, won, return_pct, event_slug, resolved_at
+            FROM graded_calls
+            ORDER BY resolved_at DESC
+        """)
+        return list(cur.fetchall())
+
+
+@app.get("/api/scoreboard", response_model=ScoreboardResponse)
+def get_scoreboard():
+    """Public track record: 30-day + all-time W/L, hit rate, copy return,
+    plus the most recent graded calls (the 'receipts'). Cached 120s."""
+    global _scoreboard_cache
+    now = _time.time()
+    if _scoreboard_cache and _scoreboard_cache[0] > now:
+        return _scoreboard_cache[1]
+
+    rows = _scoreboard_rows()
+    agg = summarize(rows, window_days=30)
+    result = {
+        "window_days": agg["window_days"],
+        "window": agg["window"],
+        "all_time": agg["all_time"],
+        "recent": [
+            {
+                "market_title": r["market_title"],
+                "outcome": r["outcome"],
+                "won": r["won"],
+                "return_pct": r["return_pct"],
+                "event_slug": r["event_slug"],
+                "resolved_at": r["resolved_at"],
+            }
+            for r in rows[:8]
+        ],
+    }
+    _scoreboard_cache = (now + _SCOREBOARD_TTL, result)
+    return result
 
 
 def _fetch_resolving_soon() -> list[dict]:
