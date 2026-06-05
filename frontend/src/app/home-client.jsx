@@ -16,6 +16,7 @@ import BrandMark from "../components/BrandMark";
 import HeaderActions from "../components/HeaderActions";
 import ScoreboardHero from "../components/ScoreboardHero";
 import RecentCalls from "../components/RecentCalls";
+import EmailCapture from "../components/EmailCapture";
 
 function formatRelativeTime(date) {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -222,6 +223,20 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
           onPageChange={handlePageChange}
         />
       </nav>
+
+      {/* Repeat email capture at the foot of the feed */}
+      <section
+        aria-label="Email signup"
+        className="mt-8 rounded-2xl p-6 text-center"
+        style={{ background: "var(--surface-card)", border: "1px solid var(--border)" }}
+      >
+        <p className="mb-3 text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+          Get the sharpest Polymarket bets in your inbox every morning.
+        </p>
+        <div className="mx-auto max-w-md">
+          <EmailCapture source="footer" />
+        </div>
+      </section>
 
       <EngagementToast />
     </main>
