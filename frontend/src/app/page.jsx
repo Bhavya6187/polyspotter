@@ -259,7 +259,7 @@ export default async function HomePage() {
             <h3>What are prediction markets?</h3>
             <p>
               Prediction markets are platforms where traders buy and sell shares
-              on the outcomes of real-world events. Prices reflect the crowd's
+              on the outcomes of real-world events. Prices reflect the crowd&apos;s
               estimated probability of each outcome. Polymarket is the largest
               prediction market platform, covering politics, sports, crypto, and
               current events.

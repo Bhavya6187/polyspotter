@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import WalletPageClient from "./wallet-page-client";
 import { computeTier } from "../../../lib/tiers";
 import { walletPseudonym } from "../../../lib/pseudonym";
@@ -193,7 +194,7 @@ export default async function WalletPage({ params }) {
       <div className="seo-content">
         <article>
           <nav aria-label="Breadcrumb">
-            <a href="/">PolySpotter</a> &gt; <span>{pseudonym}</span>
+            <Link href="/">PolySpotter</Link> &gt; <span>{pseudonym}</span>
           </nav>
 
           <h1>

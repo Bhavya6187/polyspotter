@@ -234,7 +234,7 @@ export default async function ArticlePage({ params }) {
               }}
             >
               <span>Wire / Dispatch</span>
-              <span aria-hidden style={{ opacity: 0.5 }}>////</span>
+              <span aria-hidden style={{ opacity: 0.5 }}>{"////"}</span>
               <span>{formatLongDate(article.published_date)}</span>
             </div>
           </div>

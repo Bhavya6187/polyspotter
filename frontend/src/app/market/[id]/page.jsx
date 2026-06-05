@@ -1,4 +1,5 @@
 import { cache } from "react";
+import Link from "next/link";
 import MarketPageClient from "./market-page-client";
 import { partialIdFromSlug, marketSlug } from "../../../lib/slugify";
 
@@ -296,7 +297,7 @@ export default async function MarketPage({ params }) {
       <div className="seo-content">
         <article>
           <nav aria-label="Breadcrumb">
-            <a href="/">PolySpotter</a> &gt; <span>{title}</span>
+            <Link href="/">PolySpotter</Link> &gt; <span>{title}</span>
           </nav>
 
           {eventSlug && (
