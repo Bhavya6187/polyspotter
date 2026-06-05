@@ -182,13 +182,6 @@ function pickBestAlert(alerts) {
 
 /** A market group card with signal-based visual hierarchy. */
 function MarketGroupCard({ market, liveData, index }) {
-  const alert = pickBestAlert(market.alerts);
-  if (!alert) return null;
-  const tags = market.tags || [];
-  const rating = scoreToRating(alert.composite_score);
-  const isStrong = rating >= 4;
-  const isHero = index === 0 && rating >= 3;
-
   const [expanded, setExpanded] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
 
@@ -199,6 +192,13 @@ function MarketGroupCard({ market, liveData, index }) {
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
   }, []);
+
+  const alert = pickBestAlert(market.alerts);
+  if (!alert) return null;
+  const tags = market.tags || [];
+  const rating = scoreToRating(alert.composite_score);
+  const isStrong = rating >= 4;
+  const isHero = index === 0 && rating >= 3;
 
   const showExpanded = isDesktop || expanded;
 

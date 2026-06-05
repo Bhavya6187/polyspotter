@@ -18,12 +18,14 @@ export default function useLiveMarket(conditionId, { enabled = true } = {}) {
     if (!conditionId || !enabled) return;
 
     let cancelled = false;
+    let loaded = false; // first fetch for this conditionId shows loading; polls don't
 
     const load = () => {
-      setLoading((prev) => !data && prev === false ? true : prev);
+      if (!loaded) setLoading(true);
       fetchMarketLive(conditionId)
         .then((result) => {
           if (!cancelled) {
+            loaded = true;
             setData(result);
             setError(null);
             setLoading(false);

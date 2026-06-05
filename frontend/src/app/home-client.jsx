@@ -51,8 +51,10 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
 
   const pageRef = useRef(page);
   const filtersRef = useRef(filters);
-  pageRef.current = page;
-  filtersRef.current = filters;
+  useEffect(() => {
+    pageRef.current = page;
+    filtersRef.current = filters;
+  });
 
   const refresh = useCallback(() => {
     setLoading(true);

@@ -470,7 +470,7 @@ export default function CommandPalette({ tags = [], topWallets = [] }) {
               {!loading && query.trim() && results.length === 0 && (
                 <div className="px-4 py-8 text-center">
                   <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-                    No markets found for "{query}"
+                    No markets found for &quot;{query}&quot;
                   </p>
                   <p className="text-xs mt-1" style={{ color: "var(--text-muted)", opacity: 0.6 }}>
                     Try a different search term

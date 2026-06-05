@@ -345,7 +345,7 @@ export default async function ArticlesIndexPage() {
             >
               <span>Wire / Archive</span>
               <span aria-hidden style={{ opacity: 0.5 }}>
-                ////
+                {"////"}
               </span>
               <span>{new Date().toUTCString().split(" ").slice(1, 5).join(" ")}</span>
             </div>
@@ -487,7 +487,7 @@ export default async function ArticlesIndexPage() {
                   color: "var(--text-muted)",
                 }}
               >
-                // The archive
+                {"// The archive"}
               </h2>
               <span
                 className="text-[10px] uppercase"
