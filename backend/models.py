@@ -1012,11 +1012,19 @@ class ScoreboardRecentCall(BaseModel):
     resolved_at: datetime
 
 
+class ScoreboardCategory(BaseModel):
+    name: str
+    calls: int
+    hit_rate: float
+    return_pct: float
+
+
 class ScoreboardResponse(BaseModel):
     window_days: int
     window: ScoreboardWindow
     all_time: ScoreboardWindow
     recent: list[ScoreboardRecentCall]
+    categories: list[ScoreboardCategory] = []
 
 
 # -- Subscribe (homepage email capture) --------------------------------------
