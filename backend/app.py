@@ -238,9 +238,10 @@ def subscribe(payload: SubscribeRequest):
     if payload.hp:
         return {"ok": True}
     email = (payload.email or "").strip().lower()
-    if not _EMAIL_RE.match(email):
+    if len(email) > 320 or not _EMAIL_RE.match(email):
         raise HTTPException(status_code=400, detail="Please enter a valid email address.")
-    _save_subscriber(email, payload.source)
+    source = payload.source[:64] if payload.source else None
+    _save_subscriber(email, source)
     return {"ok": True}
 
 

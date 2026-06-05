@@ -35,3 +35,20 @@ def test_subscribe_honeypot_silently_accepted(monkeypatch):
     assert resp.status_code == 200
     assert resp.json() == {"ok": True}
     assert saved == []   # honeypot filled -> accepted silently, nothing saved
+
+
+def test_subscribe_overlong_email_rejected(monkeypatch):
+    saved = _capture_saves(monkeypatch)
+    long_email = ("a" * 320) + "@example.com"  # > 320 chars total
+    resp = client.post("/api/subscribe", json={"email": long_email, "source": "hero"})
+    assert resp.status_code == 400
+    assert saved == []
+
+
+def test_subscribe_truncates_long_source(monkeypatch):
+    saved = _capture_saves(monkeypatch)
+    resp = client.post("/api/subscribe", json={"email": "a@b.com", "source": "x" * 200})
+    assert resp.status_code == 200
+    # source stored is truncated to <= 64 chars
+    assert len(saved) == 1
+    assert len(saved[0][1]) <= 64
