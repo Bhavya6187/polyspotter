@@ -6,9 +6,46 @@ $100-flat, hold-to-resolution: a win returns (1-entry)/entry, a loss -1.0.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 RESOLVED_THRESHOLD = 0.98  # one outcome price >= this => market decided
+
+
+# Recurring / short-duration crypto price markets (BTC up-or-down, etc.) are
+# return-negative coin-flips where copying adds no edge. Excluded from the
+# public scoreboard at query time (display-only; rows stay in graded_calls).
+JUNK_TAGS = {
+    "Crypto", "Crypto Prices", "Recurring", "Bitcoin", "Ethereum",
+    "Up or Down", "5M", "Daily", "Weekly", "Hide From New",
+}
+
+
+# "Sharpest in" hook: rank recognizable categories by avg copy return.
+META_TAGS = {"Sports", "Games"}   # too broad to read as a "category"
+CATEGORY_MIN_CALLS = 20           # meaningful-sample floor
+TOP_CATEGORIES = 3
+
+
+def _row_tags(row) -> set:
+    """Parse a graded row's joined alerts.tags (JSON text) into a set of tag
+    strings. Tolerates a missing key / None / non-string / malformed JSON by
+    returning an empty set (so such rows are never treated as junk)."""
+    raw = row.get("tags")
+    if isinstance(raw, (list, tuple)):
+        return set(raw)
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except (ValueError, TypeError):
+            return set()
+        return set(parsed) if isinstance(parsed, list) else set()
+    return set()
+
+
+def exclude_junk(rows):
+    """Drop rows whose tags intersect JUNK_TAGS (recurring crypto coin-flips)."""
+    return [r for r in rows if not (_row_tags(r) & JUNK_TAGS)]
 
 
 def winning_outcome(outcomes, prices, threshold: float = RESOLVED_THRESHOLD):
@@ -65,3 +102,37 @@ def summarize(rows, window_days: int = 30):
         "window": _stats(window_rows),
         "all_time": _stats(rows),
     }
+
+
+def top_categories(rows, window_days: int = 30):
+    """Top categories by avg copy return over the windowed rows.
+
+    Aggregates per tag (excluding META_TAGS and JUNK_TAGS), requires at least
+    CATEGORY_MIN_CALLS calls, ranks by avg return desc, and returns up to
+    TOP_CATEGORIES entries as {name, calls, hit_rate, return_pct}. Pass rows
+    that are already junk-excluded; the 30-day window is applied here."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
+    skip = META_TAGS | JUNK_TAGS
+    agg = {}  # tag -> [wins, total, sum_return]
+    for r in rows:
+        if r["resolved_at"] < cutoff:
+            continue
+        for tag in _row_tags(r):
+            if tag in skip:
+                continue
+            a = agg.setdefault(tag, [0, 0, 0.0])
+            a[0] += 1 if r["won"] else 0
+            a[1] += 1
+            a[2] += r["return_pct"]
+    cats = [
+        {
+            "name": tag,
+            "calls": total,
+            "hit_rate": wins / total,
+            "return_pct": sr / total,
+        }
+        for tag, (wins, total, sr) in agg.items()
+        if total >= CATEGORY_MIN_CALLS
+    ]
+    cats.sort(key=lambda c: c["return_pct"], reverse=True)
+    return cats[:TOP_CATEGORIES]
