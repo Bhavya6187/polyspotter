@@ -37,6 +37,7 @@ def init_db():
             _migrate_add_articles(cur)
             _migrate_add_events_table(cur)
             _migrate_add_graded_calls(cur)
+            _migrate_add_subscribers(cur)
         conn.commit()
     finally:
         conn.close()
@@ -247,4 +248,19 @@ def _migrate_add_graded_calls(cur):
     cur.execute("""
         CREATE INDEX IF NOT EXISTS idx_graded_calls_resolved
             ON graded_calls(resolved_at DESC)
+    """)
+
+
+def _migrate_add_subscribers(cur):
+    """Create the subscribers table (idempotent)."""
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS subscribers (
+            id                SERIAL PRIMARY KEY,
+            email             TEXT NOT NULL UNIQUE,
+            source            TEXT,
+            confirmed         BOOLEAN NOT NULL DEFAULT TRUE,
+            unsubscribe_token UUID NOT NULL DEFAULT gen_random_uuid(),
+            created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            unsubscribed_at   TIMESTAMPTZ
+        )
     """)

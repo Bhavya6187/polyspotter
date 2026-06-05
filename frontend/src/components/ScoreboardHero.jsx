@@ -2,6 +2,8 @@
 // /api/scoreboard). Shows a "building" state until >= MIN_GRADED calls exist
 // so a tiny early sample never reads as a confident claim.
 
+import EmailCapture from "./EmailCapture";
+
 const MIN_GRADED = 10;
 
 function asPct(fraction) {
@@ -59,6 +61,9 @@ export default function ScoreboardHero({ scoreboard }) {
             ? `Building our track record — ${gradedCount} call${gradedCount === 1 ? "" : "s"} graded so far.`
             : "Our public track record is being built now."}
         </p>
+        <div className="mt-4 max-w-md">
+          <EmailCapture source="hero" />
+        </div>
       </section>
     );
   }
@@ -92,6 +97,12 @@ export default function ScoreboardHero({ scoreboard }) {
         We track Polymarket&rsquo;s sharpest wallets and grade every call —
         here&rsquo;s how copying them has actually worked out.
       </p>
+      <div className="mt-5 max-w-md">
+        <p className="mb-2 text-xs" style={{ color: "var(--text-muted)" }}>
+          Get the daily smart-money brief:
+        </p>
+        <EmailCapture source="hero" />
+      </div>
     </section>
   );
 }
