@@ -6,7 +6,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
  * Redirect old /market/0x<full-conditionId> URLs to the new short slug format.
  * Only triggers for bare condition IDs (0x + 64 hex chars with no title prefix).
  */
-export async function middleware(request) {
+export async function proxy(request) {
   const { pathname } = request.nextUrl;
   const match = pathname.match(/^\/market\/(0x[a-fA-F0-9]{64})$/);
   if (!match) return NextResponse.next();
