@@ -59,7 +59,10 @@ export default function ScoreboardHero({ scoreboard }) {
 
   const windowCount = window.wins + window.losses;
   const ret = window.copy_return_pct;
-  const returnColor = ret >= 0 ? "var(--bullish)" : "var(--bearish)";
+  // Color off the rounded percent we actually display, so a tiny negative that
+  // renders as "+0%" never shows in red.
+  const returnColor =
+    Math.round(ret * 100) >= 0 ? "var(--bullish)" : "var(--bearish)";
   const profit = ret * windowCount * 100; // flat $100 on each graded call
 
   return (
