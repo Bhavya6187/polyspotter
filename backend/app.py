@@ -71,7 +71,7 @@ from models import (
     SubscribeRequest,
     SubscribeResponse,
 )
-from grading import summarize
+from grading import summarize, exclude_junk, top_categories
 
 
 @asynccontextmanager
@@ -1320,9 +1320,11 @@ def _scoreboard_rows() -> list[dict]:
     with db() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT market_title, outcome, won, return_pct, event_slug, resolved_at
-            FROM graded_calls
-            ORDER BY resolved_at DESC
+            SELECT g.market_title, g.outcome, g.won, g.return_pct, g.entry_price,
+                   g.event_slug, g.resolved_at, a.tags
+            FROM graded_calls g
+            JOIN alerts a ON a.id = g.alert_id
+            ORDER BY g.resolved_at DESC
         """)
         return list(cur.fetchall())
 
@@ -1337,7 +1339,8 @@ def get_scoreboard():
         return _scoreboard_cache[1]
 
     rows = _scoreboard_rows()
-    agg = summarize(rows, window_days=30)
+    curated = exclude_junk(rows)
+    agg = summarize(curated, window_days=30)
     result = {
         "window_days": agg["window_days"],
         "window": agg["window"],
@@ -1351,8 +1354,9 @@ def get_scoreboard():
                 "event_slug": r["event_slug"],
                 "resolved_at": r["resolved_at"],
             }
-            for r in rows[:8]
+            for r in curated[:8]
         ],
+        "categories": top_categories(curated, window_days=30),
     }
     _scoreboard_cache = (now + _SCOREBOARD_TTL, result)
     return result
