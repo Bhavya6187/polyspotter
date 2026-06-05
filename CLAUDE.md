@@ -85,6 +85,14 @@ python storybot/publish_article.py <run_id>          # prints teaser tweet for m
 DRY_RUN=true python storybot/publish_article.py <run_id>   # preview only, no DB update
 ```
 
+Grading worker (grades resolved featured markets → `graded_calls` → `/api/scoreboard`):
+```bash
+source venv/bin/activate
+python backend/grade_worker.py            # one pass, then exits
+# Run on a loop (recommended every 30 min):
+while true; do python backend/grade_worker.py; sleep 1800; done
+```
+
 Cron: once daily at 13:00 UTC (9am ET) recommended for `articlebot.py`.
 `publish_article.py` is run manually after human review.
 

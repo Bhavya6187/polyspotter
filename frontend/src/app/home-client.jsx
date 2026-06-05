@@ -5,7 +5,6 @@ import { fetchMarketAlerts } from "../lib/api";
 import Filters from "../components/Filters";
 import AlertList from "../components/AlertList";
 import Pagination from "../components/Pagination";
-import Ticker from "../components/Ticker";
 import ThemeToggle from "../components/ThemeToggle";
 import TopThree from "../components/TopThree";
 import TopThreeFollowStrip from "../components/TopThreeFollowStrip";
@@ -15,6 +14,8 @@ import CommandPalette from "../components/CommandPalette";
 import TopicNav from "../components/TopicNav";
 import BrandMark from "../components/BrandMark";
 import HeaderActions from "../components/HeaderActions";
+import ScoreboardHero from "../components/ScoreboardHero";
+import RecentCalls from "../components/RecentCalls";
 
 function formatRelativeTime(date) {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -26,7 +27,7 @@ function formatRelativeTime(date) {
   return `${hours}h ago`;
 }
 
-export default function HomeClient({ initialMarkets, initialTotal, tags, initialTheses, topWallets }) {
+export default function HomeClient({ initialMarkets, initialTotal, tags, initialTheses, topWallets, scoreboard }) {
   const [markets, setMarkets] = useState(initialMarkets);
   const [total, setTotal] = useState(initialTotal);
   const [theses] = useState(initialTheses || []);
@@ -179,15 +180,14 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
       {/* Topic navigation */}
       <TopicNav />
 
+      {/* Proof: graded track record + recent receipts */}
+      <ScoreboardHero scoreboard={scoreboard} />
+      <RecentCalls recent={scoreboard?.recent} />
+
       {/* Today's Top 3 */}
       <TopThree />
       <TopThreeFollowStrip />
       <div id="top-three-end-sentinel" aria-hidden="true" />
-
-      {/* Live ticker — hidden on mobile, duplicates feed */}
-      <section aria-label="Live ticker" className="hidden sm:block mb-5 sm:mx-0 sm:rounded-xl sm:overflow-hidden">
-        <Ticker />
-      </section>
 
       {/* Resolving Soon */}
       <section aria-label="Resolving soon" className="mb-5">
