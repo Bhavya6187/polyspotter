@@ -4,9 +4,14 @@
 // honest signal; hit rate just tracks entry price. Shows a "building" state
 // until >= MIN_GRADED calls exist so a tiny early sample never reads as a claim.
 
+import Link from "next/link";
 import EmailCapture from "./EmailCapture";
 
 const MIN_GRADED = 10;
+
+// Same slug convention as TopicNav / tag pills → /tag/[slug].
+const tagSlug = (name) =>
+  encodeURIComponent(name.toLowerCase().replace(/\s+/g, "-"));
 
 function asSignedPct(fraction) {
   if (!Number.isFinite(fraction)) return "—";
@@ -83,20 +88,26 @@ export default function ScoreboardHero({ scoreboard }) {
         ≈ {asDollars(profit)} if you&rsquo;d put $100 on every call
       </div>
 
-      <p
-        className="mt-5 max-w-xl text-sm"
-        style={{ color: "var(--text-secondary)" }}
-      >
-        Across {windowCount.toLocaleString("en-US")} graded calls, copying
-        Polymarket&rsquo;s sharpest wallets returned {asSignedPct(ret)}. We grade
-        every call against the result — crypto coin-flips excluded.
-      </p>
-
       {categories.length > 0 && (
-        <p className="mt-3 text-sm" style={{ color: "var(--text-secondary)" }}>
-          <span style={{ color: "var(--text-muted)" }}>Sharpest in: </span>
-          {categories.map((c) => c.name).join(" · ")}
-        </p>
+        <div className="mt-5 flex flex-wrap items-center gap-2">
+          <span className="text-sm" style={{ color: "var(--text-muted)" }}>
+            Sharpest in:
+          </span>
+          {categories.map((c) => (
+            <Link
+              key={c.name}
+              href={`/tag/${tagSlug(c.name)}`}
+              className="inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-medium transition-opacity hover:opacity-80"
+              style={{
+                background: "var(--surface-1)",
+                border: "1px solid var(--border)",
+                color: "var(--text-primary)",
+              }}
+            >
+              {c.name}
+            </Link>
+          ))}
+        </div>
       )}
 
       <div className="mt-5 max-w-md">

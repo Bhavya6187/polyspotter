@@ -2,12 +2,6 @@ import Link from "next/link";
 
 const MIN_RECEIPTS = 3;
 
-function asSignedPct(fraction) {
-  if (!Number.isFinite(fraction)) return "—";
-  const v = Math.round(fraction * 100) || 0; // `|| 0` normalizes -0 to 0
-  return `${v >= 0 ? "+" : ""}${v}%`;
-}
-
 function Chip({ call }) {
   const color = call.won ? "var(--bullish)" : "var(--bearish)";
   return (
@@ -17,10 +11,7 @@ function Chip({ call }) {
     >
       <span aria-hidden="true" style={{ color }}>{call.won ? "✓" : "✗"}</span>
       <span className="sr-only">{call.won ? "Won:" : "Lost:"}</span>
-      <span style={{ color: "var(--text-primary)" }}>{call.outcome}</span>
-      <span style={{ color }} className="tabular-nums">
-        {asSignedPct(call.return_pct)}
-      </span>
+      <span style={{ color }}>{call.outcome}</span>
     </span>
   );
 }
