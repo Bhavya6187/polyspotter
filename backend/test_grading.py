@@ -323,3 +323,32 @@ def test_grade_once_skips_mislabeled_outcome():
     graded = grade_once(conn, fake_fetch)
     assert graded == 0
     assert cur.upserts == []
+
+
+from grading import exclude_junk, JUNK_TAGS
+
+
+def test_exclude_junk_drops_junk_tagged_rows():
+    rows = [
+        {"won": True, "return_pct": 0.5, "tags": '["Sports","MLB"]'},      # keep
+        {"won": False, "return_pct": -1.0, "tags": '["Crypto Prices"]'},   # drop
+        {"won": True, "return_pct": 0.2, "tags": '["Up or Down","5M"]'},   # drop
+    ]
+    out = exclude_junk(rows)
+    assert len(out) == 1
+    assert out[0]["tags"] == '["Sports","MLB"]'
+
+
+def test_exclude_junk_tolerates_missing_and_malformed_tags():
+    rows = [
+        {"won": True, "return_pct": 0.5},                  # no tags key -> keep
+        {"won": True, "return_pct": 0.5, "tags": None},    # None -> keep
+        {"won": True, "return_pct": 0.5, "tags": "not json"},  # malformed -> keep
+        {"won": True, "return_pct": 0.5, "tags": '["Bitcoin"]'},  # junk -> drop
+    ]
+    out = exclude_junk(rows)
+    assert len(out) == 3
+
+
+def test_junk_tags_includes_recurring_crypto_set():
+    assert {"Crypto Prices", "Bitcoin", "Up or Down", "Recurring"} <= JUNK_TAGS

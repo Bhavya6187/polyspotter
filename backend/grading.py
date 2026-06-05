@@ -6,9 +6,40 @@ $100-flat, hold-to-resolution: a win returns (1-entry)/entry, a loss -1.0.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 RESOLVED_THRESHOLD = 0.98  # one outcome price >= this => market decided
+
+
+# Recurring / short-duration crypto price markets (BTC up-or-down, etc.) are
+# return-negative coin-flips where copying adds no edge. Excluded from the
+# public scoreboard at query time (display-only; rows stay in graded_calls).
+JUNK_TAGS = {
+    "Crypto", "Crypto Prices", "Recurring", "Bitcoin", "Ethereum",
+    "Up or Down", "5M", "Daily", "Weekly", "Hide From New",
+}
+
+
+def _row_tags(row) -> set:
+    """Parse a graded row's joined alerts.tags (JSON text) into a set of tag
+    strings. Tolerates a missing key / None / non-string / malformed JSON by
+    returning an empty set (so such rows are never treated as junk)."""
+    raw = row.get("tags")
+    if isinstance(raw, (list, tuple)):
+        return set(raw)
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except (ValueError, TypeError):
+            return set()
+        return set(parsed) if isinstance(parsed, list) else set()
+    return set()
+
+
+def exclude_junk(rows):
+    """Drop rows whose tags intersect JUNK_TAGS (recurring crypto coin-flips)."""
+    return [r for r in rows if not (_row_tags(r) & JUNK_TAGS)]
 
 
 def winning_outcome(outcomes, prices, threshold: float = RESOLVED_THRESHOLD):
