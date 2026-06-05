@@ -240,3 +240,16 @@ CREATE TABLE IF NOT EXISTS graded_calls (
 );
 CREATE INDEX IF NOT EXISTS idx_graded_calls_resolved ON graded_calls(resolved_at DESC);
 
+
+-- subscribers: homepage email captures. Idempotent on email. unsubscribe_token
+-- is added now for forward-compat (no mail is sent yet). gen_random_uuid() is
+-- built into Postgres 13+.
+CREATE TABLE IF NOT EXISTS subscribers (
+    id                SERIAL PRIMARY KEY,
+    email             TEXT NOT NULL UNIQUE,
+    source            TEXT,
+    confirmed         BOOLEAN NOT NULL DEFAULT TRUE,
+    unsubscribe_token UUID NOT NULL DEFAULT gen_random_uuid(),
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    unsubscribed_at   TIMESTAMPTZ
+);
