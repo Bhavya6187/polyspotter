@@ -87,6 +87,21 @@ export function fetchScoreboard() {
   return request("/api/scoreboard");
 }
 
+export function subscribeEmail({ email, source, hp } = {}) {
+  const url = new URL("/api/subscribe", BASE_URL);
+  return fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, source, hp }),
+  }).then(async (res) => {
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || `API error: ${res.status}`);
+    }
+    return res.json();
+  });
+}
+
 export function fetchResolvingSoon() {
   return request("/api/resolving-soon");
 }
