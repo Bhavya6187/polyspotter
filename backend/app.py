@@ -1320,7 +1320,7 @@ def _scoreboard_rows() -> list[dict]:
     with db() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT g.market_title, g.outcome, g.won, g.return_pct, g.entry_price,
+            SELECT g.market_title, g.outcome, g.won, g.return_pct,
                    g.event_slug, g.resolved_at, a.tags
             FROM graded_calls g
             JOIN alerts a ON a.id = g.alert_id
