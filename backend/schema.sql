@@ -199,6 +199,28 @@ CREATE TABLE IF NOT EXISTS tweeted_alerts (
 CREATE INDEX IF NOT EXISTS idx_tweeted_alerts_wallet_market
     ON tweeted_alerts (wallet, condition_id, tweeted_at DESC);
 
+-- result_tweets: one row per flag-tweet we've settled with a result follow-up.
+-- Source of truth for result dedup and (deferred) the scoreboard. One row per
+-- original flag tweet (UNIQUE original_tweet_id). posted_at is NULL until the
+-- result is actually published by publish_result.py.
+CREATE TABLE IF NOT EXISTS result_tweets (
+    id                 BIGSERIAL PRIMARY KEY,
+    original_tweet_id  TEXT NOT NULL UNIQUE,
+    result_tweet_id    TEXT,
+    alert_ids          BIGINT[] NOT NULL DEFAULT '{}',
+    condition_ids      TEXT[]   NOT NULL DEFAULT '{}',
+    n_won              INTEGER  NOT NULL DEFAULT 0,
+    n_lost             INTEGER  NOT NULL DEFAULT 0,
+    net_pl_usd         NUMERIC  NOT NULL DEFAULT 0,
+    total_invested_usd NUMERIC  NOT NULL DEFAULT 0,
+    outcome            TEXT     NOT NULL DEFAULT 'wash',
+    event_label        TEXT,
+    posted_at          TIMESTAMPTZ,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_result_tweets_posted_at
+    ON result_tweets (posted_at DESC);
 -- graded_calls: one row per resolved market we featured. "The call" is the
 -- highest-composite_score alert on that market; we grade it $100-flat,
 -- hold-to-resolution. Powers /api/scoreboard (the public track record).

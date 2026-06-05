@@ -2,14 +2,17 @@
 Result pipeline: post-resolution follow-ups for tweets we already shipped.
 
 For each tweet recorded in `tweeted_alerts` whose underlying Polymarket
-markets have all resolved, compute the cluster's realized W/L + P&L and
-have the LLM compose a short follow-up tweet. The follow-up is printed
-to stdout and saved as a `live_runs/result_<tweet_id>.json` artifact;
-nothing is posted to Twitter yet — that's a deliberate choice so the
-voice/format can be tuned against real outputs first.
+markets have all resolved, compute the cluster's realized W/L + P&L. A
+curated, win-weighted selection (`select_results`, honesty floor for big
+losses) decides which resolved calls to draft today; for each chosen one the
+LLM composes a short link-free follow-up tweet and a scorecard image is
+rendered. Outputs per chosen tweet: a draft `.txt` in `result_drafts/`, a
+`result_<tweet_id>.png` scorecard, and a `live_runs/result_<tweet_id>.json`
+artifact. This script does NOT post to Twitter — `publish_result.py` does.
 
-Dedup: the artifact file's existence means "we've already produced a
-result for this tweet". Re-runs of the script skip it.
+Dedup: a row in the `result_tweets` Postgres table (via
+`result_store.result_exists`) means "we've already settled this tweet".
+Re-runs skip it before any LLM/render work.
 
 Run via cron:
     python storybot/result_pipeline.py
@@ -33,7 +36,9 @@ from psycopg2.extras import RealDictCursor
 
 load_dotenv()
 
+import charts
 import gamma_cache
+import result_store
 from openai import OpenAI
 
 from bot_utils import (
@@ -49,6 +54,8 @@ DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
 _LIVE_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live_runs")
 _DRY_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dry_runs")
 _RUN_OUTPUT_DIR = _DRY_RUN_DIR if DRY_RUN else _LIVE_RUN_DIR
+_RESULT_DRAFTS_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "result_drafts")
 
 # How far back to look for tweets that might now have a result. Anything
 # older than this is treated as "stale, never resolved" and skipped — we'd
@@ -58,6 +65,94 @@ RESULT_LOOKBACK_DAYS = 14
 # Wait at least this long after posting before considering a result. Keeps
 # us from chasing tweets where the kickoff hasn't even happened yet.
 RESULT_MIN_AGE_MINUTES = 60
+
+
+# Curated result selection. We do NOT post every resolved call — we post a
+# small, win-weighted set per day, but never hide a big loss (honesty floor),
+# because a visibly all-wins record reads as cherry-picked and destroys the
+# trust the whole accountability layer exists to build.
+RESULT_DAILY_CAP = 2
+RESULT_WIN_BIAS = 0.8            # target fraction of posted results that are wins
+RESULT_LOSS_NOTABLE_USD = 20000.0  # a loss this big is ALWAYS eligible
+RESULT_WASH_BAND = 0.01         # |net_pl| within 1% of invested -> "wash"
+
+
+def classify_outcome(aggregate: dict) -> str:
+    """'cashed' | 'burned' | 'wash' from net P&L vs invested."""
+    net = float(aggregate.get("net_pl_usd") or 0.0)
+    invested = float(aggregate.get("total_invested_usd") or 0.0)
+    if invested > 0 and abs(net) <= RESULT_WASH_BAND * invested:
+        return "wash"
+    return "cashed" if net > 0 else "burned"
+
+
+def build_scorecard_data(aggregate: dict, *, event_label: str,
+                         outcome_side: str, flagged_days_ago: int) -> dict:
+    """Map an aggregate_result() dict to ResultScorecardData for the renderer."""
+    verdict = classify_outcome(aggregate).upper()  # CASHED | BURNED | WASH
+    return {
+        "verdict": verdict,
+        "net_pl_usd": float(aggregate.get("net_pl_usd") or 0.0),
+        "record_str": f"{int(aggregate.get('n_won') or 0)}-"
+                      f"{int(aggregate.get('n_lost') or 0)}",
+        "event_label": event_label,
+        "outcome_side": outcome_side,
+        "flagged_days_ago": int(flagged_days_ago),
+    }
+
+
+def select_results(candidates: list[dict], *, posted_today: list[bool],
+                   daily_cap: int = RESULT_DAILY_CAP,
+                   win_bias: float = RESULT_WIN_BIAS,
+                   loss_notable_usd: float = RESULT_LOSS_NOTABLE_USD) -> list[dict]:
+    """Pick which resolved calls to post today.
+
+    candidates: dicts with keys is_win(bool), net_pl_usd(float),
+    notability(float >= 0), plus any caller payload (e.g. 'id').
+    posted_today: is_win flags already posted this ET day (cap + win-share).
+
+    Rules: wins are always eligible; losses are eligible only if notable
+    (>= loss_notable_usd). When a slot is free, force a win if the running
+    win share is below win_bias; otherwise take whichever remaining item is
+    the bigger story (higher notability). Deterministic.
+    """
+    slots = max(0, int(daily_cap) - len(posted_today))
+    if slots <= 0:
+        return []
+    wins = sorted([c for c in candidates if c.get("is_win")],
+                  key=lambda c: c.get("notability", 0.0), reverse=True)
+    losses = sorted(
+        [c for c in candidates
+         if not c.get("is_win")
+         and abs(float(c.get("net_pl_usd") or 0.0)) >= loss_notable_usd],
+        key=lambda c: c.get("notability", 0.0), reverse=True)
+
+    selected: list[dict] = []
+    posted = list(posted_today)
+    wi, li = 0, 0
+    while len(selected) < slots and (wi < len(wins) or li < len(losses)):
+        nxt_win = wins[wi] if wi < len(wins) else None
+        nxt_loss = losses[li] if li < len(losses) else None
+        # `share` is the win fraction over today's already-posted results PLUS
+        # what we've selected so far this run — i.e. cumulative within the ET
+        # day. So once enough wins are banked, the next slot can "afford" a
+        # notable loss; a fresh day (empty posted) starts at 0.0 and forces a
+        # win first.
+        total = len(posted)
+        share = (sum(1 for w in posted if w) / total) if total else 0.0
+        if nxt_loss is None:
+            pick_win = True
+        elif nxt_win is None:
+            pick_win = False
+        elif share < win_bias:
+            pick_win = True  # below target -> must add a win
+        else:
+            pick_win = nxt_win.get("notability", 0.0) >= nxt_loss.get("notability", 0.0)
+        if pick_win:
+            selected.append(nxt_win); posted.append(True); wi += 1
+        else:
+            selected.append(nxt_loss); posted.append(False); li += 1
+    return selected
 
 
 # --- Tweet candidates --------------------------------------------------------
@@ -109,6 +204,7 @@ def fetch_alert_trades(alert_ids: list[int]) -> list[dict]:
                    usd_value, size, price
             FROM alert_trades
             WHERE alert_id = ANY(%s)
+            ORDER BY condition_id, alert_id
             """,
             ([int(i) for i in alert_ids],),
         )
@@ -295,22 +391,23 @@ You will receive:
     - total_payout_usd: what the winning side cashed (0 if all lost).
     - net_pl_usd: payout minus invested.
     - by_market: per-market breakdown {winning_outcome, side_bet, usd_invested, pl, won}.
-- alert_url: a polyspotter.com link to include verbatim at the end.
 
 ## Voice
 Same voice as the original: short, factual, scoreboard-clear. NOT smug,
 NOT meme-y, NOT analyst-speak. The reader should be able to tell at a
 glance whether the sharps cashed or got burned.
 
-## Required structure (2 sentences max + URL)
+## Required structure (exactly 2 sentences — both required)
 1. Lead with the result. State who won the market and what the cluster
    was on. Round dollar figures: "$28k", "$6.2k". One sentence.
 2. State the realized P&L in plain English: "Cashed +$31k", "Burned -$28k",
    or for split outcomes "Net +$4k across the two markets." One sentence.
-3. End with the polyspotter URL on its own line if it fits, else inline.
+3. No link. The scorecard image carries the brand — spend every character on the result.
 
 ## Rules
-- Keep total under 240 characters (URL counts as 23).
+- The tweet MUST be two sentences: the result lead, then a SEPARATE P&L sentence ending with '.'. A one-sentence tweet is rejected by the publisher — never merge the lead and the P&L into a single sentence.
+- Keep total under 270 characters. No URL — it would be stripped.
+- Do NOT include any URL; links are stripped before posting.
 - Reference the original event/team names — the reader should not need
   to remember the prior tweet to follow.
 - No hashtags, no emojis, no @mentions.
@@ -323,13 +420,12 @@ glance whether the sharps cashed or got burned.
 
 ## Output (strict JSON only)
 {
-  "tweet": "<text with one polyspotter.com link>"
+  "tweet": "<link-free result text>"
 }
 """
 
 
-def compose_result_tweet(llm_client, original_tweet: str,
-                         result: dict, alert_url: str) -> str:
+def compose_result_tweet(llm_client, original_tweet: str, result: dict) -> str:
     """One LLM call to produce the follow-up tweet text. Returns the raw
     string the model emitted; caller is responsible for any further
     validation (currently we just print it)."""
@@ -350,7 +446,6 @@ def compose_result_tweet(llm_client, original_tweet: str,
                 for v in result["by_market"].values()
             ],
         },
-        "alert_url": alert_url,
     }
     response = llm_client.responses.create(
         model=MODEL,
@@ -383,46 +478,84 @@ def _save_artifact(tweet_id: str, payload: dict) -> None:
         json.dump(payload, f, default=str, indent=2)
 
 
-def process_tweet(llm_client, tweet: dict) -> str:
-    """Returns one of: 'skipped_dedup', 'skipped_unresolved',
-    'skipped_no_trades', 'composed', 'composed_no_pl'."""
-    tweet_id = str(tweet["tweet_id"])
-    if os.path.exists(_artifact_path(tweet_id)):
-        return "skipped_dedup"
+def _write_result_draft(tweet_id: str, text: str) -> str:
+    os.makedirs(_RESULT_DRAFTS_DIR, exist_ok=True)
+    path = os.path.join(_RESULT_DRAFTS_DIR, f"{tweet_id}.txt")
+    with open(path, "w") as f:
+        f.write(text)
+    return path
 
+
+def _write_scorecard_png(tweet_id: str, png: bytes) -> str:
+    os.makedirs(_RUN_OUTPUT_DIR, exist_ok=True)
+    path = os.path.join(_RUN_OUTPUT_DIR, f"result_{tweet_id}.png")
+    with open(path, "wb") as f:
+        f.write(png)
+    return path
+
+
+def _aggregate_for_candidate(tweet: dict) -> dict | None:
+    """Resolve every market the tweet covered and aggregate P&L. Returns the
+    aggregate dict, or None if any market is unresolved or there are no trades.
+    Pure-ish: no LLM, no writes — safe to call in the selection pre-pass."""
     alert_ids = [int(i) for i in (tweet.get("alert_ids") or []) if i is not None]
     condition_ids = [c for c in (tweet.get("condition_ids") or []) if c]
     if not alert_ids or not condition_ids:
-        return "skipped_no_trades"
-
+        return None
     resolutions: dict[str, dict] = {}
     for cid in condition_ids:
         res = _resolution_for_market(cid)
         if res is None:
-            return "skipped_unresolved"
+            return None
         resolutions[cid] = res
-
     trades = fetch_alert_trades(alert_ids)
     if not trades:
-        return "skipped_no_trades"
-
+        return None
     aggregate = aggregate_result(trades, resolutions)
-    if aggregate["n_trades"] == 0:
-        return "skipped_no_trades"
+    return aggregate if aggregate["n_trades"] > 0 else None
 
-    # Pick a polyspotter URL: prefer the alert link of the first alert in
-    # the tweet, falling back to nothing if alert metadata is missing.
+
+def process_tweet(llm_client, tweet: dict) -> str:
+    """Returns one of: 'skipped_dedup', 'skipped_unresolved',
+    'composed', 'composed_no_pl'."""
+    tweet_id = str(tweet["tweet_id"])
+    # main()'s pre-pass already filters settled tweets, so this rarely fires
+    # from the normal flow — it's a guard for direct/standalone callers.
+    if result_store.result_exists(tweet_id):
+        return "skipped_dedup"
+
+    aggregate = _aggregate_for_candidate(tweet)
+    if aggregate is None:
+        return "skipped_unresolved"
+
+    alert_ids = [int(i) for i in (tweet.get("alert_ids") or []) if i is not None]
+    condition_ids = [c for c in (tweet.get("condition_ids") or []) if c]
+
+    # Alert metadata feeds the artifact's event/market labels below.
     meta = fetch_alert_meta(alert_ids)
     primary = meta.get(alert_ids[0]) or {}
-    alert_url = (
-        f"https://polyspotter.com/alert/{alert_ids[0]}"
-        if alert_ids else ""
-    )
+    event_label = (primary.get("market_title")
+                   or primary.get("event_slug") or "this market")
+
+    outcome_side = ""
+    if aggregate["by_market"]:
+        outcome_side = next(iter(aggregate["by_market"].values()))["side_bet"]
+
+    flagged_days_ago = 0
+    ta = tweet.get("tweeted_at")
+    if hasattr(ta, "tzinfo"):
+        when = ta if ta.tzinfo else ta.replace(tzinfo=timezone.utc)
+        flagged_days_ago = (datetime.now(timezone.utc) - when).days
 
     result_tweet = compose_result_tweet(
-        llm_client, tweet.get("tweet_text") or "",
-        aggregate, alert_url,
+        llm_client, tweet.get("tweet_text") or "", aggregate,
     )
+    scorecard = build_scorecard_data(aggregate, event_label=event_label,
+                                     outcome_side=outcome_side,
+                                     flagged_days_ago=flagged_days_ago)
+    png = charts.render_result_scorecard(scorecard)
+    png_path = _write_scorecard_png(tweet_id, png)
+    draft_path = _write_result_draft(tweet_id, result_tweet) if result_tweet else None
 
     artifact = {
         "tweet_id": tweet_id,
@@ -432,13 +565,13 @@ def process_tweet(llm_client, tweet: dict) -> str:
         "condition_ids": condition_ids,
         "primary_event_slug": primary.get("event_slug"),
         "primary_market_title": primary.get("market_title"),
-        "resolutions": {
-            cid: {"winning_outcome": r["winning_outcome"],
-                  "question": r.get("question")}
-            for cid, r in resolutions.items()
-        },
         "aggregate": aggregate,
         "result_tweet": result_tweet,
+        "outcome": classify_outcome(aggregate),
+        "event_label": event_label,
+        "outcome_side": outcome_side,
+        "scorecard_png_path": png_path,
+        "result_draft_path": draft_path,
         "composed_at": datetime.now(timezone.utc).isoformat(),
         "posted_to_twitter": False,
     }
@@ -450,8 +583,13 @@ def process_tweet(llm_client, tweet: dict) -> str:
     print(f"Original: {tweet.get('tweet_text')}")
     print(f"Result:   {result_tweet or '<empty — LLM returned no tweet>'}")
     print()
-
-    return "composed" if result_tweet else "composed_no_pl"
+    # Only emit the loop's draft marker when we actually wrote a draft .txt
+    # (i.e. result_tweet was truthy). On composed_no_pl no draft exists, so
+    # the loop must not try to publish a nonexistent file.
+    if draft_path:
+        print(f"[result_pipeline] draft original_tweet_id={tweet_id}", flush=True)
+        return "composed"
+    return "composed_no_pl"
 
 
 # --- Entry point ------------------------------------------------------------
@@ -476,7 +614,32 @@ def main() -> int:
     counters = {"composed": 0, "composed_no_pl": 0, "skipped_dedup": 0,
                 "skipped_unresolved": 0, "skipped_no_trades": 0,
                 "errors": 0}
+
+    now = datetime.now(timezone.utc)
+    posted_today = result_store.todays_posted_outcomes(now)
+
+    scored: list[dict] = []
     for tweet in candidates:
+        tid = str(tweet["tweet_id"])
+        if result_store.result_exists(tid):
+            counters["skipped_dedup"] += 1
+            continue
+        agg = _aggregate_for_candidate(tweet)
+        if agg is None:
+            counters["skipped_unresolved"] += 1
+            continue
+        net = float(agg["net_pl_usd"])
+        scored.append({
+            "tweet": tweet, "aggregate": agg,
+            "is_win": classify_outcome(agg) == "cashed",
+            "net_pl_usd": net, "notability": abs(net),
+        })
+
+    chosen = select_results(scored, posted_today=posted_today)
+    log("results_selected", candidates=len(scored), chosen=len(chosen))
+
+    for item in chosen:
+        tweet = item["tweet"]
         tweet_id = str(tweet["tweet_id"])
         try:
             outcome = process_tweet(llm_client, tweet)
