@@ -30,13 +30,13 @@ export default function TopThree() {
   if (!loading && data.length === 0) return null;
 
   return (
-    <section aria-label="Today's top 3" className="mb-6">
+    <section aria-label="Today's sharpest calls" className="mb-6">
       {/* Section header */}
       <div className="mb-3 flex items-start justify-between gap-4">
         <div>
           <div className="flex items-baseline gap-2">
             <h2 className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>
-              Today&rsquo;s top 3
+              Today&rsquo;s sharpest calls
             </h2>
             <span
               className="text-[11px] uppercase tracking-wider"

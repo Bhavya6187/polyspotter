@@ -83,6 +83,10 @@ export function fetchTopThree() {
   return request("/api/top3");
 }
 
+export function fetchScoreboard() {
+  return request("/api/scoreboard");
+}
+
 export function fetchResolvingSoon() {
   return request("/api/resolving-soon");
 }
