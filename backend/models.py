@@ -1017,3 +1017,15 @@ class ScoreboardResponse(BaseModel):
     window: ScoreboardWindow
     all_time: ScoreboardWindow
     recent: list[ScoreboardRecentCall]
+
+
+# -- Subscribe (homepage email capture) --------------------------------------
+
+class SubscribeRequest(BaseModel):
+    email: str
+    source: str | None = None
+    hp: str | None = None   # honeypot — bots fill this; humans never see it
+
+
+class SubscribeResponse(BaseModel):
+    ok: bool

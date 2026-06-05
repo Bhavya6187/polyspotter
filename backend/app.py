@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time as _time
 from datetime import datetime, timedelta, timezone
 from collections.abc import AsyncIterator
@@ -67,6 +68,8 @@ from models import (
     PaginatedEvents,
     ThesisOut,
     ScoreboardResponse,
+    SubscribeRequest,
+    SubscribeResponse,
 )
 from grading import summarize
 
@@ -212,6 +215,34 @@ def _alert_from_row(row: dict) -> AlertOut:
 # ---------------------------------------------------------------------------
 # Ingest (called by polybot seeder)
 # ---------------------------------------------------------------------------
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _save_subscriber(email: str, source: str | None) -> None:
+    """Idempotent insert of a subscriber. Separated out so tests can fake it."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """INSERT INTO subscribers (email, source)
+               VALUES (%s, %s)
+               ON CONFLICT (email) DO NOTHING""",
+            (email, source),
+        )
+
+
+@app.post("/api/subscribe", response_model=SubscribeResponse)
+def subscribe(payload: SubscribeRequest):
+    """Capture a homepage email signup. Honeypot-filtered, idempotent."""
+    # A bot filled the hidden honeypot field — accept silently, save nothing.
+    if payload.hp:
+        return {"ok": True}
+    email = (payload.email or "").strip().lower()
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(status_code=400, detail="Please enter a valid email address.")
+    _save_subscriber(email, payload.source)
+    return {"ok": True}
+
 
 @app.post("/api/ingest")
 def ingest(payload: IngestPayload):
