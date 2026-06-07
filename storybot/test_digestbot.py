@@ -51,3 +51,56 @@ def test_dedupe_by_event_keeps_highest_composite():
     assert len(out) == 2
     assert by_slug["a"]["composite_score"] == 90.0
     assert by_slug["b"]["composite_score"] == 50.0
+
+
+def test_parse_json_response_plain():
+    assert digestbot.parse_json_response('{"a": 1}') == {"a": 1}
+
+
+def test_parse_json_response_fenced():
+    text = 'here you go:\n```json\n{"a": 2}\n```\nthanks'
+    assert digestbot.parse_json_response(text) == {"a": 2}
+
+
+def test_run_claude_builds_argv_and_passes_stdin(monkeypatch):
+    captured = {}
+
+    class FakeProc:
+        returncode = 0
+        stdout = '{"ok": true}'
+        stderr = ""
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = argv
+        captured["input"] = kwargs.get("input")
+        return FakeProc()
+
+    monkeypatch.setattr(digestbot.subprocess, "run", fake_run)
+    out = digestbot.run_claude("PROMPT", "PAYLOAD")
+    assert out == '{"ok": true}'
+    assert captured["argv"][:3] == ["claude", "-p", "PROMPT"]
+    assert "--model" in captured["argv"]
+    assert "opus" in captured["argv"]
+    assert "--dangerously-skip-permissions" in captured["argv"]
+    assert captured["input"] == "PAYLOAD"
+
+
+def test_run_claude_json_retries_then_succeeds(monkeypatch):
+    calls = {"n": 0}
+
+    def fake_run_claude(prompt, payload):
+        calls["n"] += 1
+        return "not json" if calls["n"] == 1 else '{"ok": 1}'
+
+    monkeypatch.setattr(digestbot, "run_claude", fake_run_claude)
+    assert digestbot.run_claude_json("P", "X") == {"ok": 1}
+    assert calls["n"] == 2
+
+
+def test_run_claude_json_raises_after_two_bad(monkeypatch):
+    monkeypatch.setattr(digestbot, "run_claude", lambda p, x: "still not json")
+    try:
+        digestbot.run_claude_json("P", "X")
+        assert False, "expected RuntimeError"
+    except RuntimeError:
+        pass

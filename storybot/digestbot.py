@@ -88,3 +88,44 @@ def dedupe_by_event(cands: list[dict]) -> list[dict]:
         if slug not in best or (c.get("composite_score") or 0) > (best[slug].get("composite_score") or 0):
             best[slug] = c
     return list(best.values())
+
+
+# --- claude -p ---------------------------------------------------------------
+
+def run_claude(prompt: str, payload: str) -> str:
+    """Invoke the Claude CLI headlessly. `payload` is piped on stdin. No tools."""
+    proc = subprocess.run(
+        ["claude", "-p", prompt, "--model", CLAUDE_MODEL,
+         "--dangerously-skip-permissions"],
+        input=payload,
+        text=True,
+        capture_output=True,
+        timeout=600,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"claude -p failed (exit {proc.returncode}): {proc.stderr[:500]}"
+        )
+    return proc.stdout
+
+
+def parse_json_response(text: str) -> dict:
+    """Parse a JSON object from a model reply, tolerating ```json fences/prose."""
+    text = (text or "").strip()
+    fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
+    if fence:
+        text = fence.group(1).strip()
+    return json.loads(text)
+
+
+def run_claude_json(prompt: str, payload: str) -> dict:
+    """run_claude + parse_json_response with one retry on non-JSON output."""
+    last_err: Exception | None = None
+    for attempt in range(2):
+        out = run_claude(prompt, payload)
+        try:
+            return parse_json_response(out)
+        except (json.JSONDecodeError, ValueError) as err:
+            last_err = err
+            log("digest_bad_json", attempt=attempt, error=str(err))
+    raise RuntimeError(f"claude -p returned non-JSON twice: {last_err}")
