@@ -104,3 +104,69 @@ def test_run_claude_json_raises_after_two_bad(monkeypatch):
         assert False, "expected RuntimeError"
     except RuntimeError:
         pass
+
+
+_TODAY_PICK = {
+    "event_slug": "nba-finals",
+    "title": "Will the Lakers win?",
+    "market_url": "https://polyspotter.com/event/nba-finals",
+    "leaning": "Lakers @ 0.55",
+    "composite_score": 80.0,
+}
+_WEEK_PICK = {
+    "event_slug": "election-x",
+    "title": "Will X win?",
+    "market_url": "https://polyspotter.com/event/election-x",
+    "leaning": "Yes @ 0.40",
+    "composite_score": 70.0,
+}
+_WRITE_OUT = {
+    "subject": "PolySpotter Daily — test",
+    "intro": "Big day.",
+    "writeups": [
+        {"event_slug": "nba-finals", "headline": "Sharps on the Lakers", "blurb": "Late informed flow."},
+        {"event_slug": "election-x", "headline": "Quiet money on Yes", "blurb": "Coordinated buying."},
+    ],
+}
+
+
+def test_assemble_content_merges_facts_from_picks():
+    content = digestbot.assemble_content(
+        _WRITE_OUT, today_picks=[_TODAY_PICK], week_picks=[_WEEK_PICK]
+    )
+    assert content["subject"] == "PolySpotter Daily — test"
+    assert content["intro"] == "Big day."
+    sections = {s["key"]: s for s in content["sections"]}
+    today_item = sections["resolving_today"]["items"][0]
+    # headline/blurb come from the LLM; leaning/url/title come from the DB pick
+    assert today_item["headline"] == "Sharps on the Lakers"
+    assert today_item["blurb"] == "Late informed flow."
+    assert today_item["leaning"] == "Lakers @ 0.55"
+    assert today_item["url"] == "https://polyspotter.com/event/nba-finals"
+    assert today_item["title"] == "Will the Lakers win?"
+    assert sections["top_this_week"]["items"][0]["leaning"] == "Yes @ 0.40"
+
+
+def test_assemble_content_omits_empty_sections():
+    content = digestbot.assemble_content(
+        {"subject": "s", "intro": "", "writeups": [
+            {"event_slug": "election-x", "headline": "h", "blurb": "b"}]},
+        today_picks=[], week_picks=[_WEEK_PICK],
+    )
+    keys = {s["key"] for s in content["sections"]}
+    assert keys == {"top_this_week"}
+
+
+def test_render_email_html_contains_facts_and_is_inline():
+    content = digestbot.assemble_content(
+        _WRITE_OUT, today_picks=[_TODAY_PICK], week_picks=[_WEEK_PICK]
+    )
+    html = digestbot.render_email_html(content)
+    assert "Sharps on the Lakers" in html
+    assert "Lakers @ 0.55" in html
+    assert "https://polyspotter.com/event/nba-finals" in html
+    assert "Resolving Today" in html
+    assert "Top This Week" in html
+    # email-safe: no external/embedded stylesheet, inline styles only
+    assert "<link" not in html.lower()
+    assert "<style" not in html.lower()
