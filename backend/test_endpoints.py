@@ -1196,3 +1196,57 @@ class TestMarketsSitemap:
         assert body["page"] == 1
         assert body["per_page"] == 1
         assert len(body["markets"]) <= 1
+
+
+class TestUnsubscribe:
+    """Unsubscribe endpoint. DB-free: db() is monkeypatched so these run without
+    a live database (and without the autouse clean_db fixture mattering)."""
+
+    @staticmethod
+    def _fake_db(calls):
+        @contextmanager
+        def fake():
+            class FakeCur:
+                def execute(self, sql, params=None):
+                    calls.append((sql, params))
+
+            class FakeConn:
+                def cursor(self):
+                    return FakeCur()
+
+            yield FakeConn()
+        return fake
+
+    def test_malformed_token_returns_page_without_db(self, monkeypatch):
+        import app as app_mod
+        calls = []
+        monkeypatch.setattr(app_mod, "db", self._fake_db(calls))
+        r = client.get("/api/unsubscribe?token=not-a-uuid")
+        assert r.status_code == 200
+        assert "unsubscribed" in r.text.lower()
+        assert calls == []  # never touched the DB on a bad token
+
+    def test_valid_token_issues_update(self, monkeypatch):
+        import uuid
+        import app as app_mod
+        calls = []
+        monkeypatch.setattr(app_mod, "db", self._fake_db(calls))
+        tok = str(uuid.uuid4())
+        r = client.get(f"/api/unsubscribe?token={tok}")
+        assert r.status_code == 200
+        assert len(calls) == 1
+        sql, params = calls[0]
+        assert "UPDATE subscribers" in sql and "unsubscribed_at" in sql
+        assert params == (tok,)
+
+    def test_post_one_click_unsubscribes(self, monkeypatch):
+        import uuid
+        import app as app_mod
+        calls = []
+        monkeypatch.setattr(app_mod, "db", self._fake_db(calls))
+        r = client.post(f"/api/unsubscribe?token={uuid.uuid4()}")
+        assert r.status_code == 200
+        assert len(calls) == 1
+
+    def test_missing_token_is_422(self):
+        assert client.get("/api/unsubscribe").status_code == 422
