@@ -170,3 +170,20 @@ def test_render_email_html_contains_facts_and_is_inline():
     # email-safe: no external/embedded stylesheet, inline styles only
     assert "<link" not in html.lower()
     assert "<style" not in html.lower()
+
+
+def test_output_dir_live_vs_dry(monkeypatch):
+    monkeypatch.setattr(digestbot, "DRY_RUN", False)
+    assert digestbot.output_dir() == digestbot.DIGESTS_DIR
+    monkeypatch.setattr(digestbot, "DRY_RUN", True)
+    assert digestbot.output_dir() == digestbot.DRY_RUNS_DIR
+
+
+def test_persist_digest_skipped_in_dry_run(monkeypatch):
+    called = {"n": 0}
+    monkeypatch.setattr(digestbot, "DRY_RUN", True)
+    monkeypatch.setattr(digestbot, "_get_conn", lambda: (_ for _ in ()).throw(
+        AssertionError("DB must not be touched in DRY_RUN")))
+    # Should no-op without raising (DB connection never opened).
+    digestbot.persist_digest("2026-06-06", "run123", {"subject": "s", "sections": []})
+    assert called["n"] == 0

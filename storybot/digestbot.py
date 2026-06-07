@@ -255,3 +255,159 @@ def render_email_html(content: dict) -> str:
     )
     parts.append('</div>')
     return "\n".join(parts)
+
+
+# --- Database ----------------------------------------------------------------
+
+def _get_conn():
+    return psycopg2.connect(DATABASE_URL, connect_timeout=QUERY_TIMEOUT_SECONDS)
+
+
+_RESOLVING_TODAY_SQL = """
+    SELECT DISTINCT ON (COALESCE(a.event_slug, a.condition_id))
+        a.event_slug, a.condition_id, a.market_title, a.market_url, a.market_image,
+        a.end_date, a.event_end_estimate, a.total_usd, a.trade_count,
+        a.composite_score, a.llm_copy_action, a.tags
+    FROM alerts a
+    WHERE COALESCE(a.event_end_estimate, a.end_date) IS NOT NULL
+      AND COALESCE(a.event_end_estimate, a.end_date) >= date_trunc('day', now())
+      AND COALESCE(a.event_end_estimate, a.end_date) <  date_trunc('day', now()) + interval '1 day'
+    ORDER BY COALESCE(a.event_slug, a.condition_id), a.composite_score DESC
+"""
+
+_WEEK_UPCOMING_SQL = """
+    SELECT DISTINCT ON (COALESCE(a.event_slug, a.condition_id))
+        a.event_slug, a.condition_id, a.market_title, a.market_url, a.market_image,
+        a.end_date, a.event_end_estimate, a.total_usd, a.trade_count,
+        a.composite_score, a.llm_copy_action, a.tags
+    FROM alerts a
+    WHERE COALESCE(a.event_end_estimate, a.end_date) > now()
+      AND COALESCE(a.event_end_estimate, a.end_date) <= now() + interval '7 days'
+    ORDER BY COALESCE(a.event_slug, a.condition_id), a.composite_score DESC
+"""
+
+_WEEK_HOT_SQL = """
+    SELECT DISTINCT ON (COALESCE(a.event_slug, a.condition_id))
+        a.event_slug, a.condition_id, a.market_title, a.market_url, a.market_image,
+        a.end_date, a.event_end_estimate, a.total_usd, a.trade_count,
+        a.composite_score, a.llm_copy_action, a.tags
+    FROM alerts a
+    WHERE a.created_at >= now() - interval '7 days'
+    ORDER BY COALESCE(a.event_slug, a.condition_id), a.composite_score DESC
+"""
+
+
+def fetch_candidates() -> dict:
+    """Query the three pools and return shaped, deduped candidate lists.
+    week_pool excludes anything already in resolving_today and is capped."""
+    conn = _get_conn()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(_RESOLVING_TODAY_SQL)
+        today = dedupe_by_event([shape_candidate(dict(r)) for r in cur.fetchall()])
+        cur.execute(_WEEK_UPCOMING_SQL)
+        upcoming = [shape_candidate(dict(r)) for r in cur.fetchall()]
+        cur.execute(_WEEK_HOT_SQL)
+        hot = [shape_candidate(dict(r)) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+    today_slugs = {c["event_slug"] for c in today}
+    week = dedupe_by_event(upcoming + hot)
+    week = [c for c in week if c["event_slug"] not in today_slugs]
+    week.sort(key=lambda c: c.get("composite_score") or 0, reverse=True)
+    week = week[:WEEK_POOL_LIMIT]
+    return {"resolving_today": today, "week_pool": week}
+
+
+# --- Persistence -------------------------------------------------------------
+
+def output_dir() -> str:
+    return DRY_RUNS_DIR if DRY_RUN else DIGESTS_DIR
+
+
+def persist_digest(digest_date: str, run_id: str, content: dict) -> None:
+    """Upsert the digest row (published). No-op in DRY_RUN."""
+    if DRY_RUN:
+        log("digest_persist_skipped_dry_run", digest_date=digest_date)
+        return
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO digests (digest_date, run_id, subject, intro,
+                                     content_json, status, published_at)
+                VALUES (%s, %s, %s, %s, %s, 'published', NOW())
+                ON CONFLICT (digest_date) DO UPDATE SET
+                    run_id       = EXCLUDED.run_id,
+                    subject      = EXCLUDED.subject,
+                    intro        = EXCLUDED.intro,
+                    content_json = EXCLUDED.content_json,
+                    status       = 'published',
+                    published_at = NOW()
+            """, (
+                digest_date, run_id, content["subject"], content.get("intro", ""),
+                json.dumps(content),
+            ))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# --- Orchestration -----------------------------------------------------------
+
+def main() -> int:
+    run_id = uuid.uuid4().hex[:8]
+    digest_date = datetime.now(timezone.utc).date().isoformat()
+    log("digest_run_start", run_id=run_id, digest_date=digest_date, dry_run=DRY_RUN)
+
+    if not DATABASE_URL:
+        log("config_error", run_id=run_id, error="DATABASE_URL not set")
+        return 1
+
+    candidates = fetch_candidates()
+    n_today = len(candidates["resolving_today"])
+    n_week = len(candidates["week_pool"])
+    log("digest_candidates", run_id=run_id, resolving_today=n_today, week_pool=n_week)
+    if n_today == 0 and n_week == 0:
+        log("digest_noop", run_id=run_id, reason="no candidates")
+        return 0
+
+    # PICK
+    selection = run_claude_json(PICK_PROMPT, json.dumps(candidates, default=str))
+    by_slug = {c["event_slug"]: c
+               for c in candidates["resolving_today"] + candidates["week_pool"]}
+    today_picks = [by_slug[p["event_slug"]]
+                   for p in selection.get("resolving_today", [])
+                   if p.get("event_slug") in by_slug]
+    week_picks = [by_slug[p["event_slug"]]
+                  for p in selection.get("top_this_week", [])
+                  if p.get("event_slug") in by_slug][:WEEK_PICKS_MAX]
+    log("digest_picked", run_id=run_id,
+        today=len(today_picks), week=len(week_picks))
+    if not today_picks and not week_picks:
+        log("digest_noop", run_id=run_id, reason="nothing picked")
+        return 0
+
+    # WRITE
+    write_payload = json.dumps(
+        {"resolving_today": today_picks, "top_this_week": week_picks}, default=str)
+    write_out = run_claude_json(WRITE_PROMPT, write_payload)
+    content = assemble_content(write_out, today_picks, week_picks)
+
+    # Render email file
+    os.makedirs(output_dir(), exist_ok=True)
+    html_path = os.path.join(output_dir(), f"digest-{digest_date}.html")
+    with open(html_path, "w") as f:
+        f.write(render_email_html(content))
+    log("digest_email_written", run_id=run_id, path=html_path)
+
+    # Publish to website
+    persist_digest(digest_date, run_id, content)
+    log("digest_run_done", run_id=run_id, digest_date=digest_date,
+        published=not DRY_RUN, email=html_path)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
