@@ -402,8 +402,17 @@ def main() -> int:
         f.write(render_email_html(content))
     log("digest_email_written", run_id=run_id, path=html_path)
 
-    # Publish to website
-    persist_digest(digest_date, run_id, content)
+    # Publish to website. The email file is already on disk, so a publish
+    # failure is non-fatal for the operator — surface it clearly and exit
+    # non-zero rather than crashing with a bare traceback. (If the digests
+    # table is missing, the backend's init_db migration hasn't run yet.)
+    try:
+        persist_digest(digest_date, run_id, content)
+    except Exception as err:
+        log("digest_publish_failed", run_id=run_id, digest_date=digest_date,
+            email=html_path, error=str(err))
+        return 1
+
     log("digest_run_done", run_id=run_id, digest_date=digest_date,
         published=not DRY_RUN, email=html_path)
     return 0
