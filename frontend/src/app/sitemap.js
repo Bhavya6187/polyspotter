@@ -93,6 +93,22 @@ async function getTagEntries() {
   }
 }
 
+async function getDigestEntries() {
+  try {
+    const res = await fetch(`${API_URL}/api/digests`, FETCH_OPTS);
+    if (!res.ok) return [];
+    const digests = await res.json();
+    return digests.map((d) => ({
+      url: `${SITE_URL}/digest/${d.digest_date}`,
+      lastModified: new Date(d.digest_date),
+      changeFrequency: "daily",
+      priority: 0.7,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 // Theses are intentionally excluded from the sitemap. As of 2026-04-19 the DB
 // has ~17k thesis rows but 0 of them have thesis_headline populated, so every
 // thesis page renders as the generic "Cross-Market Thesis" title — pure thin/
@@ -115,16 +131,23 @@ export default async function sitemap() {
       changeFrequency: "hourly",
       priority: 1.0,
     },
+    {
+      url: `${SITE_URL}/digest`,
+      lastModified: new Date(),
+      changeFrequency: "daily",
+      priority: 0.8,
+    },
   ];
 
   // Run all sections in parallel. Each section is self-contained with its own
   // try/catch so one failing upstream (e.g. a /api/theses timeout) degrades
   // only that section instead of collapsing the entire sitemap to the homepage.
-  const [tags, articles, events] = await Promise.all([
+  const [tags, articles, events, digests] = await Promise.all([
     getTagEntries(),
     getArticleEntries(),
     getEventEntries(),
+    getDigestEntries(),
   ]);
 
-  return [...staticPages, ...articles, ...events, ...tags];
+  return [...staticPages, ...articles, ...events, ...tags, ...digests];
 }
