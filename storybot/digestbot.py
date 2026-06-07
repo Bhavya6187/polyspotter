@@ -260,7 +260,15 @@ def render_email_html(content: dict) -> str:
 # --- Database ----------------------------------------------------------------
 
 def _get_conn():
-    return psycopg2.connect(DATABASE_URL, connect_timeout=QUERY_TIMEOUT_SECONDS)
+    # Pin the session to UTC so date_trunc('day', now()) in the pool queries
+    # frames "today" in the same UTC day as the Python-computed digest_date
+    # (datetime.now(timezone.utc)). Without this, a non-UTC DB session could
+    # shift the resolving-today window a day off from the digest's own date.
+    return psycopg2.connect(
+        DATABASE_URL,
+        connect_timeout=QUERY_TIMEOUT_SECONDS,
+        options="-c timezone=UTC",
+    )
 
 
 _RESOLVING_TODAY_SQL = """

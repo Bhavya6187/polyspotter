@@ -1397,9 +1397,16 @@ def list_digests():
     return _digest_index_rows()
 
 
+_DIGEST_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
 @app.get("/api/digest/{date}", response_model=DigestDetail)
 def get_digest(date: str):
     """A single published daily digest by date (YYYY-MM-DD)."""
+    # Validate the format before it reaches Postgres — a non-date path segment
+    # would otherwise raise a DataError (HTTP 500) on this public route.
+    if not _DIGEST_DATE_RE.match(date):
+        raise HTTPException(status_code=404, detail="Digest not found.")
     row = _digest_by_date(date)
     if not row:
         raise HTTPException(status_code=404, detail="Digest not found.")

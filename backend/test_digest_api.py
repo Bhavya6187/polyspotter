@@ -61,3 +61,13 @@ def test_get_digest_missing(monkeypatch):
     monkeypatch.setattr(app_module, "_digest_by_date", lambda d: None)
     resp = client.get("/api/digest/2099-01-01")
     assert resp.status_code == 404
+
+
+def test_get_digest_malformed_date_is_404_not_500(monkeypatch):
+    # A non-date path segment must not reach Postgres (would raise a 500).
+    def _boom(d):
+        raise AssertionError("DB must not be queried for a malformed date")
+
+    monkeypatch.setattr(app_module, "_digest_by_date", _boom)
+    resp = client.get("/api/digest/not-a-date")
+    assert resp.status_code == 404
