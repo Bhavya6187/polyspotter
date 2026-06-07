@@ -17,6 +17,7 @@ import json
 import os
 import re
 import time as _time
+import uuid as _uuid
 from datetime import datetime, timedelta, timezone
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, contextmanager
@@ -30,7 +31,7 @@ from cachetools import LRUCache
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, HTMLResponse
 
 from database import get_conn, init_db
 from events import get_event_or_fetch
@@ -245,6 +246,44 @@ def subscribe(payload: SubscribeRequest):
     source = payload.source[:64] if payload.source else None
     _save_subscriber(email, source)
     return {"ok": True}
+
+
+_UNSUB_PAGE = (
+    "<!doctype html><html><head><meta charset=\"utf-8\">"
+    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+    "<title>Unsubscribed — PolySpotter</title></head>"
+    "<body style=\"font-family:Arial,Helvetica,sans-serif;max-width:520px;"
+    "margin:64px auto;padding:0 20px;color:#111;text-align:center;\">"
+    "<h1 style=\"font-size:22px;\">You're unsubscribed</h1>"
+    "<p style=\"font-size:15px;color:#444;\">You won't receive any more PolySpotter "
+    "digest emails. Changed your mind? You can re-subscribe anytime at "
+    "<a href=\"https://polyspotter.com\" style=\"color:#0b6bcb;\">polyspotter.com</a>.</p>"
+    "</body></html>"
+)
+
+
+@app.api_route("/api/unsubscribe", methods=["GET", "POST"])
+def unsubscribe(token: str = Query(..., min_length=1, max_length=64)):
+    """One-click unsubscribe from the daily digest. Idempotent and always returns
+    the same confirmation page — we never reveal whether a token was valid or
+    already used, so the endpoint can't be probed to enumerate live tokens.
+
+    Accepts GET (the link in the email body) and POST (RFC 8058 one-click, which
+    is what the List-Unsubscribe-Post header makes the mail client call). The
+    token is validated as a UUID before it touches SQL so a malformed value can't
+    trigger a Postgres cast error / 500."""
+    try:
+        parsed = _uuid.UUID(token)
+    except ValueError:
+        return HTMLResponse(_UNSUB_PAGE)
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """UPDATE subscribers SET unsubscribed_at = NOW()
+               WHERE unsubscribe_token = %s AND unsubscribed_at IS NULL""",
+            (str(parsed),),
+        )
+    return HTMLResponse(_UNSUB_PAGE)
 
 
 @app.post("/api/ingest")
