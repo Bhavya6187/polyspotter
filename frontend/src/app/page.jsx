@@ -8,7 +8,7 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
 
 async function getHomeData() {
   try {
-    const [marketsRes, tagsRes, thesesRes, walletsRes, scoreboardRes] =
+    const [marketsRes, tagsRes, thesesRes, walletsRes, scoreboardRes, digestsRes] =
       await Promise.all([
         fetch(`${API_URL}/api/alerts/by-market?page=1&per_page=20&group_events=true`, {
           next: { revalidate: 60 },
@@ -19,6 +19,7 @@ async function getHomeData() {
         }),
         fetch(`${API_URL}/api/wallets/top?limit=10`, { next: { revalidate: 60 } }),
         fetch(`${API_URL}/api/scoreboard`, { next: { revalidate: 60 } }),
+        fetch(`${API_URL}/api/digests`, { next: { revalidate: 60 } }),
       ]);
 
     const marketsData = marketsRes.ok ? await marketsRes.json() : null;
@@ -26,6 +27,7 @@ async function getHomeData() {
     const thesesData = thesesRes.ok ? await thesesRes.json() : null;
     const walletsData = walletsRes.ok ? await walletsRes.json() : null;
     const scoreboardData = scoreboardRes.ok ? await scoreboardRes.json() : null;
+    const digestsData = digestsRes.ok ? await digestsRes.json() : null;
 
     return {
       markets: marketsData?.markets || [],
@@ -34,14 +36,15 @@ async function getHomeData() {
       theses: thesesData?.theses || thesesData || [],
       topWallets: walletsData?.wallets || [],
       scoreboard: scoreboardData,
+      latestDigest: Array.isArray(digestsData) ? digestsData[0] || null : null,
     };
   } catch {
-    return { markets: [], total: 0, tags: [], theses: [], topWallets: [], scoreboard: null };
+    return { markets: [], total: 0, tags: [], theses: [], topWallets: [], scoreboard: null, latestDigest: null };
   }
 }
 
 export default async function HomePage() {
-  const { markets, total, tags, theses, topWallets, scoreboard } = await getHomeData();
+  const { markets, total, tags, theses, topWallets, scoreboard, latestDigest } = await getHomeData();
 
   const visibleTags = (Array.isArray(tags) ? tags : []).filter((t) => {
     const name = typeof t === "string" ? t : t.tag;
@@ -290,6 +293,7 @@ export default async function HomePage() {
         initialTheses={theses}
         topWallets={topWallets}
         scoreboard={scoreboard}
+        latestDigest={latestDigest}
       />
     </>
   );

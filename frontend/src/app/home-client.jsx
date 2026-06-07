@@ -15,7 +15,6 @@ import TopicNav from "../components/TopicNav";
 import BrandMark from "../components/BrandMark";
 import HeaderActions from "../components/HeaderActions";
 import ScoreboardHero from "../components/ScoreboardHero";
-import RecentCalls from "../components/RecentCalls";
 import EmailCapture from "../components/EmailCapture";
 
 function formatRelativeTime(date) {
@@ -28,7 +27,7 @@ function formatRelativeTime(date) {
   return `${hours}h ago`;
 }
 
-export default function HomeClient({ initialMarkets, initialTotal, tags, initialTheses, topWallets, scoreboard }) {
+export default function HomeClient({ initialMarkets, initialTotal, tags, initialTheses, topWallets, scoreboard, latestDigest }) {
   const [markets, setMarkets] = useState(initialMarkets);
   const [total, setTotal] = useState(initialTotal);
   const [theses] = useState(initialTheses || []);
@@ -183,9 +182,8 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
       {/* Topic navigation */}
       <TopicNav />
 
-      {/* Proof: graded track record + recent receipts */}
-      <ScoreboardHero scoreboard={scoreboard} />
-      <RecentCalls recent={scoreboard?.recent} />
+      {/* Proof: graded track record, distilled to one number + digest CTA */}
+      <ScoreboardHero scoreboard={scoreboard} latestDigest={latestDigest} />
 
       {/* Today's Top 3 */}
       <TopThree />
