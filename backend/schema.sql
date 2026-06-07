@@ -253,3 +253,20 @@ CREATE TABLE IF NOT EXISTS subscribers (
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     unsubscribed_at   TIMESTAMPTZ
 );
+
+-- digests: one daily editorial digest per date. content_json holds the full
+-- structured digest (subject, intro, sections[] with per-event items) and is
+-- the source of truth the frontend renders. Idempotent on digest_date so a
+-- re-run refreshes the day's digest in place.
+CREATE TABLE IF NOT EXISTS digests (
+    id            SERIAL PRIMARY KEY,
+    digest_date   DATE NOT NULL UNIQUE,
+    run_id        TEXT,
+    subject       TEXT NOT NULL,
+    intro         TEXT,
+    content_json  JSONB NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'published',  -- 'draft' | 'published'
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    published_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_digests_date ON digests(digest_date DESC);

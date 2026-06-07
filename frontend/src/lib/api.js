@@ -87,6 +87,14 @@ export function fetchScoreboard() {
   return request("/api/scoreboard");
 }
 
+export function fetchDigests() {
+  return request("/api/digests");
+}
+
+export function fetchDigest(date) {
+  return request(`/api/digest/${encodeURIComponent(date)}`);
+}
+
 export function subscribeEmail({ email, source, hp } = {}) {
   const url = new URL("/api/subscribe", BASE_URL);
   return fetch(url, {

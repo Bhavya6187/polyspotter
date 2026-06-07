@@ -38,6 +38,7 @@ def init_db():
             _migrate_add_events_table(cur)
             _migrate_add_graded_calls(cur)
             _migrate_add_subscribers(cur)
+            _migrate_add_digests(cur)
         conn.commit()
     finally:
         conn.close()
@@ -264,3 +265,23 @@ def _migrate_add_subscribers(cur):
             unsubscribed_at   TIMESTAMPTZ
         )
     """)
+
+
+def _migrate_add_digests(cur):
+    """Create the digests table (idempotent)."""
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS digests (
+            id            SERIAL PRIMARY KEY,
+            digest_date   DATE NOT NULL UNIQUE,
+            run_id        TEXT,
+            subject       TEXT NOT NULL,
+            intro         TEXT,
+            content_json  JSONB NOT NULL,
+            status        TEXT NOT NULL DEFAULT 'published',
+            created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            published_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_digests_date ON digests(digest_date DESC)"
+    )

@@ -37,6 +37,29 @@ export default function HeaderActions({ variant = "default" }) {
         {!compact && <span className="hidden md:inline">Articles</span>}
       </a>
       <a
+        href="/digest"
+        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:opacity-80"
+        style={{ color: "var(--text-muted)" }}
+        aria-label="Daily Digest"
+        title="Daily Digest"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.75}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="h-3.5 w-3.5"
+          aria-hidden="true"
+        >
+          <rect x="3" y="4" width="18" height="17" rx="2" />
+          <path d="M3 9h18M8 2v4M16 2v4M7 13h6M7 17h4" />
+        </svg>
+        {!compact && <span className="hidden md:inline">Digest</span>}
+      </a>
+      <a
         href="mailto:feedback@polyspotter.com"
         className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:opacity-80"
         style={{ color: "var(--text-muted)" }}

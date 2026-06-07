@@ -70,6 +70,8 @@ from models import (
     ScoreboardResponse,
     SubscribeRequest,
     SubscribeResponse,
+    DigestSummary,
+    DigestDetail,
 )
 from grading import summarize, exclude_junk, top_categories
 
@@ -1360,6 +1362,55 @@ def get_scoreboard():
     }
     _scoreboard_cache = (now + _SCOREBOARD_TTL, result)
     return result
+
+
+def _digest_index_rows() -> list[dict]:
+    """Published digests, newest first. Separated so tests can fake it."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT to_char(digest_date, 'YYYY-MM-DD') AS digest_date, subject
+            FROM digests
+            WHERE status = 'published'
+            ORDER BY digest_date DESC
+        """)
+        return [dict(r) for r in cur.fetchall()]
+
+
+def _digest_by_date(date_str: str) -> dict | None:
+    """One published digest by YYYY-MM-DD, or None. Separated so tests can fake it."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT to_char(digest_date, 'YYYY-MM-DD') AS digest_date,
+                   subject, intro, content_json
+            FROM digests
+            WHERE digest_date = %s AND status = 'published'
+        """, (date_str,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+@app.get("/api/digests", response_model=list[DigestSummary])
+def list_digests():
+    """All published daily digests, newest first."""
+    return _digest_index_rows()
+
+
+_DIGEST_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+@app.get("/api/digest/{date}", response_model=DigestDetail)
+def get_digest(date: str):
+    """A single published daily digest by date (YYYY-MM-DD)."""
+    # Validate the format before it reaches Postgres — a non-date path segment
+    # would otherwise raise a DataError (HTTP 500) on this public route.
+    if not _DIGEST_DATE_RE.match(date):
+        raise HTTPException(status_code=404, detail="Digest not found.")
+    row = _digest_by_date(date)
+    if not row:
+        raise HTTPException(status_code=404, detail="Digest not found.")
+    return row
 
 
 def _fetch_resolving_soon() -> list[dict]:
