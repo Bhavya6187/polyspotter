@@ -1428,11 +1428,20 @@ def _fetch_resolving_soon() -> list[dict]:
     return results[:7]
 
 
+_TOP3_TTL = 300  # seconds (5 min)
+_top3_cache: tuple[float, list] | None = None
+
+
 @app.get("/api/top3")
 def get_top3():
     """Today's top 3 — one alert per category (HIGHEST_CONVICTION, COORDINATED_FLOW,
     TIMING_EDGE). Empty buckets are filled from remaining top scorers, keeping
-    their slot's category label."""
+    their slot's category label. Cached 5 min."""
+    global _top3_cache
+    now_ts = _time.time()
+    if _top3_cache and _top3_cache[0] > now_ts:
+        return _top3_cache[1]
+
     CATEGORY_ORDER = ["HIGHEST_CONVICTION", "COORDINATED_FLOW", "TIMING_EDGE"]
 
     # Conservative game-duration buffer. Most sports finish well within 3h
@@ -1484,6 +1493,7 @@ def get_top3():
         rows = cur.fetchall()
 
     if not rows:
+        _top3_cache = (now_ts + _TOP3_TTL, [])
         return []
 
     now = datetime.now(timezone.utc)
@@ -1620,6 +1630,8 @@ def get_top3():
                 "total_invested": row["total_invested"],
             },
         })
+
+    _top3_cache = (now_ts + _TOP3_TTL, results)
     return results
 
 
