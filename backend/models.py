@@ -1037,3 +1037,17 @@ class SubscribeRequest(BaseModel):
 
 class SubscribeResponse(BaseModel):
     ok: bool
+
+
+# -- Daily digest ------------------------------------------------------------
+
+class DigestSummary(BaseModel):
+    digest_date: str
+    subject: str
+
+
+class DigestDetail(BaseModel):
+    digest_date: str
+    subject: str
+    intro: str | None = None
+    content_json: dict
