@@ -1875,6 +1875,18 @@ def fetch_data_bundle(alert_ids: list[int], seed_alerts: list[dict]) -> dict:
     }
 
 
+def _attach_track_record_closer(tweet: str, closer: str | None) -> tuple[str, bool]:
+    """Append the deterministic track-record closer when it fits the
+    twitter-counted budget. Returns (text, attached)."""
+    from tweet_utils import TWEET_MAX_CHARS, _tweet_length
+    if not closer:
+        return tweet, False
+    candidate = f"{tweet}\n\n{closer}"
+    if _tweet_length(candidate) <= TWEET_MAX_CHARS:
+        return candidate, True
+    return tweet, False
+
+
 def _write_draft(run_id: str, tweet: str) -> str:
     """Persist the drafted tweet body so publish_tweet.py can pick it up.
 
@@ -2102,6 +2114,17 @@ def main() -> int:
 
     tweet = strip_polyspotter_url(decision["tweet"])
     log("tweet_drafted", run_id=run_id, attempts=attempts, length=len(tweet))
+    track_closer = None
+    try:
+        from result_store import recent_record
+        from tweet_utils import format_track_record_closer
+        track_closer = format_track_record_closer(*recent_record())
+    except Exception as exc:
+        log("closer_fetch_error", run_id=run_id,
+            error=f"{type(exc).__name__}: {exc}")
+    tweet, closer_attached = _attach_track_record_closer(tweet, track_closer)
+    log("closer_decision", run_id=run_id, attached=closer_attached,
+        closer=track_closer)
     log("llm_usage", run_id=run_id, **usage_totals)
 
     # Resolve chart png. Wallet-shaped charts must target the specific alert
@@ -2145,6 +2168,7 @@ def main() -> int:
         "chart_png_path": chart_png_path,
         "recent_openers": recent_openers,
         "recent_tweets": recent_tweets,
+        "track_record_closer": track_closer if closer_attached else None,
     }
 
     _dump_transcript(run_id, transcript)

@@ -31,3 +31,26 @@ def test_closer_passes_flag_tweet_validation():
             "with $70k on Seattle. Mariners edge or Orioles value?")
     ok, err = tp.validate_tweet(f"{body}\n\nRecent flags: 11-4.")
     assert ok, err
+
+
+def test_attach_appends_when_it_fits():
+    import twitter_pipeline as tp
+    text, attached = tp._attach_track_record_closer(
+        "Short tweet body. Reply-bait question?", "Recent flags: 11-4.")
+    assert attached is True
+    assert text.endswith("\n\nRecent flags: 11-4.")
+
+
+def test_attach_skips_when_over_budget():
+    import twitter_pipeline as tp
+    body = "x" * 270 + "?"  # 271 chars; closer would push past 280
+    text, attached = tp._attach_track_record_closer(body, "Recent flags: 11-4.")
+    assert attached is False
+    assert text == body
+
+
+def test_attach_noop_when_no_closer():
+    import twitter_pipeline as tp
+    text, attached = tp._attach_track_record_closer("Body. Question?", None)
+    assert attached is False
+    assert text == "Body. Question?"

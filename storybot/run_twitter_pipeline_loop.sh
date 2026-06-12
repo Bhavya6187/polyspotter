@@ -72,6 +72,8 @@ Fix these before finishing:
 
 4. OPENER FRESHNESS. The transcript's publish_meta.recent_openers field has the last 5 tweet openers we've shipped. The first ~6 words of this tweet must not be a near-paraphrase of any of them — we don't want a feed that all sounds the same.
 
+5. TRACK RECORD CLOSER. The draft may end with a standalone line like 'Recent flags: 11-4.' — that line is computed from our results database (see publish_meta.track_record_closer in the transcript), NOT by the writer, and its numbers are not in the facts_bundle. Leave it exactly as-is: don't reword it, don't delete it, and keep it as the final line. If you shorten the body, the closer still counts toward the 280-char limit.
+
 Refer to validate_tweet and validate_tweet_anchor in @storybot/twitter_pipeline.py for the exact validator rules if anything is unclear. publish_tweet.py runs immediately after you finish, so the tweet must be in a postable state."
 
             if claude -p "$prompt" --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"; then
