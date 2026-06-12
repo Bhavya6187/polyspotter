@@ -26,7 +26,6 @@ from detection_strategies import Signal
 from detection_strategies import win_rate_tracking as _wrt
 from detection_strategies.win_rate_tracking import WinRateTrackingStrategy
 from detection_strategies.new_wallet_large_bet import NewWalletLargeBetStrategy
-from detection_strategies.timing_relative_resolution import TimingRelativeResolutionStrategy
 from detection_strategies.pre_event_volume_spike import PreEventVolumeSpikeStrategy
 from detection_strategies.wallet_clustering import WalletClusteringStrategy
 from detection_strategies.concentrated_one_sided import ConcentratedOneSidedStrategy
@@ -592,28 +591,31 @@ def _build_strategies():
     # Per-trade phase (check_trade): runs once per trade, in this order:
     #   1. win_rate_tracking    — populates wallet_pnl table via Data API
     #   2. new_wallet_large_bet — reads wallet_pnl (from step 1)
-    #   3. timing_relative_resolution — reads wallet_pnl (from step 1)
-    #   4. low_activity_large_bet     — independent (fetches own orderbook)
+    #   3. low_activity_large_bet     — independent (fetches own orderbook)
     #
     # Batch phase (analyze_all): runs once across all trades, in this order:
-    #   5. pre_event_volume_spike     — independent
-    #   6. wallet_clustering          — writes funder data to wallet_funders table
-    #   7. concentrated_one_sided     — reads funder data (from step 6)
-    #   8. price_impact               — independent (fetches own candles/orderbook)
-    #   9. correlated_cross_market    — independent
+    #   4. pre_event_volume_spike     — independent
+    #   5. wallet_clustering          — writes funder data to wallet_funders table
+    #   6. concentrated_one_sided     — reads funder data (from step 5)
+    #   7. price_impact               — independent (fetches own candles/orderbook)
+    #   8. correlated_cross_market    — independent
+    #
+    # timing_relative_resolution was retired 2026-06: a backtest over 3.4k
+    # resolved markets ranked it last in every view (-4.4% per-market avg
+    # copy return, -8.6% solo).  The module stays (backfill.py and
+    # twitter_bot read its timing_flags data); it just no longer scans.
     # -------------------------------------------------------------------------
     per_trade = [
         WinRateTrackingStrategy(),  # 1. writes wallet_pnl
         NewWalletLargeBetStrategy(),  # 2. reads wallet_pnl
-        TimingRelativeResolutionStrategy(),  # 3. reads wallet_pnl
-        LowActivityLargeBetStrategy(),  # 4. independent
+        LowActivityLargeBetStrategy(),  # 3. independent
     ]
     batch = [
-        PreEventVolumeSpikeStrategy(),  # 5. independent
-        WalletClusteringStrategy(),  # 6. writes wallet_funders
-        ConcentratedOneSidedStrategy(),  # 7. reads wallet_funders
-        PriceImpactStrategy(),  # 8. independent
-        CorrelatedCrossMarketStrategy(),  # 9. independent
+        PreEventVolumeSpikeStrategy(),  # 4. independent
+        WalletClusteringStrategy(),  # 5. writes wallet_funders
+        ConcentratedOneSidedStrategy(),  # 6. reads wallet_funders
+        PriceImpactStrategy(),  # 7. independent
+        CorrelatedCrossMarketStrategy(),  # 8. independent
     ]
     all_strats = per_trade + batch
     names = ", ".join(s.name for s in all_strats)
