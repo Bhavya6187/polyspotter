@@ -638,6 +638,79 @@ def maybe_snapshot_followers(now: datetime) -> None:
         log("follower_snapshot_error", error=f"{type(exc).__name__}: {exc}")
 
 
+# --- Weekly scoreboard (Component B) -----------------------------------------
+
+WEEKLY_SCOREBOARD_MIN_RESULTS = 3   # don't post a scoreboard over a tiny week
+
+
+def _weekly_scoreboard_window(now: datetime) -> str | None:
+    """ISO-week key ('2026-W24') when `now` falls inside the Sunday
+    17:00-22:00 ET posting window, else None."""
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    et = now.astimezone(_AUDIENCE_TZ)
+    if et.weekday() != 6 or not (17 <= et.hour < 22):
+        return None
+    iso = et.isocalendar()
+    return f"{iso.year}-W{iso.week:02d}"
+
+
+def _week_label(now: datetime) -> str:
+    """Human label for the scorecard footer: 'Week of Jun 8' (ISO Monday)."""
+    et = now.astimezone(_AUDIENCE_TZ)
+    monday = et.date() - timedelta(days=et.weekday())
+    return f"Week of {monday.strftime('%b')} {monday.day}"
+
+
+def format_weekly_scoreboard_tweet(n_cashed: int, n_burned: int,
+                                   net_pl_usd: float) -> str:
+    """Deterministic weekly tweet text — no LLM, validated by tests against
+    twitter_pipeline.validate_tweet."""
+    sign = "+" if net_pl_usd > 0 else ("-" if net_pl_usd < 0 else "")
+    net_str = f"{sign}{charts._format_usd(abs(net_pl_usd))}"
+    return (f"Settled flags this week: {n_cashed}-{n_burned}, net {net_str}. "
+            f"Every result quote-tweets the original call.")
+
+
+def maybe_post_weekly_scoreboard(now: datetime) -> None:
+    """Post the Sunday-evening weekly scoreboard at most once per ISO week.
+    Never raises — a scoreboard failure must not break the settle run.
+    Does not count against RESULT_DAILY_CAP (it summarizes, it doesn't
+    settle) and is skipped entirely in DRY_RUN (a dryrun row would block
+    the real post for the week)."""
+    try:
+        if DRY_RUN:
+            return
+        iso_week = _weekly_scoreboard_window(now)
+        if not iso_week:
+            return
+        if result_store.weekly_scoreboard_exists(iso_week):
+            return
+        agg = result_store.weekly_aggregate()
+        n_cashed = int(agg["n_cashed"])
+        n_burned = int(agg["n_burned"])
+        if n_cashed + n_burned < WEEKLY_SCOREBOARD_MIN_RESULTS:
+            log("weekly_scoreboard_skip", iso_week=iso_week,
+                reason="too few settled results", count=n_cashed + n_burned)
+            return
+        net = float(agg["net_pl_usd"])
+        text = format_weekly_scoreboard_tweet(n_cashed, n_burned, net)
+        png = charts.render_weekly_scoreboard({
+            "n_cashed": n_cashed, "n_burned": n_burned, "net_pl_usd": net,
+            "week_label": _week_label(now)})
+        tweet_id = post_tweet(text,
+                              twitter_client=_build_twitter_client(),
+                              twitter_api_v1=_build_twitter_api_v1(),
+                              media_png=png, dry_run=False)
+        result_store.record_weekly_scoreboard(
+            iso_week=iso_week, tweet_id=tweet_id,
+            n_cashed=n_cashed, n_burned=n_burned, net_pl_usd=net)
+        log("weekly_scoreboard_posted", iso_week=iso_week, tweet_id=tweet_id,
+            record=f"{n_cashed}-{n_burned}", net_pl_usd=net)
+    except Exception as exc:
+        log("weekly_scoreboard_error", error=f"{type(exc).__name__}: {exc}")
+
+
 # --- Entry point ------------------------------------------------------------
 
 def main() -> int:
@@ -696,6 +769,8 @@ def main() -> int:
             counters["errors"] += 1
             log("tweet_error", tweet_id=tweet_id,
                 error=f"{type(exc).__name__}: {exc}")
+
+    maybe_post_weekly_scoreboard(datetime.now(timezone.utc))
 
     log("run_end", elapsed_ms=int((time.monotonic() - t0) * 1000), **counters)
     return 0
