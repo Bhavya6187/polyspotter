@@ -221,6 +221,26 @@ CREATE TABLE IF NOT EXISTS result_tweets (
 
 CREATE INDEX IF NOT EXISTS idx_result_tweets_posted_at
     ON result_tweets (posted_at DESC);
+
+-- weekly_scoreboards: one row per ISO week we've posted a Sunday scoreboard
+-- tweet for. PK doubles as the once-per-week dedup guard.
+CREATE TABLE IF NOT EXISTS weekly_scoreboards (
+    iso_week    TEXT PRIMARY KEY,            -- e.g. '2026-W24'
+    tweet_id    TEXT,
+    n_cashed    INTEGER NOT NULL DEFAULT 0,
+    n_burned    INTEGER NOT NULL DEFAULT 0,
+    net_pl_usd  NUMERIC NOT NULL DEFAULT 0,
+    posted_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- follower_snapshots: one row per ET calendar day; free-tier get_me() read.
+-- Gives the follower trend line the growth work is judged against.
+CREATE TABLE IF NOT EXISTS follower_snapshots (
+    snapshot_date    DATE PRIMARY KEY,       -- ET calendar date
+    followers_count  INTEGER NOT NULL,
+    tweet_count      INTEGER NOT NULL,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 -- graded_calls: one row per resolved market we featured. "The call" is the
 -- highest-composite_score alert on that market; we grade it $100-flat,
 -- hold-to-resolution. Powers /api/scoreboard (the public track record).
