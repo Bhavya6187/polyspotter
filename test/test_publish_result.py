@@ -81,3 +81,26 @@ def test_main_missing_artifact_returns_1(monkeypatch, tmp_path):
     monkeypatch.setattr(pub, "_RUN_OUTPUT_DIR", str(tmp_path))
     rc = pub.main(["publish_result.py", "no-such-id"])
     assert rc == 1
+
+
+def test_publish_quotes_the_original_flag_tweet(monkeypatch):
+    # The receipt mechanic: the result must post as a quote-tweet of the
+    # original flag so the timestamped call is visible.
+    monkeypatch.setattr(pub.result_store, "result_exists", lambda tid: False)
+    monkeypatch.setattr(pub.result_store, "record_result", lambda **kw: None)
+    captured = {}
+
+    def fake_post(text, **kwargs):
+        captured.update(kwargs)
+        return "tid-1"
+    monkeypatch.setattr(pub, "post_tweet", fake_post)
+    rc = pub.publish(original_tweet_id="987", artifact={
+        "result_tweet": "Flagged 14h out: Knicks won. Burned -$24k.",
+        "result_draft_path": None, "scorecard_png_path": None,
+        "alert_ids": [1], "condition_ids": ["0x"],
+        "aggregate": {"n_won": 0, "n_lost": 3, "net_pl_usd": -24000.0,
+                      "total_invested_usd": 24000.0},
+        "outcome": "burned", "event_label": "E",
+    }, dry_run=True)
+    assert rc == 0
+    assert captured["quote_tweet_id"] == "987"

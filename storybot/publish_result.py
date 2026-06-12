@@ -95,7 +95,8 @@ def publish(*, original_tweet_id: str, artifact: dict, dry_run: bool) -> int:
         api_v1 = None if dry_run else _build_twitter_api_v1()
         result_tweet_id = post_tweet(
             text, twitter_client=client, twitter_api_v1=api_v1,
-            media_png=media_png, dry_run=dry_run)
+            media_png=media_png, quote_tweet_id=original_tweet_id,
+            dry_run=dry_run)
     except Exception as exc:
         log("result_post_error", original_tweet_id=original_tweet_id,
             error=f"{type(exc).__name__}: {exc}")
