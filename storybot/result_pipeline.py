@@ -409,7 +409,9 @@ glance whether the sharps cashed or got burned.
    then who won the market and what the cluster was on. Use hours when
    flagged_hours_before <= 48, whole days above that; skip the time-delta
    opener entirely when flagged_hours_before is null. Round dollar
-   figures: "$28k", "$6.2k". One sentence.
+   figures: "$28k", "$6.2k". All of this is ONE sentence — the colon after
+   the time delta is a lead-in, not a sentence break; the P&L stays in
+   sentence 2.
 2. State the realized P&L in plain English: "Cashed +$31k", "Burned -$28k",
    or for split outcomes "Net +$4k across the two markets." One sentence.
 3. No link. The scorecard image carries the brand — spend every character on the result.
