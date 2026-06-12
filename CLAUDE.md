@@ -4,7 +4,7 @@ Polymarket Notable Trade Scanner — monitors Polymarket trades and surfaces lar
 
 ## What This Project Does
 
-Polybot fetches recent trades from the Polymarket Data API, runs them through 9 detection strategies, and produces composite alerts ranking the most interesting trades — copy-worthy bets from sharp bettors, informed wallets, and coordinated flow. An LLM filter (GPT-5.4 via Azure OpenAI) evaluates each alert and generates a headline, summary, bullets, and a structured "copy action"; an SEO generator adds titles/descriptions/FAQs for market pages. Uses a local SQLite database (`polybot.db`) to track wallet history, P&L, price data, and other state across runs.
+Polybot fetches recent trades from the Polymarket Data API, runs them through 8 detection strategies, and produces composite alerts ranking the most interesting trades — copy-worthy bets from sharp bettors, informed wallets, and coordinated flow. An LLM filter (GPT-5.4 via Azure OpenAI) evaluates each alert and generates a headline, summary, bullets, and a structured "copy action"; an SEO generator adds titles/descriptions/FAQs for market pages. Uses a local SQLite database (`polybot.db`) to track wallet history, P&L, price data, and other state across runs.
 
 ### Detection Strategies
 
@@ -13,17 +13,18 @@ Strategies live in `detection_strategies/` and fall into two phases:
 **Per-trade** (run on each trade individually, in order):
 1. `win_rate_tracking` — fetches wallet P&L from Data API, populates `wallet_pnl` table
 2. `new_wallet_large_bet` — surfaces new wallets making large, confident bets (reads `wallet_pnl`)
-3. `timing_relative_resolution` — surfaces bets placed close to market resolution (reads `wallet_pnl`)
-4. `low_activity_large_bet` — surfaces large bets on quiet markets
+3. `low_activity_large_bet` — surfaces large bets on quiet markets
 
 **Batch** (run once across all trades, in order):
-5. `pre_event_volume_spike` — detects volume surges signaling informed positioning
-6. `wallet_clustering` — identifies linked wallets via shared funders (writes `wallet_funders`)
-7. `concentrated_one_sided` — surfaces coordinated one-sided flow (reads `wallet_funders`)
-8. `price_impact` — detects trades causing significant price movement
-9. `correlated_cross_market` — surfaces wallets expressing a thesis across related markets
+4. `pre_event_volume_spike` — detects volume surges signaling informed positioning
+5. `wallet_clustering` — identifies linked wallets via shared funders (writes `wallet_funders`)
+6. `concentrated_one_sided` — surfaces coordinated one-sided flow (reads `wallet_funders`)
+7. `price_impact` — detects trades causing significant price movement
+8. `correlated_cross_market` — surfaces wallets expressing a thesis across related markets
 
 Order matters — some strategies depend on data written by earlier ones.
+
+**Retired:** `timing_relative_resolution` (2026-06) — backtest ranked it last in every view; the module and its `timing_flags` table remain (used by `backfill.py` and the twitter bot) but it no longer runs in the scan loop. See `STRATEGY_USAGE_REPORT.md` for backtest details.
 
 ## Project Structure
 

@@ -4,7 +4,7 @@ Polymarket Notable Trade Scanner — monitors Polymarket trades and surfaces lar
 
 ## How It Works
 
-Polybot fetches recent trades from the Polymarket Data API, runs them through 9 detection strategies, and produces composite alerts ranking the most interesting trades. An LLM filter (GPT-5.4 via Azure OpenAI) evaluates each alert for interestingness, generates a headline, summary, bullets, and a "copy action", and an SEO generator enriches market pages with titles, descriptions, and FAQs. A local SQLite database (`polybot.db`) tracks wallet history, P&L, price data, and other state across runs, building richer baselines over time.
+Polybot fetches recent trades from the Polymarket Data API, runs them through 8 detection strategies, and produces composite alerts ranking the most interesting trades. An LLM filter (GPT-5.4 via Azure OpenAI) evaluates each alert for interestingness, generates a headline, summary, bullets, and a "copy action", and an SEO generator enriches market pages with titles, descriptions, and FAQs. A local SQLite database (`polybot.db`) tracks wallet history, P&L, price data, and other state across runs, building richer baselines over time.
 
 ```
 Fetch trades ($1k+) → Filter (duration, odds, resolved) → Per-trade strategies → Batch strategies → LLM filter → Push to backend
@@ -28,23 +28,26 @@ Strategies live in `detection_strategies/` and run in two phases. Order matters 
 |---|----------|----------------|----------------|----------|
 | 1 | **Win Rate Tracking** | Wallets with sustained positive edge on resolved bets | >= 10 resolved bets, edge >= 15%; perfect records flagged at >= 20 positions | 1.0-6.0 |
 | 2 | **New Wallet Large Bet** | New/young wallets (< 30 days) making large bets | Wallet age < 30 days, escalates for repeat offenders | 1.0-7.0 |
-| 3 | **Timing Relative Resolution** | Bets placed close to market resolution | Within ~60 min of endDate, bet >= $1k; edge-gated for wallets with >= 5 closed positions | 1.0-8.0 |
-| 4 | **Low Activity Large Bet** | Large bets on thinly-traded markets | 24h volume < $10k | 0.5-4.0 |
+| 3 | **Low Activity Large Bet** | Large bets on thinly-traded markets | 24h volume < $10k | 0.5-4.0 |
 
 ### Batch Strategies
 
 | # | Strategy | What It Detects | Key Thresholds | Severity |
 |---|----------|----------------|----------------|----------|
-| 5 | **Pre-Event Volume Spike** | Unusual volume surges in a market | Window volume >= 10x historical baseline, >= $10k, >= 3 trades | 1.0-4.0 |
-| 6 | **Wallet Clustering** | Linked wallets funded by the same source | >= 2 wallets sharing a funder (via Etherscan) | 5.0-8.0 |
-| 7 | **Concentrated One-Sided** | Coordinated one-sided betting by multiple wallets | >= 3 wallets, >= $2k total | 3.5-8.0 |
-| 8 | **Price Impact** | Trades causing abnormal price movement | >= 15pp shift in window or >= 25pp from historical range | 1.0-5.0 |
-| 9 | **Correlated Cross-Market** | Wallets betting across multiple markets in the same event | >= 2 markets (>= 3 for sports), >= $2k combined; flags serial cross-market traders | 1.5-4.0 |
+| 4 | **Pre-Event Volume Spike** | Unusual volume surges in a market | Window volume >= 10x historical baseline, >= $10k, >= 3 trades | 1.0-4.0 |
+| 5 | **Wallet Clustering** | Linked wallets funded by the same source | >= 2 wallets sharing a funder (via Etherscan) | 5.0-8.0 |
+| 6 | **Concentrated One-Sided** | Coordinated one-sided betting by multiple wallets | >= 3 wallets, >= $2k total | 3.5-8.0 |
+| 7 | **Price Impact** | Trades causing abnormal price movement | >= 15pp shift in window or >= 25pp from historical range | 1.0-5.0 |
+| 8 | **Correlated Cross-Market** | Wallets betting across multiple markets in the same event | >= 2 markets (>= 3 for sports), >= $2k combined; flags serial cross-market traders | 1.5-4.0 |
+
+### Retired Strategies
+
+- **Timing Relative Resolution** (retired 2026-06) — flagged bets placed close to market resolution. A backtest over 3.4k resolved markets (see `STRATEGY_USAGE_REPORT.md`) ranked it last in every view (-4.4% per-market avg copy return). The module (`detection_strategies/timing_relative_resolution.py`) and its `timing_flags` table remain — `backfill.py` and the twitter bot still read them — but it no longer runs in the scan loop.
 
 ### Strategy Dependencies
 
 ```
-win_rate_tracking → populates wallet_pnl → used by new_wallet_large_bet, timing_relative_resolution
+win_rate_tracking → populates wallet_pnl → used by new_wallet_large_bet
 wallet_clustering → populates wallet_funders → used by concentrated_one_sided
 ```
 
@@ -56,11 +59,11 @@ db.py                          # SQLite database module (WAL mode) with all tabl
 gamma_cache.py                 # In-memory Gamma API market metadata cache
 config.py                      # Shared runtime configuration (--verbose flag)
 llm_filter.py                  # GPT-5.4 alert evaluation, headline/bullets/copy-action generation
-detection_strategies/          # All 9 detection strategy implementations
+detection_strategies/          # Detection strategy implementations (8 active + 1 retired)
   __init__.py                  # Signal dataclass, DetectionStrategy base class, registry
   win_rate_tracking.py
   new_wallet_large_bet.py
-  timing_relative_resolution.py
+  timing_relative_resolution.py   # retired 2026-06 — kept for backfill/twitter_bot data deps
   low_activity_large_bet.py
   pre_event_volume_spike.py
   wallet_clustering.py
@@ -233,7 +236,7 @@ pytest
 | `wallet_pnl` | win_rate_tracking | Wallet P&L from closed + open positions |
 | `flagged_wallets` | new_wallet_large_bet | Repeat-flag counts per wallet |
 | `flagged_trade_events` | new_wallet_large_bet | Per-trade flag entries for dedup |
-| `timing_flags` | timing_relative_resolution | Wallets flagged for betting near resolution |
+| `timing_flags` | timing_relative_resolution (retired) | Wallets flagged for betting near resolution; still read by backfill + twitter bot |
 | `market_volume_snapshots` | pre_event_volume_spike | Periodic 24h volume snapshots |
 | `wallet_funders` | wallet_clustering | Cached wallet-to-funder mappings |
 | `price_history` | price_impact | Per-outcome price observations |

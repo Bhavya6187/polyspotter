@@ -113,3 +113,74 @@ The high-volume strategies (`correlated_cross_market`, `pre_event_volume_spike`,
 - Strategies pegged to their ceiling (p90 = p99): `wallet_clustering` (8.0), `new_wallet_large_bet` (6.0)
 - Strategies with >80% headline reuse (low headline diversity): `timing_relative_resolution` (663 distinct of 1,420 = 47% diversity), `win_rate_tracking` (37% diversity)
 - Strategies that are functionally never standalone: `concentrated_one_sided` (37 solo / 6,174 total = 0.6%), `wallet_clustering` (4.7%), `pre_event_volume_spike` (0.9%), `price_impact` (2.7%)
+
+---
+
+# Backtest Addendum — 2026-06-11
+
+**Window:** 2026-03-23 → 2026-06-11 (~11 weeks of alerts; 3,699 resolved markets)
+**Method:** every alert with a usable `llm_copy_action` (outcome + entry_price) on a market
+already resolved in `graded_calls` was graded $100-flat hold-to-resolution (same math as
+`backend/grading.py`: win → (1-entry)/entry, loss → -1.0), then attributed to the strategies
+whose signals contributed to the alert. Recurring-crypto junk tags excluded throughout.
+**Sample:** 18,626 gradeable alerts (17,866 ex-junk) across 3,402 markets.
+
+## Fire counts (no strategy is dormant)
+
+All 9 strategies fired continuously from 2026-03-23 to 2026-06-11/12. Signal totals:
+correlated_cross_market 94.8k · win_rate_tracking 41.6k · pre_event_volume_spike 36.7k ·
+price_impact 27.7k · concentrated_one_sided 25.5k · new_wallet_large_bet 23.0k ·
+low_activity_large_bet 14.2k · wallet_clustering 4.0k · timing_relative_resolution 3.9k.
+
+## Per-strategy copy returns
+
+Per-market deduped (mean of market-mean returns; the most honest view — alerts cluster
+heavily on markets):
+
+| Strategy | Markets | Avg return | SE |
+|---|---:|---:|---:|
+| price_impact | 1,218 | **+7.9%** | 2.0% |
+| correlated_cross_market | 2,878 | +2.5% | 1.3% |
+| concentrated_one_sided | 1,291 | +1.3% | 2.0% |
+| new_wallet_large_bet | 1,333 | +0.7% | 2.2% |
+| wallet_clustering | 369 | +0.3% | 4.3% |
+| pre_event_volume_spike | 1,357 | -0.3% | 1.7% |
+| low_activity_large_bet | 1,282 | -0.7% | 2.4% |
+| win_rate_tracking | 2,220 | -1.0% | 1.7% |
+| timing_relative_resolution | 336 | **-4.4%** | 5.0% |
+
+- **price_impact is the only strategy positive in all four months** (+14.3%, +3.6%, +5.9%, +4.6%).
+- **timing_relative_resolution ranked last in every view**: -3.7% alert-level present, -8.6% solo
+  (n=45), -4.4% per-market. The April report's qualitative "non-sport branch looks healthy" did
+  not survive quantitative grading. → **Retired from the scan roster 2026-06** (module + 
+  `timing_flags` table kept for backfill.py / twitter_bot).
+- Official scoreboard view (top alert per market, `graded_calls` join): all strategies positive
+  except wallet_clustering (-1.6%); price_impact best at +11.1%.
+
+## Longshot entries are an anti-signal
+
+| Entry bucket | n | Hit rate | Avg return | Market-implied hit |
+|---|---:|---:|---:|---:|
+| < 0.10 | 63 | 1.6% | -80.2% | ~8% |
+| 0.10–0.30 | 1,391 | 14.5% | -31.3% | ~22% |
+| 0.30–0.50 | 4,695 | 43.2% | +3.0% | ~43% |
+| 0.50–0.70 | 6,838 | 57.4% | -1.0% | ~57% |
+| 0.70–0.90 | 4,675 | 83.2% | +5.5% | ~79% |
+
+Flagged longshot bets hit *below even their market-implied odds* — large bettors taking
+longshots are systematically wrong, not informed. An entry floor of 0.30 would keep 92% of
+alerts and move the whole book from **-0.8% to +2.1%** avg return (~8.7% of historical
+alerts were longshot-dominant). → **Not implemented** — a `filter_longshots` trade filter
+was prototyped and then removed by product decision 2026-06-11; the finding stands if
+copy-return economics become the priority.
+
+## Open findings (not acted on)
+
+- **Composite score is non-monotonic with performance**: score 2–6 alerts returned +3%,
+  score 6+ returned -4% to -1.6%. High scores are dominated by correlated_cross_market
+  severity stacking (present in 81% of score≥6 alerts). Severity-sum may be the wrong
+  ranking aggregate; consider max-severity or per-strategy capped contributions.
+- **win_rate_tracking** is negative-to-flat as a signal (-1.0% deduped, negative 3 of 4
+  months) but is load-bearing infrastructure (populates `wallet_pnl`). Solo it's +4.7%
+  (n=860). Left untouched; worth a thresholds pass later.
+- **wallet_clustering** remains too small a sample to judge (369 markets, SE 4.3%).
