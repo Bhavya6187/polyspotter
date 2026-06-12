@@ -491,9 +491,11 @@ def post_tweet(
     twitter_client,
     twitter_api_v1=None,
     media_png: bytes | None = None,
+    quote_tweet_id: str | None = None,
     dry_run: bool,
 ) -> str:
-    """Post a single tweet, optionally with one PNG attached. Returns the tweet id."""
+    """Post a single tweet, optionally with one PNG attached and/or quoting
+    another tweet (quote_tweet_id). Returns the tweet id."""
     import uuid
     if dry_run:
         return f"dryrun-{uuid.uuid4().hex[:12]}"
@@ -506,10 +508,12 @@ def post_tweet(
         if media_id:
             media_ids = [media_id]
 
+    kwargs: dict = {"text": text}
     if media_ids:
-        resp = twitter_client.create_tweet(text=text, media_ids=media_ids)
-    else:
-        resp = twitter_client.create_tweet(text=text)
+        kwargs["media_ids"] = media_ids
+    if quote_tweet_id:
+        kwargs["quote_tweet_id"] = quote_tweet_id
+    resp = twitter_client.create_tweet(**kwargs)
     data = getattr(resp, "data", None) or {}
     tweet_id = str(data.get("id") or "")
     if not tweet_id:
