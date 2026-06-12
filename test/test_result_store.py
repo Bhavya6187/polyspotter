@@ -89,3 +89,15 @@ def test_record_follower_snapshot_uses_conflict_do_nothing(monkeypatch):
                                 followers_count=73, tweet_count=385)
     assert "ON CONFLICT (snapshot_date) DO NOTHING" in captured["query"]
     assert captured["params"] == (date(2026, 6, 11), 73, 385)
+
+
+def test_recent_record_maps_outcome_counts(monkeypatch):
+    monkeypatch.setattr(rs, "_run",
+                        lambda q, p, fetch=True: [{"n_cashed": 11, "n_burned": 4}])
+    assert rs.recent_record() == (11, 4)
+
+
+def test_recent_record_empty_table(monkeypatch):
+    monkeypatch.setattr(rs, "_run",
+                        lambda q, p, fetch=True: [{"n_cashed": 0, "n_burned": 0}])
+    assert rs.recent_record(days=30) == (0, 0)

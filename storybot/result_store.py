@@ -124,3 +124,23 @@ def record_follower_snapshot(*, snapshot_date: date, followers_count: int,
         """,
         (snapshot_date, int(followers_count), int(tweet_count)),
     )
+
+
+def recent_record(days: int = 30) -> tuple[int, int]:
+    """(n_cashed, n_burned) over publicly posted results in the last `days`.
+
+    Counts result_tweets rows (one per settled flag tweet), not trade-level
+    n_won/n_lost. 'wash' rows are excluded from both sides.
+    """
+    rows = _run(
+        """
+        SELECT COUNT(*) FILTER (WHERE outcome = %s)        AS n_cashed,
+               COUNT(*) FILTER (WHERE outcome = 'burned')  AS n_burned
+        FROM result_tweets
+        WHERE posted_at IS NOT NULL
+          AND posted_at >= NOW() - (%s * INTERVAL '1 day')
+        """,
+        (WIN_OUTCOME, int(days)), fetch=True,
+    ) or [{}]
+    row = rows[0]
+    return int(row.get("n_cashed") or 0), int(row.get("n_burned") or 0)
