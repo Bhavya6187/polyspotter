@@ -101,3 +101,34 @@ def test_recent_record_empty_table(monkeypatch):
     monkeypatch.setattr(rs, "_run",
                         lambda q, p, fetch=True: [{"n_cashed": 0, "n_burned": 0}])
     assert rs.recent_record(days=30) == (0, 0)
+
+
+def test_weekly_scoreboard_exists(monkeypatch):
+    monkeypatch.setattr(rs, "_run", lambda q, p, fetch=True: [{"?column?": 1}])
+    assert rs.weekly_scoreboard_exists("2026-W24") is True
+    monkeypatch.setattr(rs, "_run", lambda q, p, fetch=True: [])
+    assert rs.weekly_scoreboard_exists("2026-W24") is False
+
+
+def test_record_weekly_scoreboard_conflict_do_nothing(monkeypatch):
+    captured = {}
+
+    def fake_run(query, params, fetch=False):
+        captured["query"] = query
+        captured["params"] = params
+        return None
+
+    monkeypatch.setattr(rs, "_run", fake_run)
+    rs.record_weekly_scoreboard(iso_week="2026-W24", tweet_id="999",
+                                n_cashed=11, n_burned=4, net_pl_usd=58000.0)
+    assert "ON CONFLICT (iso_week) DO NOTHING" in captured["query"]
+    assert captured["params"] == ("2026-W24", "999", 11, 4, 58000.0)
+
+
+def test_weekly_aggregate_maps_row(monkeypatch):
+    monkeypatch.setattr(
+        rs, "_run",
+        lambda q, p, fetch=True: [{"n_cashed": 5, "n_burned": 2,
+                                   "net_pl_usd": 12345.6}])
+    agg = rs.weekly_aggregate()
+    assert agg == {"n_cashed": 5, "n_burned": 2, "net_pl_usd": 12345.6}

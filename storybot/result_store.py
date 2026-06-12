@@ -144,3 +144,51 @@ def recent_record(days: int = 30) -> tuple[int, int]:
     ) or [{}]
     row = rows[0]
     return int(row.get("n_cashed") or 0), int(row.get("n_burned") or 0)
+
+
+# --- Weekly scoreboard (Component B of the accountability layer) -------------
+
+def weekly_scoreboard_exists(iso_week: str) -> bool:
+    """True if this ISO week's scoreboard tweet was already posted."""
+    rows = _run(
+        "SELECT 1 FROM weekly_scoreboards WHERE iso_week = %s LIMIT 1",
+        (str(iso_week),), fetch=True,
+    )
+    return bool(rows)
+
+
+def record_weekly_scoreboard(*, iso_week: str, tweet_id: str | None,
+                             n_cashed: int, n_burned: int,
+                             net_pl_usd: float) -> None:
+    """Insert (or no-op on duplicate) one weekly scoreboard row."""
+    _run(
+        """
+        INSERT INTO weekly_scoreboards
+            (iso_week, tweet_id, n_cashed, n_burned, net_pl_usd)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (iso_week) DO NOTHING
+        """,
+        (str(iso_week), str(tweet_id) if tweet_id else None,
+         int(n_cashed), int(n_burned), float(net_pl_usd)),
+    )
+
+
+def weekly_aggregate(days: int = 7) -> dict:
+    """{n_cashed, n_burned, net_pl_usd} over results posted in the last
+    `days`. Row-level outcomes; 'wash' rows count toward neither side but
+    their net P&L (≈0 by definition) is included in the sum."""
+    rows = _run(
+        """
+        SELECT COUNT(*) FILTER (WHERE outcome = %s)        AS n_cashed,
+               COUNT(*) FILTER (WHERE outcome = 'burned')  AS n_burned,
+               COALESCE(SUM(net_pl_usd), 0)                AS net_pl_usd
+        FROM result_tweets
+        WHERE posted_at IS NOT NULL
+          AND posted_at >= NOW() - (%s * INTERVAL '1 day')
+        """,
+        (WIN_OUTCOME, int(days)), fetch=True,
+    ) or [{}]
+    row = rows[0]
+    return {"n_cashed": int(row.get("n_cashed") or 0),
+            "n_burned": int(row.get("n_burned") or 0),
+            "net_pl_usd": float(row.get("net_pl_usd") or 0.0)}
