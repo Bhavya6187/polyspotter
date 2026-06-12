@@ -24,7 +24,8 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 # Make the project root importable so `import db` works when this script
 # is run directly (cron / manual run from storybot/), not just under pytest.
@@ -49,6 +50,7 @@ from bot_utils import (
     QUERY_TIMEOUT_SECONDS,
     log,
 )
+from tweet_utils import _build_twitter_api_v1, _build_twitter_client, post_tweet
 
 DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
 _LIVE_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live_runs")
@@ -56,6 +58,8 @@ _DRY_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dry_run
 _RUN_OUTPUT_DIR = _DRY_RUN_DIR if DRY_RUN else _LIVE_RUN_DIR
 _RESULT_DRAFTS_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "result_drafts")
+
+_AUDIENCE_TZ = ZoneInfo("America/New_York")
 
 # How far back to look for tweets that might now have a result. Anything
 # older than this is treated as "stale, never resolved" and skipped — we'd
@@ -73,7 +77,10 @@ RESULT_MIN_AGE_MINUTES = 60
 # trust the whole accountability layer exists to build.
 RESULT_DAILY_CAP = 2
 RESULT_WIN_BIAS = 0.8            # target fraction of posted results that are wins
-RESULT_LOSS_NOTABLE_USD = 20000.0  # a loss this big is ALWAYS eligible
+# Raised 20k -> 50k (2026-06-11): at $20k nearly every cluster loss
+# qualified, so the honesty floor admitted losses as fast as wins and the
+# public record pinned at ~50% instead of converging to RESULT_WIN_BIAS.
+RESULT_LOSS_NOTABLE_USD = 50000.0  # a loss this big is ALWAYS eligible
 RESULT_WASH_BAND = 0.01         # |net_pl| within 1% of invested -> "wash"
 
 
@@ -385,6 +392,8 @@ and you write the follow-up.
 
 You will receive:
 - original_tweet: the tweet we shipped earlier (without the polyspotter URL).
+- flagged_hours_before: integer hours between our flag tweet and this
+  result being composed (null when unknown).
 - result: a structured summary of how the bets resolved. Fields:
     - n_won, n_lost: trade-level win/loss counts.
     - total_invested_usd: how much the cluster put in.
@@ -398,8 +407,14 @@ NOT meme-y, NOT analyst-speak. The reader should be able to tell at a
 glance whether the sharps cashed or got burned.
 
 ## Required structure (exactly 2 sentences — both required)
-1. Lead with the result. State who won the market and what the cluster
-   was on. Round dollar figures: "$28k", "$6.2k". One sentence.
+1. Lead with the time delta, then the result: open with how far ahead the
+   flag was ("Flagged 14h before the close:", "Flagged 3 days out:"),
+   then who won the market and what the cluster was on. Use hours when
+   flagged_hours_before <= 48, whole days above that; skip the time-delta
+   opener entirely when flagged_hours_before is null. Round dollar
+   figures: "$28k", "$6.2k". All of this is ONE sentence — the colon after
+   the time delta is a lead-in, not a sentence break; the P&L stays in
+   sentence 2.
 2. State the realized P&L in plain English: "Cashed +$31k", "Burned -$28k",
    or for split outcomes "Net +$4k across the two markets." One sentence.
 3. No link. The scorecard image carries the brand — spend every character on the result.
@@ -408,8 +423,10 @@ glance whether the sharps cashed or got burned.
 - The tweet MUST be two sentences: the result lead, then a SEPARATE P&L sentence ending with '.'. A one-sentence tweet is rejected by the publisher — never merge the lead and the P&L into a single sentence.
 - Keep total under 270 characters. No URL — it would be stripped.
 - Do NOT include any URL; links are stripped before posting.
-- Reference the original event/team names — the reader should not need
-  to remember the prior tweet to follow.
+- This posts as a quote-tweet of the original flag, so the reader can see
+  the original claim right below. Still name the event/teams (people
+  search them), but don't re-describe the original bet mechanics — the
+  quoted tweet carries that.
 - No hashtags, no emojis, no @mentions.
 - Banned phrases: "called it", "told you so", "as predicted", "nailed it",
   "rekt", "ngmi". Stay neutral whether the bet won or lost.
@@ -425,12 +442,14 @@ glance whether the sharps cashed or got burned.
 """
 
 
-def compose_result_tweet(llm_client, original_tweet: str, result: dict) -> str:
+def compose_result_tweet(llm_client, original_tweet: str, result: dict, *,
+                         flagged_hours_before: int | None = None) -> str:
     """One LLM call to produce the follow-up tweet text. Returns the raw
     string the model emitted; caller is responsible for any further
     validation (currently we just print it)."""
     payload = {
         "original_tweet": original_tweet,
+        "flagged_hours_before": flagged_hours_before,
         "result": {
             "n_won": result["n_won"],
             "n_lost": result["n_lost"],
@@ -542,13 +561,17 @@ def process_tweet(llm_client, tweet: dict) -> str:
         outcome_side = next(iter(aggregate["by_market"].values()))["side_bet"]
 
     flagged_days_ago = 0
+    flagged_hours_before: int | None = None
     ta = tweet.get("tweeted_at")
     if hasattr(ta, "tzinfo"):
         when = ta if ta.tzinfo else ta.replace(tzinfo=timezone.utc)
-        flagged_days_ago = (datetime.now(timezone.utc) - when).days
+        delta = datetime.now(timezone.utc) - when
+        flagged_days_ago = delta.days
+        flagged_hours_before = max(1, int(delta.total_seconds() // 3600))
 
     result_tweet = compose_result_tweet(
         llm_client, tweet.get("tweet_text") or "", aggregate,
+        flagged_hours_before=flagged_hours_before,
     )
     scorecard = build_scorecard_data(aggregate, event_label=event_label,
                                      outcome_side=outcome_side,
@@ -560,6 +583,7 @@ def process_tweet(llm_client, tweet: dict) -> str:
     artifact = {
         "tweet_id": tweet_id,
         "tweeted_at": tweet.get("tweeted_at"),
+        "flagged_hours_before": flagged_hours_before,
         "original_tweet": tweet.get("tweet_text"),
         "alert_ids": alert_ids,
         "condition_ids": condition_ids,
@@ -592,6 +616,101 @@ def process_tweet(llm_client, tweet: dict) -> str:
     return "composed_no_pl"
 
 
+def maybe_snapshot_followers(now: datetime) -> None:
+    """Once per ET day, snapshot the account's follower count via the
+    free-tier get_me() read. Never raises — measurement must not break
+    the settle run. No-op in DRY_RUN (no API call, no DB write)."""
+    try:
+        if DRY_RUN:
+            return
+        today_et = now.astimezone(_AUDIENCE_TZ).date()
+        if result_store.follower_snapshot_exists(today_et):
+            return
+        me = _build_twitter_client().get_me(user_fields=["public_metrics"])
+        pm = getattr(me.data, "public_metrics", None) or {}
+        followers = int(pm.get("followers_count") or 0)
+        result_store.record_follower_snapshot(
+            snapshot_date=today_et,
+            followers_count=followers,
+            tweet_count=int(pm.get("tweet_count") or 0))
+        log("follower_snapshot", date=str(today_et), followers=followers)
+    except Exception as exc:
+        log("follower_snapshot_error", error=f"{type(exc).__name__}: {exc}")
+
+
+# --- Weekly scoreboard (Component B) -----------------------------------------
+
+WEEKLY_SCOREBOARD_MIN_RESULTS = 3   # don't post a scoreboard over a tiny week
+
+
+def _weekly_scoreboard_window(now: datetime) -> str | None:
+    """ISO-week key ('2026-W24') when `now` falls inside the Sunday
+    17:00-22:00 ET posting window, else None."""
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    et = now.astimezone(_AUDIENCE_TZ)
+    if et.weekday() != 6 or not (17 <= et.hour < 22):
+        return None
+    iso = et.isocalendar()
+    return f"{iso.year}-W{iso.week:02d}"
+
+
+def _week_label(now: datetime) -> str:
+    """Human label for the scorecard footer: 'Week of Jun 8' (ISO Monday)."""
+    et = now.astimezone(_AUDIENCE_TZ)
+    monday = et.date() - timedelta(days=et.weekday())
+    return f"Week of {monday.strftime('%b')} {monday.day}"
+
+
+def format_weekly_scoreboard_tweet(n_cashed: int, n_burned: int,
+                                   net_pl_usd: float) -> str:
+    """Deterministic weekly tweet text — no LLM, validated by tests against
+    twitter_pipeline.validate_tweet."""
+    sign = "+" if net_pl_usd > 0 else ("-" if net_pl_usd < 0 else "")
+    net_str = f"{sign}{charts._format_usd(abs(net_pl_usd))}"
+    return (f"Settled flags this week: {n_cashed}-{n_burned}, net {net_str}. "
+            f"Every result quote-tweets the original call.")
+
+
+def maybe_post_weekly_scoreboard(now: datetime) -> None:
+    """Post the Sunday-evening weekly scoreboard at most once per ISO week.
+    Never raises — a scoreboard failure must not break the settle run.
+    Does not count against RESULT_DAILY_CAP (it summarizes, it doesn't
+    settle) and is skipped entirely in DRY_RUN (a dryrun row would block
+    the real post for the week)."""
+    try:
+        if DRY_RUN:
+            return
+        iso_week = _weekly_scoreboard_window(now)
+        if not iso_week:
+            return
+        if result_store.weekly_scoreboard_exists(iso_week):
+            return
+        agg = result_store.weekly_aggregate()
+        n_cashed = int(agg["n_cashed"])
+        n_burned = int(agg["n_burned"])
+        if n_cashed + n_burned < WEEKLY_SCOREBOARD_MIN_RESULTS:
+            log("weekly_scoreboard_skip", iso_week=iso_week,
+                reason="too few settled results", count=n_cashed + n_burned)
+            return
+        net = float(agg["net_pl_usd"])
+        text = format_weekly_scoreboard_tweet(n_cashed, n_burned, net)
+        png = charts.render_weekly_scoreboard({
+            "n_cashed": n_cashed, "n_burned": n_burned, "net_pl_usd": net,
+            "week_label": _week_label(now)})
+        tweet_id = post_tweet(text,
+                              twitter_client=_build_twitter_client(),
+                              twitter_api_v1=_build_twitter_api_v1(),
+                              media_png=png, dry_run=False)
+        result_store.record_weekly_scoreboard(
+            iso_week=iso_week, tweet_id=tweet_id,
+            n_cashed=n_cashed, n_burned=n_burned, net_pl_usd=net)
+        log("weekly_scoreboard_posted", iso_week=iso_week, tweet_id=tweet_id,
+            record=f"{n_cashed}-{n_burned}", net_pl_usd=net)
+    except Exception as exc:
+        log("weekly_scoreboard_error", error=f"{type(exc).__name__}: {exc}")
+
+
 # --- Entry point ------------------------------------------------------------
 
 def main() -> int:
@@ -616,6 +735,7 @@ def main() -> int:
                 "errors": 0}
 
     now = datetime.now(timezone.utc)
+    maybe_snapshot_followers(now)
     posted_today = result_store.todays_posted_outcomes(now)
 
     scored: list[dict] = []
@@ -649,6 +769,8 @@ def main() -> int:
             counters["errors"] += 1
             log("tweet_error", tweet_id=tweet_id,
                 error=f"{type(exc).__name__}: {exc}")
+
+    maybe_post_weekly_scoreboard(datetime.now(timezone.utc))
 
     log("run_end", elapsed_ms=int((time.monotonic() - t0) * 1000), **counters)
     return 0

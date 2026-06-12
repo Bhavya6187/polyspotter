@@ -90,14 +90,17 @@ returning `(n_cashed, n_burned)` over `result_tweets` rows with
 **`storybot/twitter_pipeline.py`** appends a deterministic closer after the
 writer stage, before validation:
 
-- Format: `Settled flags, last 30d: {cashed}-{burned}.` (~30 chars).
+- Format: `Recent flags: {cashed}-{burned}.` (~20 chars; shortened from the
+  original `Settled flags, last 30d:` wording to raise the attach rate under
+  the 280-char budget — the 30d window still applies via `recent_record(days=30)`).
 - Only when `cashed + burned >= 10` (sample-size guard) **and**
   `cashed > burned` (don't amplify a losing stretch; the honesty lives in the
   result feed itself, which still posts notable losses).
 - The closer is appended programmatically — never composed by the LLM — so the
   number is always exactly what the DB says.
-- The writer's character budget is reduced by the closer length when the closer
-  will be attached, so `validate_tweet` (280 twitter-counted chars) still passes.
+- The closer is appended only when the combined text fits the 280 twitter-counted
+  char budget; on a maximal-length draft it is dropped (logged as
+  `closer_decision attached=false`) rather than constraining the writer.
   The closer is part of the draft Claude reviews, and the claude-edit prompt
   gains a line: do not alter the closer's numbers.
 

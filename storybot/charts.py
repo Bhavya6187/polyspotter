@@ -191,6 +191,52 @@ def render_result_scorecard(data: ResultScorecardData) -> bytes:
     return _figure_to_png_bytes(fig)
 
 
+# ----------------------- weekly_scoreboard -----------------------
+
+class WeeklyScoreboardData(TypedDict):
+    n_cashed: int            # settled flag tweets that cashed this week
+    n_burned: int            # settled flag tweets that burned this week
+    net_pl_usd: float        # signed sum across the week's settles
+    week_label: str          # "Week of Jun 8"
+
+
+def _draw_weekly_scoreboard(ax, data: WeeklyScoreboardData) -> None:
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis("off")
+    n_c = int(data.get("n_cashed") or 0)
+    n_b = int(data.get("n_burned") or 0)
+    net = float(data.get("net_pl_usd") or 0.0)
+    color = ACCENT if net >= 0 else LOSS
+
+    ax.text(0.5, 0.88, "THIS WEEK'S SETTLED FLAGS", color=MUTED, fontsize=22,
+            ha="center", va="center")
+    ax.text(0.5, 0.60, f"{n_c}-{n_b}", color=color, fontsize=110,
+            ha="center", va="center", fontweight="bold")
+    sign = "+" if net > 0 else ("-" if net < 0 else "")
+    ax.text(0.5, 0.34, f"net {sign}{_format_usd(abs(net))}", color=color,
+            fontsize=40, ha="center", va="center", fontweight="bold")
+
+    total = n_c + n_b
+    if total:
+        share = n_c / total
+        bar_y, bar_h = 0.18, 0.05
+        ax.add_patch(Rectangle((0.1, bar_y), 0.8 * share, bar_h,
+                               color=ACCENT, transform=ax.transAxes))
+        ax.add_patch(Rectangle((0.1 + 0.8 * share, bar_y),
+                               0.8 * (1 - share), bar_h,
+                               color=LOSS, transform=ax.transAxes))
+
+    ax.text(0.5, 0.07, f"PolySpotter · {data.get('week_label') or ''}",
+            color=MUTED, fontsize=18, ha="center", va="center")
+
+
+def render_weekly_scoreboard(data: WeeklyScoreboardData) -> bytes:
+    fig, ax = _new_figure()
+    _draw_weekly_scoreboard(ax, data)
+    return _figure_to_png_bytes(fig)
+
+
 # ----------------------- wallet_record_card fetcher -----------------------
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")

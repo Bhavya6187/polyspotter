@@ -140,6 +140,27 @@ def check_tweet_closer(text: str) -> tuple[bool, str]:
     return True, ""
 
 
+# Track-record closer (Delta 2 of the receipts-visibility work). Appended
+# deterministically by twitter_pipeline.main() — never composed by the LLM —
+# so the public record line always matches the result_tweets table exactly.
+TRACK_RECORD_MIN_SETTLED = 10
+
+
+def format_track_record_closer(n_cashed: int, n_burned: int,
+                               min_settled: int = TRACK_RECORD_MIN_SETTLED,
+                               ) -> str | None:
+    """One-line public track record for flag tweets, or None.
+
+    None when the sample is too small (an early streak shouldn't be
+    amplified) or the record isn't winning (the honesty lives in the
+    result feed, which still posts notable losses).
+    """
+    total = int(n_cashed) + int(n_burned)
+    if total < min_settled or int(n_cashed) <= int(n_burned):
+        return None
+    return f"Recent flags: {int(n_cashed)}-{int(n_burned)}."
+
+
 def _tweet_length(t: str) -> int:
     """Twitter-counted length: every URL counts as TWEET_URL_CHARS regardless of actual length."""
     urls = _URL_RE.findall(t)
@@ -491,9 +512,11 @@ def post_tweet(
     twitter_client,
     twitter_api_v1=None,
     media_png: bytes | None = None,
+    quote_tweet_id: str | None = None,
     dry_run: bool,
 ) -> str:
-    """Post a single tweet, optionally with one PNG attached. Returns the tweet id."""
+    """Post a single tweet, optionally with one PNG attached and/or quoting
+    another tweet (quote_tweet_id). Returns the tweet id."""
     import uuid
     if dry_run:
         return f"dryrun-{uuid.uuid4().hex[:12]}"
@@ -506,10 +529,12 @@ def post_tweet(
         if media_id:
             media_ids = [media_id]
 
+    kwargs: dict = {"text": text}
     if media_ids:
-        resp = twitter_client.create_tweet(text=text, media_ids=media_ids)
-    else:
-        resp = twitter_client.create_tweet(text=text)
+        kwargs["media_ids"] = media_ids
+    if quote_tweet_id:
+        kwargs["quote_tweet_id"] = quote_tweet_id
+    resp = twitter_client.create_tweet(**kwargs)
     data = getattr(resp, "data", None) or {}
     tweet_id = str(data.get("id") or "")
     if not tweet_id:

@@ -1,14 +1,16 @@
-"""Persistence + dedup for posted result tweets (the result_tweets table).
+"""Persistence + dedup for the accountability-layer tables.
 
 Thin layer over Postgres so result_pipeline.py / publish_result.py can record
 settled calls and ask "did we already settle this flag tweet?" without
-duplicating SQL. Every public function goes through `_run` so tests can
-monkeypatch a single seam.
+duplicating SQL. Owns the result_tweets table plus its growth-measurement
+satellites: follower_snapshots (daily follower trend) and weekly_scoreboards
+(Sunday scoreboard tweet dedup + record). Every public function goes through
+`_run` so tests can monkeypatch a single seam.
 """
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import psycopg2
@@ -99,3 +101,96 @@ def todays_posted_outcomes(now: datetime) -> list[bool]:
         if pa.astimezone(_AUDIENCE_TZ).date() == today:
             out.append((r.get("outcome") or "") == WIN_OUTCOME)
     return out
+
+
+# --- Follower snapshots (free-tier growth measurement) ----------------------
+
+def follower_snapshot_exists(snapshot_date: date) -> bool:
+    """True if we've already snapshotted follower count for this ET date."""
+    rows = _run(
+        "SELECT 1 FROM follower_snapshots WHERE snapshot_date = %s LIMIT 1",
+        (snapshot_date,), fetch=True,
+    )
+    return bool(rows)
+
+
+def record_follower_snapshot(*, snapshot_date: date, followers_count: int,
+                             tweet_count: int) -> None:
+    """Insert (or no-op on duplicate) one daily follower-count snapshot."""
+    _run(
+        """
+        INSERT INTO follower_snapshots
+            (snapshot_date, followers_count, tweet_count)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (snapshot_date) DO NOTHING
+        """,
+        (snapshot_date, int(followers_count), int(tweet_count)),
+    )
+
+
+def recent_record(days: int = 30) -> tuple[int, int]:
+    """(n_cashed, n_burned) over publicly posted results in the last `days`.
+
+    Counts result_tweets rows (one per settled flag tweet), not trade-level
+    n_won/n_lost. 'wash' rows are excluded from both sides.
+    """
+    rows = _run(
+        """
+        SELECT COUNT(*) FILTER (WHERE outcome = %s)        AS n_cashed,
+               COUNT(*) FILTER (WHERE outcome = 'burned')  AS n_burned
+        FROM result_tweets
+        WHERE posted_at IS NOT NULL
+          AND posted_at >= NOW() - (%s * INTERVAL '1 day')
+        """,
+        (WIN_OUTCOME, int(days)), fetch=True,
+    ) or [{}]
+    row = rows[0]
+    return int(row.get("n_cashed") or 0), int(row.get("n_burned") or 0)
+
+
+# --- Weekly scoreboard (Component B of the accountability layer) -------------
+
+def weekly_scoreboard_exists(iso_week: str) -> bool:
+    """True if this ISO week's scoreboard tweet was already posted."""
+    rows = _run(
+        "SELECT 1 FROM weekly_scoreboards WHERE iso_week = %s LIMIT 1",
+        (str(iso_week),), fetch=True,
+    )
+    return bool(rows)
+
+
+def record_weekly_scoreboard(*, iso_week: str, tweet_id: str | None,
+                             n_cashed: int, n_burned: int,
+                             net_pl_usd: float) -> None:
+    """Insert (or no-op on duplicate) one weekly scoreboard row."""
+    _run(
+        """
+        INSERT INTO weekly_scoreboards
+            (iso_week, tweet_id, n_cashed, n_burned, net_pl_usd)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (iso_week) DO NOTHING
+        """,
+        (str(iso_week), str(tweet_id) if tweet_id else None,
+         int(n_cashed), int(n_burned), float(net_pl_usd)),
+    )
+
+
+def weekly_aggregate(days: int = 7) -> dict:
+    """{n_cashed, n_burned, net_pl_usd} over results posted in the last
+    `days`. Row-level outcomes; 'wash' rows count toward neither side but
+    their net P&L (≈0 by definition) is included in the sum."""
+    rows = _run(
+        """
+        SELECT COUNT(*) FILTER (WHERE outcome = %s)        AS n_cashed,
+               COUNT(*) FILTER (WHERE outcome = 'burned')  AS n_burned,
+               COALESCE(SUM(net_pl_usd), 0)                AS net_pl_usd
+        FROM result_tweets
+        WHERE posted_at IS NOT NULL
+          AND posted_at >= NOW() - (%s * INTERVAL '1 day')
+        """,
+        (WIN_OUTCOME, int(days)), fetch=True,
+    ) or [{}]
+    row = rows[0]
+    return {"n_cashed": int(row.get("n_cashed") or 0),
+            "n_burned": int(row.get("n_burned") or 0),
+            "net_pl_usd": float(row.get("net_pl_usd") or 0.0)}

@@ -19,10 +19,10 @@ def test_classify_outcome_cashed_burned_wash():
 
 
 def test_notable_loss_always_selected_even_with_wins():
-    # Honesty floor: a $40k loss is posted even alongside a winning call.
+    # Honesty floor: a $60k loss is posted even alongside a winning call.
     cands = [
         {"id": "w", "is_win": True, "net_pl_usd": 12000.0, "notability": 12000.0},
-        {"id": "L", "is_win": False, "net_pl_usd": -40000.0, "notability": 40000.0},
+        {"id": "L", "is_win": False, "net_pl_usd": -60000.0, "notability": 60000.0},
     ]
     picked = {c["id"] for c in rp.select_results(cands, posted_today=[])}
     assert "L" in picked  # big loss not hidden
@@ -69,7 +69,7 @@ def test_win_then_notable_loss_then_win_when_bias_satisfied():
     # (share now 1.0 >= 0.8), then a win resumes.
     cands = [
         {"id": "w1", "is_win": True, "net_pl_usd": 30000.0, "notability": 30000.0},
-        {"id": "L", "is_win": False, "net_pl_usd": -45000.0, "notability": 45000.0},
+        {"id": "L", "is_win": False, "net_pl_usd": -60000.0, "notability": 60000.0},
         {"id": "w2", "is_win": True, "net_pl_usd": 10000.0, "notability": 10000.0},
     ]
     picked = [c["id"] for c in rp.select_results(
@@ -80,7 +80,7 @@ def test_win_then_notable_loss_then_win_when_bias_satisfied():
 def test_multiple_notable_losses_ordered_by_notability():
     # When only losses are eligible, they fill in notability order under the cap.
     cands = [
-        {"id": "L_small", "is_win": False, "net_pl_usd": -25000.0, "notability": 25000.0},
+        {"id": "L_small", "is_win": False, "net_pl_usd": -55000.0, "notability": 55000.0},
         {"id": "L_big", "is_win": False, "net_pl_usd": -90000.0, "notability": 90000.0},
     ]
     picked = [c["id"] for c in rp.select_results(
@@ -104,3 +104,17 @@ def test_build_scorecard_data_maps_aggregate_to_card():
     assert card["net_pl_usd"] == 31000.0
     assert card["event_label"] == "Padres-Phillies Over 7.5 runs"
     assert card["flagged_days_ago"] == 2
+
+
+def test_routine_loss_not_eligible_at_new_floor():
+    # A $30k loss was "notable" at the old $20k floor; at $50k it must not
+    # force its way into the feed.
+    cand = {"is_win": False, "net_pl_usd": -30000.0, "notability": 30000.0}
+    assert rp.select_results([cand], posted_today=[]) == []
+
+
+def test_big_loss_still_always_eligible():
+    # The honesty floor survives: a $60k loss always posts.
+    cand = {"is_win": False, "net_pl_usd": -60000.0, "notability": 60000.0}
+    chosen = rp.select_results([cand], posted_today=[])
+    assert chosen == [cand]
