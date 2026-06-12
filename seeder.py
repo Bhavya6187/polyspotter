@@ -7,6 +7,7 @@ Called at the end of each polybot run to sync alerts to the remote database.
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import re
 import sys
@@ -59,7 +60,6 @@ def _build_dedup_key(
 def _build_llm_cache_key(
     wallet: str | None,
     condition_id: str,
-    tx_hashes: list[str] | None = None,
     cluster_direction: str | None = None,
     trade_count: int = 0,
     composite_score: float = 0.0,
@@ -68,14 +68,18 @@ def _build_llm_cache_key(
 
     Unlike the backend dedup key (which is stable for upserts), this key
     changes when the alert's content materially changes — forcing the LLM
-    to re-evaluate. For clusters, trade_count and composite_score are
-    included so a growing cluster (2→6 wallets, higher score) gets a
-    fresh LLM evaluation instead of serving a stale cached verdict."""
+    to re-evaluate. trade_count is bucketed by doubling (floor(log2)) and
+    composite_score by 4-point bands, so an alert is only re-evaluated when
+    it materially grows (cluster 2→4→8 wallets, score crossing a band)
+    instead of on every incremental trade. Backtest replay (2026-06, see
+    STRATEGY_USAGE_REPORT.md addendum) showed per-tick re-evaluation wasted
+    ~22% of all GPT calls."""
+    tc_bucket = int(math.log2(max(trade_count, 1)))
     if wallet is None:
-        raw = f"llm:cluster:{condition_id}:{cluster_direction or ''}:{trade_count}:{composite_score:.1f}"
+        score_band = int(composite_score // 4)
+        raw = f"llm:cluster:{condition_id}:{cluster_direction or ''}:{tc_bucket}:{score_band}"
     else:
-        sorted_hashes = ",".join(sorted(tx_hashes)) if tx_hashes else ""
-        raw = f"llm:{wallet}:{condition_id}:{sorted_hashes}"
+        raw = f"llm:{wallet}:{condition_id}:{tc_bucket}"
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
@@ -397,6 +401,9 @@ def build_alerts_payload(
             "event_end_estimate": event_end,
             "scanned_at": now,
             "dedup_key": _build_dedup_key(wallet, cid, [e[0] for e in entries]),
+            "llm_cache_key": _build_llm_cache_key(
+                wallet, cid, trade_count=len(all_entry_trades),
+            ),
             "trades": [_trade_to_dict(t) for t in all_entry_trades],
             "signals": [_signal_to_dict(s) for s in deduped_sigs],
         })
@@ -434,6 +441,7 @@ def build_alerts_payload(
             "event_end_estimate": event_end,
             "scanned_at": now,
             "dedup_key": _build_dedup_key(wallet, cid, [trade.get("transactionHash", "")]),
+            "llm_cache_key": _build_llm_cache_key(wallet, cid, trade_count=1),
             "trades": [_trade_to_dict(trade)],
             "signals": [_signal_to_dict(s) for s in market_sigs],
         })

@@ -4,7 +4,7 @@ Polymarket Notable Trade Scanner — monitors Polymarket trades and surfaces lar
 
 ## What This Project Does
 
-Polybot fetches recent trades from the Polymarket Data API, runs them through 8 detection strategies, and produces composite alerts ranking the most interesting trades — copy-worthy bets from sharp bettors, informed wallets, and coordinated flow. An LLM filter (GPT-5.4 via Azure OpenAI) evaluates each alert and generates a headline, summary, bullets, and a structured "copy action"; an SEO generator adds titles/descriptions/FAQs for market pages. Uses a local SQLite database (`polybot.db`) to track wallet history, P&L, price data, and other state across runs.
+Polybot fetches recent trades from the Polymarket Data API, runs them through 8 detection strategies, and produces composite alerts ranking the most interesting trades — copy-worthy bets from sharp bettors, informed wallets, and coordinated flow. An LLM filter (GPT-5.4 via Azure OpenAI) evaluates each alert and generates a headline, summary, bullets, and a structured "copy action"; a backtest-derived pre-LLM gate in `llm_filter.py` auto-discards low-value alerts locally before any GPT call (see the pre-LLM gate section of `STRATEGY_USAGE_REPORT.md`). An SEO generator adds titles/descriptions/FAQs for market pages. Uses a local SQLite database (`polybot.db`) to track wallet history, P&L, price data, and other state across runs.
 
 ### Detection Strategies
 

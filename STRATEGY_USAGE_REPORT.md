@@ -184,3 +184,30 @@ copy-return economics become the priority.
   months) but is load-bearing infrastructure (populates `wallet_pnl`). Solo it's +4.7%
   (n=860). Left untouched; worth a thresholds pass later.
 - **wallet_clustering** remains too small a sample to judge (369 markets, SE 4.3%).
+
+## Pre-LLM gate (implemented 2026-06-12, aggressive variant)
+
+Replay of all 215,776 GPT filter calls (2026-03-23 → 2026-06-11) against cached
+verdicts (`llm_evaluations`) and graded copy returns produced a local gating
+policy, implemented in `llm_filter.py` + `seeder.py`:
+
+- **Gate A**: composite score < 3 with no sharp wallet → auto-discard, no GPT
+  call. That tier's historical LLM keep rate was 4.0% (vs 54.7% when a sharp
+  wallet was present).
+- **Gate B**: all signals from a single weak strategy (`price_impact`,
+  `low_activity_large_bet`, `pre_event_volume_spike`, `correlated_cross_market`,
+  `timing_relative_resolution`) with no sharp wallet → auto-discard. Solo keep
+  rates were 7–42%; graded returns of the keeps: +0.2% / −4.2% / +2.6% /
+  **−3.3% (n=2,923)** / retired.
+- **Gates C/D**: `llm_cache_key` now buckets trade_count by doubling
+  (floor(log2)) and composite score by 4-point bands, for clusters and
+  individual alerts alike — an alert is re-evaluated only when it materially
+  grows, not on every incremental trade (per-tick re-evaluation was ~22% of
+  all calls; one market generated 1,940 evaluations).
+
+Sharp wallet = ≥75% win rate on 10+ resolved positions with positive lifetime
+P&L — the LLM prompt's own override rule, computed locally from `wallet_pnl`
+for free. Replayed on June 2026 traffic: **−47.3% GPT calls (~2,925 → ~1,541/day)**,
+gating 12.2% of historical keeps; those keeps graded −3.3%, so the surfaced
+book's copy economics improve. Note: the key-format change invalidates existing
+cache entries, so expect a one-time re-evaluation burst on the first run.

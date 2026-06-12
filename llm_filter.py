@@ -449,18 +449,12 @@ def _build_prompt(alert: dict) -> str:
             for t in trades[:10]:  # cap at 10 to keep prompt short
                 parts.append(_format_trade_line(t, current_prices))
 
-    # Wallet P&L profiles — collect unique wallets from the alert
-    wallets: set[str] = set()
-    if alert.get("wallet"):
-        wallets.add(alert["wallet"].lower())
-    for t in alert.get("trades", []):
-        w = t.get("wallet", "")
-        if w:
-            wallets.add(w.lower())
+    # Wallet P&L profiles — same wallet selection as the pre-LLM gate
+    wallets = _alert_wallets(alert)
 
     if wallets:
         profile_lines = []
-        for w in sorted(wallets)[:10]:  # cap to keep prompt reasonable
+        for w in wallets:
             pnl = get_wallet_pnl_summary(w)
             closed = pnl.get("closed_positions", 0)
             if closed == 0:
@@ -488,7 +482,7 @@ def _build_prompt(alert: dict) -> str:
     # Prior positions on THIS market — helps distinguish profit-taking from new bets
     if condition_id and wallets:
         position_lines = []
-        for w in sorted(wallets)[:10]:
+        for w in wallets:
             positions = get_wallet_market_positions(w, condition_id)
             if not positions:
                 continue
@@ -608,6 +602,71 @@ def evaluate_alert(alert: dict, alert_text: str | None = None) -> dict:
 
 LLM_PARALLELISM = 5
 
+# --- Pre-LLM gate ------------------------------------------------------------
+# Backtest-derived policy (2026-06, see STRATEGY_USAGE_REPORT.md addendum):
+# these tiers had a 4-14% LLM keep rate and zero-to-negative graded copy
+# returns, so they are discarded locally without a GPT call. A sharp wallet
+# (the same override rule the LLM prompt applies) always exempts an alert.
+
+GATE_MIN_SCORE = 3.0
+SHARP_MIN_WIN_RATE = 0.75
+SHARP_MIN_RESOLVED = 10
+GATED_SOLO_STRATEGIES = {
+    "price_impact",
+    "low_activity_large_bet",
+    "pre_event_volume_spike",
+    "correlated_cross_market",
+    "timing_relative_resolution",
+}
+
+
+def _alert_wallets(alert: dict) -> list[str]:
+    """Unique lowercased wallets in an alert — same selection (sorted, capped
+    at 10) as the wallet profiles section of `_build_prompt`."""
+    wallets: set[str] = set()
+    if alert.get("wallet"):
+        wallets.add(alert["wallet"].lower())
+    for t in alert.get("trades", []):
+        w = t.get("wallet", "")
+        if w:
+            wallets.add(w.lower())
+    return sorted(wallets)[:10]
+
+
+def _has_sharp_wallet(alert: dict) -> bool:
+    """Whether any wallet in the alert qualifies for the sharp-wallet
+    override: >=75% win rate on 10+ resolved positions with positive P&L."""
+    for w in _alert_wallets(alert):
+        pnl = get_wallet_pnl_summary(w)
+        closed = pnl.get("closed_positions", 0)
+        if closed < SHARP_MIN_RESOLVED:
+            continue
+        win_rate = pnl.get("wins", 0) / closed
+        if win_rate >= SHARP_MIN_WIN_RATE and (pnl.get("total_pnl") or 0) > 0:
+            return True
+    return False
+
+
+def _pre_llm_gate(alert: dict) -> str | None:
+    """Decide locally whether an alert can be discarded without a GPT call.
+
+    Returns the discard reason, or None if the alert needs an LLM evaluation.
+    """
+    score = alert.get("composite_score", 0)
+    strategies = {s.get("strategy") for s in alert.get("signals", [])}
+    low_score = score < GATE_MIN_SCORE
+    weak_solo = len(strategies) == 1 and strategies <= GATED_SOLO_STRATEGIES
+    if not (low_score or weak_solo):
+        return None
+    if _has_sharp_wallet(alert):
+        return None
+    if low_score:
+        return (
+            f"auto-discarded: composite score {score:.1f} < "
+            f"{GATE_MIN_SCORE:.0f} with no sharp wallet"
+        )
+    return f"auto-discarded: solo {next(iter(strategies))} signal with no sharp wallet"
+
 
 def filter_alerts(alerts: list[dict]) -> list[dict]:
     """Filter a list of alert dicts through the LLM.
@@ -641,12 +700,24 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
         get_llm_evaluation(k) if k else None for k in cache_keys
     ]
 
-    # Phase 2: parallel LLM calls for the cache misses.
+    # Phase 1b: pre-LLM gate on the cache misses — auto-discard alerts the
+    # backtest showed carry no copy value (low score / weak solo strategy,
+    # no sharp wallet) without spending a GPT call.
+    miss_indices = [i for i, ce in enumerate(cached_evals) if ce is None]
+    gated: dict[int, str] = {}
+    llm_indices: list[int] = []
+    for idx in miss_indices:
+        reason = _pre_llm_gate(alerts[idx])
+        if reason is not None:
+            gated[idx] = reason
+        else:
+            llm_indices.append(idx)
+
+    # Phase 2: parallel LLM calls for the ungated cache misses.
     # Build prompts up front on the main thread — `_build_prompt` reads from
     # SQLite (wallet PnL, positions), and the connection is bound to the
     # thread that opened it. Workers only do the OpenAI call.
-    miss_indices = [i for i, ce in enumerate(cached_evals) if ce is None]
-    prebuilt_prompts: dict[int, str] = {idx: _build_prompt(alerts[idx]) for idx in miss_indices}
+    prebuilt_prompts: dict[int, str] = {idx: _build_prompt(alerts[idx]) for idx in llm_indices}
 
     def _eval(idx: int) -> tuple[int, dict | None, Exception | None]:
         try:
@@ -655,9 +726,9 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
             return (idx, None, e)
 
     llm_results: dict[int, tuple[dict | None, Exception | None]] = {}
-    if miss_indices:
+    if llm_indices:
         with ThreadPoolExecutor(max_workers=LLM_PARALLELISM) as executor:
-            for idx, result, error in executor.map(_eval, miss_indices):
+            for idx, result, error in executor.map(_eval, llm_indices):
                 llm_results[idx] = (result, error)
 
     # Phase 3: assemble kept list in original order on the main thread,
@@ -665,6 +736,7 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
     kept: list[dict] = []
     discarded = 0
     cached = 0
+    gated_count = 0
     pending_saves: list[tuple[str, bool, str]] = []
 
     for i, alert in enumerate(alerts):
@@ -690,6 +762,14 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
                 kept.append(alert)
             else:
                 discarded += 1
+            continue
+
+        if i in gated:
+            discarded += 1
+            gated_count += 1
+            print(f"{prefix} AUTO-DISCARDED\n    Gate: {gated[i]}")
+            if cache_key:
+                pending_saves.append((cache_key, False, gated[i]))
             continue
 
         result, error = llm_results[i]
@@ -728,5 +808,7 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
 
     if cached:
         print(f"[llm_filter] {cached} alert(s) resolved from cache.")
+    if gated_count:
+        print(f"[llm_filter] {gated_count} alert(s) auto-discarded by pre-LLM gate (no GPT call).")
     print(f"[llm_filter] Kept {len(kept)}, discarded {discarded} of {total} alerts.")
     return kept
