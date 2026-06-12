@@ -1,9 +1,11 @@
-"""Persistence + dedup for posted result tweets (the result_tweets table).
+"""Persistence + dedup for the accountability-layer tables.
 
 Thin layer over Postgres so result_pipeline.py / publish_result.py can record
 settled calls and ask "did we already settle this flag tweet?" without
-duplicating SQL. Every public function goes through `_run` so tests can
-monkeypatch a single seam.
+duplicating SQL. Owns the result_tweets table plus its growth-measurement
+satellites: follower_snapshots (daily follower trend) and weekly_scoreboards
+(Sunday scoreboard tweet dedup + record). Every public function goes through
+`_run` so tests can monkeypatch a single seam.
 """
 from __future__ import annotations
 
