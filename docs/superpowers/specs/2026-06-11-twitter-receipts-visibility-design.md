@@ -90,7 +90,9 @@ returning `(n_cashed, n_burned)` over `result_tweets` rows with
 **`storybot/twitter_pipeline.py`** appends a deterministic closer after the
 writer stage, before validation:
 
-- Format: `Settled flags, last 30d: {cashed}-{burned}.` (~30 chars).
+- Format: `Recent flags: {cashed}-{burned}.` (~20 chars; shortened from the
+  original `Settled flags, last 30d:` wording to raise the attach rate under
+  the 280-char budget — the 30d window still applies via `recent_record(days=30)`).
 - Only when `cashed + burned >= 10` (sample-size guard) **and**
   `cashed > burned` (don't amplify a losing stretch; the honesty lives in the
   result feed itself, which still posts notable losses).
