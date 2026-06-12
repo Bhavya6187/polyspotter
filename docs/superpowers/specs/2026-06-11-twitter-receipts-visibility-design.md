@@ -98,8 +98,9 @@ writer stage, before validation:
   result feed itself, which still posts notable losses).
 - The closer is appended programmatically — never composed by the LLM — so the
   number is always exactly what the DB says.
-- The writer's character budget is reduced by the closer length when the closer
-  will be attached, so `validate_tweet` (280 twitter-counted chars) still passes.
+- The closer is appended only when the combined text fits the 280 twitter-counted
+  char budget; on a maximal-length draft it is dropped (logged as
+  `closer_decision attached=false`) rather than constraining the writer.
   The closer is part of the draft Claude reviews, and the claude-edit prompt
   gains a line: do not alter the closer's numbers.
 
