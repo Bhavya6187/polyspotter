@@ -140,6 +140,27 @@ def check_tweet_closer(text: str) -> tuple[bool, str]:
     return True, ""
 
 
+# Track-record closer (Delta 2 of the receipts-visibility work). Appended
+# deterministically by twitter_pipeline.main() — never composed by the LLM —
+# so the public record line always matches the result_tweets table exactly.
+TRACK_RECORD_MIN_SETTLED = 10
+
+
+def format_track_record_closer(n_cashed: int, n_burned: int,
+                               min_settled: int = TRACK_RECORD_MIN_SETTLED,
+                               ) -> str | None:
+    """One-line public track record for flag tweets, or None.
+
+    None when the sample is too small (an early streak shouldn't be
+    amplified) or the record isn't winning (the honesty lives in the
+    result feed, which still posts notable losses).
+    """
+    total = int(n_cashed) + int(n_burned)
+    if total < min_settled or int(n_cashed) <= int(n_burned):
+        return None
+    return f"Recent flags: {int(n_cashed)}-{int(n_burned)}."
+
+
 def _tweet_length(t: str) -> int:
     """Twitter-counted length: every URL counts as TWEET_URL_CHARS regardless of actual length."""
     urls = _URL_RE.findall(t)
