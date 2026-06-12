@@ -24,7 +24,8 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 # Make the project root importable so `import db` works when this script
 # is run directly (cron / manual run from storybot/), not just under pytest.
@@ -49,6 +50,7 @@ from bot_utils import (
     QUERY_TIMEOUT_SECONDS,
     log,
 )
+from tweet_utils import _build_twitter_api_v1, _build_twitter_client, post_tweet
 
 DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
 _LIVE_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live_runs")
@@ -56,6 +58,8 @@ _DRY_RUN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dry_run
 _RUN_OUTPUT_DIR = _DRY_RUN_DIR if DRY_RUN else _LIVE_RUN_DIR
 _RESULT_DRAFTS_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "result_drafts")
+
+_AUDIENCE_TZ = ZoneInfo("America/New_York")
 
 # How far back to look for tweets that might now have a result. Anything
 # older than this is treated as "stale, never resolved" and skipped — we'd
@@ -592,6 +596,28 @@ def process_tweet(llm_client, tweet: dict) -> str:
     return "composed_no_pl"
 
 
+def maybe_snapshot_followers(now: datetime) -> None:
+    """Once per ET day, snapshot the account's follower count via the
+    free-tier get_me() read. Never raises — measurement must not break
+    the settle run. No-op in DRY_RUN (no API call, no DB write)."""
+    try:
+        if DRY_RUN:
+            return
+        today_et = now.astimezone(_AUDIENCE_TZ).date()
+        if result_store.follower_snapshot_exists(today_et):
+            return
+        me = _build_twitter_client().get_me(user_fields=["public_metrics"])
+        pm = getattr(me.data, "public_metrics", None) or {}
+        followers = int(pm.get("followers_count") or 0)
+        result_store.record_follower_snapshot(
+            snapshot_date=today_et,
+            followers_count=followers,
+            tweet_count=int(pm.get("tweet_count") or 0))
+        log("follower_snapshot", date=str(today_et), followers=followers)
+    except Exception as exc:
+        log("follower_snapshot_error", error=f"{type(exc).__name__}: {exc}")
+
+
 # --- Entry point ------------------------------------------------------------
 
 def main() -> int:
@@ -616,6 +642,7 @@ def main() -> int:
                 "errors": 0}
 
     now = datetime.now(timezone.utc)
+    maybe_snapshot_followers(now)
     posted_today = result_store.todays_posted_outcomes(now)
 
     scored: list[dict] = []
