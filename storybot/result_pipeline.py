@@ -77,7 +77,10 @@ RESULT_MIN_AGE_MINUTES = 60
 # trust the whole accountability layer exists to build.
 RESULT_DAILY_CAP = 2
 RESULT_WIN_BIAS = 0.8            # target fraction of posted results that are wins
-RESULT_LOSS_NOTABLE_USD = 20000.0  # a loss this big is ALWAYS eligible
+# Raised 20k -> 50k (2026-06-11): at $20k nearly every cluster loss
+# qualified, so the honesty floor admitted losses as fast as wins and the
+# public record pinned at ~50% instead of converging to RESULT_WIN_BIAS.
+RESULT_LOSS_NOTABLE_USD = 50000.0  # a loss this big is ALWAYS eligible
 RESULT_WASH_BAND = 0.01         # |net_pl| within 1% of invested -> "wash"
 
 
