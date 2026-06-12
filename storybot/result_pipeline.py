@@ -389,6 +389,8 @@ and you write the follow-up.
 
 You will receive:
 - original_tweet: the tweet we shipped earlier (without the polyspotter URL).
+- flagged_hours_before: integer hours between our flag tweet and this
+  result being composed (null when unknown).
 - result: a structured summary of how the bets resolved. Fields:
     - n_won, n_lost: trade-level win/loss counts.
     - total_invested_usd: how much the cluster put in.
@@ -402,8 +404,12 @@ NOT meme-y, NOT analyst-speak. The reader should be able to tell at a
 glance whether the sharps cashed or got burned.
 
 ## Required structure (exactly 2 sentences — both required)
-1. Lead with the result. State who won the market and what the cluster
-   was on. Round dollar figures: "$28k", "$6.2k". One sentence.
+1. Lead with the time delta, then the result: open with how far ahead the
+   flag was ("Flagged 14h before the close:", "Flagged 3 days out:"),
+   then who won the market and what the cluster was on. Use hours when
+   flagged_hours_before <= 48, whole days above that; skip the time-delta
+   opener entirely when flagged_hours_before is null. Round dollar
+   figures: "$28k", "$6.2k". One sentence.
 2. State the realized P&L in plain English: "Cashed +$31k", "Burned -$28k",
    or for split outcomes "Net +$4k across the two markets." One sentence.
 3. No link. The scorecard image carries the brand — spend every character on the result.
@@ -412,8 +418,10 @@ glance whether the sharps cashed or got burned.
 - The tweet MUST be two sentences: the result lead, then a SEPARATE P&L sentence ending with '.'. A one-sentence tweet is rejected by the publisher — never merge the lead and the P&L into a single sentence.
 - Keep total under 270 characters. No URL — it would be stripped.
 - Do NOT include any URL; links are stripped before posting.
-- Reference the original event/team names — the reader should not need
-  to remember the prior tweet to follow.
+- This posts as a quote-tweet of the original flag, so the reader can see
+  the original claim right below. Still name the event/teams (people
+  search them), but don't re-describe the original bet mechanics — the
+  quoted tweet carries that.
 - No hashtags, no emojis, no @mentions.
 - Banned phrases: "called it", "told you so", "as predicted", "nailed it",
   "rekt", "ngmi". Stay neutral whether the bet won or lost.
@@ -429,12 +437,14 @@ glance whether the sharps cashed or got burned.
 """
 
 
-def compose_result_tweet(llm_client, original_tweet: str, result: dict) -> str:
+def compose_result_tweet(llm_client, original_tweet: str, result: dict, *,
+                         flagged_hours_before: int | None = None) -> str:
     """One LLM call to produce the follow-up tweet text. Returns the raw
     string the model emitted; caller is responsible for any further
     validation (currently we just print it)."""
     payload = {
         "original_tweet": original_tweet,
+        "flagged_hours_before": flagged_hours_before,
         "result": {
             "n_won": result["n_won"],
             "n_lost": result["n_lost"],
@@ -546,13 +556,17 @@ def process_tweet(llm_client, tweet: dict) -> str:
         outcome_side = next(iter(aggregate["by_market"].values()))["side_bet"]
 
     flagged_days_ago = 0
+    flagged_hours_before: int | None = None
     ta = tweet.get("tweeted_at")
     if hasattr(ta, "tzinfo"):
         when = ta if ta.tzinfo else ta.replace(tzinfo=timezone.utc)
-        flagged_days_ago = (datetime.now(timezone.utc) - when).days
+        delta = datetime.now(timezone.utc) - when
+        flagged_days_ago = delta.days
+        flagged_hours_before = max(1, int(delta.total_seconds() // 3600))
 
     result_tweet = compose_result_tweet(
         llm_client, tweet.get("tweet_text") or "", aggregate,
+        flagged_hours_before=flagged_hours_before,
     )
     scorecard = build_scorecard_data(aggregate, event_label=event_label,
                                      outcome_side=outcome_side,
@@ -564,6 +578,7 @@ def process_tweet(llm_client, tweet: dict) -> str:
     artifact = {
         "tweet_id": tweet_id,
         "tweeted_at": tweet.get("tweeted_at"),
+        "flagged_hours_before": flagged_hours_before,
         "original_tweet": tweet.get("tweet_text"),
         "alert_ids": alert_ids,
         "condition_ids": condition_ids,
