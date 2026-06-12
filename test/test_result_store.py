@@ -61,3 +61,31 @@ def test_todays_posted_outcomes_handles_naive_now_and_skips_null_rows(monkeypatc
     ]
     monkeypatch.setattr(rs, "_run", lambda q, p, fetch=True: rows)
     assert rs.todays_posted_outcomes(now) == [True, False]
+
+
+def test_follower_snapshot_exists_true_when_row(monkeypatch):
+    monkeypatch.setattr(rs, "_run", lambda q, p, fetch=True: [{"?column?": 1}])
+    from datetime import date
+    assert rs.follower_snapshot_exists(date(2026, 6, 11)) is True
+
+
+def test_follower_snapshot_exists_false_when_empty(monkeypatch):
+    monkeypatch.setattr(rs, "_run", lambda q, p, fetch=True: [])
+    from datetime import date
+    assert rs.follower_snapshot_exists(date(2026, 6, 11)) is False
+
+
+def test_record_follower_snapshot_uses_conflict_do_nothing(monkeypatch):
+    captured = {}
+
+    def fake_run(query, params, fetch=False):
+        captured["query"] = query
+        captured["params"] = params
+        return None
+
+    monkeypatch.setattr(rs, "_run", fake_run)
+    from datetime import date
+    rs.record_follower_snapshot(snapshot_date=date(2026, 6, 11),
+                                followers_count=73, tweet_count=385)
+    assert "ON CONFLICT (snapshot_date) DO NOTHING" in captured["query"]
+    assert captured["params"] == (date(2026, 6, 11), 73, 385)

@@ -8,7 +8,7 @@ monkeypatch a single seam.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import psycopg2
@@ -99,3 +99,28 @@ def todays_posted_outcomes(now: datetime) -> list[bool]:
         if pa.astimezone(_AUDIENCE_TZ).date() == today:
             out.append((r.get("outcome") or "") == WIN_OUTCOME)
     return out
+
+
+# --- Follower snapshots (free-tier growth measurement) ----------------------
+
+def follower_snapshot_exists(snapshot_date: date) -> bool:
+    """True if we've already snapshotted follower count for this ET date."""
+    rows = _run(
+        "SELECT 1 FROM follower_snapshots WHERE snapshot_date = %s LIMIT 1",
+        (snapshot_date,), fetch=True,
+    )
+    return bool(rows)
+
+
+def record_follower_snapshot(*, snapshot_date: date, followers_count: int,
+                             tweet_count: int) -> None:
+    """Insert (or no-op on duplicate) one daily follower-count snapshot."""
+    _run(
+        """
+        INSERT INTO follower_snapshots
+            (snapshot_date, followers_count, tweet_count)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (snapshot_date) DO NOTHING
+        """,
+        (snapshot_date, int(followers_count), int(tweet_count)),
+    )
