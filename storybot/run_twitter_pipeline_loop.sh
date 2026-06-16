@@ -76,7 +76,12 @@ Fix these before finishing:
 
 Refer to validate_tweet and validate_tweet_anchor in @storybot/twitter_pipeline.py for the exact validator rules if anything is unclear. publish_tweet.py runs immediately after you finish, so the tweet must be in a postable state."
 
-            if claude -p "$prompt" --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"; then
+            # --model is pinned explicitly: this loop runs headless with no TTY,
+            # so an unpinned `claude -p` rides whatever the ambient default model
+            # resolves to. In Jun 2026 that default flipped to a model this account
+            # can't access (claude-fable-5), the edit step exited non-zero, and the
+            # loop silently stopped publishing for days. Pin a model we always have.
+            if claude -p "$prompt" --model claude-opus-4-8 --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"; then
                 if python storybot/publish_tweet.py "$run_id" 2>&1 | tee -a "$LOG_FILE"; then
                     # remove draft after success — enforces idempotency.
                     # See the NOTE comment in storybot/publish_tweet.py.
