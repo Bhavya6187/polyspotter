@@ -211,7 +211,11 @@ def test_assemble_content_merges_facts_from_picks():
     assert today_item["headline"] == "Sharps on the Lakers"
     assert today_item["blurb"] == "Late informed flow."
     assert today_item["leaning"] == "Lakers (55% implied)"
-    assert today_item["url"] == "https://polyspotter.com/event/nba-finals"
+    # links now point to the on-site event page (not polymarket) and carry UTM
+    assert today_item["url"] == (
+        "https://polyspotter.com/event/nba-finals"
+        "?utm_source=digest&utm_medium=email&utm_campaign=daily"
+    )
     assert today_item["title"] == "Will the Lakers win?"
     assert sections["top_this_week"]["items"][0]["leaning"] == "Yes (40% implied)"
 
