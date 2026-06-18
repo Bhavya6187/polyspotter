@@ -13,11 +13,11 @@ export default function HeaderActions({ variant = "default" }) {
   return (
     <div className="flex items-center gap-1">
       <a
-        href="/articles"
+        href="/blog"
         className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:opacity-80"
         style={{ color: "var(--text-muted)" }}
-        aria-label="Articles"
-        title="Articles"
+        aria-label="Blog"
+        title="Blog"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -34,7 +34,7 @@ export default function HeaderActions({ variant = "default" }) {
           <path d="M4 4v15a1 1 0 0 0 1 1h15" />
           <path d="M8 8h6M8 12h6M8 16h4" />
         </svg>
-        {!compact && <span className="hidden md:inline">Articles</span>}
+        {!compact && <span className="hidden md:inline">Blog</span>}
       </a>
       <a
         href="/digest"
