@@ -2,60 +2,32 @@ import { NextResponse } from "next/server";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-// --- Bot guard --------------------------------------------------------------
-// Sheds the scraper that inflated traffic from a single Singapore datacenter
-// (0s sessions, ~100% bounce, machine-speed crawl of /wallet, /thesis, /market,
-// and mangled "/<strong>market</strong>/0x..." links). Runs before render, so
-// blocked requests never pay the SSR + egress cost. Fail-open: any error here
-// lets the request through, so the guard can never take the site down.
+// --- Origin lock ------------------------------------------------------------
+// The Singapore scraper bypasses Cloudflare by hitting the Railway origin IP
+// directly (Cloudflare saw 11 SG requests in 24h while GA saw ~1,671), so no
+// WAF rule can touch it. Railway can't IP-firewall the origin to Cloudflare on
+// our plan, so we lock it at the app layer instead:
 //
-// In-memory rate-limit store is per-instance and resets on deploy — fine for a
-// single Railway replica; use a Cloudflare WAF rule for true edge / IP-rotation
-// resistance.
-const WINDOW_MS = Number(process.env.RL_WINDOW_MS) || 15_000; // sliding window
-const MAX_REQUESTS = Number(process.env.RL_MAX) || 40; // matched reqs / window
-// Legit crawlers we never throttle (protects SEO). The malformed-path block
-// still applies to everyone — real crawlers never hit it.
-const GOOD_BOT = /(googlebot|bingbot|slurp|duckduckbot|baiduspider|yandexbot|applebot|petalbot)/i;
+//   Cloudflare injects `X-Origin-Auth: <secret>` on every request it proxies
+//   (a Transform Rule). Anything reaching us WITHOUT that header skipped
+//   Cloudflare entirely -> 403.
+//
+// Safe rollout (order matters — wrong order 403s the whole site):
+//   1. Deploy this code with ORIGIN_AUTH_SECRET unset -> guard is a no-op.
+//   2. Add the Cloudflare Transform Rule that injects the header.
+//   3. THEN set ORIGIN_AUTH_SECRET on the frontend service -> lock engages.
+//
+// HEALTH_PATH is exempt because Railway's internal health probe does not pass
+// through Cloudflare and so never carries the header.
+const ORIGIN_SECRET = process.env.ORIGIN_AUTH_SECRET || "";
+const HEALTH_PATH = "/api/healthz";
 
-// ip -> ascending request timestamps (ms) within the current window.
-const hits = new Map();
-let lastSweep = 0;
-
-function rateLimited(ip, now) {
-  const cutoff = now - WINDOW_MS;
-  const arr = hits.get(ip);
-  if (!arr) {
-    hits.set(ip, [now]);
-    return false;
-  }
-  let i = 0;
-  while (i < arr.length && arr[i] <= cutoff) i++;
-  if (i) arr.splice(0, i);
-  arr.push(now);
-  return arr.length > MAX_REQUESTS;
-}
-
-// Periodically evict idle IPs so the Map can't grow unbounded.
-function sweep(now) {
-  if (now - lastSweep < WINDOW_MS) return;
-  lastSweep = now;
-  const cutoff = now - WINDOW_MS;
-  for (const [ip, arr] of hits) {
-    if (!arr.length || arr[arr.length - 1] <= cutoff) hits.delete(ip);
-  }
-}
-
-function clientIp(request) {
-  const xff = request.headers.get("x-forwarded-for");
-  if (xff) return xff.split(",")[0].trim();
-  return request.headers.get("x-real-ip") || "unknown";
-}
-
-function botGuard(request) {
+function guard(request) {
   try {
-    // Malformed-path block — catches the "/<strong>...</strong>/" scraper.
     const path = request.nextUrl.pathname;
+
+    // Malformed-path block (defense in depth) — catches the scraper's
+    // "/<strong>...</strong>/" links. No real route or browser hits these.
     const rawLower = request.url.toLowerCase();
     if (
       path.includes("<") || path.includes(">") ||
@@ -64,35 +36,26 @@ function botGuard(request) {
       return new NextResponse("Bad Request", { status: 403 });
     }
 
-    // Per-IP burst limit. Only count full document loads — the scraper does a
-    // fresh GET per page, whereas a human's in-app navigation and viewport
-    // prefetch are RSC subrequests (they carry an `RSC` header). Skip those and
-    // verified-good crawlers so we never throttle real users.
-    const ua = request.headers.get("user-agent") || "";
-    const isDocumentLoad = !request.headers.get("rsc");
-    if (isDocumentLoad && !GOOD_BOT.test(ua)) {
-      const now = Date.now();
-      sweep(now);
-      if (rateLimited(clientIp(request), now)) {
-        return new NextResponse("Too Many Requests", {
-          status: 429,
-          headers: { "Retry-After": String(Math.ceil(WINDOW_MS / 1000)) },
-        });
+    // Origin lock — only when configured, and never on the health path.
+    if (ORIGIN_SECRET && path !== HEALTH_PATH) {
+      if (request.headers.get("x-origin-auth") !== ORIGIN_SECRET) {
+        return new NextResponse("Forbidden", { status: 403 });
       }
     }
   } catch {
     // Never let the guard break the site — fall through and allow.
+    return null;
   }
   return null;
 }
 
 /**
- * Edge proxy: first the bot guard (above), then redirect old
+ * Edge proxy: first the origin-lock / bot guard above, then redirect old
  * /market/0x<full-conditionId> URLs to the new short slug format. Only the
  * redirect triggers for bare condition IDs (0x + 64 hex chars, no title prefix).
  */
 export async function proxy(request) {
-  const blocked = botGuard(request);
+  const blocked = guard(request);
   if (blocked) return blocked;
 
   const { pathname } = request.nextUrl;
@@ -127,10 +90,9 @@ export async function proxy(request) {
   return NextResponse.next();
 }
 
-// Broadened from "/market/:id*" so the bot guard runs on all content routes;
-// the /market redirect above still self-guards by regex, so non-market paths
-// just fall through. Skips Next internals and static assets so the rate limit
-// counts real navigations, not the dozen asset requests per page.
+// All content routes (so the origin lock covers everything), minus Next
+// internals and static assets. The /market redirect self-guards by regex, so
+// non-market paths just fall through.
 export const config = {
   matcher: [
     "/((?!_next/static|_next/image|favicon|robots.txt|sitemap.xml|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt|xml)$).*)",
