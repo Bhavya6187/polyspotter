@@ -19,7 +19,7 @@ import dateparser
 import requests
 from dotenv import load_dotenv
 
-from detection_strategies import Signal
+from detection_strategies import Signal, compute_composite_score
 from db import get_wallet_pnl_summary, get_flagged_wallet_stats, get_wallet_current_streak
 from gamma_cache import get_market_tags, get_market_by_condition, get_market_category
 
@@ -31,7 +31,7 @@ BACKEND_URL = os.environ.get("POLYBOT_BACKEND_URL", "http://localhost:8000")
 
 # When a cluster alert exists for an event with score >= this threshold,
 # cap the number of individual composite alerts on the same event.
-CLUSTER_SCORE_THRESHOLD = 15.0
+CLUSTER_SCORE_THRESHOLD = 8.0  # rescaled 2026-07 with compute_composite_score (was 15.0 on the severity-sum scale; same ~p88 percentile)
 MAX_INDIVIDUAL_PER_CLUSTERED_EVENT = 3
 
 
@@ -69,14 +69,16 @@ def _build_llm_cache_key(
     Unlike the backend dedup key (which is stable for upserts), this key
     changes when the alert's content materially changes — forcing the LLM
     to re-evaluate. trade_count is bucketed by doubling (floor(log2)) and
-    composite_score by 4-point bands, so an alert is only re-evaluated when
+    composite_score by 2-point bands, so an alert is only re-evaluated when
     it materially grows (cluster 2→4→8 wallets, score crossing a band)
     instead of on every incremental trade. Backtest replay (2026-06, see
     STRATEGY_USAGE_REPORT.md addendum) showed per-tick re-evaluation wasted
     ~22% of all GPT calls."""
     tc_bucket = int(math.log2(max(trade_count, 1)))
     if wallet is None:
-        score_band = int(composite_score // 4)
+        # Band width 2 on the compute_composite_score scale (~half the old
+        # severity-sum scale, where this was 4).
+        score_band = int(composite_score // 2)
         raw = f"llm:cluster:{condition_id}:{cluster_direction or ''}:{tc_bucket}:{score_band}"
     else:
         raw = f"llm:{wallet}:{condition_id}:{tc_bucket}"
@@ -269,13 +271,6 @@ def build_alerts_payload(
         cluster_trades = [tx_to_trade[tx] for tx in cluster_sig.trade_hashes if tx in tx_to_trade]
         clustered_tx_hashes.update(cluster_sig.trade_hashes)
 
-        # Find max composite score
-        shared_total = sum(s.severity for s in shared_sigs)
-        max_score = shared_total
-        for tx in cluster_sig.trade_hashes:
-            extra = sum(s.severity for s in per_trade.get(tx, []))
-            max_score = max(max_score, shared_total + extra)
-
         total_usd = sum(float(t.get("_usd_value", 0)) for t in cluster_trades)
         sample = cluster_sig.trade
 
@@ -288,6 +283,8 @@ def build_alerts_payload(
                 key = s.dedup_key
                 if key not in all_sigs or s.severity > all_sigs[key].severity:
                     all_sigs[key] = s
+
+        max_score = compute_composite_score(all_sigs.values())
 
         event_slug = sample.get("eventSlug", "")
         cluster_dir = f"{sample.get('outcome', '')}:{sample.get('side', '')}"
@@ -367,7 +364,7 @@ def build_alerts_payload(
                 if key not in seen_sigs or s.severity > seen_sigs[key].severity:
                     seen_sigs[key] = s
         deduped_sigs = list(seen_sigs.values())
-        total_severity = sum(s.severity for s in deduped_sigs)
+        total_severity = compute_composite_score(deduped_sigs)
 
         # Skip if this wallet is already in a cluster alert for the same event
         # and the only signals here are correlated_cross_market — no new info.
@@ -417,7 +414,7 @@ def build_alerts_payload(
         if has_cluster or cid in markets_with_per_trade:
             continue
         trade = market_sigs[0].trade
-        total_severity = sum(s.severity for s in market_sigs)
+        total_severity = compute_composite_score(market_sigs)
         wallet = trade.get("proxyWallet", "")
         event_slug = trade.get("eventSlug", "")
 

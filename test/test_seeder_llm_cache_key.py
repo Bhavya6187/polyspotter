@@ -3,8 +3,9 @@ Tests for bucketed LLM cache keys in seeder.
 
 Backtest-derived policy (see STRATEGY_USAGE_REPORT.md addendum): the LLM
 cache key buckets trade_count by doubling (floor(log2)) and composite score
-by 4-point bands, so an alert is only re-evaluated when it materially grows
-instead of on every incremental trade.
+by 2-point bands (on the 2026-07 compute_composite_score scale), so an alert
+is only re-evaluated when it materially grows instead of on every
+incremental trade.
 """
 
 import unittest
@@ -28,11 +29,11 @@ class TestClusterCacheKeyBucketing(unittest.TestCase):
         self.assertNotEqual(self._key(5, 6.0), self._key(10, 6.0))
 
     def test_same_score_band_same_key(self):
-        # 4.0 and 7.9 are both in band 1 (score // 4)
-        self.assertEqual(self._key(5, 4.0), self._key(5, 7.9))
+        # 4.0 and 5.9 are both in band 2 (score // 2)
+        self.assertEqual(self._key(5, 4.0), self._key(5, 5.9))
 
     def test_score_band_change_changes_key(self):
-        self.assertNotEqual(self._key(5, 7.9), self._key(5, 8.1))
+        self.assertNotEqual(self._key(5, 5.9), self._key(5, 6.1))
 
     def test_direction_distinguishes_clusters(self):
         self.assertNotEqual(

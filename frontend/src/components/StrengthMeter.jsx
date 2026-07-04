@@ -1,11 +1,14 @@
 const LABELS = ["Weak", "Low", "Medium", "Strong", "Very Strong"];
 
+// Bands calibrated to the 2026-07 compute_composite_score scale (per-strategy
+// max, weighted, diminishing sum) — percentile-equivalent to the old
+// severity-sum bands 6/10/15/25.
 export function scoreToRating(maxScore) {
   if (maxScore == null || maxScore <= 0) return 0;
-  if (maxScore < 6) return 1;
-  if (maxScore < 10) return 2;
-  if (maxScore < 15) return 3;
-  if (maxScore < 25) return 4;
+  if (maxScore < 4) return 1;
+  if (maxScore < 6) return 2;
+  if (maxScore < 8) return 3;
+  if (maxScore < 10.5) return 4;
   return 5;
 }
 
