@@ -211,3 +211,101 @@ for free. Replayed on June 2026 traffic: **−47.3% GPT calls (~2,925 → ~1,541
 gating 12.2% of historical keeps; those keeps graded −3.3%, so the surfaced
 book's copy economics improve. Note: the key-format change invalidates existing
 cache entries, so expect a one-time re-evaluation burst on the first run.
+
+---
+
+# Backtest Addendum — 2026-07-02
+
+**Window:** 2026-03-23 → 2026-07-02; 25,356 gradeable alerts on 4,787 resolved
+markets (24,367 ex-junk). Same $100-flat grading as `backend/grading.py`.
+Split at the pre-LLM gate launch: **pre** = created < 2026-06-12,
+**post** = created ≥ 2026-06-13 (~3 weeks).
+
+## Book level (ex-junk, per-market deduped)
+
+- pre **+1.9%** (3,514 mkts) → post **−1.3%** (897 mkts, SE 2.6%). Not
+  explained by the June Iran/geopolitics losses — post ex-geo is also −1.3%.
+- Per-strategy (pre / post): price_impact **+7.7% / +5.8%** (only strategy
+  positive in both), correlated +1.9 / −2.5, concentrated +0.9 / −0.0,
+  new_wallet −0.4 / **−6.0**, pre_event_spike −0.5 / **−7.0**,
+  win_rate −1.2 / −4.7, clustering −0.9 / −4.0.
+- **Score 8–12 band still the black hole**: 29% of the graded book, −5.2%
+  per-market ex-geo (post: −11.3%); 84% of the band contains
+  correlated_cross_market → severity-sum stacking, as flagged in June.
+- **Longshots remain an anti-signal**: entry <0.10 → −61% (hit 3.4%),
+  0.10–0.30 → −29%.
+- **Sharp-wallet flag is not predictive**: 30% of alerting wallets qualify
+  (≥75% wr / 10+ resolved / +P&L); the sharp cohort *underperforms* non-sharp
+  (−3.6% vs −0.1% alert-level pre). Four stricter variants (25+ resolved,
+  edge≥20/25pt vs avg entry price, P&L≥$50k) ALL underperform their
+  complements. The concept, not the threshold, fails: the rule mostly tags
+  favorite-buyers whose win rate equals their average entry odds.
+
+## GPT-call population (post-gate, 43,013 calls / 21 days, verdicts joined)
+
+- LLM keep rate is **82%** overall — the filter is now mostly a copywriter.
+- Sharp-tier calls = ~55% of volume at 93–98.5% keep (rubber stamps).
+- Keep rate is FLAT (~82%) by nth call on the same market same day; a cap of
+  5 evals/market/day would cut 48% of calls (41% with a $50k-USD exemption).
+  Graded: alert #1 per market +1.1%, #2+ ≈ zero-to-negative.
+- Worst tiers: score 3–4 non-sharp 106 calls/day at 20.9% keep; solo
+  new_wallet_large_bet 134/day at 44.6% keep (graded −4.9%); solo
+  concentrated 10/day at 42.5% keep (graded −13.3%).
+- Call-reduction levers identified 2026-07-02 → implemented 2026-07-03,
+  see "Changes implemented 2026-07-03 (call-reduction pass)" below.
+
+## Changes implemented 2026-07-03 (accuracy pass)
+
+1. **`compute_composite_score`** (detection_strategies/__init__.py): replaces
+   the raw severity sum. Per-strategy max (no same-strategy stacking) ×
+   backtest weights (price_impact 1.3; correlated/concentrated 1.0;
+   clustering 0.9; new_wallet / pre_event_spike / win_rate / low_activity
+   0.7; timing 0.5), then a diminishing sum (1, ½, ¼, …) strongest-first.
+   Validated on the graded book with weights fit on pre and evaluated on
+   post: top-quintile return +8.3% post (vs +1.5% for severity-sum),
+   top−bottom spread +14.4%. Severity-based scores remain weakly predictive
+   overall (rho ≈ +0.03) — this fixes the ranking top, not everything.
+   Threshold remap (percentile-equivalent): GATE_MIN_SCORE 3→2,
+   CLUSTER_SCORE_THRESHOLD 15→8, TWITTER_BOT_MIN_SCORE 5→4, cache-key band
+   //4→//2, frontend StrengthMeter 6/10/15/25→4/6/8/10.5. Note: the
+   scale change alters llm_cache_key score bands for clusters → expect a
+   one-time re-evaluation burst.
+2. **Sharp-wallet auto-keep override removed from the LLM prompt** — track
+   record is context, judged against avg entry odds. The pre-LLM gate's
+   sharp *exemption* is retained for now (call-count matter, next pass).
+3. **Longshot entry floor** (`filter_longshots`, polybot.py): BUY trades at
+   price < 0.30 are dropped before strategies run. June estimate: keeps ~92%
+   of alerts, book −0.8% → +2.1%.
+4. **Strategy reweighting** folded into the score weights (see 1).
+
+## Changes implemented 2026-07-03 (call-reduction pass)
+
+Replay of the policy on the 43k post-gate calls projected ≈ −50%+ calls/day
+(~2,050 → ~900–1,050). All gates discard-and-cache; cap deferrals are NOT
+cached (re-eligible after midnight UTC or when a cache-key-changing update
+lands under the cap). Verified end-to-end against the live pipeline
+(real filter_alerts + Azure + polybot.db) 2026-07-03.
+
+1. **Market-day evaluation cap** (`llm_filter.py` phase 1c + `llm_market_evals`
+   table in `db.py`): max 5 GPT evaluations per market per UTC day; alerts
+   with total_usd ≥ $50k bypass the cap. Biggest lever: −41% projected.
+   Rationale: keep rate flat (~82%) by nth same-day call; graded returns of
+   alert #2+ on a market are zero-to-negative.
+2. **Sharp-wallet gate exemption removed** (−130 calls/day): exemption
+   survivors kept at 93% but the sharp cohort adds no copy value.
+   `_has_sharp_wallet` deleted; wallet P&L stays in the prompt as context.
+3. **Gate A floor raised** to 3.0 on the compute_composite_score scale
+   (≈ old severity-sum 4.0; that tier kept at 21%, graded ~breakeven).
+4. **Gate B extended**: solo `new_wallet_large_bet` (44.6% keep, −4.9%
+   graded) and solo `concentrated_one_sided` (42.5% keep, −13.3% graded)
+   join the gated-solo set. Solo `win_rate_tracking` (95% keep, +3.4%) and
+   solo `wallet_clustering` (+6.1%) stay evaluable.
+5. **Junk-tag gate**: recurring-crypto tags (same JUNK_TAGS set as
+   `backend/grading.py`) are discarded locally (−40 calls/day) — the
+   scoreboard already excludes them at query time.
+
+Product tradeoff: surfaced alert volume drops roughly in half (mostly
+redundant #2+ alerts on already-covered markets, which `graded_calls`
+ignores anyway — it grades top-alert-per-market). Watch alerts/day and the
+homepage density after deploy; the cap constant (`MARKET_DAY_EVAL_CAP`) is
+the knob to loosen first.

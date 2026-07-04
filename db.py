@@ -239,6 +239,17 @@ def _init_tables(conn: sqlite3.Connection) -> None:
         )
     """)
 
+    # -- llm_market_evals (per-market-day GPT call counters for the
+    #    market-day evaluation cap in llm_filter) ------------------------------
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS llm_market_evals (
+            condition_id TEXT NOT NULL,
+            day TEXT NOT NULL,
+            evals INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (condition_id, day)
+        )
+    """)
+
     # -- scan_runs (continuous mode: track last scan time) --------------------
     conn.execute("""
         CREATE TABLE IF NOT EXISTS scan_runs (
@@ -1090,6 +1101,29 @@ def save_llm_evaluation(dedup_key: str, interesting: bool, summary: str | None) 
            (dedup_key, interesting, summary, evaluated_at)
            VALUES (?, ?, ?, ?)""",
         (dedup_key, int(interesting), summary, datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()
+
+
+def get_market_eval_count(condition_id: str, day: str) -> int:
+    """Number of GPT evaluations already spent on a market on a given
+    UTC day (for the market-day evaluation cap)."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT evals FROM llm_market_evals WHERE condition_id = ? AND day = ?",
+        (condition_id, day),
+    ).fetchone()
+    return row[0] if row else 0
+
+
+def increment_market_eval_count(condition_id: str, day: str) -> None:
+    """Record one GPT evaluation against a market's daily budget."""
+    conn = get_db()
+    conn.execute(
+        """INSERT INTO llm_market_evals (condition_id, day, evals)
+           VALUES (?, ?, 1)
+           ON CONFLICT(condition_id, day) DO UPDATE SET evals = evals + 1""",
+        (condition_id, day),
     )
     conn.commit()
 

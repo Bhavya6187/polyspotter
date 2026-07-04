@@ -15,13 +15,20 @@ import os
 import threading
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from openai import OpenAI
 from dotenv import load_dotenv
 
-from db import get_llm_evaluation, get_wallet_market_positions, get_wallet_pnl_summary, save_llm_evaluation
+from db import (
+    get_llm_evaluation,
+    get_market_eval_count,
+    get_wallet_market_positions,
+    get_wallet_pnl_summary,
+    increment_market_eval_count,
+    save_llm_evaluation,
+)
 from gamma_cache import get_market_by_condition, invalidate_market
 
 load_dotenv()
@@ -183,12 +190,11 @@ SYSTEM_PROMPT = (
     "INTERESTING (surface to users):\n"
     "- Sharp bettors: wallets with proven win rates and meaningful edge, especially on "
     "sports, politics, or crypto — these are copy-trade candidates\n"
-    "- Sharp wallet override: if any wallet in the alert has >=75% win rate on 10+ "
-    "resolved bets AND meaningfully positive lifetime P&L, surface the alert even when "
-    "the firing detection signal is weak (e.g. low_activity 1.0, price_impact 1.5, "
-    "single cross-market severity 2.0). The wallet IS the signal — copy-trading their "
-    "bets is the value, not the strategy that flagged it. A 10-bet sample is already "
-    "gated by the win_rate_tracking strategy; do not invent a higher threshold.\n"
+    "- Wallet track records are supporting context, not an automatic keep. Judge a "
+    "win rate against the odds the wallet pays (its avg win price in the profile): "
+    "winning 75% buying at 0.75 is market-rate, not edge. Only treat a wallet as "
+    "genuinely sharp when its win rate clearly exceeds its average entry odds on a "
+    "meaningful sample — and even then the alert still needs a real signal.\n"
     "- Informed new wallets: new wallets betting big with early profitability (conviction + edge)\n"
     "- Coordinated flow: multiple wallets or linked wallets all positioning the same "
     "direction on a market (strong directional signal)\n"
@@ -203,8 +209,7 @@ SYSTEM_PROMPT = (
     "- Composite score <3.0 with no compelling signal combination\n"
     "- Large bets on highly liquid markets where the ONLY signal is bet size AND the "
     "wallet has no proven edge (no win_rate_tracking hit, no cluster membership, no "
-    "timing pattern). If a sharp wallet (per the override above) is buying, do NOT "
-    "discard purely on market liquidity.\n"
+    "timing pattern)\n"
     "- Consistent cross-market views with only 2 markets (severity 1.5 — very common)\n"
     "- Timing signals on markets resolving in minutes with no other supporting evidence\n"
     "- Low-edge win rate signals (barely above the 15% edge threshold)\n"
@@ -449,7 +454,7 @@ def _build_prompt(alert: dict) -> str:
             for t in trades[:10]:  # cap at 10 to keep prompt short
                 parts.append(_format_trade_line(t, current_prices))
 
-    # Wallet P&L profiles — same wallet selection as the pre-LLM gate
+    # Wallet P&L profiles
     wallets = _alert_wallets(alert)
 
     if wallets:
@@ -603,26 +608,49 @@ def evaluate_alert(alert: dict, alert_text: str | None = None) -> dict:
 LLM_PARALLELISM = 5
 
 # --- Pre-LLM gate ------------------------------------------------------------
-# Backtest-derived policy (2026-06, see STRATEGY_USAGE_REPORT.md addendum):
-# these tiers had a 4-14% LLM keep rate and zero-to-negative graded copy
-# returns, so they are discarded locally without a GPT call. A sharp wallet
-# (the same override rule the LLM prompt applies) always exempts an alert.
+# Backtest-derived policy (2026-06 + 2026-07 addenda in
+# STRATEGY_USAGE_REPORT.md): these tiers have low LLM keep rates and
+# zero-to-negative graded copy returns, so they are discarded locally without
+# a GPT call. The sharp-wallet exemption was removed 2026-07: the sharp
+# cohort underperforms non-sharp under every definition tested, and exemption
+# survivors (kept at 93%) added no copy value.
 
+# 3.0 on the compute_composite_score scale ≈ 4.0 on the old severity-sum
+# scale; the gated tier's LLM keep rate was 21% and graded ~breakeven.
 GATE_MIN_SCORE = 3.0
-SHARP_MIN_WIN_RATE = 0.75
-SHARP_MIN_RESOLVED = 10
 GATED_SOLO_STRATEGIES = {
     "price_impact",
     "low_activity_large_bet",
     "pre_event_volume_spike",
     "correlated_cross_market",
     "timing_relative_resolution",
+    "new_wallet_large_bet",     # solo keep rate 44.6%, graded -4.9% (2026-07)
+    "concentrated_one_sided",   # solo keep rate 42.5%, graded -13.3% (2026-07)
 }
+
+# Recurring / short-duration crypto price markets — return-negative coin
+# flips the public scoreboard already excludes at query time (keep in sync
+# with JUNK_TAGS in backend/grading.py). No reason to spend a GPT call.
+JUNK_TAGS = {
+    "Crypto", "Crypto Prices", "Recurring", "Bitcoin", "Ethereum",
+    "Up or Down", "5M", "Daily", "Weekly", "Hide From New",
+}
+
+# Per-market-day evaluation cap. The 2026-07 call replay showed keep rate is
+# flat (~82%) whether it's the 1st or 12th evaluation of a market that day,
+# and graded returns of alert #2+ on a market are zero-to-negative — the
+# marginal call is redundant. Hot markets (World Cup winner etc.) burned
+# 200+ calls each over 3 weeks. Deferred alerts are NOT cached, so they
+# become eligible again after midnight UTC (or earlier if a cache-key-
+# changing update lands under the cap). A large new position is still worth
+# seeing same-day, so alerts totaling >= the exemption bypass the cap.
+MARKET_DAY_EVAL_CAP = 5
+MARKET_DAY_CAP_EXEMPT_USD = 50_000
 
 
 def _alert_wallets(alert: dict) -> list[str]:
-    """Unique lowercased wallets in an alert — same selection (sorted, capped
-    at 10) as the wallet profiles section of `_build_prompt`."""
+    """Unique lowercased wallets in an alert (sorted, capped at 10) for the
+    wallet profiles section of `_build_prompt`."""
     wallets: set[str] = set()
     if alert.get("wallet"):
         wallets.add(alert["wallet"].lower())
@@ -633,39 +661,21 @@ def _alert_wallets(alert: dict) -> list[str]:
     return sorted(wallets)[:10]
 
 
-def _has_sharp_wallet(alert: dict) -> bool:
-    """Whether any wallet in the alert qualifies for the sharp-wallet
-    override: >=75% win rate on 10+ resolved positions with positive P&L."""
-    for w in _alert_wallets(alert):
-        pnl = get_wallet_pnl_summary(w)
-        closed = pnl.get("closed_positions", 0)
-        if closed < SHARP_MIN_RESOLVED:
-            continue
-        win_rate = pnl.get("wins", 0) / closed
-        if win_rate >= SHARP_MIN_WIN_RATE and (pnl.get("total_pnl") or 0) > 0:
-            return True
-    return False
-
-
 def _pre_llm_gate(alert: dict) -> str | None:
     """Decide locally whether an alert can be discarded without a GPT call.
 
     Returns the discard reason, or None if the alert needs an LLM evaluation.
     """
+    junk = set(alert.get("tags") or []) & JUNK_TAGS
+    if junk:
+        return f"auto-discarded: recurring-crypto junk tag ({sorted(junk)[0]})"
     score = alert.get("composite_score", 0)
+    if score < GATE_MIN_SCORE:
+        return f"auto-discarded: composite score {score:.1f} < {GATE_MIN_SCORE:.0f}"
     strategies = {s.get("strategy") for s in alert.get("signals", [])}
-    low_score = score < GATE_MIN_SCORE
-    weak_solo = len(strategies) == 1 and strategies <= GATED_SOLO_STRATEGIES
-    if not (low_score or weak_solo):
-        return None
-    if _has_sharp_wallet(alert):
-        return None
-    if low_score:
-        return (
-            f"auto-discarded: composite score {score:.1f} < "
-            f"{GATE_MIN_SCORE:.0f} with no sharp wallet"
-        )
-    return f"auto-discarded: solo {next(iter(strategies))} signal with no sharp wallet"
+    if len(strategies) == 1 and strategies <= GATED_SOLO_STRATEGIES:
+        return f"auto-discarded: solo {next(iter(strategies))} signal"
+    return None
 
 
 def filter_alerts(alerts: list[dict]) -> list[dict]:
@@ -676,8 +686,11 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
     verdicts are cached so discarded alerts are never re-evaluated.
 
     Runs in four phases:
-      1. cache lookups for every alert (sequential local SQLite reads),
-      2. parallel LLM calls for cache misses (ThreadPoolExecutor, LLM_PARALLELISM workers),
+      1. cache lookups for every alert (sequential local SQLite reads);
+         1b. pre-LLM gate discards (cached as not-interesting);
+         1c. market-day cap deferrals (NOT cached — re-eligible later),
+      2. parallel LLM calls for the remaining misses (ThreadPoolExecutor,
+         LLM_PARALLELISM workers),
       3. assembly of the kept list in original input order on the main thread,
       4. cache writes flushed sequentially at the end.
 
@@ -712,6 +725,32 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
             gated[idx] = reason
         else:
             llm_indices.append(idx)
+
+    # Phase 1c: per-market-day evaluation cap. Markets that already burned
+    # MARKET_DAY_EVAL_CAP GPT calls today get no more until tomorrow, unless
+    # the alert is whale-sized. Deferred alerts are NOT cached — they were
+    # never judged, so they stay eligible for a future scan.
+    today = datetime.now(timezone.utc).date().isoformat()
+    deferred: set[int] = set()
+    market_counts: dict[str, int] = {}
+    allowed_indices: list[int] = []
+    for idx in llm_indices:
+        alert = alerts[idx]
+        cid = alert.get("condition_id") or ""
+        if not cid:
+            allowed_indices.append(idx)
+            continue
+        if cid not in market_counts:
+            market_counts[cid] = get_market_eval_count(cid, today)
+        at_cap = market_counts[cid] >= MARKET_DAY_EVAL_CAP
+        whale = (alert.get("total_usd") or 0) >= MARKET_DAY_CAP_EXEMPT_USD
+        if at_cap and not whale:
+            deferred.add(idx)
+            continue
+        market_counts[cid] += 1
+        increment_market_eval_count(cid, today)
+        allowed_indices.append(idx)
+    llm_indices = allowed_indices
 
     # Phase 2: parallel LLM calls for the ungated cache misses.
     # Build prompts up front on the main thread — `_build_prompt` reads from
@@ -772,6 +811,10 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
                 pending_saves.append((cache_key, False, gated[i]))
             continue
 
+        if i in deferred:
+            print(f"{prefix} DEFERRED (market hit {MARKET_DAY_EVAL_CAP} evaluations today)")
+            continue
+
         result, error = llm_results[i]
         if error is not None:
             print(f"{prefix} ERROR ({error}) — discarding alert")
@@ -810,5 +853,7 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
         print(f"[llm_filter] {cached} alert(s) resolved from cache.")
     if gated_count:
         print(f"[llm_filter] {gated_count} alert(s) auto-discarded by pre-LLM gate (no GPT call).")
+    if deferred:
+        print(f"[llm_filter] {len(deferred)} alert(s) deferred by the market-day eval cap (no GPT call).")
     print(f"[llm_filter] Kept {len(kept)}, discarded {discarded} of {total} alerts.")
     return kept

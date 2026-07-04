@@ -22,7 +22,7 @@ from datetime import datetime, timezone, timedelta
 
 import requests
 
-from detection_strategies import Signal
+from detection_strategies import Signal, compute_composite_score
 from detection_strategies import win_rate_tracking as _wrt
 from detection_strategies.win_rate_tracking import WinRateTrackingStrategy
 from detection_strategies.new_wallet_large_bet import NewWalletLargeBetStrategy
@@ -47,6 +47,7 @@ TRADE_WINDOW_SECONDS = 86400  # how far back to look for trades
 TRADE_PAGE_SIZE = 1000  # trades per API call (API max is 1,000)
 MIN_MARKET_DURATION_HOURS = 1  # skip markets shorter than this (e.g., 5-min BTC binary options)
 EXTREME_ODDS_THRESHOLD = 0.90  # skip trades at price > this
+LONGSHOT_PRICE_FLOOR = 0.30  # skip BUY trades at price < this — flagged longshots hit below market-implied odds (backtests 2026-06 and 2026-07: entry <0.30 graded -29%, <0.10 graded -61%)
 RESOLVED_MARKET_THRESHOLD = 0.95  # skip trades on markets where any outcome is >= this
 
 
@@ -178,6 +179,25 @@ def filter_extreme_odds(trades: list[dict]) -> list[dict]:
     return filtered
 
 
+def filter_longshots(trades: list[dict]) -> list[dict]:
+    """Remove BUY trades at longshot prices (< LONGSHOT_PRICE_FLOOR).
+
+    Both backtests (2026-06 and 2026-07) graded flagged longshot entries as a
+    consistent anti-signal: entries below 0.30 hit *below* their market-implied
+    odds (-29% avg copy return; -61% below 0.10). Large bettors taking
+    longshots are systematically wrong, not informed. SELL trades at low
+    prices are the opposite of a longshot (equivalent to buying the other
+    side at a high price) and are left alone."""
+    filtered = [
+        t for t in trades
+        if not (t.get("side", "").upper() == "BUY" and float(t.get("price", 0.5)) < LONGSHOT_PRICE_FLOOR)
+    ]
+    removed = len(trades) - len(filtered)
+    if removed:
+        print(f"[*] Filtered {removed} longshot BUY trade(s) below {LONGSHOT_PRICE_FLOOR:.2f}", flush=True)
+    return filtered
+
+
 def filter_resolved_markets(trades: list[dict]) -> list[dict]:
     """Remove trades on markets that are effectively resolved.
 
@@ -277,8 +297,15 @@ def _format_cluster_alert(
 ) -> tuple[float, str]:
     """Format a single cluster alert showing all member trades in one block."""
     sample = cluster_sig.trade
-    shared_total = sum(s.severity for s in shared_sigs)
-    max_score = shared_total
+    all_sigs: dict[tuple[str, str], Signal] = {}
+    for s in shared_sigs:
+        all_sigs[s.dedup_key] = s
+    for sigs in per_trade_sigs.values():
+        for s in sigs:
+            key = s.dedup_key
+            if key not in all_sigs or s.severity > all_sigs[key].severity:
+                all_sigs[key] = s
+    max_score = compute_composite_score(all_sigs.values())
 
     trade_rows: list[str] = []
     for t in sorted(cluster_trades, key=lambda x: -float(x.get("_usd_value", 0))):
@@ -290,9 +317,6 @@ def _format_cluster_alert(
         trade_time = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%H:%M:%S UTC")
 
         extra_sigs = per_trade_sigs.get(tx, [])
-        extra_total = sum(s.severity for s in extra_sigs)
-        max_score = max(max_score, shared_total + extra_total)
-
         extra_str = ""
         if extra_sigs:
             parts = [f"+{s.severity:.1f} {s.headline}" for s in sorted(extra_sigs, key=lambda x: -x.severity)]
@@ -419,7 +443,7 @@ def _format_composite_alerts(signals: list[Signal], trades: list[dict]) -> str:
                 if key not in seen_sigs or s.severity > seen_sigs[key].severity:
                     seen_sigs[key] = s
         deduped_sigs = list(seen_sigs.values())
-        total_severity = sum(s.severity for s in deduped_sigs)
+        total_severity = compute_composite_score(deduped_sigs)
 
         primary_trade = entries[0][1]
         extra_trades = [e[1] for e in entries[1:]] if len(entries) > 1 else None
@@ -433,7 +457,7 @@ def _format_composite_alerts(signals: list[Signal], trades: list[dict]) -> str:
         if has_cluster or cid in markets_with_per_trade:
             continue
         trade = market_sigs[0].trade
-        total_severity = sum(s.severity for s in market_sigs)
+        total_severity = compute_composite_score(market_sigs)
         composites.append((total_severity, _format_one_composite(trade, market_sigs, total_severity)))
 
     # Sort by severity descending
@@ -643,6 +667,7 @@ def scan_once(per_trade_strategies, batch_strategies, all_strategies, strategy_n
         trades = filter_short_markets(trades)
         trades = filter_resolved_markets(trades)
         trades = filter_extreme_odds(trades)
+        trades = filter_longshots(trades)
 
         if not trades:
             print("\n[*] All trades filtered out.")

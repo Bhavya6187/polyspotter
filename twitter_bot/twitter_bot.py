@@ -38,7 +38,7 @@ load_dotenv()
 # --- Config (from env) --------------------------------------------------------
 
 POLYSPOTTER_API_URL = os.environ.get("POLYSPOTTER_API_URL", "https://api.polyspotter.com")
-TWITTER_BOT_MIN_SCORE = float(os.environ.get("TWITTER_BOT_MIN_SCORE", "5.0"))
+TWITTER_BOT_MIN_SCORE = float(os.environ.get("TWITTER_BOT_MIN_SCORE", "4.0"))  # rescaled 2026-07 with compute_composite_score (was 5.0 on the severity-sum scale)
 TWITTER_BOT_DRY_RUN = os.environ.get("TWITTER_BOT_DRY_RUN", "false").lower() == "true"
 
 X_CONSUMER_KEY = os.environ.get("X_CONSUMER_KEY", "")

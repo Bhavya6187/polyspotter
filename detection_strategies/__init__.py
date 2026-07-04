@@ -43,6 +43,46 @@ class Signal:
         return (self.strategy, self.headline)
 
 
+# -- composite scoring ---------------------------------------------------------
+# Backtest-derived ranking weights (2026-07, see STRATEGY_USAGE_REPORT.md):
+# price_impact was the only strategy positive in both backtest windows
+# (+7.7% / +5.8% per-market copy return); new_wallet_large_bet,
+# pre_event_volume_spike, win_rate_tracking and low_activity_large_bet were
+# flat-to-negative in both.
+STRATEGY_WEIGHTS: dict[str, float] = {
+    "price_impact": 1.3,
+    "correlated_cross_market": 1.0,
+    "concentrated_one_sided": 1.0,
+    "wallet_clustering": 0.9,
+    "new_wallet_large_bet": 0.7,
+    "pre_event_volume_spike": 0.7,
+    "win_rate_tracking": 0.7,
+    "low_activity_large_bet": 0.7,
+    "timing_relative_resolution": 0.5,  # retired from the scan roster
+}
+
+
+def compute_composite_score(signals) -> float:
+    """Aggregate a set of Signals into an alert's composite score.
+
+    Takes the max severity per strategy (so one strategy firing many
+    signals on the same alert can't stack), applies STRATEGY_WEIGHTS,
+    then sums the per-strategy contributions with diminishing returns
+    (1, 1/2, 1/4, ... strongest first). Replaces the raw severity sum:
+    the 2026-06/07 backtests showed summed severity was non-monotonic
+    with graded copy returns because correlated_cross_market severity
+    stacking dominated the 8-12 score band (-5.2% per-market return).
+    """
+    best_per_strategy: dict[str, float] = {}
+    for s in signals:
+        w = STRATEGY_WEIGHTS.get(s.strategy, 1.0)
+        weighted = w * s.severity
+        if weighted > best_per_strategy.get(s.strategy, 0.0):
+            best_per_strategy[s.strategy] = weighted
+    contributions = sorted(best_per_strategy.values(), reverse=True)
+    return sum(v * (0.5 ** i) for i, v in enumerate(contributions))
+
+
 class DetectionStrategy(ABC):
     """Base class for all detection strategies."""
 
