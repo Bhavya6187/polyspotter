@@ -27,7 +27,7 @@ import json
 
 load_dotenv()
 
-BACKEND_URL = os.environ.get("POLYBOT_BACKEND_URL", "http://localhost:8000")
+BACKEND_URL = os.environ.get("POLYBOT_BACKEND_URL", "http://localhost:8000").rstrip("/")
 
 # When a cluster alert exists for an event with score >= this threshold,
 # cap the number of individual composite alerts on the same event.
