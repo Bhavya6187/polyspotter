@@ -116,6 +116,23 @@ def meets_conviction(cand: dict) -> bool:
     return usd >= MIN_CONVICTION_USD or trades >= MIN_CONVICTION_TRADES
 
 
+def is_concluded(cand: dict, now: datetime) -> bool:
+    """True when the candidate's effective end (kickoff time for sports, else
+    resolution deadline) is already past — a reader can no longer act on it.
+    Unknown or unparseable resolution_time is NOT concluded: we can't prove
+    the market is over, and alerts only fire on live trades anyway."""
+    raw = cand.get("resolution_time")
+    if not raw:
+        return False
+    try:
+        end = datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return False
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    return end <= now
+
+
 def extract_event_slugs(content_json) -> set:
     """All event_slugs referenced by a stored digest's content_json (any section).
     Tolerates a JSON string, None, or malformed shapes."""
@@ -135,15 +152,19 @@ def extract_event_slugs(content_json) -> set:
 
 
 def build_week_pool(upcoming: list[dict], hot: list[dict],
-                    today_slugs: set, featured_slugs: set) -> list[dict]:
+                    today_slugs: set, featured_slugs: set,
+                    now: datetime | None = None) -> list[dict]:
     """The 'Top This Week' candidate pool: dedupe upcoming+hot by event, drop
-    anything already in Resolving Today, already featured in a recent digest, or
-    below the conviction floor; then sort by composite score and cap."""
+    anything already in Resolving Today, already featured in a recent digest,
+    already concluded, or below the conviction floor; then sort by composite
+    score and cap."""
+    now = now or datetime.now(timezone.utc)
     week = dedupe_by_event(upcoming + hot)
     week = [c for c in week
             if c["event_slug"] not in today_slugs
             and c["event_slug"] not in featured_slugs
-            and meets_conviction(c)]
+            and meets_conviction(c)
+            and not is_concluded(c, now)]
     week.sort(key=lambda c: c.get("composite_score") or 0, reverse=True)
     return week[:WEEK_POOL_LIMIT]
 
@@ -552,14 +573,17 @@ def _get_conn():
     )
 
 
+# Lower bound is now(), not the start of the UTC day: the digest is sent at
+# 13:00 UTC (6 AM Pacific), so a midnight-anchored window would feature events
+# that concluded hours before the email (e.g. the previous US evening's games,
+# whose event_end_estimate is the kickoff time).
 _RESOLVING_TODAY_SQL = """
     SELECT DISTINCT ON (COALESCE(a.event_slug, a.condition_id))
         a.event_slug, a.condition_id, a.market_title, a.market_url, a.market_image,
         a.end_date, a.event_end_estimate, a.total_usd, a.trade_count,
         a.composite_score, a.llm_copy_action, a.tags
     FROM alerts a
-    WHERE COALESCE(a.event_end_estimate, a.end_date) IS NOT NULL
-      AND COALESCE(a.event_end_estimate, a.end_date) >= date_trunc('day', now())
+    WHERE COALESCE(a.event_end_estimate, a.end_date) >= now()
       AND COALESCE(a.event_end_estimate, a.end_date) <  date_trunc('day', now()) + interval '1 day'
     ORDER BY COALESCE(a.event_slug, a.condition_id), a.composite_score DESC
 """
@@ -575,6 +599,9 @@ _WEEK_UPCOMING_SQL = """
     ORDER BY COALESCE(a.event_slug, a.condition_id), a.composite_score DESC
 """
 
+# Recent alert activity alone doesn't mean the market is still open — a game
+# alerted on 5 days ago may have resolved 4 days ago. Require the effective end
+# to be in the future (or unknown: no deadline info means we can't call it over).
 _WEEK_HOT_SQL = """
     SELECT DISTINCT ON (COALESCE(a.event_slug, a.condition_id))
         a.event_slug, a.condition_id, a.market_title, a.market_url, a.market_image,
@@ -582,6 +609,8 @@ _WEEK_HOT_SQL = """
         a.composite_score, a.llm_copy_action, a.tags
     FROM alerts a
     WHERE a.created_at >= now() - interval '7 days'
+      AND (COALESCE(a.event_end_estimate, a.end_date) IS NULL
+           OR COALESCE(a.event_end_estimate, a.end_date) > now())
     ORDER BY COALESCE(a.event_slug, a.condition_id), a.composite_score DESC
 """
 
@@ -617,7 +646,9 @@ def fetch_recent_featured_slugs(days: int = FEATURED_LOOKBACK_DAYS) -> set:
 
 def fetch_candidates() -> dict:
     """Query the three pools and return shaped, deduped candidate lists. Both
-    pools enforce the conviction floor; week_pool also excludes anything already
+    pools enforce the conviction floor and drop already-concluded events (the
+    SQL filters on end time too — this is a second layer so no pool can leak a
+    finished market into the email); week_pool also excludes anything already
     in resolving_today or featured in a recent digest, and is capped."""
     conn = _get_conn()
     try:
@@ -631,10 +662,11 @@ def fetch_candidates() -> dict:
     finally:
         conn.close()
 
-    today = [c for c in today if meets_conviction(c)]
+    now = datetime.now(timezone.utc)
+    today = [c for c in today if meets_conviction(c) and not is_concluded(c, now)]
     today_slugs = {c["event_slug"] for c in today}
     featured = fetch_recent_featured_slugs()
-    week = build_week_pool(upcoming, hot, today_slugs, featured)
+    week = build_week_pool(upcoming, hot, today_slugs, featured, now=now)
     return {"resolving_today": today, "week_pool": week}
 
 
