@@ -1,7 +1,10 @@
 """Tests for the digest improvements:
   #2 conviction floor, #3 cross-day staleness dedup, #4 on-site links + UTM +
-  view-in-browser, #5 market thumbnails, #6 category normalization, #7 preheader.
+  view-in-browser, #5 market thumbnails, #6 category normalization, #7 preheader,
+  #8 concluded-event exclusion.
 """
+from datetime import datetime, timezone
+
 import digestbot
 
 
@@ -106,6 +109,67 @@ def test_build_week_pool_dedupes_keeping_highest_composite():
     )
     assert [c["event_slug"] for c in week] == ["x"]
     assert week[0]["composite_score"] == 95
+
+
+# --- #8 concluded events must never be featured ------------------------------
+# The 2026-07-08 digest featured five "Top This Week" events that had all ended
+# July 1-4: the hot pool had no end-date filter, and Resolving Today framed
+# "today" as the whole UTC day even though the send happens at 13:00 UTC.
+
+_NOW = datetime(2026, 7, 8, 13, 0, tzinfo=timezone.utc)
+
+
+def test_is_concluded_past_end_time():
+    assert digestbot.is_concluded(
+        {"resolution_time": "2026-07-04T08:00:00+00:00"}, _NOW) is True
+
+
+def test_is_concluded_future_end_time():
+    assert digestbot.is_concluded(
+        {"resolution_time": "2026-07-08T19:00:00+00:00"}, _NOW) is False
+
+
+def test_is_concluded_unknown_or_garbage_is_not_concluded():
+    # No deadline info means we can't prove it's over — keep it.
+    assert digestbot.is_concluded({"resolution_time": None}, _NOW) is False
+    assert digestbot.is_concluded({}, _NOW) is False
+    assert digestbot.is_concluded({"resolution_time": "not-a-date"}, _NOW) is False
+
+
+def test_is_concluded_naive_timestamp_treated_as_utc():
+    assert digestbot.is_concluded(
+        {"resolution_time": "2026-07-04T08:00:00"}, _NOW) is True
+
+
+def test_build_week_pool_drops_concluded_events():
+    ended = dict(_cand("wc-game-july-2", score=99),
+                 resolution_time="2026-07-02T19:00:00+00:00")
+    live = dict(_cand("wc-game-july-9", score=50),
+                resolution_time="2026-07-09T19:00:00+00:00")
+    open_ended = dict(_cand("no-deadline", score=40), resolution_time=None)
+    week = digestbot.build_week_pool(
+        [live], [ended, open_ended],
+        today_slugs=set(), featured_slugs=set(), now=_NOW,
+    )
+    slugs = [c["event_slug"] for c in week]
+    assert "wc-game-july-2" not in slugs   # ended six days before the send
+    assert slugs == ["wc-game-july-9", "no-deadline"]
+
+
+def test_week_hot_sql_excludes_already_ended_events():
+    # Regression pin: the hot pool selected on created_at alone, so alerts for
+    # markets that resolved days earlier kept qualifying for Top This Week.
+    sql = digestbot._WEEK_HOT_SQL
+    assert "COALESCE(a.event_end_estimate, a.end_date) > now()" in sql
+    assert "COALESCE(a.event_end_estimate, a.end_date) IS NULL" in sql
+
+
+def test_resolving_today_sql_starts_at_now_not_midnight():
+    # Regression pin: the send happens at 13:00 UTC, so a [00:00 UTC, 24:00 UTC)
+    # window featured events that had concluded hours before the email.
+    sql = digestbot._RESOLVING_TODAY_SQL
+    assert "COALESCE(a.event_end_estimate, a.end_date) >= now()" in sql
+    assert ">= date_trunc('day', now())" not in sql
 
 
 # --- #5 market thumbnail ----------------------------------------------------
