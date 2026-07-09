@@ -287,7 +287,13 @@ def build_alerts_payload(
         max_score = compute_composite_score(all_sigs.values())
 
         event_slug = sample.get("eventSlug", "")
-        cluster_dir = f"{sample.get('outcome', '')}:{sample.get('side', '')}"
+        # The signal's explicit direction keeps the dedup key stable across
+        # scans; the sample trade's outcome/side depend on batch order when a
+        # remapped SELL member happens to be first.
+        cluster_dir = (
+            getattr(cluster_sig, "direction", "")
+            or f"{sample.get('outcome', '')}:{sample.get('side', '')}"
+        )
         m_image, m_desc = _resolve_market_media(cid)
         game_start, event_end = _resolve_event_timing(cid)
         alerts.append({

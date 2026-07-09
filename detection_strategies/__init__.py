@@ -23,6 +23,10 @@ class Signal:
     trade: dict  # representative trade dict
     condition_id: str = ""
     trade_hashes: list[str] = field(default_factory=list)
+    # Effective cluster direction ("outcome:side"), set by cluster strategies.
+    # The representative trade's own outcome/side can't be used for this: a
+    # direction-remapped SELL member would flip the identity between scans.
+    direction: str = ""
 
     @property
     def dedup_key(self) -> tuple[str, str]:

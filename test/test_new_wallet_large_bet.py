@@ -570,5 +570,59 @@ class TestNewWalletLargeBetStrategy(unittest.TestCase):
         self.assertIn("P&L", result.headline)
 
 
+class TestProfileLookupFailure(unittest.TestCase):
+    """A failed Gamma lookup is not evidence of a new wallet.  Verified live
+    2026-07-09: a wallet created 2025-07-29 flipped to is_new_wallet=True on
+    a genuine connect timeout, which would both emit a false severity-3.5
+    signal and permanently inflate its flagged_wallets repeat counter."""
+
+    def setUp(self):
+        _wallet_cache.clear()
+        self.strategy = NewWalletLargeBetStrategy()
+
+    def tearDown(self):
+        _wallet_cache.clear()
+
+    def _make_trade(self):
+        return {
+            "proxyWallet": "0xabc123def456abc123def456abc123def456abcd",
+            "_usd_value": 5000,
+            "title": "Test Market",
+            "conditionId": "cond_1",
+            "size": 100,
+            "price": 0.5,
+            "timestamp": 1700000000,
+        }
+
+    @patch("detection_strategies.new_wallet_large_bet.get_wallet_pnl_summary")
+    @patch("detection_strategies.new_wallet_large_bet.record_flagged_wallet")
+    @patch("detection_strategies.new_wallet_large_bet.record_flagged_trade_event")
+    @patch("detection_strategies.new_wallet_large_bet.PROFILE_LOOKUP_DELAY", 0)
+    @patch("detection_strategies.new_wallet_large_bet.requests.get")
+    def test_lookup_failure_skips_trade(
+        self, mock_get, mock_event, mock_flag, mock_pnl
+    ):
+        import requests as _requests
+        mock_get.side_effect = _requests.RequestException("connect timeout")
+        mock_pnl.return_value = {"total_positions": 0, "closed_positions": 0, "total_pnl": 0}
+
+        result = self.strategy.check_trade(self._make_trade())
+
+        self.assertIsNone(result)
+        mock_event.assert_not_called()
+        mock_flag.assert_not_called()
+
+    @patch("detection_strategies.new_wallet_large_bet.PROFILE_LOOKUP_DELAY", 0)
+    @patch("detection_strategies.new_wallet_large_bet.requests.get")
+    def test_lookup_failure_not_cached(self, mock_get):
+        """A failed lookup must not be cached, so the wallet is retried."""
+        import requests as _requests
+        mock_get.side_effect = _requests.RequestException("connect timeout")
+        from detection_strategies.new_wallet_large_bet import get_wallet_profile
+
+        get_wallet_profile("0xabc123def456abc123def456abc123def456abcd")
+        self.assertEqual(_wallet_cache, {})
+
+
 if __name__ == "__main__":
     unittest.main()

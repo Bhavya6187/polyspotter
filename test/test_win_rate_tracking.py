@@ -8,6 +8,7 @@ from db import (
 )
 from detection_strategies.win_rate_tracking import (
     WinRateTrackingStrategy,
+    _fetch_wallet_pnl,
     _pnl_fetched,
     _win_rate_signaled,
     _resolutions_updated,
@@ -99,6 +100,67 @@ class TestWinRateTrackingHelpers(unittest.TestCase):
         self.assertEqual(stats["resolved_bets"], 2)
         self.assertEqual(stats["wins"], 1)
         self.assertEqual(stats["total_usd"], 10000.0)
+
+
+class TestFetchWalletPnl(unittest.TestCase):
+    """The Data API's /positions endpoint rejects sortBy=timestamp with a 400
+    (only CURRENT/INITIAL/TOKENS/... are valid there; verified live 2026-07-09).
+    Only /closed-positions accepts a timestamp sort.  The open-positions fetch
+    must not send it, or open positions are silently never recorded."""
+
+    def setUp(self):
+        _pnl_fetched.clear()
+
+    def tearDown(self):
+        _pnl_fetched.clear()
+
+    @patch("detection_strategies.win_rate_tracking.PNL_FETCH_DELAY", 0)
+    @patch("detection_strategies.win_rate_tracking.record_wallet_pnl")
+    @patch("detection_strategies.win_rate_tracking.get_wallet_pnl_latest_timestamp", return_value=None)
+    @patch("detection_strategies.win_rate_tracking.clear_wallet_pnl_by_type")
+    @patch("detection_strategies.win_rate_tracking.requests.get")
+    def test_open_positions_recorded_despite_api_sortby_rules(
+        self, mock_get, mock_clear, mock_latest, mock_record
+    ):
+        """Against a fake Data API that mimics the real one's sortBy validation,
+        the open position must still end up in record_wallet_pnl."""
+        open_pos = {
+            "conditionId": "c_open", "asset": "a_open", "outcome": "Yes",
+            "avgPrice": 0.5, "totalBought": 100.0, "realizedPnl": 0.0,
+            "curPrice": 0.6, "timestamp": 1700000000,
+        }
+        closed_pos = {
+            "conditionId": "c_closed", "asset": "a_closed", "outcome": "No",
+            "avgPrice": 0.4, "totalBought": 50.0, "realizedPnl": 30.0,
+            "curPrice": 1.0, "timestamp": 1699000000,
+        }
+        _VALID_OPEN_SORTS = {
+            "CURRENT", "INITIAL", "TOKENS", "CASHPNL", "PERCENTPNL",
+            "TITLE", "RESOLVING", "PRICE", "AVGPRICE",
+        }
+
+        def fake_api(url, params=None, timeout=None):
+            resp = MagicMock()
+            if url.endswith("/closed-positions"):
+                resp.status_code = 200
+                resp.json.return_value = [closed_pos] if params.get("offset", 0) == 0 else []
+            elif url.endswith("/positions"):
+                sort_by = str(params.get("sortBy", "")).upper()
+                if sort_by and sort_by not in _VALID_OPEN_SORTS:
+                    resp.status_code = 400  # exactly what the real API does
+                    return resp
+                resp.status_code = 200
+                resp.json.return_value = [open_pos] if params.get("offset", 0) == 0 else []
+            return resp
+
+        mock_get.side_effect = fake_api
+        _fetch_wallet_pnl("0xWallet1")
+
+        open_records = [c for c in mock_record.call_args_list if c.args[2] == "open"]
+        closed_records = [c for c in mock_record.call_args_list if c.args[2] == "closed"]
+        self.assertEqual(len(open_records), 1, "open position was not recorded")
+        self.assertEqual(open_records[0].args[1], open_pos)
+        self.assertEqual(len(closed_records), 1)
 
 
 class TestWinRateTrackingStrategy(unittest.TestCase):

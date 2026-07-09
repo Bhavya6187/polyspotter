@@ -42,9 +42,14 @@ _wallet_cache: dict[str, tuple[datetime | None, dict]] = {}
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-def get_wallet_profile(address: str) -> tuple[datetime | None, dict]:
+def get_wallet_profile(address: str) -> tuple[datetime | None, dict] | None:
     """Look up a wallet's public profile on the Gamma API.
-    Results are cached."""
+    Results are cached.
+
+    Returns (created_at, profile); (None, {}) means the wallet genuinely has
+    no profile.  Returns None when the lookup itself failed — callers must
+    not treat that as "new wallet" (a Gamma outage would flag every wallet
+    in the batch and permanently inflate its repeat-flag counter)."""
     short = f"{address[:8]}...{address[-6:]}"
     if address in _wallet_cache:
         if config.VERBOSE:
@@ -70,7 +75,7 @@ def get_wallet_profile(address: str) -> tuple[datetime | None, dict]:
         profile = resp.json()
     except requests.RequestException as e:
         print(f"[WARN] Profile lookup failed for {address}: {e}", file=sys.stderr)
-        return (None, {})
+        return None  # not cached — retried on the next trade
 
     created_str = profile.get("createdAt")
     created_at = None
@@ -164,7 +169,13 @@ class NewWalletLargeBetStrategy(DetectionStrategy):
                 print(f"    [skip] No wallet address on this trade")
             return None
 
-        created_at, _profile = get_wallet_profile(wallet)
+        profile_result = get_wallet_profile(wallet)
+        if profile_result is None:
+            # Lookup failed — wallet age is unknown, not "new"; skip.
+            if config.VERBOSE:
+                print(f"    [skip] Profile lookup failed — cannot determine wallet age")
+            return None
+        created_at, _profile = profile_result
 
         if is_new_wallet(created_at):
             age = wallet_age_str(created_at)

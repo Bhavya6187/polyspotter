@@ -421,6 +421,56 @@ class TestConcentratedOneSidedStrategy(unittest.TestCase):
         self.assertAlmostEqual(signals[0].severity, 8.0, places=2)
 
     # ------------------------------------------------------------------
+    # Cluster direction must not depend on trade order (remapped SELLs)
+    # ------------------------------------------------------------------
+
+    def _binary_cluster_trades(self):
+        """3-wallet effective BUY-Yes cluster on a binary market, containing
+        one SELL-No trade that gets direction-remapped."""
+        sell = self._make_trade("wallet_1", cid="cond_bin", outcome="No", side="SELL", usd=2000, price=0.40)
+        buys = [
+            self._make_trade("wallet_2", cid="cond_bin", outcome="Yes", side="BUY", usd=2000, price=0.60),
+            self._make_trade("wallet_3", cid="cond_bin", outcome="Yes", side="BUY", usd=2000, price=0.61),
+        ]
+        return sell, buys
+
+    def test_remapped_cluster_direction_stable_across_trade_order(self):
+        """The signal must expose the cluster's effective direction explicitly;
+        it must not flip with whichever member trade happens to come first
+        (that previously flipped the backend dedup key between scans)."""
+        sell, buys = self._binary_cluster_trades()
+        directions = set()
+        for batch in ([sell] + buys, buys + [sell]):
+            signals = self.strategy.analyze_all(batch)
+            self.assertEqual(len(signals), 1)
+            directions.add(signals[0].direction)
+        self.assertEqual(directions, {"Yes:BUY"})
+
+    def test_remapped_cluster_sample_trade_keeps_real_price(self):
+        """Signal.trade must be one of the actual input trades — not a
+        synthetic copy whose price was flipped to 1-p while outcome/side
+        still describe the original SELL."""
+        sell, buys = self._binary_cluster_trades()
+        batch = [sell] + buys  # SELL first so it becomes the sample
+        signals = self.strategy.analyze_all(batch)
+        self.assertEqual(len(signals), 1)
+        self.assertIn(signals[0].trade, batch)
+
+    @patch("detection_strategies.concentrated_one_sided.get_market_by_condition")
+    def test_favorite_suppression_uses_effective_price_for_remapped_sells(self, mock_market):
+        """Selling the longshot side IS buying the favorite: 3 wallets selling
+        No around 0.20 (= buying Yes around 0.80) on a high-volume market must
+        still be suppressed by the favorite filter."""
+        mock_market.return_value = {"volume24hr": 100_000}
+        trades = [
+            self._make_trade("wallet_1", cid="cond_bin", outcome="No", side="SELL", usd=2000, price=0.20),
+            self._make_trade("wallet_2", cid="cond_bin", outcome="No", side="SELL", usd=2000, price=0.22),
+            self._make_trade("wallet_3", cid="cond_bin", outcome="Yes", side="BUY", usd=2000, price=0.79),
+        ]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 0)
+
+    # ------------------------------------------------------------------
     # Multiple shared funders
     # ------------------------------------------------------------------
 
