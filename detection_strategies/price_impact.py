@@ -43,6 +43,10 @@ HISTORICAL_SHIFT_THRESHOLD = 0.25  # flag if price moved >= 25pp from historical
 MIN_TRADES_FOR_SIGNAL = 2  # need at least this many trades to measure shift
 VELOCITY_WINDOW_SEC = 300  # 5-minute window for velocity calculation
 VELOCITY_THRESHOLD = 0.10  # 10pp move in 5 minutes = fast
+# Candle pairs older than this are ignored by velocity detection: cached
+# candles persist across runs, so without a recency cutoff a single rapid
+# move kept re-firing on every scan for hours after it happened.
+VELOCITY_MAX_AGE_SEC = 900
 THIN_BOOK_DEPTH_USD = 5000  # orderbook with < $5k depth is considered thin
 
 
@@ -247,10 +251,15 @@ class PriceImpactStrategy(DetectionStrategy):
             if len(candles) < 3:
                 continue
 
-            # Check for rapid price velocity in recent candles
-            for j in range(len(candles) - 1):
+            # Check for rapid price velocity in recent candles.  Walk pairs
+            # newest-first and stop at the recency cutoff — candles are
+            # oldest-first, so every earlier pair is older still.
+            now_ts = time.time()
+            for j in range(len(candles) - 2, -1, -1):
                 t0, p0 = candles[j]
                 t1, p1 = candles[j + 1]
+                if now_ts - t1 > VELOCITY_MAX_AGE_SEC:
+                    break
                 dt = t1 - t0
                 if dt <= 0 or dt > VELOCITY_WINDOW_SEC:
                     continue

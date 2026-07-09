@@ -92,10 +92,16 @@ def _fetch_positions_page(wallet: str, endpoint: str, position_type: str,
     while fetched < limit:
         time.sleep(PNL_FETCH_DELAY)
         try:
+            params = {"user": wallet, "limit": page_size, "offset": offset}
+            if endpoint == "closed-positions":
+                # Only /closed-positions accepts sortBy=timestamp; /positions
+                # rejects it with a 400 (valid sorts there are CURRENT/INITIAL/
+                # TOKENS/...), which silently dropped all open positions.
+                params["sortBy"] = "timestamp"
+                params["sortDir"] = "desc"
             resp = requests.get(
                 f"{DATA_API}/{endpoint}",
-                params={"user": wallet, "limit": page_size, "offset": offset,
-                        "sortBy": "timestamp", "sortDir": "desc"},
+                params=params,
                 timeout=15,
             )
             if resp.status_code != 200:

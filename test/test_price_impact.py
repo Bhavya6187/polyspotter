@@ -1,7 +1,21 @@
+import time
 import unittest
+from contextlib import ExitStack
 from unittest.mock import patch
 
 from detection_strategies.price_impact import PriceImpactStrategy
+
+
+def _velocity_patches(stack, candles, orderbook=None):
+    """Patch the CLOB fetch/read helpers around a velocity-detection test."""
+    stack.enter_context(patch("detection_strategies.price_impact._fetch_price_candles"))
+    stack.enter_context(patch("detection_strategies.price_impact._fetch_orderbook"))
+    stack.enter_context(
+        patch("detection_strategies.price_impact.get_price_candles", return_value=candles)
+    )
+    stack.enter_context(
+        patch("detection_strategies.price_impact.get_orderbook_stats", return_value=orderbook)
+    )
 
 
 @patch("detection_strategies.price_impact.get_historical_price_range", return_value=None)
@@ -132,28 +146,62 @@ class TestPriceImpactStrategy(unittest.TestCase):
         self.assertEqual(len(signals), 0)
 
     # --- Velocity detection tests ---
+    # Candle timestamps are relative to "now": the velocity check must only
+    # consider recent pairs, so fixed epoch timestamps would never fire.
 
-    @patch("detection_strategies.price_impact.get_orderbook_stats", return_value=None)
-    @patch("detection_strategies.price_impact.get_price_candles", return_value=[(1000, 0.40), (1100, 0.42), (1200, 0.55)])
-    @patch("detection_strategies.price_impact._fetch_orderbook")
-    @patch("detection_strategies.price_impact._fetch_price_candles")
-    def test_velocity_detection_triggers(self, mock_fetch_candles, mock_fetch_ob, mock_candles, mock_ob, mock_record, mock_hist):
-        """Rapid price move in candles triggers velocity signal."""
+    def test_velocity_detection_triggers(self, *mocks):
+        """Rapid RECENT price move in candles triggers velocity signal."""
+        now = time.time()
+        candles = [(now - 250, 0.40), (now - 150, 0.42), (now - 50, 0.55)]
         trade = self._make_trade(price=0.50, ts=1000)
         trade["asset"] = "token_1"
-        signals = self.strategy.analyze_all([trade])
+        with ExitStack() as stack:
+            _velocity_patches(stack, candles)
+            signals = self.strategy.analyze_all([trade])
         self.assertEqual(len(signals), 1)
         self.assertIn("rapid price", signals[0].headline)
 
-    @patch("detection_strategies.price_impact.get_orderbook_stats", return_value={"bid_depth": 1000, "ask_depth": 1000, "spread": 0.05})
-    @patch("detection_strategies.price_impact.get_price_candles", return_value=[(1000, 0.40), (1100, 0.42), (1200, 0.55)])
-    @patch("detection_strategies.price_impact._fetch_orderbook")
-    @patch("detection_strategies.price_impact._fetch_price_candles")
-    def test_velocity_thin_book_boost(self, mock_fetch_candles, mock_fetch_ob, mock_candles, mock_ob_stats, mock_record, mock_hist):
-        """Thin orderbook boosts velocity signal severity."""
+    def test_velocity_stale_pair_not_signaled(self, *mocks):
+        """A rapid move from hours ago must NOT produce a velocity signal.
+        (Verified live 2026-07-09: pairs up to 4.3h old re-fired on every
+        scan, inflating fresh alerts' composite scores.)"""
+        now = time.time()
+        candles = [(now - 7200, 0.40), (now - 7100, 0.42), (now - 7000, 0.55)]
         trade = self._make_trade(price=0.50, ts=1000)
         trade["asset"] = "token_1"
-        signals = self.strategy.analyze_all([trade])
+        with ExitStack() as stack:
+            _velocity_patches(stack, candles)
+            signals = self.strategy.analyze_all([trade])
+        self.assertEqual(len(signals), 0)
+
+    def test_velocity_reports_most_recent_qualifying_pair(self, *mocks):
+        """When several recent pairs qualify, the newest one is reported."""
+        now = time.time()
+        candles = [
+            (now - 800, 0.10), (now - 700, 0.22),  # older move: 0.12
+            (now - 600, 0.22), (now - 100, 0.22),
+            (now - 50, 0.42),                       # newest move: 0.20
+        ]
+        trade = self._make_trade(price=0.50, ts=1000)
+        trade["asset"] = "token_1"
+        with ExitStack() as stack:
+            _velocity_patches(stack, candles)
+            signals = self.strategy.analyze_all([trade])
+        self.assertEqual(len(signals), 1)
+        self.assertIn("20.00%", signals[0].headline)
+
+    def test_velocity_thin_book_boost(self, *mocks):
+        """Thin orderbook boosts velocity signal severity."""
+        now = time.time()
+        candles = [(now - 250, 0.40), (now - 150, 0.42), (now - 50, 0.55)]
+        trade = self._make_trade(price=0.50, ts=1000)
+        trade["asset"] = "token_1"
+        with ExitStack() as stack:
+            _velocity_patches(
+                stack, candles,
+                orderbook={"bid_depth": 1000, "ask_depth": 1000, "spread": 0.05},
+            )
+            signals = self.strategy.analyze_all([trade])
         self.assertEqual(len(signals), 1)
         # Base severity for 0.13 move = 1.3, boosted by 1.0 = 2.3
         # Without boost it would be 1.3
@@ -226,27 +274,30 @@ class TestPriceImpactStrategy(unittest.TestCase):
 
     # --- Velocity detection: spread in headline and zero-velocity ---
 
-    @patch("detection_strategies.price_impact.get_orderbook_stats", return_value={"bid_depth": 100, "ask_depth": 100, "spread": 0.03})
-    @patch("detection_strategies.price_impact.get_price_candles", return_value=[(1000, 0.40), (1100, 0.42), (1200, 0.55)])
-    @patch("detection_strategies.price_impact._fetch_orderbook")
-    @patch("detection_strategies.price_impact._fetch_price_candles")
-    def test_orderbook_spread_in_velocity_headline(self, mock_fetch_candles, mock_fetch_ob, mock_candles, mock_ob_stats, mock_record, mock_hist):
+    def test_orderbook_spread_in_velocity_headline(self, *mocks):
         """When orderbook spread > 0, the velocity signal headline should include spread info."""
+        now = time.time()
+        candles = [(now - 250, 0.40), (now - 150, 0.42), (now - 50, 0.55)]
         trade = self._make_trade(price=0.50, ts=1000)
         trade["asset"] = "token_1"
-        signals = self.strategy.analyze_all([trade])
+        with ExitStack() as stack:
+            _velocity_patches(
+                stack, candles,
+                orderbook={"bid_depth": 100, "ask_depth": 100, "spread": 0.03},
+            )
+            signals = self.strategy.analyze_all([trade])
         self.assertEqual(len(signals), 1)
         self.assertIn("spread", signals[0].headline)
 
-    @patch("detection_strategies.price_impact.get_orderbook_stats", return_value=None)
-    @patch("detection_strategies.price_impact.get_price_candles", return_value=[(1000, 0.50), (1100, 0.50), (1200, 0.50)])
-    @patch("detection_strategies.price_impact._fetch_orderbook")
-    @patch("detection_strategies.price_impact._fetch_price_candles")
-    def test_velocity_zero_no_signal(self, mock_fetch_candles, mock_fetch_ob, mock_candles, mock_ob_stats, mock_record, mock_hist):
+    def test_velocity_zero_no_signal(self, *mocks):
         """Consecutive candles with identical prices (velocity=0) should not trigger a velocity signal."""
+        now = time.time()
+        candles = [(now - 250, 0.50), (now - 150, 0.50), (now - 50, 0.50)]
         trade = self._make_trade(price=0.50, ts=1000)
         trade["asset"] = "token_1"
-        signals = self.strategy.analyze_all([trade])
+        with ExitStack() as stack:
+            _velocity_patches(stack, candles)
+            signals = self.strategy.analyze_all([trade])
         self.assertEqual(len(signals), 0)
 
 

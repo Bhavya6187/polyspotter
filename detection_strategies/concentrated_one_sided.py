@@ -88,11 +88,12 @@ class ConcentratedOneSidedStrategy(DetectionStrategy):
                 continue
 
             if cid in binary_cids and side == "SELL":
-                # Selling outcome A = buying outcome B in a binary market
+                # Selling outcome A = buying outcome B in a binary market.
+                # Only the cluster key is remapped — the trade dict itself is
+                # kept unmodified so downstream consumers see real prices.
                 o1, o2 = binary_cids[cid]
                 effective_outcome = o2 if outcome == o1 else o1
-                remapped = dict(t, price=1 - price)
-                clusters[(cid, effective_outcome, "BUY")].append(remapped)
+                clusters[(cid, effective_outcome, "BUY")].append(t)
             else:
                 clusters[(cid, outcome, side)].append(t)
 
@@ -110,8 +111,15 @@ class ConcentratedOneSidedStrategy(DetectionStrategy):
             # Suppress clusters buying heavy favorites on high-volume markets —
             # lots of people backing the consensus pick isn't a signal.
             if side == "BUY":
+                # A SELL member in a BUY cluster is a direction-remapped
+                # binary trade: its effective buy price is 1 - price.
                 avg_price = (
-                    sum(float(t.get("price", 0)) for t in cluster_trades)
+                    sum(
+                        1 - float(t.get("price", 0))
+                        if t.get("side") == "SELL"
+                        else float(t.get("price", 0))
+                        for t in cluster_trades
+                    )
                     / len(cluster_trades)
                 )
                 if avg_price > FAVORITE_PRICE_THRESHOLD:
@@ -158,6 +166,7 @@ class ConcentratedOneSidedStrategy(DetectionStrategy):
                     trade=sample,
                     condition_id=cid,
                     trade_hashes=tx_hashes,
+                    direction=f"{outcome}:{side}",
                 )
             )
 
