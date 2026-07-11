@@ -637,9 +637,12 @@ def _generate_thesis_headline(thesis: dict) -> str | None:
         if not api_key:
             return None
         from openai import OpenAI
+        from llm_filter import _log_prompt
         endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
         model = os.environ.get("AZURE_OPENAI_MODEL", "")
         client = OpenAI(base_url=endpoint, api_key=api_key)
+        cache_key = f"thesis:{thesis.get('wallet', '')}:{thesis.get('event_slug', '')}"
+        _log_prompt([{"role": "user", "content": prompt}], model, cache_key)
         # Generous budget: max_output_tokens includes reasoning tokens on
         # GPT-5-class models, so a tight cap can starve the visible output.
         resp = client.responses.create(

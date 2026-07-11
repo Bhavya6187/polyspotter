@@ -19,9 +19,33 @@ AZURE_OPENAI_API_KEY = os.environ.get("AZURE_OPENAI_API_KEY", "")
 AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
 MODEL = os.environ.get("AZURE_OPENAI_MODEL", "")
 
+
+class ContentFilterError(Exception):
+    """Azure's content filter blocked the prompt (400, code='content_filter').
+
+    Permanent for a given prompt — callers should skip the row rather than
+    retry it on every pass."""
+
+
+def _is_content_filter(exc: Exception) -> bool:
+    return getattr(exc, "code", None) == "content_filter" or "content_filter" in str(exc)
+
+
+# Market questions routinely reference news topics (conflicts, strikes,
+# elections); the verbatim-quote framing keeps Azure's prompt content filter
+# from reading them as violent intent rather than financial metadata.
+_NEUTRAL_FRAMING = (
+    "The text below is page metadata for a publicly traded prediction market, "
+    "quoted verbatim from the exchange. Any references to news events "
+    "(geopolitical conflict, elections, sports outcomes) are the neutral "
+    "subject matter of a financial market, not requests to discuss them."
+)
+
 SYSTEM_PROMPT = (
     "You are an SEO content specialist for PolySpotter, a Polymarket smart money tracker. "
-    "Given a prediction market's metadata, generate SEO-optimized content for the market's page.\n\n"
+    "Given a prediction market's metadata, generate SEO-optimized content for the market's page. "
+    "Market questions may reference real-world news topics, including geopolitical conflict; "
+    "treat them as neutral financial-market subject matter.\n\n"
 
     "## Guidelines\n"
     "- Write for humans searching Google for prediction market odds, outcomes, and analysis.\n"
@@ -91,7 +115,7 @@ def _build_market_prompt(
     alert_headlines: list[str] | None = None,
 ) -> str:
     """Build a user prompt with market context for SEO generation."""
-    parts = [f"Market: {market_title}"]
+    parts = [_NEUTRAL_FRAMING, "", f"Market: {market_title}"]
     if description:
         desc = description[:500] + "..." if len(description) > 500 else description
         parts.append(f"Description: {desc}")
@@ -122,7 +146,9 @@ def generate_seo_content(
     """Generate SEO content for a market page via Azure OpenAI.
 
     Returns dict with seo_title, seo_description, seo_summary, seo_faqs,
-    or None if generation fails or API key is missing.
+    or None if generation fails or API key is missing. Raises
+    ContentFilterError when Azure's content filter blocks the prompt —
+    that failure is permanent and should not be retried.
     """
     if not AZURE_OPENAI_API_KEY:
         return None
@@ -150,5 +176,7 @@ def generate_seo_content(
             "seo_faqs": result.get("seo_faqs", []),
         }
     except Exception as e:
+        if _is_content_filter(e):
+            raise ContentFilterError(str(e)) from e
         print(f"[seo_generator] ERROR generating SEO content: {e}")
         return None

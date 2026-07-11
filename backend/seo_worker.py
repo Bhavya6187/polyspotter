@@ -28,7 +28,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 from database import get_conn  # noqa: E402
 from events import upsert_event  # noqa: E402
-from seo_generator import generate_seo_content  # noqa: E402
+from seo_generator import ContentFilterError, generate_seo_content  # noqa: E402
 from event_seo_generator import generate_event_seo_content  # noqa: E402
 
 MARKET_SEO_LIMIT = 10
@@ -74,6 +74,7 @@ def run_market_seo() -> int:
                 FROM alerts
                 WHERE condition_id IS NOT NULL
                   AND seo_generated_at IS NULL
+                  AND seo_skip_reason IS NULL
                   AND market_title IS NOT NULL
                 GROUP BY condition_id
                 ORDER BY latest_scanned_at DESC
@@ -102,6 +103,17 @@ def run_market_seo() -> int:
                     alert_count=row["alert_count"] or 0,
                     alert_headlines=headlines,
                 )
+            except ContentFilterError:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE alerts SET seo_skip_reason = 'content_filter' WHERE condition_id = %s",
+                        (cid,),
+                    )
+                print(
+                    f"[seo_worker:market] content-filtered, skipping permanently: {row['market_title']}",
+                    flush=True,
+                )
+                continue
             except Exception as e:
                 print(f"[seo_worker:market] LLM error for {row['market_title']}: {e}", flush=True)
                 continue
@@ -164,6 +176,7 @@ def run_event_seo() -> int:
                 FROM events e
                 WHERE e.title IS NOT NULL
                   AND e.seo_generated_at IS NULL
+                  AND e.seo_skip_reason IS NULL
                   AND EXISTS (SELECT 1 FROM alerts a WHERE a.event_slug = e.event_slug)
                 ORDER BY e.last_refreshed_at DESC NULLS LAST
                 LIMIT %s
@@ -206,6 +219,17 @@ def run_event_seo() -> int:
                     alert_count=int(agg.get("alert_count") or 0),
                     alert_headlines=headlines,
                 )
+            except ContentFilterError:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE events SET seo_skip_reason = 'content_filter' WHERE event_slug = %s",
+                        (slug,),
+                    )
+                print(
+                    f"[seo_worker:event] content-filtered, skipping permanently: {row['title']}",
+                    flush=True,
+                )
+                continue
             except Exception as e:
                 print(f"[seo_worker:event] LLM error for {row['title']}: {e}", flush=True)
                 continue

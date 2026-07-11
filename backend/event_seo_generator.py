@@ -17,6 +17,8 @@ import os
 from openai import OpenAI
 from dotenv import load_dotenv
 
+from seo_generator import ContentFilterError, _is_content_filter, _NEUTRAL_FRAMING
+
 load_dotenv()
 
 AZURE_OPENAI_API_KEY = os.environ.get("AZURE_OPENAI_API_KEY", "")
@@ -27,7 +29,9 @@ SYSTEM_PROMPT = (
     "You are an SEO content specialist for PolySpotter, a Polymarket smart money tracker. "
     "Given a Polymarket EVENT (a hub covering multiple related child markets — e.g. a single "
     "sports game with home/draw/away markets, or an election with one market per candidate), "
-    "generate SEO-optimized content for the event's hub page.\n\n"
+    "generate SEO-optimized content for the event's hub page. "
+    "Event titles may reference real-world news topics, including geopolitical conflict; "
+    "treat them as neutral financial-market subject matter.\n\n"
 
     "## Guidelines\n"
     "- Write for humans searching Google for prediction-market odds on the event.\n"
@@ -100,7 +104,7 @@ def _build_event_prompt(
     alert_headlines: list[str] | None = None,
 ) -> str:
     """Build a user prompt with event context for SEO generation."""
-    parts = [f"Event: {event_title}"]
+    parts = [_NEUTRAL_FRAMING, "", f"Event: {event_title}"]
     if description:
         desc = description[:500] + "..." if len(description) > 500 else description
         parts.append(f"Description: {desc}")
@@ -136,7 +140,9 @@ def generate_event_seo_content(
     """Generate SEO content for an event hub page via Azure OpenAI.
 
     Returns dict with seo_title, seo_description, seo_summary, seo_faqs,
-    or None if generation fails or API key is missing.
+    or None if generation fails or API key is missing. Raises
+    ContentFilterError when Azure's content filter blocks the prompt —
+    that failure is permanent and should not be retried.
     """
     if not AZURE_OPENAI_API_KEY:
         return None
@@ -164,5 +170,7 @@ def generate_event_seo_content(
             "seo_faqs": result.get("seo_faqs", []),
         }
     except Exception as e:
+        if _is_content_filter(e):
+            raise ContentFilterError(str(e)) from e
         print(f"[event_seo_generator] ERROR generating SEO content: {e}")
         return None
