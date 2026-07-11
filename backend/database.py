@@ -39,6 +39,7 @@ def init_db():
             _migrate_add_graded_calls(cur)
             _migrate_add_subscribers(cur)
             _migrate_add_digests(cur)
+            _migrate_add_seo_skip(cur)
         conn.commit()
     finally:
         conn.close()
@@ -137,6 +138,13 @@ def _migrate_add_tweeted_alerts(cur):
         CREATE INDEX IF NOT EXISTS idx_tweeted_alerts_wallet_market
             ON tweeted_alerts (wallet, condition_id, tweeted_at DESC)
     """)
+
+
+def _migrate_add_seo_skip(cur):
+    """Add seo_skip_reason to alerts + events: non-NULL marks rows the SEO
+    worker must never retry (e.g. Azure content filter blocked the prompt)."""
+    cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS seo_skip_reason TEXT")
+    cur.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS seo_skip_reason TEXT")
 
 
 def _migrate_add_seo_fields(cur):

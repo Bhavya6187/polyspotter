@@ -42,6 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from database import get_conn
 from events import upsert_event
 from event_seo_generator import generate_event_seo_content
+from seo_generator import ContentFilterError
 
 # Match gamma_cache.MARKET_LOOKUP_DELAY — Polymarket has been comfortable
 # with this rate from elsewhere in the project.
@@ -161,6 +162,20 @@ def _persist_seo(slug: str, result: dict) -> None:
         conn.close()
 
 
+def _persist_skip(slug: str) -> None:
+    """Mark an event permanently skipped (Azure content filter blocked it)."""
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE events SET seo_skip_reason = 'content_filter' WHERE event_slug = %s",
+                (slug,),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def phase_seo(limit: int | None) -> int:
     """Generate SEO content for hydrated events that don't have it yet."""
     conn = get_conn()
@@ -172,6 +187,7 @@ def phase_seo(limit: int | None) -> int:
                 FROM events e
                 WHERE e.title IS NOT NULL
                   AND e.seo_generated_at IS NULL
+                  AND e.seo_skip_reason IS NULL
                   AND EXISTS (SELECT 1 FROM alerts a WHERE a.event_slug = e.event_slug)
                 ORDER BY e.event_slug
             """
@@ -203,16 +219,21 @@ def phase_seo(limit: int | None) -> int:
         except (json.JSONDecodeError, TypeError):
             pass
 
-        result = generate_event_seo_content(
-            event_title=row["title"],
-            description=row.get("description"),
-            tags=tags_list,
-            end_date=row.get("end_date"),
-            market_titles=market_titles,
-            total_usd=total_usd,
-            alert_count=alert_count,
-            alert_headlines=headlines,
-        )
+        try:
+            result = generate_event_seo_content(
+                event_title=row["title"],
+                description=row.get("description"),
+                tags=tags_list,
+                end_date=row.get("end_date"),
+                market_titles=market_titles,
+                total_usd=total_usd,
+                alert_count=alert_count,
+                alert_headlines=headlines,
+            )
+        except ContentFilterError:
+            _persist_skip(slug)
+            print(f"  content-filtered, skipping permanently: {row['title'] or slug}")
+            continue
 
         if result:
             _persist_seo(slug, result)

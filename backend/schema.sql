@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS alerts (
     seo_summary     TEXT,
     seo_faqs        TEXT DEFAULT '[]',   -- JSON array of {question, answer}
     seo_generated_at TIMESTAMPTZ,
+    seo_skip_reason TEXT,                -- non-NULL = permanently skip SEO generation (e.g. 'content_filter')
 
     -- timestamps
     scanned_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),  -- when polybot produced this
@@ -178,6 +179,7 @@ CREATE TABLE IF NOT EXISTS events (
     seo_summary         TEXT,
     seo_faqs            TEXT DEFAULT '[]',   -- JSON array of {question, answer}
     seo_generated_at    TIMESTAMPTZ,
+    seo_skip_reason     TEXT,                -- non-NULL = permanently skip SEO generation (e.g. 'content_filter')
 
     fetched_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_refreshed_at   TIMESTAMPTZ
