@@ -2,7 +2,7 @@
 // while keeping the sitemap fresh enough for Google's typical crawl cadence.
 export const revalidate = 3600;
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.API_URL_SERVER || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
 
 const FETCH_OPTS = { next: { revalidate: 3600 } };

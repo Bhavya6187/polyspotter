@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.API_URL_SERVER || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
 
 export const revalidate = 60;

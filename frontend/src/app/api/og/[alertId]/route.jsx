@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.API_URL_SERVER || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export async function GET(request, { params }) {
   const { alertId } = await params;

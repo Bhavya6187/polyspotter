@@ -10,7 +10,7 @@ const VALID_SEVERITIES = new Set(["6", "10", "15"]);
 
 export const revalidate = 60;
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.API_URL_SERVER || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 function tagFromSlug(slug) {
   return decodeURIComponent(slug).replace(/-/g, " ");

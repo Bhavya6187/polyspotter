@@ -7,7 +7,7 @@ import EventSportOverlay from "./event-sport-overlay";
 
 export const revalidate = 60;
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.API_URL_SERVER || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const usdFmt = new Intl.NumberFormat("en-US", {
   style: "currency",

@@ -5,7 +5,7 @@ import { partialIdFromSlug, marketSlug } from "../../../lib/slugify";
 
 export const revalidate = 60;
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.API_URL_SERVER || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 async function resolveConditionId(partialId) {
   if (/^0x[a-fA-F0-9]{64}$/.test(partialId)) return partialId;

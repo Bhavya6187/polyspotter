@@ -6,7 +6,7 @@ import { walletPseudonym } from "../../../lib/pseudonym";
 
 export const revalidate = 60;
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.API_URL_SERVER || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 async function getWalletData(address) {
   try {
