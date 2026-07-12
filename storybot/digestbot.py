@@ -24,7 +24,7 @@ import psycopg2
 import requests
 from psycopg2.extras import RealDictCursor
 
-from bot_utils import DATABASE_URL, QUERY_TIMEOUT_SECONDS, log
+from bot_utils import DATABASE_URL, GAMMA_BASE_URL, QUERY_TIMEOUT_SECONDS, log
 
 # --- Config -----------------------------------------------------------------
 
@@ -332,6 +332,52 @@ def dedupe_by_event(cands: list[dict]) -> list[dict]:
     return list(best.values())
 
 
+# --- Event-title grounding ----------------------------------------------------
+
+_EVENT_TITLE_BATCH_SIZE = 20
+
+
+def fetch_event_titles(slugs) -> dict[str, str]:
+    """Batch-fetch {event_slug: Gamma event display title} (e.g. 'France vs.
+    Spain'). Sports market titles are often bare questions ('Will France win on
+    2026-07-14?') that name neither the opponent nor the tournament — without
+    the real event title the WRITE pass reconstructs those facts from the slug
+    and its own priors (the 2026-07-12 digest turned a men's FIFA World Cup
+    match into a \"Women's World Cup\" one). Best-effort: 0x pseudo-slugs are
+    skipped, a failed chunk is logged and dropped, and a missing title just
+    means the writer falls back to the market title."""
+    real = [s for s in dict.fromkeys(slugs) if s and not str(s).startswith("0x")]
+    out: dict[str, str] = {}
+    for i in range(0, len(real), _EVENT_TITLE_BATCH_SIZE):
+        chunk = real[i:i + _EVENT_TITLE_BATCH_SIZE]
+        try:
+            resp = requests.get(
+                f"{GAMMA_BASE_URL}/events",
+                params=[("slug", s) for s in chunk],
+                timeout=QUERY_TIMEOUT_SECONDS * 2,
+            )
+            resp.raise_for_status()
+            events = resp.json()
+        except Exception as exc:
+            log("digest_event_titles_error",
+                error=f"{type(exc).__name__}: {exc}", pending=len(chunk))
+            continue
+        for e in events:
+            slug, title = e.get("slug"), e.get("title")
+            if slug and title:
+                out[slug] = title
+    return out
+
+
+def attach_event_titles(picks: list[dict], titles: dict[str, str]) -> None:
+    """Set event_title on each pick that has one; picks without a match keep
+    the field absent so the WRITE payload only carries it when it's real."""
+    for p in picks:
+        title = titles.get(p.get("event_slug"))
+        if title:
+            p["event_title"] = title
+
+
 # --- claude -p ---------------------------------------------------------------
 
 def run_claude(prompt: str, payload: str) -> str:
@@ -399,11 +445,19 @@ PICK_PROMPT = (
 WRITE_PROMPT = (
     "You are writing the PolySpotter daily digest email. Stdin is JSON with "
     "`resolving_today` and `top_this_week`, each a list of picked events "
-    "(event_slug, title, resolution_time, total_usd, trade_count, "
+    "(event_slug, title, event_title, resolution_time, total_usd, trade_count, "
     "composite_score, leaning, tags). Write a punchy subject line, a 1-2 sentence "
     "intro, and for EACH event a short headline (<=10 words) and a 1-2 sentence "
     "blurb explaining why the smart money is interesting and which way we lean. "
     "Be concrete, no hype, no emojis. Do NOT invent prices or URLs. "
+    "Every factual detail must come from the input fields. `event_title`, when "
+    "present, is the event's real display name (e.g. 'France vs. Spain') — use "
+    "it for the matchup; the market `title` is often a bare question that omits "
+    "the opponent. Never state a fact the input does not: no gender qualifiers "
+    "(a 'FIFA World Cup' tag means exactly 'FIFA World Cup' — never rewrite it "
+    "as 'Women's World Cup' or \"Men's World Cup\"), no tournament rounds "
+    "('quarterfinal', 'semifinal'), no editions, venues, records, or seedings. "
+    "If the input doesn't say it, leave it out. "
     "The `leaning` field is authoritative: it already names the exact side the "
     "smart money bought and the market's implied probability FOR THAT SIDE. Never "
     "invert it and never re-attribute its percentage to the opposite outcome — if "
@@ -810,7 +864,11 @@ def main(argv=None) -> int:
         log("digest_noop", run_id=run_id, reason="nothing picked")
         return 0
 
-    # WRITE
+    # WRITE — ground the writer in the real event names first (market titles
+    # alone often omit the opponent/tournament, which invites hallucination).
+    titles = fetch_event_titles([p["event_slug"] for p in today_picks + week_picks])
+    attach_event_titles(today_picks, titles)
+    attach_event_titles(week_picks, titles)
     write_payload = json.dumps(
         {"resolving_today": today_picks, "top_this_week": week_picks}, default=str)
     write_out = run_claude_json(WRITE_PROMPT, write_payload)

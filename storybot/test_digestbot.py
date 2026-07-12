@@ -361,3 +361,78 @@ def test_persist_digest_skipped_in_dry_run(monkeypatch):
     # Should no-op without raising (DB connection never opened).
     digestbot.persist_digest("2026-06-06", "run123", {"subject": "s", "sections": []})
     assert called["n"] == 0
+
+
+# --- Event-title grounding (regression: 2026-07-12 digest wrote "Women's World
+# --- Cup" for a men's FIFA World Cup match whose market title never named the
+# --- tournament or opponent) -------------------------------------------------
+
+class _FakeResp:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._payload
+
+
+def test_fetch_event_titles_maps_slug_to_title(monkeypatch):
+    calls = []
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append((url, params))
+        return _FakeResp([
+            {"slug": "fifwc-fra-esp-2026-07-14", "title": "France vs. Spain"},
+            {"slug": "will-russia-capture-kostyantynivka-by",
+             "title": "Will Russia capture Kostyantynivka by...?"},
+        ])
+
+    monkeypatch.setattr(digestbot.requests, "get", fake_get)
+    titles = digestbot.fetch_event_titles(
+        ["fifwc-fra-esp-2026-07-14", "will-russia-capture-kostyantynivka-by"])
+    assert titles["fifwc-fra-esp-2026-07-14"] == "France vs. Spain"
+    assert len(calls) == 1
+    assert calls[0][0].endswith("/events")
+    assert calls[0][1] == [("slug", "fifwc-fra-esp-2026-07-14"),
+                           ("slug", "will-russia-capture-kostyantynivka-by")]
+
+
+def test_fetch_event_titles_skips_condition_ids_dedupes_and_handles_empty(monkeypatch):
+    calls = []
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append(params)
+        return _FakeResp([{"slug": "a", "title": "A vs. B"}])
+
+    monkeypatch.setattr(digestbot.requests, "get", fake_get)
+    titles = digestbot.fetch_event_titles(["0xdeadbeef", "a", "a", None])
+    assert titles == {"a": "A vs. B"}
+    assert calls == [[("slug", "a")]]
+    # nothing real to look up -> no request at all
+    assert digestbot.fetch_event_titles(["0xdeadbeef"]) == {}
+    assert len(calls) == 1
+
+
+def test_fetch_event_titles_returns_empty_on_network_error(monkeypatch):
+    def fake_get(url, params=None, timeout=None):
+        raise digestbot.requests.RequestException("gamma down")
+
+    monkeypatch.setattr(digestbot.requests, "get", fake_get)
+    assert digestbot.fetch_event_titles(["a", "b"]) == {}
+
+
+def test_attach_event_titles_sets_only_known():
+    picks = [{"event_slug": "a"}, {"event_slug": "b"}]
+    digestbot.attach_event_titles(picks, {"a": "A vs. B"})
+    assert picks[0]["event_title"] == "A vs. B"
+    assert "event_title" not in picks[1]
+
+
+def test_write_prompt_grounds_facts_in_input():
+    # The WRITE pass must be told about event_title and explicitly barred from
+    # adding qualifiers the input doesn't state (gender, round, edition).
+    assert "event_title" in digestbot.WRITE_PROMPT
+    assert "Women's World Cup" in digestbot.WRITE_PROMPT
+    assert "quarterfinal" in digestbot.WRITE_PROMPT
