@@ -647,6 +647,14 @@ JUNK_TAGS = {
 MARKET_DAY_EVAL_CAP = 5
 MARKET_DAY_CAP_EXEMPT_USD = 50_000
 
+# 2026-07-11 backtest (5,458 calls, Jul 5-11): alerts where every wallet with
+# resolved history has negative lifetime P&L and no win_rate_tracking signal
+# keep at 7.9% (5-13% on every individual day) — the LLM already rejects ~92%
+# of them, mostly serial high-volume favorite-buyers. Whale-sized alerts stay
+# evaluable (9 of the 26 $50k+ ones were kept). Wallets with no resolved
+# history are neutral, not negative.
+NEG_PNL_EXEMPT_USD = 50_000
+
 
 def _alert_wallets(alert: dict) -> list[str]:
     """Unique lowercased wallets in an alert (sorted, capped at 10) for the
@@ -675,6 +683,20 @@ def _pre_llm_gate(alert: dict) -> str | None:
     strategies = {s.get("strategy") for s in alert.get("signals", [])}
     if len(strategies) == 1 and strategies <= GATED_SOLO_STRATEGIES:
         return f"auto-discarded: solo {next(iter(strategies))} signal"
+    if (
+        (alert.get("total_usd") or 0) < NEG_PNL_EXEMPT_USD
+        and "win_rate_tracking" not in strategies
+    ):
+        pnls = [
+            p.get("total_pnl") or 0
+            for p in (get_wallet_pnl_summary(w) for w in _alert_wallets(alert))
+            if p and p.get("closed_positions")
+        ]
+        if pnls and max(pnls) < 0:
+            return (
+                "auto-discarded: all wallets negative lifetime P&L "
+                f"(best ${max(pnls):+,.0f})"
+            )
     return None
 
 

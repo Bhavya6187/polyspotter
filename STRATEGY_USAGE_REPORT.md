@@ -309,3 +309,34 @@ redundant #2+ alerts on already-covered markets, which `graded_calls`
 ignores anyway — it grades top-alert-per-market). Watch alerts/day and the
 homepage density after deploy; the cap constant (`MARKET_DAY_EVAL_CAP`) is
 the knob to loosen first.
+
+---
+
+# Backtest Addendum — 2026-07-11 (negative-P&L gate)
+
+**Window:** all 5,458 GPT filter calls Jul 5–11 (first full week of the
+post-rescale regime, 780/day at 81.5% keep), verdict-joined via
+`llm_evaluations` (100%); quality priced with the 4,984-row `graded_calls`
+book (Jun 4 → Jul 11, featured top-alert-per-market, $100-flat).
+
+**Implemented — Gate N (`llm_filter._pre_llm_gate`):** every alert wallet
+with resolved history has negative lifetime P&L (from the same
+`get_wallet_pnl_summary` data the prompt already embeds) + no
+`win_rate_tracking` signal + total_usd < $50k (`NEG_PNL_EXEMPT_USD`) →
+auto-discard, cached. That class kept at **6.2%** (5–13% on every
+individual day; mostly serial high-volume favorite-buyers, e.g. 46% wr /
+−$8.6M lifetime). Replay of the implemented gate: **−59.6 calls/day
+(−7.6%), 3.7 keeps/day lost**. Wallets with no resolved history are
+neutral, not negative.
+
+**Evaluated and rejected:**
+- **Weak-pair gate** (2 signals, both in the gated-solo set): 157 calls/day
+  at 50% keep looked cuttable, but the surviving keeps grade **+7.8%**
+  (n=764) — post-July-3 the LLM discriminates well here. Not gated.
+- **Esports trim**: 90% keep, **+7.0%** graded (n=1,016). Not gated.
+- **GATE_MIN_SCORE 3→4**: −65 keeps/day at 56–63% keep and only n=26
+  post-rescale graded samples below score 5 — insufficient evidence.
+  Revisit after ~a month of grading data.
+- **Cap 5→3 (+ exemption $50k→$100k)**: −170 calls/day with zero outright
+  keep loss (deferrals) — declined for now to protect surfaced alert
+  volume; the strongest remaining lever if further cuts are wanted.
