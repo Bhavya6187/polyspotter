@@ -52,6 +52,19 @@ DULL_PNL = {
     "avg_loss_price": 0.0,
 }
 
+NEGATIVE_PNL = {
+    "total_positions": 60,
+    "closed_positions": 50,
+    "wins": 25,
+    "losses": 25,
+    "total_pnl": -80_000.0,
+    "total_invested": 900_000.0,
+    "edge": -0.05,
+    "avg_closed_price": 0.55,
+    "avg_win_price": 0.55,
+    "avg_loss_price": 0.60,
+}
+
 INTERESTING_RESULT = {
     "interesting": True,
     "summary": "test summary",
@@ -87,7 +100,7 @@ def _alert(score, strategies, dedup_key="dk-test", wallet="0xabc", tags=None):
     }
 
 
-class TestPreLLMGate(unittest.TestCase):
+class _GateTestBase(unittest.TestCase):
     def setUp(self):
         patches = [
             patch.object(llm_filter, "AZURE_OPENAI_API_KEY", "test-key"),
@@ -122,6 +135,8 @@ class TestPreLLMGate(unittest.TestCase):
         p.start()
         self.addCleanup(p.stop)
 
+
+class TestPreLLMGate(_GateTestBase):
     # --- Gate A: low composite score ---
 
     def test_low_score_discarded_without_llm_call(self):
@@ -251,6 +266,77 @@ class TestPreLLMGate(unittest.TestCase):
         self.assertEqual(len(kept), 1)
         self.assertEqual(self.llm_calls, [])
         self.assertEqual(self.saves, [])
+
+
+class TestNegativePnlGate(_GateTestBase):
+    """Gate N (2026-07-11 backtest): alerts where every wallet with resolved
+    history has negative lifetime P&L, with no win_rate_tracking signal and
+    below whale size, keep at 7.9% (n=443 over Jul 5-11; 5-13% by day) —
+    the LLM already rejects ~92% of them. Auto-discard locally instead."""
+
+    # a weak pair passes Gates A/B/J so only the new gate can fire
+    STRATS = ["correlated_cross_market", "pre_event_volume_spike"]
+
+    def test_all_negative_pnl_discarded_without_llm_call(self):
+        self._patch_pnl(NEGATIVE_PNL)
+        kept = filter_alerts([_alert(5.0, self.STRATS)])
+        self.assertEqual(kept, [])
+        self.assertEqual(self.llm_calls, [])
+
+    def test_negative_pnl_discard_is_cached_as_not_interesting(self):
+        self._patch_pnl(NEGATIVE_PNL)
+        filter_alerts([_alert(5.0, self.STRATS, dedup_key="dk-neg")])
+        self.assertEqual(len(self.saves), 1)
+        key, interesting, _ = self.saves[0]
+        self.assertEqual(key, "dk-neg")
+        self.assertFalse(interesting)
+
+    def test_win_rate_signal_exempts_negative_pnl(self):
+        self._patch_pnl(NEGATIVE_PNL)
+        kept = filter_alerts([_alert(5.0, self.STRATS + ["win_rate_tracking"])])
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(len(self.llm_calls), 1)
+
+    def test_whale_alert_exempts_negative_pnl(self):
+        self._patch_pnl(NEGATIVE_PNL)
+        alert = _alert(5.0, self.STRATS)
+        alert["total_usd"] = llm_filter.NEG_PNL_EXEMPT_USD
+        kept = filter_alerts([alert])
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(len(self.llm_calls), 1)
+
+    def test_positive_pnl_wallet_not_gated(self):
+        self._patch_pnl(SHARP_PNL)
+        kept = filter_alerts([_alert(5.0, self.STRATS)])
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(len(self.llm_calls), 1)
+
+    def test_no_history_wallets_not_gated(self):
+        # unknown is not negative — a wallet with no resolved positions
+        # must not trip the gate
+        self._patch_pnl(DULL_PNL)
+        kept = filter_alerts([_alert(5.0, self.STRATS)])
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(len(self.llm_calls), 1)
+
+    def test_mixed_history_gates_on_wallets_with_history_only(self):
+        # one wallet with negative history + one with none -> gated (the
+        # no-history wallet carries no information either way)
+        alert = _alert(5.0, self.STRATS, wallet="0xneg")
+        alert["trades"].append(
+            {"wallet": "0xfresh", "usd_value": 100.0, "price": 0.5,
+             "outcome": "Yes", "side": "BUY"}
+        )
+        by_wallet = {"0xneg": NEGATIVE_PNL, "0xfresh": DULL_PNL}
+        p = patch.object(
+            llm_filter, "get_wallet_pnl_summary",
+            side_effect=lambda w: by_wallet.get(w.lower(), DULL_PNL),
+        )
+        p.start()
+        self.addCleanup(p.stop)
+        kept = filter_alerts([alert])
+        self.assertEqual(kept, [])
+        self.assertEqual(self.llm_calls, [])
 
 
 class TestMarketDayCap(unittest.TestCase):
