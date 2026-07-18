@@ -4,9 +4,10 @@
 #
 #   0 digest    storybot/run_digest_daily_loop.sh      daily at RUN_HOUR (6am local)
 #   1 twitter   storybot/run_twitter_pipeline_loop.sh  hourly, self-gated
-#   2 results   storybot/run_result_pipeline_loop.sh   hourly
-#   3 grader    scripts/run_grade_worker_loop.sh       every 30 min
-#   4 seo       scripts/run_seo_worker_loop.sh         every 10 min
+#   2 grader    scripts/run_grade_worker_loop.sh       every 30 min
+#   3 seo       scripts/run_seo_worker_loop.sh         every 10 min
+#
+# results loop (run_result_pipeline_loop.sh) retired 2026-06-16 — do not re-add.
 #
 # Usage:
 #     ./scripts/start_bots.sh    # start detached; refuses if "bots" already exists
@@ -17,7 +18,7 @@
 # output — press r in it to relaunch, k to close. Nothing dies silently.
 #
 # polybot is intentionally NOT managed here; it keeps its own session.
-# All five loop logs land in storybot/logs/ — tail -f storybot/logs/*.log
+# All loop logs land in storybot/logs/ — tail -f storybot/logs/*.log
 
 set -euo pipefail
 
@@ -35,7 +36,6 @@ screen -dmS "$SESSION" -t digest ./storybot/run_digest_daily_loop.sh
 # Keep windows open (showing output) when their command dies: r relaunches, k closes.
 screen -S "$SESSION" -X zombie kr
 screen -S "$SESSION" -X screen -t twitter ./storybot/run_twitter_pipeline_loop.sh
-screen -S "$SESSION" -X screen -t results ./storybot/run_result_pipeline_loop.sh
 screen -S "$SESSION" -X screen -t grader ./scripts/run_grade_worker_loop.sh
 screen -S "$SESSION" -X screen -t seo ./scripts/run_seo_worker_loop.sh
 
