@@ -1434,3 +1434,82 @@ def test_health_bots_head_uses_single_max_query(monkeypatch):
     assert "COUNT(" not in sql.upper()
     for col in ("MAX(published_at)", "MAX(tweeted_at)", "MAX(graded_at)", "MAX(scanned_at)"):
         assert col in sql
+
+
+# ---------------------------------------------------------------------------
+# /api/tags?all=true — every tag, for frontend slug resolution (DB faked)
+# ---------------------------------------------------------------------------
+
+def _tags_db(executed, rows):
+    @contextmanager
+    def fake():
+        class FakeCur:
+            def execute(self, sql, params=None):
+                executed.append((" ".join(sql.split()), params))
+
+            def fetchall(self):
+                return rows
+
+        class FakeConn:
+            def cursor(self):
+                return FakeCur()
+
+        yield FakeConn()
+    return fake
+
+
+# 15 disjoint tags so the greedy set-cover never stops early; hyphenated
+# names are what the frontend needs to resolve exactly.
+_TAG_NAMES = ["Spider-Man", "US-Iran", "Trump-Netanyahu"] + [f"Tag {i}" for i in range(12)]
+
+
+def _tag_rows_set_cover():
+    return [{"tag": t, "alert_ids": list(range(i * 100, i * 100 + 20 - i))}
+            for i, t in enumerate(_TAG_NAMES)]
+
+
+def _tag_rows_counts():
+    return [{"tag": t, "alert_count": 20 - i} for i, t in enumerate(_TAG_NAMES)]
+
+
+def test_tags_default_still_returns_top_10(monkeypatch):
+    import app as app_mod
+    executed = []
+    monkeypatch.setattr(app_mod, "db", _tags_db(executed, _tag_rows_set_cover()))
+    monkeypatch.setattr(app_mod, "_all_tags_cache", None)
+    r = client.get("/api/tags")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body) == 10
+    assert set(body[0]) == {"tag", "alert_count", "description"}
+    r2 = client.get("/api/tags?all=false")
+    assert len(r2.json()) == 10
+
+
+def test_tags_all_returns_every_tag_without_limit(monkeypatch):
+    import app as app_mod
+    executed = []
+    monkeypatch.setattr(app_mod, "db", _tags_db(executed, _tag_rows_counts()))
+    monkeypatch.setattr(app_mod, "_all_tags_cache", None)
+    r = client.get("/api/tags?all=true")
+    assert r.status_code == 200
+    body = r.json()
+    assert [t["tag"] for t in body] == _TAG_NAMES
+    assert body[0]["alert_count"] == 20
+    assert set(body[0]) == {"tag", "alert_count", "description"}
+    assert body[0]["description"]
+    assert len(executed) == 1
+    sql = executed[0][0].upper()
+    assert "LIMIT" not in sql
+    assert "JSONB_ARRAY_ELEMENTS_TEXT" in sql
+
+
+def test_tags_all_is_cached(monkeypatch):
+    import app as app_mod
+    executed = []
+    monkeypatch.setattr(app_mod, "db", _tags_db(executed, _tag_rows_counts()))
+    monkeypatch.setattr(app_mod, "_all_tags_cache", None)
+    first = client.get("/api/tags?all=true").json()
+    second = client.get("/api/tags?all=true").json()
+    assert second == first
+    assert len(executed) == 1
