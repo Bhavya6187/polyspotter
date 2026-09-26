@@ -1,4 +1,4 @@
-const BASE_URL = process.env.API_URL_SERVER || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import { API_URL as BASE_URL } from "./apiBase";
 
 async function request(path, params = {}) {
   const url = new URL(path, BASE_URL);

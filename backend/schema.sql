@@ -66,6 +66,10 @@ CREATE INDEX IF NOT EXISTS idx_alerts_score ON alerts(composite_score DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_scanned ON alerts(scanned_at DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_wallet ON alerts(wallet);
 CREATE INDEX IF NOT EXISTS idx_alerts_event ON alerts(event_slug);
+-- condition_id is looked up on every market-page render (by-market, theses,
+-- resolve). text_pattern_ops serves both `=` and the LIKE 'prefix%' used by
+-- /api/market/resolve; without it each call was a full seq scan of alerts.
+CREATE INDEX IF NOT EXISTS idx_alerts_condition ON alerts(condition_id text_pattern_ops);
 -- idx_alerts_event_end is created by _migrate_add_event_timing in database.py
 -- after the column is guaranteed to exist. Keeping it out of schema.sql avoids
 -- failing CREATE INDEX on pre-existing DBs where CREATE TABLE IF NOT EXISTS

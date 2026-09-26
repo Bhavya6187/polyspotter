@@ -6,7 +6,10 @@ Reads DATABASE_URL from environment.
 """
 
 import os
+import threading
+
 import psycopg2
+from psycopg2 import pool as _pgpool
 from psycopg2.extras import RealDictCursor
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -17,6 +20,57 @@ if not DATABASE_URL:
 def get_conn():
     """Return a new database connection."""
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+
+
+# ---------------------------------------------------------------------------
+# Request-scoped connection pool
+#
+# The API used to open a brand-new Postgres connection for every request
+# (~60k sessions/day). Each one is a TCP + TLS + auth handshake and a forked
+# Postgres backend, which showed up as CPU and memory on the Railway Postgres
+# service. The pool keeps a handful of connections warm; when it is exhausted
+# we fall back to a one-off connection so request handling never blocks.
+# ---------------------------------------------------------------------------
+
+POOL_MAX = int(os.environ.get("DB_POOL_MAX", "8"))
+
+_POOL: _pgpool.ThreadedConnectionPool | None = None
+_POOL_LOCK = threading.Lock()
+
+
+def _pool() -> _pgpool.ThreadedConnectionPool:
+    global _POOL
+    if _POOL is None:
+        with _POOL_LOCK:
+            if _POOL is None:
+                _POOL = _pgpool.ThreadedConnectionPool(
+                    1, POOL_MAX, DATABASE_URL, cursor_factory=RealDictCursor
+                )
+    return _POOL
+
+
+def get_pooled_conn():
+    """Return (conn, pooled). `pooled` is False when the pool was exhausted and
+    a one-off connection was opened instead; pass it back to release_conn()."""
+    try:
+        return _pool().getconn(), True
+    except _pgpool.PoolError:
+        return get_conn(), False
+
+
+def release_conn(conn, pooled: bool = True) -> None:
+    """Hand a connection back. Pooled connections return to the pool (dead
+    ones are discarded); one-off connections are closed."""
+    if not pooled:
+        conn.close()
+        return
+    try:
+        _pool().putconn(conn, close=bool(conn.closed))
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def init_db():

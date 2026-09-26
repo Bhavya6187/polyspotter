@@ -2,10 +2,9 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import WalletBadge from "../../../components/WalletBadge";
 import { marketSlug } from "../../../lib/slugify";
+import { API_URL } from "../../../lib/apiBase";
 
 export const revalidate = 60;
-
-const API_URL = process.env.API_URL_SERVER || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 async function getThesis(id) {
   try {

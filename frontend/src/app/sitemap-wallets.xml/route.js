@@ -1,3 +1,4 @@
+import { API_URL } from "../../lib/apiBase";
 // Dedicated sitemap for wallet profile pages. Separate from the main sitemap
 // because wallets are unbounded (thousands+) and update on a different cadence
 // than content pages — keeping them isolated keeps the main sitemap small and
@@ -11,7 +12,6 @@
 
 export const dynamic = "force-dynamic";
 
-const API_URL = process.env.API_URL_SERVER || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
 
 const PER_PAGE = 1000;

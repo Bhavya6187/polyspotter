@@ -4,13 +4,12 @@ import TagPageHeader from "./tag-page-header";
 import Ticker from "../../../components/Ticker";
 import TagFilters from "../../../components/TagFilters";
 import { marketSlug } from "../../../lib/slugify";
+import { API_URL } from "../../../lib/apiBase";
 
 const VALID_RESOLVES = new Set(["6h", "24h", "7d"]);
 const VALID_SEVERITIES = new Set(["6", "10", "15"]);
 
 export const revalidate = 60;
-
-const API_URL = process.env.API_URL_SERVER || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 function tagFromSlug(slug) {
   return decodeURIComponent(slug).replace(/-/g, " ");

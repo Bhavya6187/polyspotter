@@ -25,7 +25,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 import requests as _requests
-from cachetools import LRUCache
+from cachetools import TTLCache
 
 # Load .env from project root (one level up from backend/)
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
@@ -33,7 +33,7 @@ from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, HTMLResponse
 
-from database import get_conn, init_db
+from database import get_conn, get_pooled_conn, init_db, release_conn
 from events import get_event_or_fetch
 import sports
 from sports.base import OverlayResponse
@@ -96,15 +96,18 @@ app.add_middleware(
 
 @contextmanager
 def db():
-    conn = get_conn()
+    conn, pooled = get_pooled_conn()
     try:
         yield conn
         conn.commit()
     except Exception:
-        conn.rollback()
+        try:
+            conn.rollback()
+        except Exception:
+            pass  # connection already dead; release_conn() discards it
         raise
     finally:
-        conn.close()
+        release_conn(conn, pooled)
 
 
 POLYMARKET_DATA_API = "https://data-api.polymarket.com"
@@ -1257,8 +1260,8 @@ _RESOLVING_SOON_TTL = 60  # seconds
 # outcomePrices). The /api/resolving-soon response is already 60s-cached, but
 # this inner cache is shared with any other endpoint that wants a fresh
 # "is this market actually still live?" check and outlives single-request work.
-_gamma_status_cache: LRUCache = LRUCache(maxsize=2000)
 _GAMMA_STATUS_TTL = 60  # seconds
+_gamma_status_cache: TTLCache = TTLCache(maxsize=2000, ttl=_GAMMA_STATUS_TTL)
 
 
 def _fetch_gamma_status(condition_ids: list[str]) -> dict[str, dict]:
@@ -1802,16 +1805,20 @@ GAMMA_API = "https://gamma-api.polymarket.com"
 CLOB_API = "https://clob.polymarket.com"
 DATA_API = "https://data-api.polymarket.com"
 
-# Simple in-memory cache: key -> (expiry_ts, data). Bounded LRU so unbounded
-# crawler traffic over many condition_ids can't blow up RSS.
-_live_cache: LRUCache = LRUCache(maxsize=5000)
-_LIVE_CACHE_TTL = 30  # seconds
+# Simple in-memory caches: key -> (expiry_ts, data). TTL-bounded (entries are
+# evicted once expired, not just when the size cap is hit) and sized for what
+# a TTL window can actually serve: with ~30 live-market calls/minute a cap of
+# 5,000 entries just pinned ~1 GB of stale responses in RSS. The per-entry
+# expiry tuple is kept so closed markets can be held longer than open ones.
+_LIVE_CACHE_TTL = 30  # seconds, open markets
+_LIVE_CACHE_TTL_CLOSED = 600  # seconds, resolved/closed markets don't move
+_live_cache: TTLCache = TTLCache(maxsize=1000, ttl=_LIVE_CACHE_TTL_CLOSED)
 
-_price_history_cache: LRUCache = LRUCache(maxsize=5000)
 _PRICE_HISTORY_CACHE_TTL = 60  # seconds
+_price_history_cache: TTLCache = TTLCache(maxsize=500, ttl=_PRICE_HISTORY_CACHE_TTL)
 
-_holders_cache: LRUCache = LRUCache(maxsize=5000)
 _HOLDERS_CACHE_TTL = 300  # 5 minutes
+_holders_cache: TTLCache = TTLCache(maxsize=1000, ttl=_HOLDERS_CACHE_TTL)
 
 
 def _fetch_live_market(condition_id: str) -> LiveMarketData:
@@ -1828,6 +1835,8 @@ def _fetch_live_market(condition_id: str) -> LiveMarketData:
         return LiveMarketData(condition_id=condition_id)
 
     market = markets[0]
+    closed = market.get("closed")
+    closed = bool(closed) if closed is not None else None
     raw_outcomes = market.get("outcomes", "[]")
     raw_token_ids = market.get("clobTokenIds", "[]")
     outcomes = json.loads(raw_outcomes) if isinstance(raw_outcomes, str) else raw_outcomes
@@ -1852,6 +1861,7 @@ def _fetch_live_market(condition_id: str) -> LiveMarketData:
             liquidity=_safe_float(market.get("liquidity")),
             description=market.get("description"),
             image=market.get("image"),
+            closed=closed,
         )
 
     # 2. Get live midpoints from CLOB API (batch)
@@ -1908,6 +1918,7 @@ def _fetch_live_market(condition_id: str) -> LiveMarketData:
         description=market.get("description"),
         image=market.get("image"),
         spread=spread,
+        closed=closed,
     )
 
 
@@ -1936,7 +1947,8 @@ def get_market_live(condition_id: str):
     except _requests.RequestException as e:
         raise HTTPException(status_code=502, detail=f"Upstream API error: {e}")
 
-    _live_cache[condition_id] = (now + _LIVE_CACHE_TTL, data)
+    ttl = _LIVE_CACHE_TTL_CLOSED if data.closed else _LIVE_CACHE_TTL
+    _live_cache[condition_id] = (now + ttl, data)
     return data
 
 
