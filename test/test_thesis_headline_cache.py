@@ -77,3 +77,60 @@ def test_failed_headline_is_not_cached(fresh_db, gpt):
     assert _generate_thesis_headline(_thesis(["c1", "c2"])) is None
     assert _generate_thesis_headline(_thesis(["c1", "c2"])) == "Iran talks will collapse"
     assert gpt.responses.create.call_count == 2
+
+
+def _thesis_with(side, outcome, wallet="0xabc"):
+    t = _thesis(["c1", "c2"])
+    t["wallet"] = wallet
+    for m in t["markets"]:
+        m["side"] = side
+        m["outcome"] = outcome
+    return t
+
+
+def test_thesis_cache_key_changes_when_direction_flips(fresh_db, gpt):
+    # Same wallet/event/markets but the trader flipped sides: the prompt
+    # differs, so the cached headline must not be reused.
+    first = _generate_thesis_headline(_thesis_with("BUY", "Yes"))
+    second = _generate_thesis_headline(_thesis_with("BUY", "No"))
+
+    assert gpt.responses.create.call_count == 2
+    assert first == "Iran talks will collapse"
+    assert second == "A different headline"
+
+
+def test_thesis_cache_key_same_direction_still_hits(fresh_db, gpt):
+    first = _generate_thesis_headline(_thesis_with("SELL", "No"))
+    second = _generate_thesis_headline(_thesis_with("SELL", "No"))
+
+    assert gpt.responses.create.call_count == 1
+    assert second == first
+
+
+def test_thesis_cache_key_is_wallet_case_insensitive(fresh_db, gpt):
+    first = _generate_thesis_headline(_thesis_with("BUY", "Yes", wallet="0xABC"))
+    second = _generate_thesis_headline(_thesis_with("BUY", "Yes", wallet="0xabc"))
+
+    assert gpt.responses.create.call_count == 1
+    assert second == first
+
+
+def test_cache_read_error_is_treated_as_miss(fresh_db, gpt, monkeypatch):
+    import sqlite3
+
+    def locked(*_a, **_k):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(db, "get_thesis_headline", locked)
+    assert _generate_thesis_headline(_thesis(["c1", "c2"])) == "Iran talks will collapse"
+    assert gpt.responses.create.call_count == 1
+
+
+def test_cache_write_error_still_returns_headline(fresh_db, gpt, monkeypatch):
+    import sqlite3
+
+    def locked(*_a, **_k):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(db, "save_thesis_headline", locked)
+    assert _generate_thesis_headline(_thesis(["c1", "c2"])) == "Iran talks will collapse"

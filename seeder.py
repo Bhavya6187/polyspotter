@@ -641,17 +641,35 @@ def build_theses_payload(
     return theses
 
 
+def _thesis_cache_key(thesis: dict) -> str:
+    """Cache key for a thesis headline: wallet (lowercased), event_slug and
+    each market's condition_id with its direction (side:outcome), sorted.
+    The direction is part of the prompt, so a flipped bet gets a new key."""
+    parts = sorted(
+        f"{m.get('condition_id', '')}={m.get('side', '')}:{m.get('outcome', '')}"
+        for m in thesis["markets"]
+    )
+    wallet = (thesis.get("wallet") or "").lower()
+    return f"thesis:{wallet}:{thesis.get('event_slug', '')}:{','.join(parts)}"
+
+
 def _generate_thesis_headline(thesis: dict) -> str | None:
     """Generate a short thesis headline from market titles and bet directions.
 
     Headlines are cached in polybot.db by (wallet, event_slug, sorted
-    condition_ids): an unchanged thesis costs no GPT call on later scans and
-    keeps a stable headline; a new market in the thesis changes the key."""
-    from db import get_thesis_headline, save_thesis_headline
+    condition_id=side:outcome parts): an unchanged thesis costs no GPT call on
+    later scans and keeps a stable headline; a new market or a flipped
+    direction changes the key. A SQLite error on the cache (e.g. "database is
+    locked") is treated as a miss so it never aborts the backend push."""
+    import sqlite3
+    import db
 
-    cids = sorted(m.get("condition_id", "") for m in thesis["markets"])
-    cache_key = f"thesis:{thesis.get('wallet', '')}:{thesis.get('event_slug', '')}:{','.join(cids)}"
-    cached = get_thesis_headline(cache_key)
+    cache_key = _thesis_cache_key(thesis)
+    try:
+        cached = db.get_thesis_headline(cache_key)
+    except sqlite3.Error as e:
+        print(f"[seeder] thesis headline cache read failed ({e}); treating as miss")
+        cached = None
     if cached:
         return cached
 
@@ -690,7 +708,10 @@ def _generate_thesis_headline(thesis: dict) -> str | None:
     except Exception:
         return None
     if headline:
-        save_thesis_headline(cache_key, headline)
+        try:
+            db.save_thesis_headline(cache_key, headline)
+        except sqlite3.Error as e:
+            print(f"[seeder] thesis headline cache write failed ({e}); not cached")
     return headline
 
 
