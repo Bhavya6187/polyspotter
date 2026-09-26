@@ -822,31 +822,32 @@ class TestTopThree:
         assert all(row["id"] != settled_id for row in resp.json())
 
     def test_top3_strength_banding(self):
-        """Strength is min(4, floor(composite_score/25) + 1)."""
+        """Strength is min(4, max(1, floor(composite_score / 2.5))) — bands for
+        the post-2026-07 score scale (max ~14)."""
         now = datetime.now(timezone.utc)
         with db() as conn:
             cur = conn.cursor()
             low = _seed_alert(cur, dedup_key="test_top3_s_low",
                               market_title="TEST: Slow",
                               condition_id="test_top3_cond_s_low",
-                              composite_score=10.0,
+                              composite_score=1.0,
                               end_date=(now + timedelta(days=2)).isoformat())
             mid = _seed_alert(cur, dedup_key="test_top3_s_mid",
                               market_title="TEST: Smid",
                               condition_id="test_top3_cond_s_mid",
-                              composite_score=50.0,
+                              composite_score=6.0,
                               end_date=(now + timedelta(days=2)).isoformat())
             high = _seed_alert(cur, dedup_key="test_top3_s_high",
                                market_title="TEST: Shigh",
                                condition_id="test_top3_cond_s_high",
-                               composite_score=200.0,
+                               composite_score=13.7,
                                end_date=(now + timedelta(days=2)).isoformat())
 
         resp = client.get("/api/top3")
         data = {row["id"]: row for row in resp.json()}
-        assert data[low]["strength"] == 1        # floor(10/25)+1 = 1
-        assert data[mid]["strength"] == 3        # floor(50/25)+1 = 3
-        assert data[high]["strength"] == 4       # capped at 4
+        assert data[low]["strength"] == 1        # max(1, floor(1/2.5)) = 1
+        assert data[mid]["strength"] == 2        # floor(6/2.5) = 2
+        assert data[high]["strength"] == 4       # floor(13.7/2.5)=5, capped at 4
 
     def test_top3_uses_event_end_estimate_over_end_date(self):
         """A sports-style alert where end_date is 7 days out but event_end_estimate
@@ -1222,18 +1223,19 @@ class TestUnsubscribe:
         import app as app_mod
         calls = []
         monkeypatch.setattr(app_mod, "db", self._fake_db(calls))
-        r = client.get("/api/unsubscribe?token=not-a-uuid")
+        r = client.post("/api/unsubscribe?token=not-a-uuid")
         assert r.status_code == 200
         assert "unsubscribed" in r.text.lower()
         assert calls == []  # never touched the DB on a bad token
 
     def test_valid_token_issues_update(self, monkeypatch):
         import uuid
+
         import app as app_mod
         calls = []
         monkeypatch.setattr(app_mod, "db", self._fake_db(calls))
         tok = str(uuid.uuid4())
-        r = client.get(f"/api/unsubscribe?token={tok}")
+        r = client.post(f"/api/unsubscribe?token={tok}")
         assert r.status_code == 200
         assert len(calls) == 1
         sql, params = calls[0]
@@ -1242,6 +1244,7 @@ class TestUnsubscribe:
 
     def test_post_one_click_unsubscribes(self, monkeypatch):
         import uuid
+
         import app as app_mod
         calls = []
         monkeypatch.setattr(app_mod, "db", self._fake_db(calls))
@@ -1251,3 +1254,105 @@ class TestUnsubscribe:
 
     def test_missing_token_is_422(self):
         assert client.get("/api/unsubscribe").status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# DB-free correctness checks (handoff 2.4). db() / cursors are faked.
+# ---------------------------------------------------------------------------
+
+def _recording_db(executed, fetchone=None):
+    @contextmanager
+    def fake():
+        class FakeCur:
+            def execute(self, sql, params=None):
+                executed.append((" ".join(sql.split()), params))
+
+            def fetchone(self):
+                return fetchone
+
+            def fetchall(self):
+                return []
+
+        class FakeConn:
+            def cursor(self):
+                return FakeCur()
+
+        yield FakeConn()
+    return fake
+
+
+def test_group_events_representative_columns_come_from_one_row():
+    """Event rows used independent MAX() per column, so condition_id,
+    market_title, market_url and market_image could come from different child
+    markets (the fallback link mixed markets)."""
+    from app import _event_group_rows_sql
+    sql = " ".join(_event_group_rows_sql("TRUE", "SELECT 1", "").split())
+    for col in ("condition_id", "market_title", "market_url", "market_image"):
+        assert (f"(array_agg(a.{col} ORDER BY a.composite_score DESC, a.scanned_at DESC))[1] AS {col}"
+                in sql), col
+        assert f"MAX(a.{col})" not in sql
+
+
+@pytest.mark.parametrize("score,expected", [
+    (0, 1), (1.0, 1), (2.5, 1), (5.0, 2), (7.5, 3), (10.0, 4), (13.7, 4), (80.0, 4),
+])
+def test_top3_strength_bands_for_rescaled_scores(score, expected):
+    from app import _top3_strength
+    assert _top3_strength(score) == expected
+
+
+def test_article_by_slug_invalid_date_is_404_not_500(monkeypatch):
+    import app as app_mod
+    executed = []
+    monkeypatch.setattr(app_mod, "db", _recording_db(executed))
+    r = client.get("/api/articles/by-slug/2026-13-45/some-event")
+    assert r.status_code == 404
+    assert executed == []  # never reaches Postgres' ::date cast
+
+
+def test_health_head_does_not_count_alerts(monkeypatch):
+    import app as app_mod
+    executed = []
+    row = {"latest_scanned_at": datetime.now(timezone.utc), "seconds_since_latest": 60,
+           "approx_count": 1000}
+    monkeypatch.setattr(app_mod, "db", _recording_db(executed, fetchone=row))
+    r = client.head("/api/health")
+    assert r.status_code == 200
+    sql = " ".join(s for s, _ in executed)
+    assert "COUNT(" not in sql.upper()
+    assert "MAX(scanned_at)" in sql
+
+
+def test_health_get_reports_staleness(monkeypatch):
+    import app as app_mod
+    row = {"latest_scanned_at": datetime.now(timezone.utc) - timedelta(hours=2),
+           "seconds_since_latest": 7200, "approx_count": 1000}
+    monkeypatch.setattr(app_mod, "db", _recording_db([], fetchone=row))
+    r = client.get("/api/health")
+    assert r.status_code == 503
+    assert r.json()["status"] == "stale"
+    assert r.json()["alert_count"] == 1000
+
+
+def test_upstream_502_does_not_leak_exception_text(monkeypatch):
+    import app as app_mod
+    import requests
+
+    def boom(condition_id):
+        raise requests.ConnectionError("HTTPSConnectionPool(host='secret-upstream.internal')")
+
+    monkeypatch.setattr(app_mod, "_fetch_live_market", boom)
+    app_mod._live_cache.clear()
+    r = client.get("/api/market/0xdeadbeef/live")
+    assert r.status_code == 502
+    assert "secret-upstream" not in r.text
+    assert "HTTPSConnectionPool" not in r.text
+
+
+def test_cors_does_not_allow_credentials_with_wildcard_origin():
+    r = client.options(
+        "/api/health",
+        headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "GET"},
+    )
+    assert r.headers.get("access-control-allow-origin") == "*"
+    assert "access-control-allow-credentials" not in r.headers

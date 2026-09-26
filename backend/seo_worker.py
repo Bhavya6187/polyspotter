@@ -61,10 +61,39 @@ def _parse_tags(raw) -> list[str]:
     return out
 
 
+# New alert rows land with seo_generated_at NULL even when their market already
+# has SEO; copy the market's existing fields onto them instead of treating the
+# market as a fresh candidate (which re-sent it to GPT on every new alert).
+_COPY_EXISTING_MARKET_SEO_SQL = """
+    UPDATE alerts a SET
+        seo_title = src.seo_title,
+        seo_description = src.seo_description,
+        seo_summary = src.seo_summary,
+        seo_faqs = src.seo_faqs,
+        seo_generated_at = src.seo_generated_at
+    FROM (
+        SELECT DISTINCT ON (s.condition_id)
+               s.condition_id, s.seo_title, s.seo_description, s.seo_summary,
+               s.seo_faqs, s.seo_generated_at
+        FROM alerts s
+        WHERE s.seo_generated_at IS NOT NULL
+          AND s.seo_title IS NOT NULL
+          AND s.condition_id IN (
+              SELECT condition_id FROM alerts
+              WHERE seo_generated_at IS NULL AND condition_id IS NOT NULL
+          )
+        ORDER BY s.condition_id, s.seo_generated_at DESC
+    ) src
+    WHERE a.condition_id = src.condition_id
+      AND a.seo_generated_at IS NULL
+"""
+
+
 def run_market_seo() -> int:
     generated = 0
     with closing(_autocommit_conn()) as conn:
         with conn.cursor() as cur:
+            cur.execute(_COPY_EXISTING_MARKET_SEO_SQL)
             cur.execute("""
                 SELECT condition_id, MAX(market_title) as market_title,
                        MAX(market_description) as market_description,

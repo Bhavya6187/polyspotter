@@ -14,13 +14,15 @@ Endpoints:
 from __future__ import annotations
 
 import hmac
+import html as _html
 import json
 import os
 import re
 import threading
 import time as _time
 import uuid as _uuid
-from datetime import datetime, timedelta, timezone
+from urllib.parse import urlencode
+from datetime import date as _date, datetime, timedelta, timezone
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
@@ -110,7 +112,9 @@ app = FastAPI(title="Polybot API", version="1.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    # Nothing uses cookies or HTTP auth; credentials + wildcard origin would
+    # make Starlette reflect any Origin for credentialed requests.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -299,16 +303,39 @@ _UNSUB_PAGE = (
 )
 
 
-@app.api_route("/api/unsubscribe", methods=["GET", "POST"])
-def unsubscribe(token: str = Query(..., min_length=1, max_length=64)):
-    """One-click unsubscribe from the daily digest. Idempotent and always returns
-    the same confirmation page — we never reveal whether a token was valid or
-    already used, so the endpoint can't be probed to enumerate live tokens.
+_UNSUB_CONFIRM_PAGE = (
+    "<!doctype html><html><head><meta charset=\"utf-8\">"
+    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+    "<meta name=\"robots\" content=\"noindex\">"
+    "<title>Unsubscribe — PolySpotter</title></head>"
+    "<body style=\"font-family:Arial,Helvetica,sans-serif;max-width:520px;"
+    "margin:64px auto;padding:0 20px;color:#111;text-align:center;\">"
+    "<h1 style=\"font-size:22px;\">Unsubscribe from PolySpotter?</h1>"
+    "<p style=\"font-size:15px;color:#444;\">You'll stop receiving the daily digest email.</p>"
+    "<form method=\"post\" action=\"{action}\">"
+    "<button type=\"submit\" style=\"font-size:15px;padding:10px 20px;cursor:pointer;\">"
+    "Unsubscribe</button></form>"
+    "</body></html>"
+)
 
-    Accepts GET (the link in the email body) and POST (RFC 8058 one-click, which
-    is what the List-Unsubscribe-Post header makes the mail client call). The
-    token is validated as a UUID before it touches SQL so a malformed value can't
-    trigger a Postgres cast error / 500."""
+
+@app.get("/api/unsubscribe")
+def unsubscribe_confirm(token: str = Query(..., min_length=1, max_length=64)):
+    """The link in the email body. Renders a confirmation form and changes
+    nothing: mail security scanners prefetch GET links, which used to
+    unsubscribe people who never clicked. The form POSTs back to this URL."""
+    action = "/api/unsubscribe?" + urlencode({"token": token})
+    return HTMLResponse(_UNSUB_CONFIRM_PAGE.format(action=_html.escape(action, quote=True)))
+
+
+@app.post("/api/unsubscribe")
+def unsubscribe(token: str = Query(..., min_length=1, max_length=64)):
+    """Unsubscribe from the daily digest: the confirm form above and RFC 8058
+    one-click (the List-Unsubscribe-Post header makes the mail client POST
+    here). Idempotent and always returns the same confirmation page — we never
+    reveal whether a token was valid or already used, so the endpoint can't be
+    probed to enumerate live tokens. The token is validated as a UUID before it
+    touches SQL so a malformed value can't trigger a Postgres cast error / 500."""
     try:
         parsed = _uuid.UUID(token)
     except ValueError:
@@ -680,6 +707,46 @@ def _by_market_children_query(
     return sql, [list(keys)] + list(where_params) + [cap]
 
 
+def _event_group_rows_sql(where: str, mm_sql: str, order_clause: str) -> str:
+    """Paginated group rows for group_events=true.
+
+    The market-level columns (condition_id, title, url, image) describe the
+    group's best alert: independent MAX()es could pick each from a different
+    child market, so an event card's fallback link mixed markets.
+    """
+    def rep_col(col: str) -> str:
+        return f"(array_agg(a.{col} ORDER BY a.composite_score DESC, a.scanned_at DESC))[1] AS {col}"
+
+    return f"""WITH multi_markets AS ({mm_sql})
+        SELECT
+          (mm.event_slug IS NOT NULL) AS is_event,
+          COALESCE(mm.event_slug, a.condition_id) AS group_key,
+          {rep_col("condition_id")},
+          MAX(a.event_slug)   AS event_slug,
+          MAX(e.title)        AS event_title,
+          MAX(e.image)        AS event_image,
+          {rep_col("market_title")},
+          {rep_col("market_url")},
+          {rep_col("market_image")},
+          MAX(a.end_date)     AS end_date,
+          SUM(a.total_usd)    AS total_usd,
+          COUNT(*)            AS alert_count,
+          COUNT(DISTINCT a.condition_id) AS market_count,
+          MAX(a.composite_score) AS max_score,
+          MAX(a.scanned_at)   AS scanned_at,
+          MAX(a.seo_title)    AS seo_title,
+          MAX(a.seo_description) AS seo_description,
+          MAX(a.seo_summary)  AS seo_summary,
+          MAX(a.seo_faqs)     AS seo_faqs
+        FROM alerts a
+        LEFT JOIN multi_markets mm ON mm.event_slug = a.event_slug
+        LEFT JOIN events e ON e.event_slug = a.event_slug
+        WHERE {where} AND a.condition_id IS NOT NULL
+        GROUP BY group_key, is_event
+        ORDER BY {order_clause}scanned_at DESC, max_score DESC
+        LIMIT %s OFFSET %s"""
+
+
 @app.get("/api/alerts/by-market", response_model=PaginatedMarkets)
 def list_alerts_by_market(
     page: int = Query(1, ge=1),
@@ -841,34 +908,7 @@ def list_alerts_by_market(
 
             # Step 3: paginated group rows.
             cur.execute(
-                f"""WITH multi_markets AS ({mm_sql})
-                    SELECT
-                      (mm.event_slug IS NOT NULL) AS is_event,
-                      COALESCE(mm.event_slug, a.condition_id) AS group_key,
-                      MAX(a.condition_id) AS condition_id,
-                      MAX(a.event_slug)   AS event_slug,
-                      MAX(e.title)        AS event_title,
-                      MAX(e.image)        AS event_image,
-                      MAX(a.market_title) AS market_title,
-                      MAX(a.market_url)   AS market_url,
-                      MAX(a.market_image) AS market_image,
-                      MAX(a.end_date)     AS end_date,
-                      SUM(a.total_usd)    AS total_usd,
-                      COUNT(*)            AS alert_count,
-                      COUNT(DISTINCT a.condition_id) AS market_count,
-                      MAX(a.composite_score) AS max_score,
-                      MAX(a.scanned_at)   AS scanned_at,
-                      MAX(a.seo_title)    AS seo_title,
-                      MAX(a.seo_description) AS seo_description,
-                      MAX(a.seo_summary)  AS seo_summary,
-                      MAX(a.seo_faqs)     AS seo_faqs
-                    FROM alerts a
-                    LEFT JOIN multi_markets mm ON mm.event_slug = a.event_slug
-                    LEFT JOIN events e ON e.event_slug = a.event_slug
-                    WHERE {where} AND a.condition_id IS NOT NULL
-                    GROUP BY group_key, is_event
-                    ORDER BY {order_clause}scanned_at DESC, max_score DESC
-                    LIMIT %s OFFSET %s""",
+                _event_group_rows_sql(where, mm_sql, order_clause),
                 params + params + order_params + [per_page, offset],
             )
             market_rows = [dict(r) for r in cur.fetchall()]
@@ -1550,12 +1590,21 @@ def list_digests():
 _DIGEST_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
+def _parse_iso_date(value: str) -> _date | None:
+    """date for a valid YYYY-MM-DD string, else None (e.g. 2026-13-45 matches
+    the shape but would raise a Postgres DataError -> 500)."""
+    try:
+        return _date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
 @app.get("/api/digest/{date}", response_model=DigestDetail)
 def get_digest(date: str):
     """A single published daily digest by date (YYYY-MM-DD)."""
     # Validate the format before it reaches Postgres — a non-date path segment
     # would otherwise raise a DataError (HTTP 500) on this public route.
-    if not _DIGEST_DATE_RE.match(date):
+    if not _DIGEST_DATE_RE.match(date) or _parse_iso_date(date) is None:
         raise HTTPException(status_code=404, detail="Digest not found.")
     row = _digest_by_date(date)
     if not row:
@@ -1631,6 +1680,12 @@ def _fetch_resolving_soon() -> list[dict]:
 
 _TOP3_TTL = 300  # seconds (5 min)
 _top3_cache: tuple[float, list] | None = None
+
+
+def _top3_strength(score: float) -> int:
+    """1-4 strength bars. Bands of 2.5 on the post-2026-07 composite scale
+    (max ~14); the old //25 bands left every alert at 1 bar."""
+    return min(4, max(1, int(score // 2.5)))
 
 
 @app.get("/api/top3")
@@ -1798,7 +1853,7 @@ def get_top3():
             primary_tag = None
 
         score = row["composite_score"] or 0
-        strength = min(4, int(score // 25) + 1)
+        strength = _top3_strength(score)
 
         # Surface event_end_estimate as `end_date` so the frontend countdown
         # targets the actual event time, matching /api/spotlight behavior.
@@ -2038,6 +2093,13 @@ def _fetch_live_market(condition_id: str) -> LiveMarketData:
     )
 
 
+def _upstream_error(source: str, exc: Exception) -> HTTPException:
+    """502 with a generic body; the upstream exception (URLs, hosts, library
+    internals) is logged, not returned to the client."""
+    print(f"[WARN] upstream error ({source}): {exc!r}", flush=True)
+    return HTTPException(status_code=502, detail="Upstream API error")
+
+
 def _safe_float(val) -> float | None:
     if val is None:
         return None
@@ -2066,7 +2128,7 @@ def get_market_live(condition_id: str):
     try:
         data = _fetch_live_market(condition_id)
     except _requests.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"Upstream API error: {e}")
+        raise _upstream_error("live market", e)
 
     ttl = _LIVE_CACHE_TTL_CLOSED if data.closed else _LIVE_CACHE_TTL
     _cache_set(_live_cache, condition_id, (now + ttl, data))
@@ -2144,7 +2206,7 @@ def get_price_history(
         resp.raise_for_status()
         raw = resp.json()
     except _requests.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"CLOB API error: {e}")
+        raise _upstream_error("CLOB prices-history", e)
 
     history_list = raw.get("history", [])
     points = [PricePoint(t=int(pt["t"]), p=float(pt["p"])) for pt in history_list]
@@ -2182,7 +2244,7 @@ def get_market_holders(condition_id: str):
         resp.raise_for_status()
         raw = resp.json()
     except _requests.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"Data API error: {e}")
+        raise _upstream_error("Data API holders", e)
 
     if not isinstance(raw, list):
         raw = []
@@ -2307,15 +2369,19 @@ def resolve_condition_id(
 @app.api_route("/api/health", methods=["GET", "HEAD"])
 def health(response: Response):
     """Health check. Returns 503 when no alerts produced in the last hour so
-    HEAD-only uptime monitors can detect scanner staleness via status code."""
+    HEAD-only uptime monitors can detect scanner staleness via status code.
+
+    Cheap enough for frequent HEAD probes: MAX(scanned_at) is an index lookup
+    (idx_alerts_scanned) and alert_count is the planner's estimate from
+    pg_class rather than a COUNT(*) over the whole table."""
     with db() as conn:
         cur = conn.cursor()
         cur.execute(
             """
             SELECT
-                COUNT(*) AS cnt,
                 MAX(scanned_at) AS latest_scanned_at,
-                EXTRACT(EPOCH FROM (NOW() - MAX(scanned_at)))::BIGINT AS seconds_since_latest
+                EXTRACT(EPOCH FROM (NOW() - MAX(scanned_at)))::BIGINT AS seconds_since_latest,
+                (SELECT reltuples::BIGINT FROM pg_class WHERE oid = 'alerts'::regclass) AS approx_count
             FROM alerts
             """,
         )
@@ -2326,7 +2392,7 @@ def health(response: Response):
         response.status_code = 503
     return {
         "status": "ok" if is_fresh else "stale",
-        "alert_count": row["cnt"],
+        "alert_count": row["approx_count"],
         "latest_scanned_at": row["latest_scanned_at"].isoformat() if row["latest_scanned_at"] else None,
         "seconds_since_latest_alert": seconds_since,
     }
@@ -2360,6 +2426,9 @@ def list_articles():
 @app.get("/api/articles/by-slug/{date}/{event_slug}", response_model=ArticleOut)
 def get_article_by_slug(date: str, event_slug: str):
     """Look up a published article by (published_date, event_slug)."""
+    published = _parse_iso_date(date) if _DIGEST_DATE_RE.match(date) else None
+    if published is None:
+        raise HTTPException(status_code=404, detail="article not found")
     with db() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -2368,12 +2437,12 @@ def get_article_by_slug(date: str, event_slug: str):
                    body_markdown, cover_alt_text, alert_ids, posted_url,
                    (cover_bytes IS NOT NULL) AS has_cover
             FROM articles
-            WHERE published_date = %s::date
+            WHERE published_date = %s
               AND event_slug = %s
               AND status = 'published'
             LIMIT 1
             """,
-            (date, event_slug),
+            (published, event_slug),
         )
         row = cur.fetchone()
     if not row:

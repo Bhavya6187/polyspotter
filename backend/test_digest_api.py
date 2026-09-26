@@ -71,3 +71,14 @@ def test_get_digest_malformed_date_is_404_not_500(monkeypatch):
     monkeypatch.setattr(app_module, "_digest_by_date", _boom)
     resp = client.get("/api/digest/not-a-date")
     assert resp.status_code == 404
+
+
+def test_get_digest_impossible_date_is_404_not_500(monkeypatch):
+    """2026-13-45 passes the YYYY-MM-DD regex but is not a date; it must not
+    reach Postgres (DataError -> 500)."""
+    def _boom(d):
+        raise AssertionError("DB must not be queried for an invalid date")
+
+    monkeypatch.setattr(app_module, "_digest_by_date", _boom)
+    resp = client.get("/api/digest/2026-13-45")
+    assert resp.status_code == 404
