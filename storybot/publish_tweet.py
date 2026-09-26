@@ -15,8 +15,13 @@ Exit codes:
     2  bad argv
 
 Sidecars next to the draft (<run_id>.txt):
-    <run_id>.txt.posted   the tweet is live (holds its id) but record_tweet
-                          failed. A re-run records it without posting again.
+    <run_id>.txt.posted   the tweet is live but record_tweet failed. Line 1 is
+                          the tweet id, line 2 the alert ids as a JSON list. A
+                          re-run records it without posting again and without
+                          needing the transcript (live_runs is pruned after 30
+                          days); alert ids come from the transcript when it is
+                          still there, else from line 2, else none are
+                          recorded (a legacy one-line sidecar).
     <run_id>.txt.pending  the post call failed ambiguously (5xx, dropped
                           connection, timeout) — the tweet may be live. Every
                           run refuses to post until an operator checks X and
@@ -64,6 +69,40 @@ def _draft_path(run_id: str) -> str:
 
 def _transcript_path(run_id: str) -> str:
     return os.path.join(LIVE_RUNS_DIR, f"twitter_pipeline_{run_id}.json")
+
+
+def _valid_alert_ids(alert_ids) -> bool:
+    return (isinstance(alert_ids, list) and bool(alert_ids)
+            and all(isinstance(i, int) for i in alert_ids))
+
+
+def _read_posted_marker(path: str) -> tuple[str, list | None]:
+    """Return (tweet_id, alert_ids) from a .posted sidecar. alert_ids is None
+    when the sidecar predates line 2 or line 2 is unreadable."""
+    with open(path) as f:
+        lines = f.read().splitlines()
+    tweet_id = lines[0].strip() if lines else ""
+    alert_ids = None
+    if len(lines) > 1:
+        try:
+            parsed = json.loads(lines[1])
+        except ValueError:
+            parsed = None
+        if _valid_alert_ids(parsed):
+            alert_ids = parsed
+    return tweet_id, alert_ids
+
+
+def _transcript_alert_ids(run_id: str) -> list | None:
+    """publish_meta.alert_ids from the transcript, or None if the transcript
+    is gone or does not hold valid ids."""
+    try:
+        with open(_transcript_path(run_id)) as f:
+            pm = json.load(f).get("publish_meta")
+    except (OSError, ValueError, AttributeError):
+        return None
+    ids = pm.get("alert_ids") if isinstance(pm, dict) else None
+    return ids if _valid_alert_ids(ids) else None
 
 
 def _is_ambiguous_post_error(exc: BaseException) -> bool:
@@ -146,6 +185,26 @@ def main(argv: list[str]) -> int:
     with open(draft_path) as f:
         tweet_text = f.read().rstrip("\n")
 
+    # Retry of a live-but-unrecorded tweet. Independent of the transcript,
+    # which may have been pruned from live_runs by now.
+    posted_marker = draft_path + ".posted"
+    if os.path.exists(posted_marker):
+        tweet_id, sidecar_ids = _read_posted_marker(posted_marker)
+        alert_ids = _transcript_alert_ids(run_id) or sidecar_ids or []
+        log("publish_tweet_already_posted", run_id=run_id, tweet_id=tweet_id,
+            alert_ids=alert_ids)
+        if not alert_ids:
+            print(
+                f"warning: no alert ids for already-posted tweet_id={tweet_id} "
+                f"(transcript gone, sidecar has none); recording no "
+                f"tweeted_alerts rows and clearing the draft.",
+                file=sys.stderr,
+            )
+        if os.environ.get("DRY_RUN", "").strip().lower() == "true":
+            print(f"[publish_tweet] DRY_RUN=true — tweet_id={tweet_id} already posted; not recording.")
+            return 0
+        return _record_and_clean_up(run_id, draft_path, alert_ids, tweet_id, tweet_text)
+
     transcript_path = _transcript_path(run_id)
     if not os.path.exists(transcript_path):
         print(f"error: no transcript at {transcript_path}", file=sys.stderr)
@@ -166,8 +225,7 @@ def main(argv: list[str]) -> int:
             run_id=run_id, missing=missing)
         return 1
     alert_ids = pm["alert_ids"]
-    if (not isinstance(alert_ids, list) or not alert_ids
-            or not all(isinstance(i, int) for i in alert_ids)):
+    if not _valid_alert_ids(alert_ids):
         print(
             f"error: publish_meta.alert_ids is malformed: {alert_ids!r}",
             file=sys.stderr,
@@ -175,16 +233,6 @@ def main(argv: list[str]) -> int:
         log("publish_tweet_alert_ids_malformed",
             run_id=run_id, alert_ids=alert_ids)
         return 1
-    posted_marker = draft_path + ".posted"
-    if os.path.exists(posted_marker):
-        with open(posted_marker) as f:
-            tweet_id = f.read().strip()
-        log("publish_tweet_already_posted", run_id=run_id, tweet_id=tweet_id)
-        if os.environ.get("DRY_RUN", "").strip().lower() == "true":
-            print(f"[publish_tweet] DRY_RUN=true — tweet_id={tweet_id} already posted; not recording.")
-            return 0
-        return _record_and_clean_up(run_id, draft_path, alert_ids, tweet_id, tweet_text)
-
     chart_png_path = pm["chart_png_path"]
 
     chart_png: bytes | None = None
@@ -251,7 +299,7 @@ def main(argv: list[str]) -> int:
     # Persist the fact that the tweet is live before anything else can fail.
     try:
         with open(posted_marker, "w") as f:
-            f.write(f"{tweet_id}\n")
+            f.write(f"{tweet_id}\n{json.dumps(alert_ids)}\n")
     except OSError as exc:
         log("publish_tweet_posted_marker_error",
             run_id=run_id, tweet_id=tweet_id, error=str(exc))

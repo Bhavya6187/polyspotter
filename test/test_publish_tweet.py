@@ -257,7 +257,11 @@ def test_posted_sidecar_written_before_record(tmp_path, monkeypatch):
     rc = pt.main(["abc12345"])
     assert rc != 0
     assert (drafts_dir / "abc12345.txt").exists()
-    assert (drafts_dir / "abc12345.txt.posted").read_text().strip() == "1234567890"
+    lines = (drafts_dir / "abc12345.txt.posted").read_text().splitlines()
+    assert lines[0].strip() == "1234567890"
+    # The sidecar also carries the alert ids, so a retry can record without
+    # the transcript (live_runs entries are pruned after 30 days).
+    assert json.loads(lines[1]) == [42, 43]
 
 
 def test_rerun_with_posted_sidecar_does_not_repost(tmp_path, monkeypatch):
@@ -276,6 +280,54 @@ def test_rerun_with_posted_sidecar_does_not_repost(tmp_path, monkeypatch):
     rc = pt.main(["abc12345"])
     assert rc == 0
     assert recorded == {"ids": [42, 43], "tid": "1234567890", "text": _TWEET_BODY}
+    assert not (drafts_dir / "abc12345.txt").exists()
+    assert not (drafts_dir / "abc12345.txt.posted").exists()
+
+
+def _no_post(*a, **kw):
+    raise AssertionError("must not post again")
+
+
+def test_posted_sidecar_records_without_transcript(tmp_path, monkeypatch):
+    # The transcript was pruned (live_runs > 30 days): the .posted retry must
+    # still record from the draft + sidecar alone, never post, and clean up.
+    drafts_dir, live_dir = _write_fixture_files(tmp_path, "abc12345", write_chart=False)
+    (drafts_dir / "abc12345.txt.posted").write_text("1234567890\n[42, 43]\n")
+    import shutil
+    shutil.rmtree(live_dir)
+    pt = _patch_publisher(monkeypatch, drafts_dir, live_dir)
+    _patch_clients(monkeypatch, pt)
+    monkeypatch.setattr(pt, "post_tweet", _no_post)
+    recorded = {}
+    monkeypatch.setattr(pt, "record_tweet",
+                        lambda ids, tid, text: recorded.update(ids=ids, tid=tid, text=text))
+
+    rc = pt.main(["abc12345"])
+    assert rc == 0
+    assert recorded == {"ids": [42, 43], "tid": "1234567890", "text": _TWEET_BODY}
+    assert not (drafts_dir / "abc12345.txt").exists()
+    assert not (drafts_dir / "abc12345.txt.posted").exists()
+
+
+def test_legacy_posted_sidecar_without_transcript_records_degraded(tmp_path, monkeypatch):
+    # A sidecar written before alert ids were stored in it holds only the
+    # tweet id. With the transcript gone there are no alert ids to record:
+    # record_tweet still runs (no rows), the draft is cleared, exit 0 instead
+    # of failing forever.
+    drafts_dir, live_dir = _write_fixture_files(tmp_path, "abc12345", write_chart=False)
+    (drafts_dir / "abc12345.txt.posted").write_text("1234567890\n")
+    import shutil
+    shutil.rmtree(live_dir)
+    pt = _patch_publisher(monkeypatch, drafts_dir, live_dir)
+    _patch_clients(monkeypatch, pt)
+    monkeypatch.setattr(pt, "post_tweet", _no_post)
+    recorded = {}
+    monkeypatch.setattr(pt, "record_tweet",
+                        lambda ids, tid, text: recorded.update(ids=ids, tid=tid, text=text))
+
+    rc = pt.main(["abc12345"])
+    assert rc == 0
+    assert recorded == {"ids": [], "tid": "1234567890", "text": _TWEET_BODY}
     assert not (drafts_dir / "abc12345.txt").exists()
     assert not (drafts_dir / "abc12345.txt.posted").exists()
 

@@ -9,11 +9,13 @@
 #   storybot/live_runs/*     entries (files or run directories) not modified
 #                            for more than 30 days are deleted.
 #
-# The project root comes from this script's own location, never from cwd.
+# The project root comes from this script's own location, never from cwd, and
+# must contain storybot/; otherwise the script exits non-zero touching nothing.
 
-set -u
+set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+[[ -n "$ROOT" && -d "$ROOT/storybot" ]] || { echo "rotate_logs: bad root '$ROOT'" >&2; exit 1; }
 MAX_LOG_BYTES=$((20 * 1024 * 1024))
 
 for f in "$ROOT"/storybot/logs/*.log; do

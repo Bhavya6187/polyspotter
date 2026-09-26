@@ -56,3 +56,33 @@ def test_rotate_logs_rotates_big_logs_and_prunes_old_runs(tmp_path):
     assert (logs / "small.log").read_text() == "keep me\n"
     assert not old_dir.exists() and not old_file.exists()
     assert new_dir.exists() and new_file.exists()
+
+
+def test_rotate_logs_refuses_outside_a_project_tree(tmp_path):
+    # Copy placed where its parent has no storybot/ beside it: must bail out
+    # before any find/mv and leave everything untouched.
+    root = tmp_path / "notproject"
+    (root / "scripts").mkdir(parents=True)
+    shutil.copy(SCRIPT, root / "scripts" / "rotate_logs.sh")
+    logs = root / "logs"
+    runs = root / "live_runs"
+    logs.mkdir()
+    runs.mkdir()
+    with open(logs / "x.log", "wb") as f:
+        f.truncate(25 * MB)
+    old = runs / "old_run"
+    old.mkdir()
+    _age(old, 40)
+
+    res = subprocess.run(["bash", str(root / "scripts" / "rotate_logs.sh")],
+                         cwd=tmp_path, capture_output=True, text=True)
+
+    assert res.returncode != 0
+    assert "rotate_logs: bad root" in res.stderr
+    assert (logs / "x.log").stat().st_size == 25 * MB
+    assert old.exists()
+
+
+def test_rotate_logs_is_strict_and_syntax_clean():
+    assert subprocess.run(["bash", "-n", str(SCRIPT)]).returncode == 0
+    assert "set -euo pipefail" in SCRIPT.read_text()
