@@ -533,3 +533,39 @@ def test_linked_wallets_from_wallet_clustering_headlines():
     ]}]
     b = twitter_pipeline.build_facts_bundle(alerts, [])
     assert b["linked_wallets"] == 21
+
+
+def test_record_card_matches_text_record(monkeypatch):
+    # Regression (handoff 3.2): the tweet text read the SQLite wallet_pnl
+    # record while the card re-selected the "best" wallet from Postgres
+    # wallet_profiles -> "184-13" in the text, "201-15" on the card.
+    import charts
+    import db
+
+    trades = [_trade(wallet="0xaaa", usd=3000), _trade(wallet="0xbbb", usd=800)]
+    alert = {
+        "id": 555, "wallet": None, "market_title": "Will X happen?",
+        "signals": [{"strategy": "win_rate_tracking", "severity": 4}],
+        "trades": trades, "llm_copy_action": {"outcome": "Yes"},
+    }
+    sqlite = {
+        "0xaaa": {"closed_positions": 197, "wins": 184, "losses": 13},  # best in SQLite
+        "0xbbb": {"closed_positions": 40, "wins": 30, "losses": 10},
+    }
+    monkeypatch.setattr(db, "get_wallet_pnl_summary", lambda w: sqlite[w])
+    postgres = {
+        "0xaaa": {"wins": 201, "losses": 15, "win_rate": 201 / 216, "first_seen_at": None},
+        "0xbbb": {"wins": 99, "losses": 1, "win_rate": 0.99, "first_seen_at": None},  # best in Postgres
+    }
+    monkeypatch.setattr(charts, "_fetch_wallet_profiles",
+                        lambda ws: {w: postgres[w] for w in ws if w in postgres})
+
+    bundle = twitter_pipeline.build_facts_bundle([alert], trades)
+    sharp = bundle["has_sharp_wallet"]
+    assert sharp["wallet"] == "0xaaa" and sharp["record"] == "184-13"
+
+    params = twitter_pipeline._chart_params("wallet_record_card", bundle)
+    card = charts.fetch_wallet_record_card_data(alert, params=params)
+    assert card["record_str"] == sharp["record"]
+    assert card["bet_size_usd"] == pytest.approx(3000)
+    assert card["outcome_side"] == "Yes"

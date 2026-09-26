@@ -1827,6 +1827,19 @@ def _chart_target_alert_id(chart_type: str, alert_ids: list[int],
     return primary
 
 
+def _chart_params(chart_type: str, facts_bundle: dict) -> dict | None:
+    """Chart-fetcher params that pin a wallet-shaped chart to the facts the
+    tweet text quotes. wallet_record_card gets the facts bundle's sharp wallet
+    and its SQLite record, so the card can't pick a different wallet or read a
+    different record source (Postgres wallet_profiles) than the text."""
+    if chart_type == "wallet_record_card":
+        sharp = facts_bundle.get("has_sharp_wallet") or {}
+        if sharp.get("wallet") and sharp.get("record"):
+            return {"wallet": sharp["wallet"], "record": sharp["record"],
+                    "bet_usd": sharp.get("bet_usd")}
+    return None
+
+
 def build_enriched_facts_bundle(
     chosen_alerts: list[dict],
 ) -> tuple[dict, list[dict]]:
@@ -2174,7 +2187,9 @@ def main() -> int:
         None,
     )
     chart_png = (prepare_chart_grid(chart_pick["chart_type"], target_alert,
-                                    facts_bundle=bundle["facts_bundle"])
+                                    facts_bundle=bundle["facts_bundle"],
+                                    params=_chart_params(chart_pick["chart_type"],
+                                                         bundle["facts_bundle"]))
                  if target_alert else None)
     log("chart_selected", run_id=run_id, chart_type=chart_pick["chart_type"],
         rendered=chart_png is not None,
