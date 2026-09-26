@@ -685,6 +685,11 @@ def scan_once(per_trade_strategies, batch_strategies, all_strategies, strategy_n
               since_ts: float | None = None) -> float | None:
     """Run a single scan iteration.  Returns the latest trade timestamp seen, or None."""
     run_id = record_scan_start(cutoff_ts=since_ts)
+    # Fetch window length for batch strategies that normalise volume by it
+    # (pre_event_volume_spike). Unknown without a cursor.
+    fetch_window_seconds = (
+        max(time.time() - since_ts, 60) if since_ts is not None else None
+    )
 
     try:
         if since_ts is not None:
@@ -739,6 +744,8 @@ def scan_once(per_trade_strategies, batch_strategies, all_strategies, strategy_n
         print(f"\n[*] Running batch analysis across all {len(trades)} trade(s)...", flush=True)
         for strategy in batch_strategies:
             print(f"  Running {strategy.name}...", flush=True)
+            if hasattr(strategy, "fetch_window_seconds"):
+                strategy.fetch_window_seconds = fetch_window_seconds
             batch_signals = strategy.analyze_all(trades)
             if batch_signals:
                 print(f"    -> {len(batch_signals)} signal(s)")

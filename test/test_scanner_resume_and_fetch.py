@@ -191,5 +191,64 @@ class ScanOncePushFailureTests(unittest.TestCase):
         self.assertEqual(pushed, 0)
 
 
+
+class ScanOnceFetchWindowTests(unittest.TestCase):
+    """scan_once hands the fetch window (now - since_ts, >= 60 s) to the
+    batch strategies that declare fetch_window_seconds (handoff 1.6)."""
+
+    def setUp(self):
+        self.conn = sqlite3.connect(":memory:")
+        db._init_tables(self.conn)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _run_scan(self, strategy, since_ts):
+        trade = {
+            "timestamp": 1_000_000, "conditionId": "0xcond",
+            "proxyWallet": "0xwallet", "transactionHash": "0xtx",
+            "title": "T", "outcome": "Yes", "side": "BUY",
+            "size": "2000", "price": "0.5", "_usd_value": 1000.0,
+        }
+        seen = {}
+
+        def analyze_all(trades):
+            seen["window"] = strategy.fetch_window_seconds
+            return []
+
+        strategy.analyze_all = analyze_all
+        identity = lambda trades: trades  # noqa: E731
+        with patch("db.get_db", return_value=self.conn), \
+             patch("polybot.time.time", return_value=1_001_200.0), \
+             patch("polybot.fetch_recent_trades", return_value=[trade]), \
+             patch("polybot.filter_short_markets", identity), \
+             patch("polybot.filter_resolved_markets", identity), \
+             patch("polybot.filter_extreme_odds", identity), \
+             patch("polybot.filter_longshots", identity), \
+             patch("polybot.push_to_backend", return_value=0), \
+             patch("polybot._format_composite_alerts", return_value=""), \
+             patch("polybot._format_summary", return_value=""):
+            polybot.scan_once([], [strategy], [strategy], "", since_ts=since_ts)
+        return seen["window"]
+
+    def test_window_passed_to_volume_spike(self):
+        from detection_strategies.pre_event_volume_spike import PreEventVolumeSpikeStrategy
+
+        window = self._run_scan(PreEventVolumeSpikeStrategy(), since_ts=1_000_000.0)
+        self.assertEqual(window, 1200.0)
+
+    def test_window_floored_at_60s(self):
+        from detection_strategies.pre_event_volume_spike import PreEventVolumeSpikeStrategy
+
+        window = self._run_scan(PreEventVolumeSpikeStrategy(), since_ts=1_001_190.0)
+        self.assertEqual(window, 60)
+
+    def test_no_cursor_leaves_window_unknown(self):
+        from detection_strategies.pre_event_volume_spike import PreEventVolumeSpikeStrategy
+
+        strategy = PreEventVolumeSpikeStrategy()
+        strategy.fetch_window_seconds = 999.0  # stale value from a prior scan
+        self.assertIsNone(self._run_scan(strategy, since_ts=None))
+
 if __name__ == "__main__":
     unittest.main()

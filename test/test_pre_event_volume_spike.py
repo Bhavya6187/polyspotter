@@ -1,3 +1,4 @@
+import math
 import unittest
 from unittest.mock import patch
 
@@ -142,7 +143,6 @@ class TestPreEventVolumeSpikeStrategy(unittest.TestCase):
         window_seconds = 120
         normalised_avg = 50.0 * (window_seconds / 86400)
         ratio = 30000 / normalised_avg
-        import math
         base_severity = math.log10(ratio)
         # With escalation it should be base + 0.5 (capped at 4.0)
         expected = min(4.0, base_severity + 0.5)
@@ -321,6 +321,54 @@ class TestPreEventVolumeSpikeStrategy(unittest.TestCase):
         finally:
             mod.MIN_TRADES_FOR_SPIKE = original
 
+
+
+@patch("detection_strategies.pre_event_volume_spike.get_average_volume", return_value=None)
+@patch("detection_strategies.pre_event_volume_spike.record_volume_snapshot")
+class TestFetchWindowNormalisation(unittest.TestCase):
+    """Handoff 1.6: the baseline is scaled to the scanner's fetch window, not
+    to the span between a market's first and last trade in the batch (p50
+    span 651 s vs fetch window p50 ~1,300 s inflated ratios ~2x)."""
+
+    def setUp(self):
+        self.strategy = PreEventVolumeSpikeStrategy()
+        self.strategy.fetch_window_seconds = 1200
+
+    def _trades(self, total_usd, span=60):
+        return [
+            {
+                "conditionId": "cond_1",
+                "_usd_value": total_usd / 3,
+                "timestamp": 1000 + i * span // 2,
+                "transactionHash": f"0xtx_{i}",
+            }
+            for i in range(3)
+        ]
+
+    @patch("detection_strategies.pre_event_volume_spike.get_market_by_condition")
+    def test_spike_normalised_by_fetch_window(self, mock_market, *mocks):
+        # $10k in a 1,200 s window on $300k/day is ~2.4x -> no spike (the
+        # 60 s trade span would have made it ~48x)
+        mock_market.return_value = {"volume24hr": "300000"}
+        self.assertEqual(self.strategy.analyze_all(self._trades(10_000)), [])
+
+    @patch("detection_strategies.pre_event_volume_spike.get_market_by_condition")
+    def test_spike_fires_with_window_divisor_when_genuine(self, mock_market, *mocks):
+        # $10k in a 1,200 s window on $20k/day is 36x
+        mock_market.return_value = {"volume24hr": "20000"}
+        signals = self.strategy.analyze_all(self._trades(10_000))
+        self.assertEqual(len(signals), 1)
+        self.assertAlmostEqual(signals[0].severity, math.log10(36), places=6)
+        self.assertIn("36.0x", signals[0].headline)
+
+    @patch("detection_strategies.pre_event_volume_spike.get_market_by_condition")
+    def test_falls_back_to_trade_span_without_window(self, mock_market, *mocks):
+        # no fetch window known (e.g. --once without a cursor): old span rule
+        self.strategy.fetch_window_seconds = None
+        mock_market.return_value = {"volume24hr": "300000"}
+        signals = self.strategy.analyze_all(self._trades(10_000))
+        self.assertEqual(len(signals), 1)
+        self.assertIn("48.0x", signals[0].headline)
 
 if __name__ == "__main__":
     unittest.main()
