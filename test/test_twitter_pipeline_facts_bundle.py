@@ -540,6 +540,7 @@ def test_record_card_matches_text_record(monkeypatch):
     # record while the card re-selected the "best" wallet from Postgres
     # wallet_profiles -> "184-13" in the text, "201-15" on the card.
     import charts
+
     import db
 
     trades = [_trade(wallet="0xaaa", usd=3000), _trade(wallet="0xbbb", usd=800)]

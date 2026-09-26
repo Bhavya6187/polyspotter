@@ -585,8 +585,8 @@ def _wire_main(monkeypatch, tmp_path, sent_at=None):
         def json(self):
             return {"id": "email_1"}
 
-    def fake_post(url, json=None, headers=None, timeout=None):
-        events.append(("post", json["to"][0], headers.get("Idempotency-Key")))
+    def fake_post(url, **kw):
+        events.append(("post", kw["json"]["to"][0], kw["headers"].get("Idempotency-Key")))
         return FakeResp()
 
     monkeypatch.setattr(digestbot.requests, "post", fake_post)
