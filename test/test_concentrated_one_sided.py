@@ -539,6 +539,46 @@ class TestConcentratedOneSidedStrategy(unittest.TestCase):
         self.assertEqual(len(signals), 1)
         self.assertEqual(signals[0].direction, "No:SELL")
 
+    @patch("detection_strategies.concentrated_one_sided.get_market_by_condition")
+    def test_sell_outcome_not_in_gamma_outcomes_not_remapped(self, mock_market):
+        """A SELL whose outcome is not one of Gamma's two outcomes must not
+        be silently remapped to the first outcome (it used to become Yes)."""
+        mock_market.return_value = self.BINARY_MARKET
+        trades = [
+            self._make_trade(f"wallet_{i}", cid="cond_bin", outcome="Maybe", side="SELL", usd=2000, price=0.40)
+            for i in (1, 2, 3)
+        ]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].direction, "Maybe:SELL")
+
+    @patch("detection_strategies.concentrated_one_sided.get_market_by_condition")
+    def test_sell_outcome_case_mismatch_not_remapped_to_first_outcome(self, mock_market):
+        """Outcomes are compared exactly in this module; a "NO" / "no " SELL
+        does not match Gamma's "No", so it keeps its own SELL key rather
+        than being mis-mapped to "Yes" by the else-branch."""
+        mock_market.return_value = self.BINARY_MARKET
+        for variant in ("NO", "no "):
+            trades = [
+                self._make_trade(f"wallet_{i}", cid="cond_bin", outcome=variant, side="SELL", usd=2000, price=0.40)
+                for i in (1, 2, 3)
+            ]
+            signals = self.strategy.analyze_all(trades)
+            self.assertEqual(len(signals), 1, variant)
+            self.assertEqual(signals[0].direction, f"{variant}:SELL")
+
+    @patch("detection_strategies.concentrated_one_sided.get_market_by_condition")
+    def test_sell_matching_second_gamma_outcome_still_remapped(self, mock_market):
+        """Guard must not break the normal case: SELL Yes -> BUY No."""
+        mock_market.return_value = self.BINARY_MARKET
+        trades = [
+            self._make_trade(f"wallet_{i}", cid="cond_bin", outcome="Yes", side="SELL", usd=2000, price=0.40)
+            for i in (1, 2, 3)
+        ]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].direction, "No:BUY")
+
     # ------------------------------------------------------------------
     # Multiple shared funders
     # ------------------------------------------------------------------

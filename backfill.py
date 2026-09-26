@@ -54,7 +54,7 @@ from db import (
     get_cached_funder,
     record_wallet_pnl,
     get_wallet_pnl_latest_timestamp,
-    clear_wallet_pnl_by_type,
+    replace_wallet_pnl_by_type,
     record_price_candles_batch,
     record_orderbook_snapshot,
     get_wallet_pnl_summary,
@@ -68,6 +68,7 @@ from detection_strategies.timing_relative_resolution import (
     MIN_BET_USD as TIMING_MIN_BET_USD,
 )
 from detection_strategies.new_wallet_large_bet import WALLET_AGE_DAYS
+from detection_strategies.win_rate_tracking import _fetch_open_positions
 from gamma_cache import is_sport_market, get_event_slug
 from polybot import _is_penny_collecting
 
@@ -863,8 +864,12 @@ def backfill_wallet_pnl(trades: list[dict]) -> None:
         if (i + 1) % 20 == 0:
             print(f"  processed {i + 1}/{len(wallets)} wallets ({open_count} open, {closed_count} closed)...")
 
-        clear_wallet_pnl_by_type(wallet, "open")  # fresh fetch, matching live strategy
-        open_count += _fetch_pnl_pages(wallet, "positions", "open", limit=50)
+        # Fetch first, then replace atomically (matching live strategy): a
+        # failed fetch must leave the cached open rows untouched.
+        open_positions = _fetch_open_positions(wallet)
+        if open_positions is not None:
+            replace_wallet_pnl_by_type(wallet, "open", open_positions)
+            open_count += len(open_positions)
         closed_cutoff = get_wallet_pnl_latest_timestamp(wallet, "closed")
         closed_count += _fetch_pnl_pages(wallet, "closed-positions", "closed",
                                          limit=MAX_PNL_POSITIONS,
