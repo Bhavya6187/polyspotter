@@ -1335,11 +1335,12 @@ def test_health_get_reports_staleness(monkeypatch):
 
 
 def test_health_alert_count_clamps_unanalysed_reltuples(monkeypatch):
-    """pg_class.reltuples is -1 on a never-analysed table (Postgres 14+)."""
+    """pg_class.reltuples is -1 on a never-analysed table (Postgres 14+); the
+    SQL clamps it with GREATEST, so the row the fake returns is already 0."""
     import app as app_mod
     executed = []
     row = {"latest_scanned_at": datetime.now(timezone.utc), "seconds_since_latest": 60,
-           "approx_count": -1}
+           "approx_count": 0}
     monkeypatch.setattr(app_mod, "db", _recording_db(executed, fetchone=row))
     r = client.get("/api/health")
     assert r.status_code == 200

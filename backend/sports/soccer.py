@@ -491,45 +491,35 @@ def get_soccer_data(title: str, *, tags: list[str], event_slug: str = "") -> Soc
     # Handicap / total titles name one team; for EPL the slug still carries
     # both codes (the same fallback can_handle accepts).
     parsed = parse_team_names(title)
-    if not parsed and not (league_id == "eng.1" and extract_codes_from_slug(event_slug)):
+    slug_codes = extract_codes_from_slug(event_slug) if league_id == "eng.1" else None
+    if not parsed and not slug_codes:
         return None
     name_a, name_b = parsed or ("", "")
 
     # Resolve EPL via abbr; UCL/WC fall back to name match against scoreboard
     abbr_a = resolve_epl_abbr(name_a) if league_id == "eng.1" and name_a else None
     abbr_b = resolve_epl_abbr(name_b) if league_id == "eng.1" and name_b else None
-    if league_id == "eng.1" and (not abbr_a or not abbr_b) and event_slug:
-        from_slug = extract_codes_from_slug(event_slug)
-        if from_slug:
-            abbr_a, abbr_b = from_slug
+    if league_id == "eng.1" and (not abbr_a or not abbr_b) and slug_codes:
+        abbr_a, abbr_b = slug_codes
     if league_id == "eng.1" and (not abbr_a or not abbr_b):
         # EPL needs at least one resolution path; can't continue
         return None
 
-    # The slug's date identifies the game (series / doubleheaders put the
-    # same pair on consecutive days); today's board is only a fallback when
-    # the slug carries no date.
+    # Slug date picks the fixture; else today's board.
     date_str = _extract_date_from_slug(event_slug) if event_slug else None
-    dates_to_try = [date_str]
-
-    espn_event_id = None
-    for d in dates_to_try:
-        cache_key = f"__sc_sb_{league_id}_{d or 'today'}__"
-        sb = _cache_get(cache_key, "scoreboard")
-        if sb is None:
-            sb = _fetch_espn_scoreboard(league_id, d)
-            if sb:
-                _cache_set(cache_key, "scoreboard", sb)
-        if not sb:
-            continue
-        if league_id == "eng.1":
-            espn_event_id = _match_espn_game_by_abbr(sb, abbr_a, abbr_b)
-        else:
-            matched = _match_espn_game_by_name(sb, name_a, name_b)
-            espn_event_id = matched[0] if matched else None
-        if espn_event_id:
-            break
-
+    cache_key = f"__sc_sb_{league_id}_{date_str or 'today'}__"
+    sb = _cache_get(cache_key, "scoreboard")
+    if sb is None:
+        sb = _fetch_espn_scoreboard(league_id, date_str)
+        if sb:
+            _cache_set(cache_key, "scoreboard", sb)
+    if not sb:
+        return None
+    if league_id == "eng.1":
+        espn_event_id = _match_espn_game_by_abbr(sb, abbr_a, abbr_b)
+    else:
+        matched = _match_espn_game_by_name(sb, name_a, name_b)
+        espn_event_id = matched[0] if matched else None
     if not espn_event_id:
         return None
 

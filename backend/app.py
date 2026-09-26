@@ -2437,8 +2437,8 @@ def health(response: Response):
         response.status_code = 503
     return {
         "status": "ok" if is_fresh else "stale",
-        # reltuples is -1 until the table is first analysed (Postgres 14+).
-        "alert_count": max(row["approx_count"] or 0, 0),
+        # Clamped in SQL: reltuples is -1 until the table is first analysed.
+        "alert_count": int(row["approx_count"]),
         "latest_scanned_at": row["latest_scanned_at"].isoformat() if row["latest_scanned_at"] else None,
         "seconds_since_latest_alert": seconds_since,
     }
