@@ -8,6 +8,14 @@ from detection_strategies.concentrated_one_sided import ConcentratedOneSidedStra
 class TestConcentratedOneSidedStrategy(unittest.TestCase):
     def setUp(self):
         self.strategy = ConcentratedOneSidedStrategy()
+        # No network: Gamma lookups return nothing unless a test patches them
+        # (the strategy then falls back to batch-based binary detection).
+        patcher = patch(
+            "detection_strategies.concentrated_one_sided.get_market_by_condition",
+            return_value=None,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def _make_trade(self, wallet, cid="cond_1", outcome="Yes", side="BUY", usd=2000, price=0.50):
         return {
@@ -469,6 +477,67 @@ class TestConcentratedOneSidedStrategy(unittest.TestCase):
         ]
         signals = self.strategy.analyze_all(trades)
         self.assertEqual(len(signals), 0)
+
+    # ------------------------------------------------------------------
+    # SELL clusters remap via Gamma outcomes, not batch contents
+    # ------------------------------------------------------------------
+
+    BINARY_MARKET = {"outcomes": '["Yes", "No"]', "volume24hr": 0}
+
+    def _sell_no_trades(self, price=0.40):
+        return [
+            self._make_trade(f"wallet_{i}", cid="cond_bin", outcome="No", side="SELL", usd=2000, price=price)
+            for i in (1, 2, 3)
+        ]
+
+    @patch("detection_strategies.concentrated_one_sided.get_market_by_condition")
+    def test_sell_cluster_remaps_without_opposite_outcome_in_batch(self, mock_market):
+        """Only SELL No trades in the batch: Gamma says the market is Yes/No,
+        so the cluster is keyed as the equivalent Yes BUY."""
+        mock_market.return_value = self.BINARY_MARKET
+        signals = self.strategy.analyze_all(self._sell_no_trades())
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].direction, "Yes:BUY")
+        self.assertIn("(Yes/BUY)", signals[0].headline)
+
+    @patch("detection_strategies.concentrated_one_sided.get_market_by_condition")
+    def test_sell_cluster_key_stable_across_batches(self, mock_market):
+        """The backend dedup key must not change when a Yes BUY happens to
+        appear in the next scan's batch (that produced duplicate alerts)."""
+        from seeder import _build_dedup_key
+
+        mock_market.return_value = self.BINARY_MARKET
+        sell_only = self.strategy.analyze_all(self._sell_no_trades())
+        with_buy = self.strategy.analyze_all(
+            self._sell_no_trades()
+            + [self._make_trade("wallet_9", cid="cond_bin", outcome="Yes", side="BUY", usd=100, price=0.60)]
+        )
+        self.assertEqual(len(sell_only), 1)
+        self.assertEqual(len(with_buy), 1)
+        self.assertEqual(
+            _build_dedup_key(None, "cond_bin", cluster_direction=sell_only[0].direction),
+            _build_dedup_key(None, "cond_bin", cluster_direction=with_buy[0].direction),
+        )
+
+    @patch("detection_strategies.concentrated_one_sided.get_market_by_condition")
+    def test_remapped_sell_cluster_respects_favourite_filter(self, mock_market):
+        """SELL No at 0.20 = BUY Yes at 0.80 (a favourite): on a high-volume
+        market it is suppressed exactly like a native BUY cluster."""
+        mock_market.return_value = {"outcomes": '["Yes", "No"]', "volume24hr": 100_000}
+        native_buys = [
+            self._make_trade(f"wallet_{i}", cid="cond_bin", outcome="Yes", side="BUY", usd=2000, price=0.80)
+            for i in (1, 2, 3)
+        ]
+        self.assertEqual(self.strategy.analyze_all(native_buys), [])
+        self.assertEqual(self.strategy.analyze_all(self._sell_no_trades(price=0.20)), [])
+
+    @patch("detection_strategies.concentrated_one_sided.get_market_by_condition")
+    def test_multi_outcome_gamma_market_sell_not_remapped(self, mock_market):
+        """Gamma reports 3 outcomes: there is no single opposite, keep SELL."""
+        mock_market.return_value = {"outcomes": '["A", "B", "No"]', "volume24hr": 0}
+        signals = self.strategy.analyze_all(self._sell_no_trades())
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].direction, "No:SELL")
 
     # ------------------------------------------------------------------
     # Multiple shared funders
