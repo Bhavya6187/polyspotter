@@ -498,3 +498,29 @@ def test_spread_sign_home_favoured():
     )
     assert odds.spread.team == "MIL"
     assert odds.spread.value == -4.5
+
+
+def test_no_date_scoreboard_does_not_share_cache_with_explicit_date(monkeypatch):
+    """ESPN's default board follows US time, so a no-date fetch must never be
+    served to an explicit-date request for the UTC day (or vice versa)."""
+    from datetime import datetime, timezone
+
+    import sports.basketball as bb
+
+    bb._game_cache.clear()
+    calls = []
+
+    def fake_fetch(league, date_str):
+        calls.append(date_str)
+        return {"board": date_str or "espn-default"}
+
+    monkeypatch.setattr(bb, "_fetch_espn_scoreboard", fake_fetch)
+    today = datetime.now(timezone.utc).strftime("%Y%m%d")
+
+    default_board = bb._get_espn_scoreboard("nba", None)
+    dated_board = bb._get_espn_scoreboard("nba", today)
+
+    assert default_board == {"board": "espn-default"}
+    assert dated_board == {"board": today}
+    assert calls == [None, today]
+    bb._game_cache.clear()

@@ -1334,6 +1334,19 @@ def test_health_get_reports_staleness(monkeypatch):
     assert r.json()["alert_count"] == 1000
 
 
+def test_health_alert_count_clamps_unanalysed_reltuples(monkeypatch):
+    """pg_class.reltuples is -1 on a never-analysed table (Postgres 14+)."""
+    import app as app_mod
+    executed = []
+    row = {"latest_scanned_at": datetime.now(timezone.utc), "seconds_since_latest": 60,
+           "approx_count": -1}
+    monkeypatch.setattr(app_mod, "db", _recording_db(executed, fetchone=row))
+    r = client.get("/api/health")
+    assert r.status_code == 200
+    assert r.json()["alert_count"] == 0
+    assert "GREATEST(reltuples, 0)" in " ".join(s for s, _ in executed)
+
+
 def test_upstream_502_does_not_leak_exception_text(monkeypatch):
     import app as app_mod
     import requests

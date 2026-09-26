@@ -138,19 +138,53 @@ def test_other_errors_do_not_mark_skip(monkeypatch):
     assert not any("seo_skip_reason" in sql and "UPDATE" in sql for sql, _ in conn.executed)
 
 
+class CopyAwareConn(FakeConn):
+    """Models the DB just enough for the copy step: market cid1 already has
+    SEO on an older alert row and a new alert row with seo_generated_at NULL.
+    Until the copy statement runs, the candidate SELECT still returns cid1
+    (which the pre-copy worker sent to GPT); after the copy it returns none."""
+
+    def __init__(self):
+        super().__init__()
+        self.copied = False
+
+    def cursor(self):
+        conn = self
+
+        class _Cursor(FakeCursor):
+            def execute(self, sql, params=None):
+                super().execute(sql, params)
+                flat = " ".join(sql.split())
+                if flat.startswith("UPDATE alerts") and "src.seo_title" in flat:
+                    conn.copied = True
+                elif flat.startswith("SELECT condition_id"):
+                    conn.fetchall_results = [[] if conn.copied else [MARKET_ROW], []]
+
+        return _Cursor(self)
+
+
 def test_worker_copies_existing_seo_instead_of_regenerating(monkeypatch):
     """A new alert row (seo_generated_at NULL) on a market that already has
     SEO gets the existing fields copied, before candidate selection, so the
     market is not re-sent to GPT."""
-    conn = FakeConn(fetchall_results=[[]])  # no candidates left after the copy
+    conn = CopyAwareConn()
+    gpt_calls = []
 
     def _no_gpt(**kwargs):
+        gpt_calls.append(kwargs)
         raise AssertionError("GPT must not be called")
 
     monkeypatch.setattr(seo_worker, "get_conn", lambda: conn)
     monkeypatch.setattr(seo_worker, "generate_seo_content", _no_gpt)
 
     assert seo_worker.run_market_seo() == 0
+
+    assert conn.copied, "the copy statement must run for the already-SEO'd market"
+    assert gpt_calls == [], "GPT must not be called for a market that already has SEO"
+    assert not any(
+        sql.startswith("UPDATE alerts") and "seo_generated_at = NOW()" in sql
+        for sql, _ in conn.executed
+    )
 
     sqls = [sql for sql, _ in conn.executed]
     copy_idx = next(i for i, sql in enumerate(sqls) if sql.startswith("UPDATE alerts") and "seo_title" in sql)
