@@ -64,6 +64,9 @@ CREATE TABLE IF NOT EXISTS alerts (
 
 CREATE INDEX IF NOT EXISTS idx_alerts_score ON alerts(composite_score DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_scanned ON alerts(scanned_at DESC);
+-- /api/alerts orders every page by created_at DESC; without this each request
+-- sorted the whole alerts table.
+CREATE INDEX IF NOT EXISTS idx_alerts_created_at ON alerts (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_wallet ON alerts(wallet);
 CREATE INDEX IF NOT EXISTS idx_alerts_event ON alerts(event_slug);
 -- condition_id is looked up on every market-page render (by-market, theses,
