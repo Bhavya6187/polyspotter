@@ -55,6 +55,13 @@ export function fetchTags() {
   return request("/api/tags");
 }
 
+// Every distinct tag (same shape as fetchTags). Server-side only: used to map
+// /tag/<slug> back to the exact tag string. Backends without `all` support
+// ignore the parameter and return the top-10 list.
+export function fetchAllTags() {
+  return request("/api/tags", { all: "true" }, { next: { revalidate: 600 } });
+}
+
 export function fetchMarketLive(conditionId) {
   return request(`/api/market/${encodeURIComponent(conditionId)}/live`);
 }
