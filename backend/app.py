@@ -8,7 +8,8 @@ Endpoints:
   GET  /api/alerts/{id}   — get single alert with trades + signals
   GET  /api/wallets/{addr} — get wallet profile
   GET  /api/strategies    — list all strategies seen
-  GET  /api/health        — health check
+  GET  /api/health        — health check (scanner freshness; 503 when stale)
+  GET  /api/health/bots   — digest / tweet freshness (503 when stale)
 """
 
 from __future__ import annotations
@@ -77,6 +78,7 @@ from models import (
     SubscribeResponse,
     DigestSummary,
     DigestDetail,
+    BotsHealth,
 )
 from grading import summarize, exclude_junk, top_categories
 
@@ -2396,6 +2398,56 @@ def health(response: Response):
         "latest_scanned_at": row["latest_scanned_at"].isoformat() if row["latest_scanned_at"] else None,
         "seconds_since_latest_alert": seconds_since,
     }
+
+
+# Hours without output before a bot counts as stale. The digest runs daily and
+# the tweet loop several times a day; graded/alert ages are informational
+# (/api/health already covers the scanner).
+DIGEST_STALE_H = 30
+TWEET_STALE_H = 36
+
+
+def _age_h(seconds) -> float | None:
+    return None if seconds is None else round(float(seconds) / 3600, 1)
+
+
+@app.api_route("/api/health/bots", methods=["GET", "HEAD"], response_model=BotsHealth)
+def health_bots(response: Response):
+    """Freshness of the out-of-process bots (digest, twitter, grader, scanner).
+    Returns 503 when the digest or tweet loop is stale so an uptime monitor can
+    alert on the status code (a Sep 2026 outage went unnoticed for 11 days)."""
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                (SELECT EXTRACT(EPOCH FROM (NOW() - MAX(published_at)))
+                   FROM digests WHERE status = 'published') AS digest_age_s,
+                (SELECT EXTRACT(EPOCH FROM (NOW() - MAX(tweeted_at)))
+                   FROM tweeted_alerts) AS tweet_age_s,
+                (SELECT EXTRACT(EPOCH FROM (NOW() - MAX(graded_at)))
+                   FROM graded_calls) AS graded_age_s,
+                (SELECT EXTRACT(EPOCH FROM (NOW() - MAX(scanned_at)))
+                   FROM alerts) AS alert_age_s
+            """,
+        )
+        row = cur.fetchone()
+    body = {
+        "digest_age_h": _age_h(row["digest_age_s"]),
+        "tweet_age_h": _age_h(row["tweet_age_s"]),
+        "graded_age_h": _age_h(row["graded_age_s"]),
+        "alert_age_h": _age_h(row["alert_age_s"]),
+    }
+    stale = [
+        name for name, age, limit in (
+            ("digest", body["digest_age_h"], DIGEST_STALE_H),
+            ("tweet", body["tweet_age_h"], TWEET_STALE_H),
+        )
+        if age is None or age > limit
+    ]
+    if stale:
+        response.status_code = 503
+    return {**body, "stale": stale}
 
 
 @app.get("/api/articles", response_model=list[ArticleListItem])

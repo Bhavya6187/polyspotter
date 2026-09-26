@@ -1052,3 +1052,13 @@ class DigestDetail(BaseModel):
     subject: str
     intro: str | None = None
     content_json: dict
+
+
+class BotsHealth(BaseModel):
+    """GET /api/health/bots — hours since each bot last produced output.
+    None means the bot has never produced a row."""
+    digest_age_h: float | None = None
+    tweet_age_h: float | None = None
+    graded_age_h: float | None = None
+    alert_age_h: float | None = None
+    stale: list[str] = []

@@ -215,7 +215,8 @@ pytest
 | `GET` | `/api/market/{id}/holders` | Market holders/positions leaderboard |
 | `GET` | `/api/market/{id}/theses` | Theses for a specific market |
 | `GET` | `/api/market/resolve/{partial}` | Resolve partial condition ID to full ID |
-| `GET` | `/api/health` | Health check |
+| `GET` | `/api/health` | Health check (503 when no alert in the last hour) |
+| `GET` | `/api/health/bots` | Bot freshness: hours since last digest, tweet, graded call and alert; 503 when the digest (>30h) or tweets (>36h) are stale |
 
 ## APIs Used
 
