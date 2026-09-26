@@ -624,6 +624,62 @@ def list_alerts(
     )
 
 
+# Per-market cap on the alerts embedded in each by-market row. The row's
+# alert_count still reports the full number.
+MARKET_ALERTS_LIMIT = 20
+# Cap for event-level rows (group_events=true) to keep event cards compact.
+EVENT_ALERTS_LIMIT = 5
+
+_CHILD_KEY_COLUMNS = ("condition_id", "event_slug")
+
+
+def _title_search_predicate() -> str:
+    """Market-title/tag search predicate for the `q=` filter.
+
+    `%s <%% a.market_title` (word_similarity above
+    pg_trgm.word_similarity_threshold) can use the trigram GIN index, whereas
+    `word_similarity(...) > 0.2` forces a scan. Callers must SET LOCAL the
+    threshold to 0.2 to keep the old match breadth.
+    """
+    return (
+        "(%s <%% a.market_title "
+        "OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(a.tags::jsonb) AS t WHERE t ILIKE %s))"
+    )
+
+
+def _by_market_children_query(
+    key_column: str, keys: list, where: str, where_params: list, *, cap: int, order_by: str
+) -> tuple[str, list]:
+    """One statement fetching up to `cap` alerts for every key in `keys`.
+
+    Replaces a per-row query loop. `order_by` ranks alerts within each group
+    and may reference `latest_trade_at` and any alerts column.
+    """
+    if key_column not in _CHILD_KEY_COLUMNS:
+        raise ValueError(f"unsupported key column: {key_column}")
+    sql = f"""SELECT * FROM (
+                SELECT c.*, row_number() OVER (PARTITION BY c.{key_column} ORDER BY {order_by}) AS rn
+                FROM (
+                    SELECT a.*,
+                           wp.win_rate,
+                           wp.total_pnl,
+                           wp.total_invested,
+                           COALESCE(
+                               (SELECT MAX(t.trade_timestamp)
+                                FROM alert_trades t
+                                WHERE t.alert_id = a.id),
+                               a.scanned_at
+                           ) AS latest_trade_at
+                    FROM alerts a
+                    LEFT JOIN wallet_profiles wp ON wp.wallet = a.wallet
+                    WHERE a.{key_column} = ANY(%s) AND {where}
+                ) c
+            ) ranked
+            WHERE rn <= %s
+            ORDER BY {key_column}, rn"""
+    return sql, [list(keys)] + list(where_params) + [cap]
+
+
 @app.get("/api/alerts/by-market", response_model=PaginatedMarkets)
 def list_alerts_by_market(
     page: int = Query(1, ge=1),
@@ -676,10 +732,7 @@ def list_alerts_by_market(
     q_clean = q.strip() if q else None
     q_like = f"%{q_clean}%" if q_clean else None
     if q_clean:
-        conditions.append(
-            "(word_similarity(%s, a.market_title) > 0.2 "
-            "OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(a.tags::jsonb) AS t WHERE t ILIKE %s))"
-        )
+        conditions.append(_title_search_predicate())
         params.append(q_clean)
         params.append(q_like)
 
@@ -690,11 +743,14 @@ def list_alerts_by_market(
     # event_slugs covering 2+ child markets in this filter, then groups by
     # COALESCE(event_slug-when-multi-market, condition_id). Single-market
     # events and standalone markets fall through to the per-market path
-    # unchanged. Cap event-card alerts at this many to keep cards compact.
-    EVENT_ALERTS_LIMIT = 5
+    # unchanged.
 
     with db() as conn:
         cur = conn.cursor()
+        if q_clean:
+            # Scoped to this transaction; keeps `<%` as broad as the old
+            # `word_similarity(...) > 0.2` predicate.
+            cur.execute("SET LOCAL pg_trgm.word_similarity_threshold = 0.2")
 
         # Relevance / freshness ordering — same logic for both grouping modes.
         if q_clean:
@@ -817,49 +873,32 @@ def list_alerts_by_market(
             )
             market_rows = [dict(r) for r in cur.fetchall()]
 
-        # Fetch alerts for each group. Event rows query by event_slug + LIMIT;
-        # market rows keep their existing per-condition_id query (full set).
+        # Fetch every group's alerts in (at most) two batched statements:
+        # event rows by event_slug (best first), market rows by condition_id
+        # (latest first, as the cards label the tail "older alerts").
+        children: dict[tuple[bool, str], list] = {}
+        batches = (
+            (True, "event_slug", EVENT_ALERTS_LIMIT, "c.composite_score DESC, c.latest_trade_at DESC"),
+            (False, "condition_id", MARKET_ALERTS_LIMIT, "c.latest_trade_at DESC"),
+        )
+        for is_event_batch, key_column, cap, order_by in batches:
+            keys = [m[key_column] for m in market_rows if bool(m.get("is_event")) == is_event_batch]
+            if not keys:
+                continue
+            sql, child_params = _by_market_children_query(
+                key_column, keys, where, params, cap=cap, order_by=order_by
+            )
+            cur.execute(sql, child_params)
+            for r in cur.fetchall():
+                r = dict(r)
+                r.pop("rn", None)
+                children.setdefault((is_event_batch, r[key_column]), []).append(r)
+
         markets = []
         for mrow in market_rows:
             is_event = bool(mrow.get("is_event"))
-            if is_event:
-                cur.execute(
-                    f"""SELECT a.*,
-                               wp.win_rate,
-                               wp.total_pnl,
-                               wp.total_invested,
-                               COALESCE(
-                                   (SELECT MAX(t.trade_timestamp)
-                                    FROM alert_trades t
-                                    WHERE t.alert_id = a.id),
-                                   a.scanned_at
-                               ) AS latest_trade_at
-                        FROM alerts a
-                        LEFT JOIN wallet_profiles wp ON wp.wallet = a.wallet
-                        WHERE a.event_slug = %s AND {where}
-                        ORDER BY a.composite_score DESC, latest_trade_at DESC
-                        LIMIT %s""",
-                    [mrow["event_slug"]] + params + [EVENT_ALERTS_LIMIT],
-                )
-            else:
-                cur.execute(
-                    f"""SELECT a.*,
-                               wp.win_rate,
-                               wp.total_pnl,
-                               wp.total_invested,
-                               COALESCE(
-                                   (SELECT MAX(t.trade_timestamp)
-                                    FROM alert_trades t
-                                    WHERE t.alert_id = a.id),
-                                   a.scanned_at
-                               ) AS latest_trade_at
-                        FROM alerts a
-                        LEFT JOIN wallet_profiles wp ON wp.wallet = a.wallet
-                        WHERE a.condition_id = %s AND {where}
-                        ORDER BY latest_trade_at DESC""",
-                    [mrow["condition_id"]] + params,
-                )
-            alert_rows = cur.fetchall()
+            group_key = mrow["event_slug"] if is_event else mrow["condition_id"]
+            alert_rows = children.get((is_event, group_key), [])
 
             all_tags: list[str] = []
             parsed_alerts = []
