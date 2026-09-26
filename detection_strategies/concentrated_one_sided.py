@@ -116,10 +116,13 @@ class ConcentratedOneSidedStrategy(DetectionStrategy):
             ):
                 continue
 
-            if cid in binary_cids and side == "SELL":
+            if cid in binary_cids and side == "SELL" and outcome in binary_cids[cid]:
                 # Selling outcome A = buying outcome B in a binary market.
                 # Only the cluster key is remapped — the trade dict itself is
                 # kept unmodified so downstream consumers see real prices.
+                # An outcome that doesn't exactly match either binary outcome
+                # (outcomes are compared exactly throughout this module) keeps
+                # its own SELL key instead of being mis-mapped to the first.
                 o1, o2 = binary_cids[cid]
                 effective_outcome = o2 if outcome == o1 else o1
                 clusters[(cid, effective_outcome, "BUY")].append(t)
