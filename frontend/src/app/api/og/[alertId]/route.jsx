@@ -6,7 +6,7 @@ export async function GET(request, { params }) {
 
   let alert;
   try {
-    const res = await fetch(`${API_URL}/api/alerts/${alertId}`);
+    const res = await fetch(`${API_URL}/api/alerts/${encodeURIComponent(alertId)}`);
     if (!res.ok) return new Response("Not found", { status: 404 });
     alert = await res.json();
   } catch {

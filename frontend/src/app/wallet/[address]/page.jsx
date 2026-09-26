@@ -109,7 +109,7 @@ export default async function WalletPage({ params }) {
   let walletTags = [];
   try {
     const alertsRes = await fetch(
-      `${API_URL}/api/alerts?wallet=${address}&per_page=50`,
+      `${API_URL}/api/alerts?wallet=${encodeURIComponent(address)}&per_page=50`,
       { next: { revalidate: 300 } }
     );
     if (alertsRes.ok) {

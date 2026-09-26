@@ -40,11 +40,11 @@ export function fetchMarketAlerts({ page, perPage, minScore, wallet, tag, resolv
 }
 
 export function fetchAlertDetail(alertId) {
-  return request(`/api/alerts/${alertId}`);
+  return request(`/api/alerts/${encodeURIComponent(alertId)}`);
 }
 
 export function fetchWalletProfile(walletAddress) {
-  return request(`/api/wallets/${walletAddress}`);
+  return request(`/api/wallets/${encodeURIComponent(walletAddress)}`);
 }
 
 export function fetchStrategies() {
@@ -56,7 +56,7 @@ export function fetchTags() {
 }
 
 export function fetchMarketLive(conditionId) {
-  return request(`/api/market/${conditionId}/live`);
+  return request(`/api/market/${encodeURIComponent(conditionId)}/live`);
 }
 
 export function fetchSportOverlay(conditionId, { title, eventSlug, tags } = {}) {
@@ -64,7 +64,7 @@ export function fetchSportOverlay(conditionId, { title, eventSlug, tags } = {}) 
   if (title) params.set("title", title);
   if (eventSlug) params.set("event_slug", eventSlug);
   for (const t of tags || []) params.append("tag", t);
-  const url = new URL(`/api/market/${conditionId}/overlay`, BASE_URL);
+  const url = new URL(`/api/market/${encodeURIComponent(conditionId)}/overlay`, BASE_URL);
   url.search = params.toString();
   return fetch(url).then((res) => {
     if (res.status === 404) return null;       // no overlay for this market
@@ -121,15 +121,15 @@ export function fetchTheses(page = 1, perPage = 5) {
 }
 
 export function fetchPriceHistory(conditionId, range = "7d") {
-  return request(`/api/market/${conditionId}/price-history`, { range });
+  return request(`/api/market/${encodeURIComponent(conditionId)}/price-history`, { range });
 }
 
 export function fetchMarketHolders(conditionId) {
-  return request(`/api/market/${conditionId}/holders`);
+  return request(`/api/market/${encodeURIComponent(conditionId)}/holders`);
 }
 
 export function fetchMarketTheses(conditionId) {
-  return request(`/api/market/${conditionId}/theses`);
+  return request(`/api/market/${encodeURIComponent(conditionId)}/theses`);
 }
 
 export function fetchEvent(slug) {
