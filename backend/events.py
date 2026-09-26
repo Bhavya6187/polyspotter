@@ -17,15 +17,20 @@ import sys
 from datetime import datetime, timezone
 
 import requests as _requests
+from cachetools import TTLCache
 
 from database import get_pooled_conn, release_conn
 
 GAMMA_API = "https://gamma-api.polymarket.com"
-GAMMA_TIMEOUT = 10
+GAMMA_TIMEOUT = 5
 # Refresh cached event metadata if older than this AND end_date is still
 # in the future. Resolved events don't change; we keep them as-is to save
 # API calls and so historical pages stay deterministic.
 REFRESH_AFTER_SECONDS = 7 * 24 * 3600
+# Slugs Gamma didn't recognise. Event pages for unknown slugs (crawlers, stale
+# links) otherwise hit Gamma on every request.
+MISS_TTL_S = 300
+_event_miss_cache: TTLCache = TTLCache(maxsize=2048, ttl=MISS_TTL_S)
 
 
 def fetch_event_from_gamma(slug: str) -> dict | None:
@@ -149,7 +154,12 @@ def get_event_or_fetch(slug: str) -> dict | None:
         release_conn(conn, pooled)
 
     if row is None:
-        return upsert_event(slug)
+        if slug in _event_miss_cache:
+            return None
+        fetched = upsert_event(slug)
+        if fetched is None:
+            _event_miss_cache[slug] = True
+        return fetched
 
     now = datetime.now(timezone.utc)
     last_refreshed = row.get("last_refreshed_at") or row.get("fetched_at")
