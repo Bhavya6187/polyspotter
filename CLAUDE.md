@@ -44,11 +44,11 @@ Order matters — some strategies depend on data written by earlier ones.
   - `backend/sports/` — sport-overlay plugin framework: `base.py` (SportOverlay ABC + OverlayResponse envelope), `basketball.py`, `cricket.py` (each self-registers on import). New sports register here.
   - `backend/seo_generator.py` — LLM-generated SEO content for market pages
   - `backend/test_endpoints.py` / `backend/test_basketball.py` / `backend/test_sports_registry.py` — backend tests
-- `frontend/` — Next.js 15 web app (React 19, Tailwind CSS 4)
+- `frontend/` — Next.js 16 web app (React 19, Tailwind CSS 4)
   - `frontend/src/app/` — App Router pages (home, alert, market, wallet, tag, thesis) + `sitemap.js`, `robots.js`, `api/og` dynamic OG images
-  - `frontend/src/components/` — UI components (AlertTable, MarketCard, PriceChart, HeroSpotlight, SearchBar, CommandPalette, basketball & cricket overlays, etc.)
+  - `frontend/src/components/` — UI components (PriceChart, CommandPalette, basketball & cricket overlays, etc.)
   - `frontend/src/sports/` — frontend sport-overlay registry: `registry.js`, `index.js`, and per-sport plugin files registering `{ Banner, Header?, Sidebar }` slot components
-  - `frontend/src/hooks/` — custom React hooks (useLiveMarket, useSportOverlay, useSpotlight, useCountdown, useMediaQuery)
+  - `frontend/src/hooks/` — custom React hooks (useLiveMarket, useSportOverlay, useCountdown, useMediaQuery, useNow)
   - `frontend/src/lib/` — `api.js` (API client), `pseudonym.js`, `slugify.js`, `tiers.js`
 
 ## Environment Setup
@@ -146,6 +146,6 @@ When working with Etherscan API (wallet lookups, transaction history, funder tra
 - Pydantic for data validation
 
 **Frontend:**
-- Next.js 15 (App Router)
+- Next.js 16 (App Router)
 - React 19
 - Tailwind CSS 4
