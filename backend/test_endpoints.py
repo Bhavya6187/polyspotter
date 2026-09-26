@@ -1356,3 +1356,68 @@ def test_cors_does_not_allow_credentials_with_wildcard_origin():
     )
     assert r.headers.get("access-control-allow-origin") == "*"
     assert "access-control-allow-credentials" not in r.headers
+
+
+# ---------------------------------------------------------------------------
+# /api/health/bots — digest / tweet freshness (DB faked)
+# ---------------------------------------------------------------------------
+
+def _bots_ages(monkeypatch, digest_h, tweet_h, graded_h=5.0, alert_h=0.1):
+    import app as app_mod
+    executed = []
+    row = {
+        "digest_age_s": None if digest_h is None else digest_h * 3600,
+        "tweet_age_s": None if tweet_h is None else tweet_h * 3600,
+        "graded_age_s": graded_h * 3600,
+        "alert_age_s": alert_h * 3600,
+    }
+    monkeypatch.setattr(app_mod, "db", _recording_db(executed, fetchone=row))
+    return executed
+
+
+def test_health_bots_fresh_is_200(monkeypatch):
+    _bots_ages(monkeypatch, digest_h=3.0, tweet_h=1.5)
+    r = client.get("/api/health/bots")
+    assert r.status_code == 200
+    assert r.json() == {
+        "digest_age_h": 3.0, "tweet_age_h": 1.5,
+        "graded_age_h": 5.0, "alert_age_h": 0.1, "stale": [],
+    }
+
+
+def test_health_bots_stale_digest_is_503(monkeypatch):
+    _bots_ages(monkeypatch, digest_h=40.0, tweet_h=1.0)
+    r = client.get("/api/health/bots")
+    assert r.status_code == 503
+    assert r.json()["stale"] == ["digest"]
+
+
+def test_health_bots_stale_tweet_is_503(monkeypatch):
+    _bots_ages(monkeypatch, digest_h=2.0, tweet_h=50.0)
+    r = client.get("/api/health/bots")
+    assert r.status_code == 503
+    assert r.json()["stale"] == ["tweet"]
+
+
+def test_health_bots_old_graded_and_alert_are_informational(monkeypatch):
+    _bots_ages(monkeypatch, digest_h=2.0, tweet_h=2.0, graded_h=500.0, alert_h=300.0)
+    assert client.get("/api/health/bots").status_code == 200
+
+
+def test_health_bots_never_ran_is_stale(monkeypatch):
+    _bots_ages(monkeypatch, digest_h=None, tweet_h=None)
+    r = client.get("/api/health/bots")
+    assert r.status_code == 503
+    assert r.json()["stale"] == ["digest", "tweet"]
+    assert r.json()["digest_age_h"] is None
+
+
+def test_health_bots_head_uses_single_max_query(monkeypatch):
+    executed = _bots_ages(monkeypatch, digest_h=40.0, tweet_h=1.0)
+    r = client.head("/api/health/bots")
+    assert r.status_code == 503
+    assert len(executed) == 1
+    sql = executed[0][0]
+    assert "COUNT(" not in sql.upper()
+    for col in ("MAX(published_at)", "MAX(tweeted_at)", "MAX(graded_at)", "MAX(scanned_at)"):
+        assert col in sql
