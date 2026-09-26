@@ -21,11 +21,19 @@ Sidecars next to the draft (<run_id>.txt):
                           needing the transcript (live_runs is pruned after 30
                           days); alert ids come from the transcript when it is
                           still there, else from line 2, else none are
-                          recorded (a legacy one-line sidecar).
+                          recorded (a corrupt or truncated line 2 — zero
+                          alert rows make that tweet invisible to the
+                          cadence gate and dedup). An empty tweet id exits 1
+                          and leaves draft and sidecar for an operator. A
+                          .posted whose draft is gone is a crash after a
+                          successful record: the marker is deleted, exit 0.
     <run_id>.txt.pending  the post call failed ambiguously (5xx, dropped
                           connection, timeout) — the tweet may be live. Every
                           run refuses to post until an operator checks X and
                           deletes the marker (and the draft, if it posted).
+                          Also written after a successful post when the
+                          .posted sidecar cannot be written, so nothing can
+                          re-post a live tweet.
 """
 from __future__ import annotations
 
@@ -78,7 +86,8 @@ def _valid_alert_ids(alert_ids) -> bool:
 
 def _read_posted_marker(path: str) -> tuple[str, list | None]:
     """Return (tweet_id, alert_ids) from a .posted sidecar. alert_ids is None
-    when the sidecar predates line 2 or line 2 is unreadable."""
+    when line 2 is missing, corrupt or truncated; tweet_id is "" when line 1
+    is empty."""
     with open(path) as f:
         lines = f.read().splitlines()
     tweet_id = lines[0].strip() if lines else ""
@@ -130,20 +139,37 @@ def _record_and_clean_up(run_id: str, draft_path: str, alert_ids: list,
     .posted sidecar. On a record failure everything stays on disk and the run
     exits 1, so the loop/operator retries the record (never the post)."""
     posted_url = f"https://x.com/i/web/status/{tweet_id}"
+    posted_marker = draft_path + ".posted"
     try:
         record_tweet([int(i) for i in alert_ids], tweet_id, tweet_text)
     except Exception as exc:
         log("publish_tweet_record_error",
             run_id=run_id, tweet_id=tweet_id, error=f"{type(exc).__name__}: {exc}")
+        # Only a .posted marker makes a re-run safe; never claim it otherwise.
+        if os.path.exists(posted_marker):
+            advice = (f"Draft and {posted_marker} kept; re-run publish_tweet.py "
+                      f"{run_id} — it records without posting.")
+        else:
+            if os.path.exists(draft_path + ".pending"):
+                blocker = "a .pending marker was written to block re-posts"
+            else:
+                blocker = ("the .pending marker could not be written either — "
+                           "nothing on disk blocks a re-post")
+            advice = (f"tweet {tweet_id} is LIVE and {posted_marker} could not be "
+                      f"written — do NOT re-run publish_tweet.py {run_id}; "
+                      f"{blocker}. Insert the tweeted_alerts rows by hand "
+                      f"(alert_ids={list(alert_ids)}), then delete the draft "
+                      f"and any marker.")
         print(
             f"error: tweet_id={tweet_id} is live but record_tweet raised "
-            f"{type(exc).__name__}: {exc}. Draft and {draft_path}.posted kept; "
-            f"re-run publish_tweet.py {run_id} to record it (it will not re-post).",
+            f"{type(exc).__name__}: {exc}. {advice}",
             file=sys.stderr,
         )
         print(f"    tweet: {posted_url}", file=sys.stderr)
         return 1
-    for path in (draft_path, draft_path + ".posted"):
+    # .pending here can only be the fallback written when .posted failed
+    # (main refuses to reach this point past a pre-existing .pending).
+    for path in (draft_path, posted_marker, draft_path + ".pending"):
         try:
             os.remove(path)
         except FileNotFoundError:
@@ -169,6 +195,19 @@ def main(argv: list[str]) -> int:
     log("publish_tweet_start", run_id=run_id)
 
     draft_path = _draft_path(run_id)
+    posted_marker = draft_path + ".posted"
+    if not os.path.exists(draft_path) and os.path.exists(posted_marker):
+        # _record_and_clean_up deletes the draft before the marker, so a
+        # marker without a draft means the record succeeded and the process
+        # died before the second delete. Nothing left to do.
+        log("publish_tweet_orphan_posted_marker", run_id=run_id, path=posted_marker)
+        print(f"[publish_tweet] run_id={run_id} already recorded; removing "
+              f"orphan {posted_marker}")
+        try:
+            os.remove(posted_marker)
+        except FileNotFoundError:
+            pass
+        return 0
     if not os.path.exists(draft_path):
         print(f"error: no draft found at {draft_path}", file=sys.stderr)
         log("publish_tweet_no_draft", run_id=run_id, path=draft_path)
@@ -187,9 +226,17 @@ def main(argv: list[str]) -> int:
 
     # Retry of a live-but-unrecorded tweet. Independent of the transcript,
     # which may have been pruned from live_runs by now.
-    posted_marker = draft_path + ".posted"
     if os.path.exists(posted_marker):
         tweet_id, sidecar_ids = _read_posted_marker(posted_marker)
+        if not tweet_id:
+            print(
+                f"error: {posted_marker} has no tweet id (empty or truncated). "
+                f"The tweet is probably live: find it on X, write its id as "
+                f"line 1 of the marker and re-run. Draft and marker kept.",
+                file=sys.stderr,
+            )
+            log("publish_tweet_posted_marker_empty", run_id=run_id, path=posted_marker)
+            return 1
         alert_ids = _transcript_alert_ids(run_id) or sidecar_ids or []
         log("publish_tweet_already_posted", run_id=run_id, tweet_id=tweet_id,
             alert_ids=alert_ids)
@@ -303,6 +350,20 @@ def main(argv: list[str]) -> int:
     except OSError as exc:
         log("publish_tweet_posted_marker_error",
             run_id=run_id, tweet_id=tweet_id, error=str(exc))
+        # A partial .posted would claim a re-run is safe; drop it. Without
+        # .posted a re-run would post again, so .pending blocks the loop and
+        # manual re-runs until an operator has looked.
+        try:
+            os.remove(posted_marker)
+        except OSError:
+            pass
+        try:
+            with open(draft_path + ".pending", "w") as f:
+                f.write(f"posted tweet_id={tweet_id} alert_ids="
+                        f"{json.dumps(alert_ids)}; .posted write failed: {exc}\n")
+        except OSError as exc2:
+            log("publish_tweet_pending_marker_error",
+                run_id=run_id, tweet_id=tweet_id, error=str(exc2))
     return _record_and_clean_up(run_id, draft_path, alert_ids, tweet_id, tweet_text)
 
 

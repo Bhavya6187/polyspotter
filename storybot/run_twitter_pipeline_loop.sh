@@ -54,7 +54,8 @@ while true; do
     } | tee -a "$LOG_FILE"
 
     # Leftover drafts from earlier runs (sidecars: see storybot/publish_tweet.py).
-    # .posted = live on X but not recorded -> retry the record (never re-posts).
+    # .posted = live on X but not recorded -> retry the record (never re-posts;
+    #           a .posted with no draft is a finished record and is just cleared).
     # .pending = post outcome unknown -> never touch it; a human must check X.
     for marker in storybot/twitter_drafts/*.txt.posted; do
         [[ -e "$marker" ]] || continue

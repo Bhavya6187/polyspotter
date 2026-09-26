@@ -296,7 +296,7 @@ def test_send_digest_posts_per_recipient_with_unsubscribe(monkeypatch):
         {"email": "a@x.com", "unsubscribe_token": "tok-a"},
         {"email": "b@x.com", "unsubscribe_token": "tok-b"},
     ]
-    result = digestbot.send_digest(content, subs)
+    result = digestbot.send_digest(content, subs, digest_date="2026-09-26")
     assert result == {"sent": 2, "failed": 0}
     assert [p["json"]["to"] for p in posts] == [["a@x.com"], ["b@x.com"]]
     assert posts[0]["headers"]["Authorization"] == "Bearer test_key"
@@ -327,14 +327,15 @@ def test_send_digest_counts_failures_and_never_raises(monkeypatch):
     result = digestbot.send_digest(content, [
         {"email": "bad@x.com", "unsubscribe_token": "t1"},
         {"email": "boom@x.com", "unsubscribe_token": "t2"},
-    ])
+    ], digest_date="2026-09-26")
     assert result == {"sent": 0, "failed": 2}
 
 
 def test_send_digest_raises_without_api_key(monkeypatch):
     monkeypatch.setattr(digestbot, "RESEND_API_KEY", "")
     try:
-        digestbot.send_digest({"subject": "s"}, [{"email": "a@x.com", "unsubscribe_token": "t"}])
+        digestbot.send_digest({"subject": "s"}, [{"email": "a@x.com", "unsubscribe_token": "t"}],
+                              digest_date="2026-09-26")
         assert False, "expected RuntimeError"
     except RuntimeError:
         pass
@@ -610,7 +611,10 @@ def test_send_sets_sent_at_and_idempotency_key(monkeypatch, tmp_path):
     keys = [p[2] for p in posts]
     # Keyed by day; one key per recipient (Resend rejects a reused key whose
     # payload differs, so a single shared key would drop every recipient but one).
-    assert all(k.startswith(f"digest-{today}") for k in keys)
+    # The address is hashed: bounded length, no raw email in a header.
+    import re
+    assert all(re.fullmatch(rf"digest-{today}-[0-9a-f]{{24}}", k) for k in keys)
+    assert not any("@" in k for k in keys)
     assert len(set(keys)) == 2
     assert events[-1] == ("sent_at", today)
     assert events.index(("sent_at", today)) > max(events.index(p) for p in posts)
@@ -635,3 +639,43 @@ def test_digest_claude_invocation_disables_tools(monkeypatch):
     argv = captured["argv"]
     assert argv[argv.index("--tools") + 1] == ""
     assert "--dangerously-skip-permissions" not in argv
+
+
+def _capture_keys(monkeypatch, subs, digest_date="2026-09-26"):
+    monkeypatch.setattr(digestbot, "RESEND_API_KEY", "test_key")
+    keys = []
+
+    class FakeResp:
+        status_code = 200
+        def json(self):
+            return {"id": "email_1"}
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        keys.append(headers["Idempotency-Key"])
+        return FakeResp()
+    monkeypatch.setattr(digestbot.requests, "post", fake_post)
+    digestbot.send_digest({"subject": "s", "intro": ""}, subs, digest_date=digest_date)
+    return keys
+
+
+def test_idempotency_key_hashes_normalised_email(monkeypatch):
+    import hashlib
+    long_email = ("x" * 250) + "@example.com"
+    subs = [{"email": "A@X.com ", "unsubscribe_token": "t1"},
+            {"email": "b@x.com", "unsubscribe_token": "t2"},
+            {"email": long_email, "unsubscribe_token": "t3"}]
+    first = _capture_keys(monkeypatch, subs)
+    second = _capture_keys(monkeypatch, subs)
+    assert first == second  # stable across runs, so a re-run dedupes at Resend
+    assert first[0] == "digest-2026-09-26-" + hashlib.sha256(b"a@x.com").hexdigest()[:24]
+    assert len(set(first)) == 3
+    assert all(len(k) <= 256 for k in first)
+    # Case/whitespace variants of one address share a key.
+    assert _capture_keys(monkeypatch, [{"email": "a@x.com", "unsubscribe_token": "t"}])[0] == first[0]
+
+
+def test_send_digest_requires_digest_date(monkeypatch):
+    monkeypatch.setattr(digestbot, "RESEND_API_KEY", "test_key")
+    import pytest
+    with pytest.raises(TypeError):
+        digestbot.send_digest({"subject": "s"}, [])

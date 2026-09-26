@@ -309,11 +309,12 @@ def test_posted_sidecar_records_without_transcript(tmp_path, monkeypatch):
     assert not (drafts_dir / "abc12345.txt.posted").exists()
 
 
-def test_legacy_posted_sidecar_without_transcript_records_degraded(tmp_path, monkeypatch):
-    # A sidecar written before alert ids were stored in it holds only the
-    # tweet id. With the transcript gone there are no alert ids to record:
-    # record_tweet still runs (no rows), the draft is cleared, exit 0 instead
-    # of failing forever.
+def test_truncated_posted_sidecar_without_transcript_records_degraded(tmp_path, monkeypatch):
+    # A sidecar whose line 2 is corrupt or truncated holds only the tweet id.
+    # With the transcript gone there are no alert ids to record: record_tweet
+    # still runs (no rows), the draft is cleared, exit 0 instead of failing
+    # forever. Zero alert rows means this tweet is invisible to the cadence
+    # gate and dedup.
     drafts_dir, live_dir = _write_fixture_files(tmp_path, "abc12345", write_chart=False)
     (drafts_dir / "abc12345.txt.posted").write_text("1234567890\n")
     import shutil
@@ -428,3 +429,172 @@ def test_alert_ids_accept_numeric_strings(tmp_path, monkeypatch):
     monkeypatch.setattr(pt, "record_tweet", lambda ids, tid, text: recorded.update(ids=ids))
     assert pt.main(["abc12345"]) == 0
     assert recorded["ids"] == [42, 43]
+
+
+def _fail_posted_write(monkeypatch, pt):
+    """Make writing <draft>.posted raise OSError; every other open is real."""
+    import builtins
+    real_open = builtins.open
+
+    def fake_open(path, mode="r", *a, **kw):
+        if str(path).endswith(".posted") and "w" in mode:
+            raise OSError(28, "No space left on device")
+        return real_open(path, mode, *a, **kw)
+    monkeypatch.setattr(pt, "open", fake_open, raising=False)
+
+
+def test_posted_write_failure_writes_pending_and_warns_not_to_rerun(
+        tmp_path, monkeypatch, capsys):
+    # Tweet is live, .posted cannot be written and record_tweet fails: with no
+    # .posted marker a re-run WOULD post again, so a .pending marker must
+    # block it and the message must not claim a re-run is safe.
+    drafts_dir, live_dir = _write_fixture_files(tmp_path, "abc12345")
+    pt = _patch_publisher(monkeypatch, drafts_dir, live_dir)
+    _patch_clients(monkeypatch, pt)
+    monkeypatch.setattr(pt, "post_tweet", lambda *a, **kw: "1234567890")
+    _fail_posted_write(monkeypatch, pt)
+
+    def boom(*a, **kw):
+        raise RuntimeError("db down")
+    monkeypatch.setattr(pt, "record_tweet", boom)
+
+    rc = pt.main(["abc12345"])
+    err = capsys.readouterr().err
+    assert rc != 0
+    assert not (drafts_dir / "abc12345.txt.posted").exists()
+    assert (drafts_dir / "abc12345.txt.pending").exists()
+    assert "do NOT re-run" in err
+    assert "1234567890" in err
+    assert "will not re-post" not in err
+
+    # And a re-run really does refuse to post.
+    monkeypatch.setattr(pt, "post_tweet", _no_post)
+    assert pt.main(["abc12345"]) != 0
+
+
+def test_record_failure_with_posted_marker_says_rerun_records(
+        tmp_path, monkeypatch, capsys):
+    drafts_dir, live_dir = _write_fixture_files(tmp_path, "abc12345")
+    pt = _patch_publisher(monkeypatch, drafts_dir, live_dir)
+    _patch_clients(monkeypatch, pt)
+    monkeypatch.setattr(pt, "post_tweet", lambda *a, **kw: "1234567890")
+
+    def boom(*a, **kw):
+        raise RuntimeError("db down")
+    monkeypatch.setattr(pt, "record_tweet", boom)
+
+    assert pt.main(["abc12345"]) != 0
+    err = capsys.readouterr().err
+    assert "records without posting" in err
+    assert "do NOT re-run" not in err
+    assert not (drafts_dir / "abc12345.txt.pending").exists()
+
+
+@pytest.mark.parametrize("content", ["", "\n", "   \n[42, 43]\n"])
+def test_posted_sidecar_with_empty_tweet_id_returns_1(tmp_path, monkeypatch, content):
+    # An empty/truncated .posted must not record rows with an empty tweet id
+    # and delete the draft; leave everything for an operator.
+    drafts_dir, live_dir = _write_fixture_files(tmp_path, "abc12345")
+    (drafts_dir / "abc12345.txt.posted").write_text(content)
+    pt = _patch_publisher(monkeypatch, drafts_dir, live_dir)
+    _patch_clients(monkeypatch, pt)
+    monkeypatch.setattr(pt, "post_tweet", _no_post)
+
+    calls = []
+    monkeypatch.setattr(pt, "record_tweet", lambda *a, **kw: calls.append(a))
+
+    assert pt.main(["abc12345"]) == 1
+    assert calls == []  # never records rows with an empty tweet id
+    assert (drafts_dir / "abc12345.txt").exists()
+    assert (drafts_dir / "abc12345.txt.posted").exists()
+
+
+def test_orphan_posted_marker_without_draft_is_cleared(tmp_path, monkeypatch):
+    # A crash between deleting the draft and deleting .posted leaves an orphan
+    # marker; the record already succeeded, so treat it as done.
+    drafts_dir, live_dir = _write_fixture_files(tmp_path, "abc12345")
+    (drafts_dir / "abc12345.txt").unlink()
+    (drafts_dir / "abc12345.txt.posted").write_text("1234567890\n[42, 43]\n")
+    pt = _patch_publisher(monkeypatch, drafts_dir, live_dir)
+    _patch_clients(monkeypatch, pt)
+    monkeypatch.setattr(pt, "post_tweet", _no_post)
+
+    def no_record(*a, **kw):
+        raise AssertionError("must not record again")
+    monkeypatch.setattr(pt, "record_tweet", no_record)
+
+    assert pt.main(["abc12345"]) == 0
+    assert not (drafts_dir / "abc12345.txt.posted").exists()
+
+
+def test_posted_write_failure_then_record_success_leaves_no_markers(tmp_path, monkeypatch):
+    # The fallback .pending only exists to block a re-post while the tweet is
+    # unrecorded; once record_tweet succeeds it must go with the draft.
+    drafts_dir, live_dir = _write_fixture_files(tmp_path, "abc12345")
+    pt = _patch_publisher(monkeypatch, drafts_dir, live_dir)
+    _patch_clients(monkeypatch, pt)
+    monkeypatch.setattr(pt, "post_tweet", lambda *a, **kw: "1234567890")
+    _fail_posted_write(monkeypatch, pt)
+    monkeypatch.setattr(pt, "record_tweet", lambda *a, **kw: None)
+
+    assert pt.main(["abc12345"]) == 0
+    assert sorted(p.name for p in drafts_dir.iterdir()) == []
+
+
+def test_posted_and_pending_write_failure_message(tmp_path, monkeypatch, capsys):
+    # If even the fallback .pending cannot be written, say so: nothing on disk
+    # blocks a re-post.
+    drafts_dir, live_dir = _write_fixture_files(tmp_path, "abc12345")
+    pt = _patch_publisher(monkeypatch, drafts_dir, live_dir)
+    _patch_clients(monkeypatch, pt)
+    monkeypatch.setattr(pt, "post_tweet", lambda *a, **kw: "1234567890")
+    import builtins
+    real_open = builtins.open
+
+    def fake_open(path, mode="r", *a, **kw):
+        if str(path).endswith((".posted", ".pending")) and "w" in mode:
+            raise OSError(28, "No space left on device")
+        return real_open(path, mode, *a, **kw)
+    monkeypatch.setattr(pt, "open", fake_open, raising=False)
+    monkeypatch.setattr(pt, "record_tweet",
+                        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("db down")))
+
+    assert pt.main(["abc12345"]) != 0
+    err = capsys.readouterr().err
+    assert "do NOT re-run" in err
+    assert ".pending marker was written" not in err
+    assert "could not be written either" in err
+
+
+def test_partial_posted_write_is_removed(tmp_path, monkeypatch, capsys):
+    # open() succeeded but write() failed: a truncated .posted must not stay
+    # behind claiming a re-run is safe.
+    drafts_dir, live_dir = _write_fixture_files(tmp_path, "abc12345")
+    pt = _patch_publisher(monkeypatch, drafts_dir, live_dir)
+    _patch_clients(monkeypatch, pt)
+    monkeypatch.setattr(pt, "post_tweet", lambda *a, **kw: "1234567890")
+    import builtins
+    real_open = builtins.open
+
+    class Truncating:
+        def __init__(self, f):
+            self.f = f
+        def __enter__(self):
+            return self
+        def __exit__(self, *exc):
+            self.f.close()
+        def write(self, data):
+            raise OSError(28, "No space left on device")
+
+    def fake_open(path, mode="r", *a, **kw):
+        if str(path).endswith(".posted") and "w" in mode:
+            return Truncating(real_open(path, mode, *a, **kw))
+        return real_open(path, mode, *a, **kw)
+    monkeypatch.setattr(pt, "open", fake_open, raising=False)
+    monkeypatch.setattr(pt, "record_tweet",
+                        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("db down")))
+
+    assert pt.main(["abc12345"]) != 0
+    assert not (drafts_dir / "abc12345.txt.posted").exists()
+    assert (drafts_dir / "abc12345.txt.pending").exists()
+    assert "do NOT re-run" in capsys.readouterr().err
