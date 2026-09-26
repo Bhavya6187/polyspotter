@@ -10,23 +10,7 @@ import ThesisCard from "./ThesisCard";
 import WalletBadge from "./WalletBadge";
 import ShareButton from "./ShareButton";
 import { useNow } from "../hooks/useNow";
-import { formatUtc } from "../lib/time";
-
-// `now` is null during SSR/hydration: fall back to an absolute UTC stamp so
-// server and client markup match.
-function relativeTime(dateStr, now) {
-  if (!dateStr) return "\u2014";
-  if (now == null) return formatUtc(dateStr);
-  const then = new Date(dateStr).getTime();
-  const diffSec = Math.floor((now - then) / 1000);
-  if (diffSec < 60) return `${diffSec}s ago`;
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  const diffDay = Math.floor(diffHr / 24);
-  return `${diffDay}d ago`;
-}
+import { relativeTime } from "../lib/time";
 
 // `now` is null during SSR/hydration: no badge until mounted.
 function timeToResolution(dateStr, now) {

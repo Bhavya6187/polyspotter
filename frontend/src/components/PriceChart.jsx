@@ -135,89 +135,89 @@ export default function PriceChart({ history, outcome, alerts, conditionId }) {
             {loading ? "Loading\u2026" : "No price data for this range."}
           </div>
         ) : (
-        <>
-        <svg
-          viewBox={`0 0 ${W} ${H}`}
-          className="h-full w-full"
-          preserveAspectRatio="none"
-        >
-          {yTicks.map((tick, i) => (
-            <line
-              key={i}
-              x1="0"
-              y1={tick.y}
-              x2={W}
-              y2={tick.y}
-              stroke="var(--border)"
-              strokeWidth="0.5"
-              strokeDasharray="4,4"
-            />
-          ))}
-          <defs>
-            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.15" />
-              <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          <polygon
-            points={`0,${H} ${svgPoints} ${W},${H}`}
-            fill={`url(#${gradientId})`}
-          />
-          <polyline
-            points={svgPoints}
-            fill="none"
-            stroke="var(--accent)"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          {alertMarkers.map((m) => (
-            <circle
-              key={m.id}
-              cx={m.x}
-              cy={m.y}
-              r="5"
-              fill={m.isTopScore ? "var(--warning)" : "var(--info)"}
-              stroke="var(--surface-1)"
-              strokeWidth="2"
-            />
-          ))}
-        </svg>
-        {yTicks.map((tick, i) => (
-          <div
-            key={i}
-            className="absolute right-1"
-            style={{
-              top: `${(tick.y / H) * 100}%`,
-              transform: "translateY(-50%)",
-              fontSize: 10,
-              fontFamily: "var(--font-display)",
-              color: "var(--text-muted)",
-            }}
-          >
-            {tick.label}
-          </div>
-        ))}
-        <div
-          className="absolute bottom-0 left-0 flex gap-3.5"
-          style={{ fontSize: 10, color: "var(--text-muted)" }}
-        >
-          <span className="flex items-center gap-1">
-            <span
-              className="inline-block h-2 w-2 rounded-full"
-              style={{ background: "var(--info)" }}
-            />
-            Alert entries
-          </span>
-          <span className="flex items-center gap-1">
-            <span
-              className="inline-block h-2 w-2 rounded-full"
-              style={{ background: "var(--warning)" }}
-            />
-            High-conviction
-          </span>
-        </div>
-        </>
+          <>
+            <svg
+              viewBox={`0 0 ${W} ${H}`}
+              className="h-full w-full"
+              preserveAspectRatio="none"
+            >
+              {yTicks.map((tick, i) => (
+                <line
+                  key={i}
+                  x1="0"
+                  y1={tick.y}
+                  x2={W}
+                  y2={tick.y}
+                  stroke="var(--border)"
+                  strokeWidth="0.5"
+                  strokeDasharray="4,4"
+                />
+              ))}
+              <defs>
+                <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.15" />
+                  <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              <polygon
+                points={`0,${H} ${svgPoints} ${W},${H}`}
+                fill={`url(#${gradientId})`}
+              />
+              <polyline
+                points={svgPoints}
+                fill="none"
+                stroke="var(--accent)"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              {alertMarkers.map((m) => (
+                <circle
+                  key={m.id}
+                  cx={m.x}
+                  cy={m.y}
+                  r="5"
+                  fill={m.isTopScore ? "var(--warning)" : "var(--info)"}
+                  stroke="var(--surface-1)"
+                  strokeWidth="2"
+                />
+              ))}
+            </svg>
+            {yTicks.map((tick, i) => (
+              <div
+                key={i}
+                className="absolute right-1"
+                style={{
+                  top: `${(tick.y / H) * 100}%`,
+                  transform: "translateY(-50%)",
+                  fontSize: 10,
+                  fontFamily: "var(--font-display)",
+                  color: "var(--text-muted)",
+                }}
+              >
+                {tick.label}
+              </div>
+            ))}
+            <div
+              className="absolute bottom-0 left-0 flex gap-3.5"
+              style={{ fontSize: 10, color: "var(--text-muted)" }}
+            >
+              <span className="flex items-center gap-1">
+                <span
+                  className="inline-block h-2 w-2 rounded-full"
+                  style={{ background: "var(--info)" }}
+                />
+                Alert entries
+              </span>
+              <span className="flex items-center gap-1">
+                <span
+                  className="inline-block h-2 w-2 rounded-full"
+                  style={{ background: "var(--warning)" }}
+                />
+                High-conviction
+              </span>
+            </div>
+          </>
         )}
       </div>
     </div>

@@ -1,3 +1,5 @@
+"use client";
+
 import { useNow } from "../hooks/useNow";
 
 export default function PreGameStats({

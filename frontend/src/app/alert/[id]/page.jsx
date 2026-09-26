@@ -3,17 +3,15 @@ import Image from "next/image";
 import { marketSlug } from "../../../lib/slugify";
 import { API_URL } from "../../../lib/apiBase";
 import { safeJsonLd } from "../../../lib/jsonld";
+import { fetchJsonOr404 } from "../../../lib/fetchJson";
 
 export const revalidate = 60;
 
-async function getAlert(id) {
-  try {
-    const res = await fetch(`${API_URL}/api/alerts/${encodeURIComponent(id)}`, {
-      next: { revalidate: 60 },
-    });
-    if (res.ok) return res.json();
-  } catch {}
-  return null;
+// null only on a 404; 5xx/network errors throw to the error boundary.
+function getAlert(id) {
+  return fetchJsonOr404(`${API_URL}/api/alerts/${encodeURIComponent(id)}`, {
+    next: { revalidate: 60 },
+  });
 }
 
 export async function generateMetadata({ params }) {
