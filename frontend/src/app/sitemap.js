@@ -10,9 +10,10 @@ const FETCH_OPTS = { next: { revalidate: 3600 } };
 // Market pages live in a dedicated /sitemap-markets.xml route. They're the
 // largest section (~19k URLs) and paging them through the heavy by-market
 // endpoint here was timing out the build's static-generation step, so they
-// moved to a force-dynamic route backed by the slim /api/markets/sitemap
-// endpoint — same split as wallets (/sitemap-wallets.xml). Keeping them out
-// of this build-prerendered sitemap is what keeps the build fast.
+// moved to their own sitemap index (/sitemap-markets.xml → 40k-URL
+// /sitemap-markets-<n>.xml children) backed by the slim /api/markets/sitemap
+// endpoint. Keeping them out of this build-prerendered sitemap is what keeps
+// the build fast.
 
 async function getArticleEntries() {
   try {
