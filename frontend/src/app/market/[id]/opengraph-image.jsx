@@ -18,7 +18,7 @@ async function resolveConditionId(partialId) {
   if (/^0x[a-fA-F0-9]{64}$/.test(partialId)) return partialId;
   try {
     const res = await fetchWithTimeout(
-      `${API_URL}/api/market/resolve/${partialId}`
+      `${API_URL}/api/market/resolve/${encodeURIComponent(partialId)}`
     );
     if (res.ok) {
       const data = await res.json();
@@ -31,9 +31,9 @@ async function resolveConditionId(partialId) {
 async function getMarketData(conditionId) {
   try {
     const [liveRes, alertsRes] = await Promise.all([
-      fetchWithTimeout(`${API_URL}/api/market/${conditionId}/live`),
+      fetchWithTimeout(`${API_URL}/api/market/${encodeURIComponent(conditionId)}/live`),
       fetchWithTimeout(
-        `${API_URL}/api/alerts?condition_id=${conditionId}&per_page=50`
+        `${API_URL}/api/alerts?condition_id=${encodeURIComponent(conditionId)}&per_page=50`
       ),
     ]);
     const live = liveRes.ok ? await liveRes.json() : null;

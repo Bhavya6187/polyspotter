@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { API_URL } from "../../../../lib/apiBase";
+import { API_URL, publicApiBase } from "../../../../lib/apiBase";
 import { fetchJsonOr404 } from "../../../../lib/fetchJson";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
@@ -31,8 +31,9 @@ async function getArticleIndex() {
   }
 }
 
+// Rendered into og:image, JSON-LD and <img src>: must be the public origin.
 function coverUrlFor(runId) {
-  return `${API_URL}/api/articles/${encodeURIComponent(runId)}/cover.png`;
+  return `${publicApiBase()}/api/articles/${encodeURIComponent(runId)}/cover.png`;
 }
 
 function readingTimeMinutes(markdown) {

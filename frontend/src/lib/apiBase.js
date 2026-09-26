@@ -24,3 +24,15 @@ const resolved =
 // that into `//api/...`, which FastAPI 404s. That exact misconfiguration
 // blanked the site once (2026-07), so normalise here rather than trust .env.
 export const API_URL = resolved.replace(/\/+$/, "");
+
+// Public (browser-reachable) API origin, for anything rendered INTO markup:
+// <img src>, og:image, JSON-LD. Never use API_URL for those — at runtime it
+// is the private Railway address (http://polybot.railway.internal:8080),
+// which crawlers and browsers cannot reach. API_URL stays for server fetches.
+export function publicApiBase() {
+  return (
+    process.env.NEXT_PUBLIC_API_URL ||
+    process.env.API_URL_BUILD ||
+    "https://api.polyspotter.com"
+  ).replace(/\/+$/, "");
+}

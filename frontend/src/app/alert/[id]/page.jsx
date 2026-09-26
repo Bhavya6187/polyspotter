@@ -7,7 +7,7 @@ export const revalidate = 60;
 
 async function getAlert(id) {
   try {
-    const res = await fetch(`${API_URL}/api/alerts/${id}`, {
+    const res = await fetch(`${API_URL}/api/alerts/${encodeURIComponent(id)}`, {
       next: { revalidate: 60 },
     });
     if (res.ok) return res.json();
