@@ -390,10 +390,13 @@ def attach_event_titles(picks: list[dict], titles: dict[str, str]) -> None:
 # --- claude -p ---------------------------------------------------------------
 
 def run_claude(prompt: str, payload: str) -> str:
-    """Invoke the Claude CLI headlessly. `payload` is piped on stdin. No tools."""
+    """Invoke the Claude CLI headlessly. `payload` is piped on stdin.
+
+    No tools: `--tools ""` disables every built-in tool, so text injected via
+    market titles or earlier LLM output can't run commands or touch files. Both
+    passes only map JSON to JSON, so no permission bypass is needed either."""
     proc = subprocess.run(
-        ["claude", "-p", prompt, "--model", CLAUDE_MODEL,
-         "--dangerously-skip-permissions"],
+        ["claude", "-p", prompt, "--model", CLAUDE_MODEL, "--tools", ""],
         input=payload,
         text=True,
         capture_output=True,
