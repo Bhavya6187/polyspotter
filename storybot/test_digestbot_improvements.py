@@ -161,7 +161,6 @@ def test_week_hot_sql_excludes_already_ended_events():
     # markets that resolved days earlier kept qualifying for Top This Week.
     sql = digestbot._WEEK_HOT_SQL
     assert "COALESCE(a.event_end_estimate, a.end_date) > now()" in sql
-    assert "COALESCE(a.event_end_estimate, a.end_date) IS NULL" in sql
 
 
 def test_resolving_today_sql_starts_at_now_not_midnight():

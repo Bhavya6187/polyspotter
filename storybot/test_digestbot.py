@@ -436,3 +436,79 @@ def test_write_prompt_grounds_facts_in_input():
     assert "event_title" in digestbot.WRITE_PROMPT
     assert "Women's World Cup" in digestbot.WRITE_PROMPT
     assert "quarterfinal" in digestbot.WRITE_PROMPT
+
+
+# --- Settled-market exclusion (handoff 3.1) ----------------------------------
+
+def _alert_row(slug, cid, end=None, usd=50000.0, score=5.0):
+    return {
+        "event_slug": slug, "condition_id": cid, "market_title": f"{slug}?",
+        "market_url": f"https://polyspotter.com/event/{slug}", "market_image": None,
+        "end_date": end, "event_end_estimate": None, "total_usd": usd,
+        "trade_count": 20, "composite_score": score, "llm_copy_action": None,
+        "tags": "[]",
+    }
+
+
+class _FakeCursor:
+    def __init__(self, rows_by_sql):
+        self._rows_by_sql = rows_by_sql
+        self._rows = []
+
+    def execute(self, sql, params=None):
+        self._rows = self._rows_by_sql.get(sql, [])
+
+    def fetchall(self):
+        return self._rows
+
+
+class _FakeConn:
+    def __init__(self, rows_by_sql):
+        self._rows_by_sql = rows_by_sql
+
+    def cursor(self, cursor_factory=None):
+        return _FakeCursor(self._rows_by_sql)
+
+    def close(self):
+        pass
+
+
+def test_digest_candidates_drop_settled_markets(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    soon = datetime.now(timezone.utc) + timedelta(hours=3)
+    later = datetime.now(timezone.utc) + timedelta(days=3)
+    rows = {
+        digestbot._RESOLVING_TODAY_SQL: [
+            _alert_row("today-live", "0xt1", soon),
+            _alert_row("today-settled", "0xt2", soon),
+        ],
+        digestbot._WEEK_UPCOMING_SQL: [
+            _alert_row("week-live", "0xw1", later),
+            _alert_row("week-settled", "0xw2", later),
+        ],
+        digestbot._WEEK_HOT_SQL: [],
+    }
+    statuses = {
+        "0xt1": {"closed": False, "uma_status": "", "max_price": 0.55},
+        "0xt2": {"closed": False, "uma_status": "proposed", "max_price": 0.99},
+        "0xw1": {"closed": False, "uma_status": "", "max_price": 0.40},
+        "0xw2": {"closed": True, "uma_status": "", "max_price": 1.0},
+    }
+    monkeypatch.setattr(digestbot, "_get_conn", lambda: _FakeConn(rows))
+    monkeypatch.setattr(digestbot, "fetch_recent_featured_slugs", lambda: set())
+    monkeypatch.setattr(digestbot, "_gamma_status_for_markets",
+                        lambda cids: {c: statuses[c] for c in cids if c in statuses})
+
+    cands = digestbot.fetch_candidates()
+    today = [c["event_slug"] for c in cands["resolving_today"]]
+    week = [c["event_slug"] for c in cands["week_pool"]]
+    assert today == ["today-live"]
+    assert week == ["week-live"]
+
+
+def test_week_hot_sql_requires_end_date():
+    # A NULL end date gives no evidence the market is still open; the week pool
+    # must not feature it.
+    sql = " ".join(digestbot._WEEK_HOT_SQL.split())
+    assert "COALESCE(a.event_end_estimate, a.end_date) IS NOT NULL" in sql
+    assert "IS NULL OR" not in sql
