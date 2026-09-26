@@ -4,6 +4,7 @@ import WalletBadge from "../../../components/WalletBadge";
 import { marketSlug } from "../../../lib/slugify";
 import { API_URL } from "../../../lib/apiBase";
 import { fetchJsonOr404 } from "../../../lib/fetchJson";
+import { safeJsonLd } from "../../../lib/jsonld";
 
 export const revalidate = 60;
 
@@ -127,11 +128,11 @@ export default async function ThesisPage({ params }) {
     <main className="mx-auto max-w-4xl px-4 py-6">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }}
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbLd) }}
       />
 
       {/* Breadcrumb nav */}

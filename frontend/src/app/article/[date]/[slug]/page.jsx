@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { API_URL, publicApiBase } from "../../../../lib/apiBase";
 import { fetchJsonOr404 } from "../../../../lib/fetchJson";
+import { safeJsonLd } from "../../../../lib/jsonld";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
 
@@ -69,7 +70,8 @@ export async function generateMetadata({ params }) {
     : [];
 
   return {
-    title: `${article.headline} · PolySpotter`,
+    // The root layout's title template appends " | PolySpotter".
+    title: article.headline,
     description: article.subhead,
     alternates: { canonical: url },
     openGraph: {
@@ -202,7 +204,7 @@ export default async function ArticlePage({ params }) {
 
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }}
       />
 
       <div className="dispatch-page-bg relative">

@@ -2,6 +2,7 @@ import Script from "next/script";
 import { JetBrains_Mono, DM_Sans } from "next/font/google";
 import "./globals.css";
 import { themeScript } from "./theme-script";
+import { safeJsonLd } from "../lib/jsonld";
 
 const jbMono = JetBrains_Mono({
   subsets: ["latin"],
@@ -104,7 +105,7 @@ export default function RootLayout({ children }) {
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }}
         />
         <link rel="preconnect" href="https://api.polyspotter.com" />
         <link rel="dns-prefetch" href="https://api.polyspotter.com" />

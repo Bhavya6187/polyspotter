@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { marketSlug } from "../../../lib/slugify";
 import { API_URL } from "../../../lib/apiBase";
+import { safeJsonLd } from "../../../lib/jsonld";
 
 export const revalidate = 60;
 
@@ -147,11 +148,11 @@ export default async function AlertPage({ params }) {
     <main className="mx-auto max-w-4xl px-4 py-6">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }}
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbLd) }}
       />
 
       {/* Breadcrumb */}
