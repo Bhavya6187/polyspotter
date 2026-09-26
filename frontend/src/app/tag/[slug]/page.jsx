@@ -22,7 +22,8 @@ function tagFromSlug(slug) {
 async function getEveryTag() {
   try {
     const data = await fetchAllTags();
-    return data?.tags || data || [];
+    const tags = data?.tags ?? data;
+    return Array.isArray(tags) ? tags : [];
   } catch {
     return [];
   }
@@ -82,7 +83,8 @@ async function getAllTags() {
     const res = await fetch(`${API_URL}/api/tags`, { next: { revalidate: 300 } });
     if (!res.ok) return [];
     const data = await res.json();
-    return data?.tags || data || [];
+    const tags = data?.tags ?? data;
+    return Array.isArray(tags) ? tags : [];
   } catch {
     return [];
   }
@@ -91,7 +93,7 @@ async function getAllTags() {
 async function getTagDescription(allTags, tag, everyTag = []) {
   const key = tag.toLowerCase();
   const find = (list) =>
-    list.find((t) => (typeof t === "string" ? t : t.tag)?.toLowerCase() === key);
+    list.find((t) => (typeof t === "string" ? t : t?.tag ?? t?.name)?.toLowerCase() === key);
   return find(allTags)?.description || find(everyTag)?.description || null;
 }
 

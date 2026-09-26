@@ -1,4 +1,5 @@
 import { API_URL as BASE_URL } from "./apiBase";
+import { ApiError } from "./fetchJson";
 
 async function request(path, params = {}, init = undefined) {
   const url = new URL(path, BASE_URL);
@@ -8,11 +9,7 @@ async function request(path, params = {}, init = undefined) {
     }
   });
   const res = await fetch(url, init);
-  if (!res.ok) {
-    const err = new Error(`API error: ${res.status} ${res.statusText}`);
-    err.status = res.status;
-    throw err;
-  }
+  if (!res.ok) throw new ApiError(res.status, String(url));
   return res.json();
 }
 

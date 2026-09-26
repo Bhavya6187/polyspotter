@@ -41,7 +41,7 @@ const loadMarketPage = cache(async (partialId, titleSlug) => {
 
   // /live first: it is the freshness signal (open vs closed) that decides how
   // long everything else may be cached.
-  const liveRes = await fetch(`${API_URL}/api/market/${conditionId}/live`, {
+  const liveRes = await fetch(`${API_URL}/api/market/${encodeURIComponent(conditionId)}/live`, {
     next: { revalidate: 60 },
   }).catch(() => null);
   const live = liveRes?.ok ? await liveRes.json() : null;
@@ -52,17 +52,17 @@ const loadMarketPage = cache(async (partialId, titleSlug) => {
 
   const [alertsRes, priceRes, holdersRes, thesesRes] = await Promise.all([
     fetch(
-      `${API_URL}/api/alerts?condition_id=${conditionId}&per_page=50`,
+      `${API_URL}/api/alerts?condition_id=${encodeURIComponent(conditionId)}&per_page=50`,
       rv(60)
     ).catch(() => null),
     fetch(
-      `${API_URL}/api/market/${conditionId}/price-history?range=7d`,
+      `${API_URL}/api/market/${encodeURIComponent(conditionId)}/price-history?range=7d`,
       rv(60)
     ).catch(() => null),
-    fetch(`${API_URL}/api/market/${conditionId}/holders`, rv(300)).catch(
+    fetch(`${API_URL}/api/market/${encodeURIComponent(conditionId)}/holders`, rv(300)).catch(
       () => null
     ),
-    fetch(`${API_URL}/api/market/${conditionId}/theses`, rv(300)).catch(
+    fetch(`${API_URL}/api/market/${encodeURIComponent(conditionId)}/theses`, rv(300)).catch(
       () => null
     ),
   ]);
