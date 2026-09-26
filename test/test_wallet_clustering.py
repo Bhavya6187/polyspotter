@@ -300,5 +300,43 @@ class TestWalletClusteringStrategy(unittest.TestCase):
         self.assertIn("0xtx_a", signals[0].trade_hashes)
 
 
+class TestFunderNegativeCache(unittest.TestCase):
+    """An in-memory None funder used to override the DB's 7-day NULL retry
+    (get_cached_funder treats stale NULL rows as uncached) until restart."""
+
+    WALLET = "0x" + "a" * 40
+    FUNDER = "0x" + "f" * 40
+
+    def setUp(self):
+        from detection_strategies import wallet_clustering as wc
+
+        wc._funder_cache.clear()
+        self.wc = wc
+
+    def tearDown(self):
+        self.wc._funder_cache.clear()
+
+    @patch("detection_strategies.wallet_clustering.FUNDER_LOOKUP_DELAY", 0)
+    @patch("detection_strategies.wallet_clustering.ETHERSCAN_API_KEY", "test-key")
+    @patch("detection_strategies.wallet_clustering.save_funder")
+    @patch("detection_strategies.wallet_clustering._query_etherscan")
+    @patch("detection_strategies.wallet_clustering.get_cached_funder")
+    def test_funder_none_cache_respects_db_retry(self, mock_cached, mock_query, mock_save):
+        inbound = [{"to": self.WALLET, "from": self.FUNDER, "blockNumber": "100"}]
+        # 1st: not in DB, Etherscan finds nothing -> NULL row saved.
+        # 2nd: DB NULL row still fresh -> None, no Etherscan call.
+        # 3rd: DB NULL row older than the retry window -> uncached -> re-query.
+        mock_cached.side_effect = [(False, None), (True, None), (False, None)]
+        mock_query.side_effect = [[], [], inbound, []]
+
+        self.assertIsNone(self.wc._get_first_funder(self.WALLET))
+        mock_save.assert_called_once_with(self.WALLET, None)
+        self.assertIsNone(self.wc._get_first_funder(self.WALLET))
+        self.assertEqual(mock_query.call_count, 2)
+
+        self.assertEqual(self.wc._get_first_funder(self.WALLET), self.FUNDER)
+        self.assertEqual(mock_query.call_count, 4)
+
+
 if __name__ == "__main__":
     unittest.main()
