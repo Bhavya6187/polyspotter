@@ -36,7 +36,6 @@ CHART_TYPES = (
     "wallet_record_card",
     "fresh_wallet_card",
     "cluster_card",
-    "result_scorecard",
     "none",
 )
 
@@ -134,106 +133,6 @@ def _draw_wallet_record_card(ax, data: WalletRecordCardData) -> None:
 def render_wallet_record_card(data: WalletRecordCardData) -> bytes:
     fig, ax = _new_figure()
     _draw_wallet_record_card(ax, data)
-    return _figure_to_png_bytes(fig)
-
-
-# ----------------------- result_scorecard -----------------------
-
-class ResultScorecardData(TypedDict):
-    verdict: str             # "CASHED" | "BURNED" | "WASH" (classify_outcome
-                             # emits only these three; "MIXED" is accepted
-                             # defensively — rendered neutrally by the else
-                             # branch below — but not currently produced)
-    net_pl_usd: float        # signed
-    record_str: str          # trade W-L, e.g. "3-1"
-    event_label: str         # "Padres-Phillies Over 7.5 runs"
-    outcome_side: str        # the side the cluster was on
-    flagged_days_ago: int
-
-
-def _draw_result_scorecard(ax, data: ResultScorecardData) -> None:
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.axis("off")
-    verdict = (data.get("verdict") or "WASH").upper()
-    net = float(data.get("net_pl_usd") or 0.0)
-    if verdict == "CASHED":
-        color, mark = ACCENT, "✓"   # green check
-    elif verdict == "BURNED":
-        color, mark = LOSS, "✗"     # red cross
-    else:
-        color, mark = MUTED, "–"    # neutral en-dash
-
-    sign = "+" if net > 0 else ("-" if net < 0 else "")
-    net_str = f"{sign}{_format_usd(abs(net))}" if verdict != "WASH" else "BROKE EVEN"
-
-    ax.text(0.5, 0.74, f"{mark}  {verdict}", color=color, fontsize=58,
-            ha="center", va="center", fontweight="bold")
-    ax.text(0.5, 0.50, net_str, color=color, fontsize=72,
-            ha="center", va="center", fontweight="bold")
-    ax.text(0.5, 0.31, data.get("event_label") or "", color=FG, fontsize=26,
-            ha="center", va="center", wrap=True)
-    side = data.get("outcome_side") or ""
-    record = data.get("record_str") or ""
-    sub = f"Flagged side: {side}   ·   Trades: {record}" if side else f"Trades: {record}"
-    ax.text(0.5, 0.20, sub, color=MUTED, fontsize=20, ha="center", va="center",
-            wrap=True)
-    days = int(data.get("flagged_days_ago") or 0)
-    when = "today" if days <= 0 else (f"{days} day ago" if days == 1
-                                      else f"{days} days ago")
-    ax.text(0.5, 0.08, f"PolySpotter flagged this {when}", color=MUTED,
-            fontsize=18, ha="center", va="center")
-
-
-def render_result_scorecard(data: ResultScorecardData) -> bytes:
-    fig, ax = _new_figure()
-    _draw_result_scorecard(ax, data)
-    return _figure_to_png_bytes(fig)
-
-
-# ----------------------- weekly_scoreboard -----------------------
-
-class WeeklyScoreboardData(TypedDict):
-    n_cashed: int            # settled flag tweets that cashed this week
-    n_burned: int            # settled flag tweets that burned this week
-    net_pl_usd: float        # signed sum across the week's settles
-    week_label: str          # "Week of Jun 8"
-
-
-def _draw_weekly_scoreboard(ax, data: WeeklyScoreboardData) -> None:
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.axis("off")
-    n_c = int(data.get("n_cashed") or 0)
-    n_b = int(data.get("n_burned") or 0)
-    net = float(data.get("net_pl_usd") or 0.0)
-    color = ACCENT if net >= 0 else LOSS
-
-    ax.text(0.5, 0.88, "THIS WEEK'S SETTLED FLAGS", color=MUTED, fontsize=22,
-            ha="center", va="center")
-    ax.text(0.5, 0.60, f"{n_c}-{n_b}", color=color, fontsize=110,
-            ha="center", va="center", fontweight="bold")
-    sign = "+" if net > 0 else ("-" if net < 0 else "")
-    ax.text(0.5, 0.34, f"net {sign}{_format_usd(abs(net))}", color=color,
-            fontsize=40, ha="center", va="center", fontweight="bold")
-
-    total = n_c + n_b
-    if total:
-        share = n_c / total
-        bar_y, bar_h = 0.18, 0.05
-        ax.add_patch(Rectangle((0.1, bar_y), 0.8 * share, bar_h,
-                               color=ACCENT, transform=ax.transAxes))
-        ax.add_patch(Rectangle((0.1 + 0.8 * share, bar_y),
-                               0.8 * (1 - share), bar_h,
-                               color=LOSS, transform=ax.transAxes))
-
-    ax.text(0.5, 0.07, f"PolySpotter · {data.get('week_label') or ''}",
-            color=MUTED, fontsize=18, ha="center", va="center")
-
-
-def render_weekly_scoreboard(data: WeeklyScoreboardData) -> bytes:
-    fig, ax = _new_figure()
-    _draw_weekly_scoreboard(ax, data)
     return _figure_to_png_bytes(fig)
 
 

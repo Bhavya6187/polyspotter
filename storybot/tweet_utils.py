@@ -141,27 +141,6 @@ def check_tweet_closer(text: str) -> tuple[bool, str]:
     return True, ""
 
 
-# Track-record closer (Delta 2 of the receipts-visibility work). Appended
-# deterministically by twitter_pipeline.main() — never composed by the LLM —
-# so the public record line always matches the result_tweets table exactly.
-TRACK_RECORD_MIN_SETTLED = 10
-
-
-def format_track_record_closer(n_cashed: int, n_burned: int,
-                               min_settled: int = TRACK_RECORD_MIN_SETTLED,
-                               ) -> str | None:
-    """One-line public track record for flag tweets, or None.
-
-    None when the sample is too small (an early streak shouldn't be
-    amplified) or the record isn't winning (the honesty lives in the
-    result feed, which still posts notable losses).
-    """
-    total = int(n_cashed) + int(n_burned)
-    if total < min_settled or int(n_cashed) <= int(n_burned):
-        return None
-    return f"Recent flags: {int(n_cashed)}-{int(n_burned)}."
-
-
 # X's twitter-text v3 weighting: code points in these ranges weigh 1, all
 # others (CJK, emoji, "…" U+2026, "→" U+2192, ...) weigh 2.
 _LIGHT_RANGES = ((0, 4351), (8192, 8205), (8208, 8223), (8242, 8247))
