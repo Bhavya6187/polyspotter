@@ -1,6 +1,7 @@
 import HomeClient from "./home-client";
 import { marketSlug } from "../lib/slugify";
 import { API_URL } from "../lib/apiBase";
+import { safeJsonLd } from "../lib/jsonld";
 
 export const revalidate = 60;
 
@@ -155,19 +156,19 @@ export default async function HomePage() {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(itemListLd) }}
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(faqLd) }}
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(navLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(navLd) }}
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbLd) }}
       />
 
       {/* Server-rendered SEO content — visible to crawlers, hidden for JS users */}

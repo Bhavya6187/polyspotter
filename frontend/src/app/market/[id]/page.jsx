@@ -5,6 +5,7 @@ import { partialIdFromSlug, titleSlugFromSlug, marketSlug } from "../../../lib/s
 import { notFound } from "next/navigation";
 import { API_URL } from "../../../lib/apiBase";
 import { fetchJsonOr404 } from "../../../lib/fetchJson";
+import { safeJsonLd } from "../../../lib/jsonld";
 
 export const revalidate = 60;
 
@@ -304,12 +305,12 @@ export default async function MarketPage({ params }) {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbLd) }}
       />
       {faqLd && (
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd) }}
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(faqLd) }}
         />
       )}
 

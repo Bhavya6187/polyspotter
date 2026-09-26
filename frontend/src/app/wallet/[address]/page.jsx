@@ -5,6 +5,7 @@ import { computeTier } from "../../../lib/tiers";
 import { walletPseudonym } from "../../../lib/pseudonym";
 import { API_URL } from "../../../lib/apiBase";
 import { fetchJsonOr404 } from "../../../lib/fetchJson";
+import { safeJsonLd } from "../../../lib/jsonld";
 
 export const revalidate = 60;
 
@@ -178,11 +179,11 @@ export default async function WalletPage({ params }) {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(profileLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(profileLd) }}
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbLd) }}
       />
 
       {/* Server-rendered SEO content */}

@@ -5,6 +5,7 @@ import Ticker from "../../../components/Ticker";
 import TagFilters from "../../../components/TagFilters";
 import { marketSlug } from "../../../lib/slugify";
 import { API_URL } from "../../../lib/apiBase";
+import { safeJsonLd } from "../../../lib/jsonld";
 
 const VALID_RESOLVES = new Set(["6h", "24h", "7d"]);
 const VALID_SEVERITIES = new Set(["6", "8", "10.5"]);
@@ -269,15 +270,15 @@ export default async function TagPage({ params, searchParams }) {
       <main className="mx-auto max-w-6xl px-4 py-6">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(collectionLd) }}
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(itemListLd) }}
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbLd) }}
       />
 
       {/* Header with search + topic nav */}

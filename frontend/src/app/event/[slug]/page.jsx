@@ -6,6 +6,7 @@ import EventPageHeader from "./event-page-header";
 import EventSportOverlay from "./event-sport-overlay";
 import { API_URL } from "../../../lib/apiBase";
 import { fetchJsonOr404 } from "../../../lib/fetchJson";
+import { safeJsonLd } from "../../../lib/jsonld";
 
 export const revalidate = 60;
 
@@ -68,7 +69,7 @@ export async function generateMetadata({ params }) {
 
   if (!data) {
     return {
-      title: "Event not found | PolySpotter",
+      title: "Event not found", // layout template adds " | PolySpotter"
       robots: { index: false, follow: true },
       alternates: { canonical },
     };
@@ -219,13 +220,13 @@ export default async function EventPage({ params }) {
 
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }} />
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(collectionLd) }} />
       {itemListLd && (
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListLd) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(itemListLd) }} />
       )}
       {faqLd && (
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(faqLd) }} />
       )}
 
       <main className="mx-auto max-w-6xl px-4 py-6">
