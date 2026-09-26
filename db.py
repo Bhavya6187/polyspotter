@@ -228,6 +228,8 @@ def _init_tables(conn: sqlite3.Connection) -> None:
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_cid ON orderbook_snapshots(condition_id)")
+    # Serves the per-token throttle and get_orderbook_stats (latest by token).
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_token_at ON orderbook_snapshots(token_id, snapshot_at)")
 
     # -- llm_evaluations (cache LLM verdicts by dedup_key) --------------------
     conn.execute("""
@@ -1029,7 +1031,7 @@ def get_price_candles(condition_id: str, token_id: str, limit: int = 500) -> lis
 # orderbook_snapshots operations (CLOB order book depth)
 # ===========================================================================
 
-ORDERBOOK_SNAPSHOT_MIN_INTERVAL_SEC = 600  # 10 minutes between snapshots per condition
+ORDERBOOK_SNAPSHOT_MIN_INTERVAL_SEC = 600  # 10 minutes between snapshots per token
 
 
 def record_orderbook_snapshot(
@@ -1037,15 +1039,18 @@ def record_orderbook_snapshot(
     *, force: bool = False,
 ) -> None:
     """Record an order book snapshot with computed depth metrics.
-    Skips if a snapshot for this condition was recorded less than
-    ORDERBOOK_SNAPSHOT_MIN_INTERVAL_SEC ago to prevent table bloat.
+    Skips if a snapshot for this token (of this condition) was recorded less
+    than ORDERBOOK_SNAPSHOT_MIN_INTERVAL_SEC ago to prevent table bloat. Keyed
+    per token because get_orderbook_stats reads by token_id; a per-condition
+    throttle always dropped the second token's snapshot.
     Set force=True (e.g. during backfill) to bypass the interval check."""
     conn = get_db()
     if not force:
         row = conn.execute(
             """SELECT snapshot_at FROM orderbook_snapshots
-               WHERE condition_id = ? ORDER BY snapshot_at DESC LIMIT 1""",
-            (condition_id,),
+               WHERE token_id = ? AND condition_id = ?
+               ORDER BY snapshot_at DESC LIMIT 1""",
+            (token_id, condition_id),
         ).fetchone()
         if row:
             last_at = datetime.fromisoformat(row[0])
