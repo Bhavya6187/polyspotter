@@ -79,7 +79,7 @@ def test_market_content_filter_marks_row_skipped(monkeypatch):
     assert generated == 0
     skip_updates = [
         (sql, params) for sql, params in conn.executed
-        if "UPDATE alerts" in sql and "seo_skip_reason" in sql
+        if "UPDATE alerts" in sql and "'content_filter'" in sql
     ]
     assert len(skip_updates) == 1
     assert skip_updates[0][1][-1] == "cid1"
@@ -108,7 +108,7 @@ def test_event_content_filter_marks_row_skipped(monkeypatch):
     assert generated == 0
     skip_updates = [
         (sql, params) for sql, params in conn.executed
-        if "UPDATE events" in sql and "seo_skip_reason" in sql
+        if "UPDATE events" in sql and "'content_filter'" in sql
     ]
     assert len(skip_updates) == 1
     assert skip_updates[0][1][-1] == "test-filtered-event"
@@ -120,7 +120,7 @@ def test_event_candidates_exclude_skipped_rows(monkeypatch):
 
     seo_worker.run_event_seo()
 
-    candidates_sql = conn.executed[0][0]
+    candidates_sql = next(sql for sql, _ in conn.executed if sql.startswith("SELECT e.event_slug"))
     assert "seo_skip_reason IS NULL" in candidates_sql
 
 
@@ -135,7 +135,7 @@ def test_other_errors_do_not_mark_skip(monkeypatch):
     generated = seo_worker.run_market_seo()
 
     assert generated == 0
-    assert not any("seo_skip_reason" in sql and "UPDATE" in sql for sql, _ in conn.executed)
+    assert not any("'content_filter'" in sql and "UPDATE" in sql for sql, _ in conn.executed)
 
 
 class CopyAwareConn(FakeConn):

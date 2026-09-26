@@ -108,7 +108,9 @@ cd frontend && npm run lint     # frontend lint
 
 Backend tests never touch the production database: `backend/conftest.py` pins `DATABASE_URL` to a placeholder before `app.py` can load `.env`, so DB-backed tests skip unless `TEST_DATABASE_URL` points at a scratch Postgres (or `ALLOW_LIVE_DB_TESTS=1` is set deliberately).
 
-Retention: the scanner prunes `price_candles` (>30 days) and idle `wallet_pnl` wallets (>90 days) once per day (`db.prune_old_rows`). For the historical backlog run `python scripts/prune_sqlite.py` (see its docstring; `--vacuum` needs the scanner stopped).
+Retention: the scanner prunes `price_candles` (>30 days) and idle `wallet_pnl` wallets (>90 days) once per day (`db.prune_old_rows`).
+
+GPT usage: every scanner GPT call (alert evaluation, thesis headline) records its token counts in the `llm_usage` SQLite table; `db.get_llm_usage_by_day()` sums calls and tokens per UTC day and call type. The SEO worker prints one `[seo_generator] usage ...` line per call into `storybot/logs/seo_worker.log`. Reasoning effort per call site is set by `LLM_FILTER_REASONING_EFFORT` (low), `THESIS_REASONING_EFFORT` (none) and `SEO_REASONING_EFFORT` (low); see the 2026-09-26 cost addendum of `STRATEGY_USAGE_REPORT.md`. For the historical backlog run `python scripts/prune_sqlite.py` (see its docstring; `--vacuum` needs the scanner stopped).
 
 ## Hosted Backend API
 

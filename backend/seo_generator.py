@@ -19,6 +19,30 @@ AZURE_OPENAI_API_KEY = os.environ.get("AZURE_OPENAI_API_KEY", "")
 AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
 MODEL = os.environ.get("AZURE_OPENAI_MODEL", "")
 
+# Page copy is ~300 visible output tokens; at default effort gpt-6-luna added
+# ~150 reasoning tokens (billed as output) for no visible difference
+# (2026-09-26 cost review). Shared by the event generator.
+REASONING_EFFORT = os.environ.get("SEO_REASONING_EFFORT", "low")
+
+
+def log_usage(kind: str, response) -> None:
+    """Print one grep-able usage line per call. seo_worker.log is the only
+    usage record on the backend side — the scanner's SQLite usage table is
+    not reachable from here."""
+    def _n(value) -> int:
+        return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
+
+    usage = getattr(response, "usage", None)
+    prompt = _n(getattr(usage, "input_tokens", 0))
+    cached = _n(getattr(getattr(usage, "input_tokens_details", None), "cached_tokens", 0))
+    output = _n(getattr(usage, "output_tokens", 0))
+    reasoning = _n(getattr(getattr(usage, "output_tokens_details", None), "reasoning_tokens", 0))
+    print(
+        f"[seo_generator] usage kind={kind} prompt={prompt} cached={cached} "
+        f"output={output} reasoning={reasoning}",
+        flush=True,
+    )
+
 
 class ContentFilterError(Exception):
     """Azure's content filter blocked the prompt (400, code='content_filter').
@@ -163,10 +187,12 @@ def generate_seo_content(
         response = client.responses.create(
             model=MODEL,
             max_output_tokens=2000,
+            reasoning={"effort": REASONING_EFFORT},
             instructions=SYSTEM_PROMPT,
             input=user_prompt,
             text={"format": RESPONSE_FORMAT},
         )
+        log_usage("market_seo", response)
         text = response.output_text
         result = json.loads(text)
         return {

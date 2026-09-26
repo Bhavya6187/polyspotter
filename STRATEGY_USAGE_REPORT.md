@@ -340,3 +340,72 @@ neutral, not negative.
 - **Cap 5→3 (+ exemption $50k→$100k)**: −170 calls/day with zero outright
   keep loss (deferrals) — declined for now to protect surfaced alert
   volume; the strongest remaining lever if further cuts are wanted.
+
+---
+
+# Cost Addendum — 2026-09-26 (all GPT call sites, not just the filter)
+
+**Window:** Aug 20 → Sep 19 (31 days) of `llm_prompts.jsonl` (771k calls),
+verdicts joined via `llm_evaluations` (99.9%); grades from the 2,062
+post-rescale rows of `graded_calls` (Jul 18 →, $100-flat, +8.0% overall).
+Per-call token usage measured by replaying logged prompts against
+gpt-6-luna (successful calls persisted no usage until this pass).
+
+**Finding: the filter was never the biggest call population.**
+
+| Call type | Calls/day | In (uncached / cached) | Out (of which reasoning) | Notes |
+|---|---|---|---|---|
+| Thesis headlines (`seeder`) | 6,397 | 80 / 0 | 74 (53) | 77% exact repeats of an already-generated key — no cache until c536b23 (today) |
+| Alert evaluations (`llm_filter`) | 953 | 522 / 2,730 | 627 (334) | 85% keep; ~1,250/day more are gated locally |
+| SEO pages (`seo_worker`) | ~674 market + ~190 event | 528 / 0 | 445 (152) | ~45% re-generated the same condition_id — fixed by the seo-copy step in 5127178 (today) |
+
+Output tokens dominate (≈1.47M/day as-was vs ≈1.5M uncached input at 1/5
+the price). Monthly cost at gpt-6-luna list ($0.10 / $0.01 cached / $0.50
+per M): as-was $27 → after today's two fixes $18 → this pass $8. At the
+Azure legacy 5.6-luna rate ($1.10 / $6.60) the same rows are $345 → $227 →
+$101; an Aug-12 Microsoft Q&A thread reported Azure still billing that rate,
+so check the cost blade for the real one.
+
+**Implemented (this pass):**
+1. **Reasoning effort** — `reasoning.effort` was never set, so every call
+   ran at the model default. Alert eval → `low` (`LLM_FILTER_REASONING_EFFORT`):
+   replay matched default verdicts 12/12 (random) and 25/30 (borderline
+   score 3-4) with −41% output tokens (`none`: 11/12 at −77%, not taken).
+   Thesis headline → `none` (`THESIS_REASONING_EFFORT`): equivalent
+   headlines at 10 output tokens instead of 74. SEO generators → `low`
+   (`SEO_REASONING_EFFORT`): −10%. gpt-6-luna rejects `minimal`; valid
+   values are none/low/medium/high/xhigh/max.
+2. **GATE_MIN_SCORE 3 → 4.** The 3-4 band was 142 calls/day at 51% keep
+   (39% without a `win_rate_tracking` signal); its kept alerts grade
+   **−2.4%** (n=140) vs +8.7% for 4+, and the score-3 alerts that carried a
+   sharp signal graded −8.2% (n=44). Under gpt-6-luna the LLM keeps 24/30
+   of this band (gpt-5.6-luna kept 12/30), so it no longer filters it at
+   all. Loses ~73 keeps/day (8.5% of kept volume).
+3. **SEO only for markets/events ≥ 3 days from resolution**
+   (`SEO_MIN_DAYS_TO_END`, rows stamped `seo_skip_reason='short_lived'`).
+   47% of alerted markets end within a day of the first alert, 70% within
+   three; GA4 shows 63 organic-search sessions to /market and 23 to /event
+   in 30 days. Keeps ~25% of market SEO calls (85 of 337 markets/day).
+4. **`max_output_tokens` 16,000 → 4,000** on the alert eval: 40
+   degenerate-whitespace replies since July each burned the full 16k
+   budget (≈ one day of alert-eval output); the largest real reasoning
+   trace observed was 516 tokens on top of ~200 visible.
+5. **Usage accounting**: every scanner GPT call now writes a row to
+   `llm_usage` (`db.record_llm_usage`; `db.get_llm_usage_by_day()` sums
+   calls and tokens per UTC day and call type); the SEO generators print a
+   `[seo_generator] usage kind=… prompt=… cached=… output=… reasoning=…`
+   line into `seo_worker.log`.
+
+**Evaluated and rejected:**
+- **Market-day cap 5→3** (−198 calls/day): on the post-rescale book ranks
+  4-5 within a market-day grade **+8.4%** (n=165), the same as ranks 1-2;
+  the July "zero-to-negative" claim does not hold on new-scale data, so
+  this is a pure volume lever with no return-based case.
+- **Weak-pair gate** (`correlated_cross_market`+`low_activity_large_bet`,
+  104 calls/day at 54% keep): survivors still grade +10% (n=141). Not gated.
+- **Alert eval at `none`**: one verdict flip in 12; `low` gets most of the
+  saving at no observed flips on random alerts.
+
+**Watch after deploy:** kept alerts/day (expect −70 from the floor, but
+gpt-6-luna's leniency pushes the other way), `select * from llm_usage`
+daily sums, and `[seo_worker:market]` lines/day (expect ~85).
