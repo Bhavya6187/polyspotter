@@ -203,7 +203,7 @@ pytest
 | `GET` | `/api/alerts/by-market` | Alerts grouped by market |
 | `GET` | `/api/wallets/{addr}` | Wallet profile with recent alerts and bets |
 | `GET` | `/api/strategies` | List all strategies seen |
-| `GET` | `/api/tags` | List all market tags |
+| `GET` | `/api/tags` | Top 10 diverse market tags; `?all=true` lists every tag (for slug resolution, cached 10 min) |
 | `GET` | `/api/spotlight` | Featured/hero alert for dashboard |
 | `GET` | `/api/resolving-soon` | Markets resolving soon |
 | `GET` | `/api/theses` | List cross-market theses (paginated) |

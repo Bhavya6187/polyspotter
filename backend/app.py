@@ -8,6 +8,7 @@ Endpoints:
   GET  /api/alerts/{id}   — get single alert with trades + signals
   GET  /api/wallets/{addr} — get wallet profile
   GET  /api/strategies    — list all strategies seen
+  GET  /api/tags          — top 10 diverse tags; ?all=true lists every tag (slug resolution)
   GET  /api/health        — health check (scanner freshness; 503 when stale)
   GET  /api/health/bots   — digest / tweet freshness (503 when stale)
 """
@@ -1257,14 +1258,60 @@ TAG_DESCRIPTIONS = {
 }
 
 
+def _tag_description(tag: str) -> str:
+    return TAG_DESCRIPTIONS.get(tag) or (
+        f"Notable trades and smart money alerts for {tag} markets on Polymarket. "
+        f"Track large bets, sharp bettors, and coordinated flow."
+    )
+
+
+_ALL_TAGS_TTL = 600  # seconds
+_all_tags_cache: tuple[float, list] | None = None
+
+
+def _list_all_tags() -> list[dict]:
+    """Every distinct alert tag, most alerts first, so the frontend can map a
+    URL slug (e.g. `spider-man`) back to the exact stored tag string. Cached
+    in-process for _ALL_TAGS_TTL seconds."""
+    global _all_tags_cache
+    now = _time.time()
+    if _all_tags_cache and _all_tags_cache[0] > now:
+        return _all_tags_cache[1]
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT tag, COUNT(*) AS alert_count
+               FROM alerts, jsonb_array_elements_text(tags::jsonb) AS tag
+               GROUP BY tag
+               ORDER BY alert_count DESC, tag"""
+        )
+        rows = cur.fetchall()
+    result = [
+        {"tag": r["tag"], "alert_count": r["alert_count"], "description": _tag_description(r["tag"])}
+        for r in rows
+    ]
+    _all_tags_cache = (now + _ALL_TAGS_TTL, result)
+    return result
+
+
 @app.get("/api/tags")
-def list_tags():
+def list_tags(
+    all_tags: bool = Query(
+        False, alias="all",
+        description="Return every tag (for slug resolution) instead of the top 10",
+    ),
+):
     """Return top 10 tags using greedy set-cover for maximum diversity.
 
     Instead of just picking the 10 most frequent tags (which often overlap,
     e.g. "NCAA" and "NCAA Basketball" cover the same alerts), we greedily
     pick the tag that covers the most *uncovered* alerts each round.
+
+    With `all=true`, return every distinct tag instead (most alerts first,
+    same response shape, cached for 10 minutes).
     """
+    if all_tags:
+        return _list_all_tags()
     with db() as conn:
         cur = conn.cursor()
         # Build tag -> set of alert IDs
@@ -1290,14 +1337,10 @@ def list_tags():
         if marginal == 0:
             break
         covered |= new_covered
-        desc = TAG_DESCRIPTIONS.get(best_tag) or (
-            f"Notable trades and smart money alerts for {best_tag} markets on Polymarket. "
-            f"Track large bets, sharp bettors, and coordinated flow."
-        )
         selected_tags.append({
             "tag": best_tag,
             "alert_count": len(new_covered),
-            "description": desc,
+            "description": _tag_description(best_tag),
         })
 
     return selected_tags
