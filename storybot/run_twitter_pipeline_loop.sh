@@ -50,6 +50,21 @@ while true; do
         echo "===== run started $(date -u +%Y-%m-%dT%H:%M:%SZ) ====="
     } | tee -a "$LOG_FILE"
 
+    # Leftover drafts from earlier runs (sidecars: see storybot/publish_tweet.py).
+    # .posted = live on X but not recorded -> retry the record (never re-posts).
+    # .pending = post outcome unknown -> never touch it; a human must check X.
+    for marker in storybot/twitter_drafts/*.txt.posted; do
+        [[ -e "$marker" ]] || continue
+        stale_id=$(basename "$marker" .txt.posted)
+        echo "[loop] run_id=$stale_id is live but unrecorded — retrying the record" | tee -a "$LOG_FILE"
+        python storybot/publish_tweet.py "$stale_id" 2>&1 | tee -a "$LOG_FILE" || true
+    done
+    for marker in storybot/twitter_drafts/*.txt.pending; do
+        [[ -e "$marker" ]] || continue
+        stale_id=$(basename "$marker" .txt.pending)
+        echo "[loop] WARNING: skipping run_id=$stale_id — its post failed ambiguously and may be live. Check X before deleting $marker (if it posted, delete the draft too; if not, delete the marker and run publish_tweet.py $stale_id by hand)." | tee -a "$LOG_FILE"
+    done
+
     # stdbuf -oL -eL keeps output line-buffered so the tee'd log updates live.
     # `output` captures stdout so we can grep the draft run_id marker.
     output=$(stdbuf -oL -eL python storybot/twitter_pipeline.py 2>&1 | tee -a "$LOG_FILE")
@@ -108,10 +123,15 @@ Refer to validate_tweet and validate_tweet_anchor in @storybot/twitter_pipeline.
             if [[ "$edit_ok" -eq 0 ]]; then
                 consecutive_edit_failures=0
                 if python storybot/publish_tweet.py "$run_id" 2>&1 | tee -a "$LOG_FILE"; then
-                    # remove draft after success — enforces idempotency.
-                    # See the NOTE comment in storybot/publish_tweet.py.
+                    # publish_tweet removes the draft once the tweet is posted
+                    # AND recorded; the rm is belt-and-braces. See the
+                    # idempotency note in storybot/publish_tweet.py.
                     rm -f "storybot/twitter_drafts/$run_id.txt"
                     echo "[loop] published run_id=$run_id" | tee -a "$LOG_FILE"
+                elif [[ -e "storybot/twitter_drafts/$run_id.txt.pending" ]]; then
+                    echo "[loop] publish_tweet for run_id=$run_id failed ambiguously — the tweet may be live. Check X before deleting storybot/twitter_drafts/$run_id.txt.pending" | tee -a "$LOG_FILE"
+                elif [[ -e "storybot/twitter_drafts/$run_id.txt.posted" ]]; then
+                    echo "[loop] run_id=$run_id posted but not recorded — the next iteration retries the record" | tee -a "$LOG_FILE"
                 else
                     echo "[loop] publish_tweet failed for run_id=$run_id — draft preserved on disk" | tee -a "$LOG_FILE"
                 fi

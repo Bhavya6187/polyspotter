@@ -236,18 +236,93 @@ def test_publish_tweet_no_chart_png_path_posts_without_media(tmp_path, monkeypat
     assert v1_built["built"] is False
 
 
-def test_publish_tweet_record_failure_is_soft_fail(tmp_path, monkeypatch):
-    drafts_dir, live_dir = _write_fixture_files(tmp_path, "abc12345")
-    pt = _patch_publisher(monkeypatch, drafts_dir, live_dir)
+def _patch_clients(monkeypatch, pt):
     monkeypatch.setattr(pt, "_build_twitter_client", lambda: MagicMock())
     monkeypatch.setattr(pt, "_build_twitter_api_v1", lambda: MagicMock())
+
+
+def test_posted_sidecar_written_before_record(tmp_path, monkeypatch):
+    # The tweet is live once post_tweet returns; if recording it fails the
+    # draft must survive (with the tweet id) so a re-run records instead of
+    # the loop deleting the draft and losing dedup/cadence state.
+    drafts_dir, live_dir = _write_fixture_files(tmp_path, "abc12345")
+    pt = _patch_publisher(monkeypatch, drafts_dir, live_dir)
+    _patch_clients(monkeypatch, pt)
     monkeypatch.setattr(pt, "post_tweet", lambda *a, **kw: "1234567890")
+
     def boom(*a, **kw):
         raise RuntimeError("db down")
     monkeypatch.setattr(pt, "record_tweet", boom)
 
     rc = pt.main(["abc12345"])
-    assert rc == 0  # tweet is live; record failure must not exit non-zero
+    assert rc != 0
+    assert (drafts_dir / "abc12345.txt").exists()
+    assert (drafts_dir / "abc12345.txt.posted").read_text().strip() == "1234567890"
+
+
+def test_rerun_with_posted_sidecar_does_not_repost(tmp_path, monkeypatch):
+    drafts_dir, live_dir = _write_fixture_files(tmp_path, "abc12345")
+    (drafts_dir / "abc12345.txt.posted").write_text("1234567890\n")
+    pt = _patch_publisher(monkeypatch, drafts_dir, live_dir)
+    _patch_clients(monkeypatch, pt)
+
+    def no_post(*a, **kw):
+        raise AssertionError("must not post again")
+    monkeypatch.setattr(pt, "post_tweet", no_post)
+    recorded = {}
+    monkeypatch.setattr(pt, "record_tweet",
+                        lambda ids, tid, text: recorded.update(ids=ids, tid=tid, text=text))
+
+    rc = pt.main(["abc12345"])
+    assert rc == 0
+    assert recorded == {"ids": [42, 43], "tid": "1234567890", "text": _TWEET_BODY}
+    assert not (drafts_dir / "abc12345.txt").exists()
+    assert not (drafts_dir / "abc12345.txt.posted").exists()
+
+
+@pytest.mark.parametrize("make_exc", [
+    lambda: __import__("http.client").client.RemoteDisconnected(
+        "Remote end closed connection without response"),
+    lambda: __import__("tweepy").errors.TwitterServerError(
+        MagicMock(status_code=503, reason="Service Unavailable",
+                  json=lambda: {}, text="")),
+])
+def test_ambiguous_post_error_marks_pending(tmp_path, monkeypatch, make_exc):
+    # The request may have reached X: never treat it as "not posted".
+    drafts_dir, live_dir = _write_fixture_files(tmp_path, "abc12345")
+    pt = _patch_publisher(monkeypatch, drafts_dir, live_dir)
+    _patch_clients(monkeypatch, pt)
+    exc = make_exc()
+
+    def raise_it(*a, **kw):
+        raise exc
+    monkeypatch.setattr(pt, "post_tweet", raise_it)
+    monkeypatch.setattr(pt, "record_tweet", lambda *a, **kw: None)
+
+    rc = pt.main(["abc12345"])
+    assert rc != 0
+    assert (drafts_dir / "abc12345.txt").exists()
+    assert (drafts_dir / "abc12345.txt.pending").exists()
+
+    # A re-run must refuse to post while the marker exists.
+    monkeypatch.setattr(pt, "post_tweet",
+                        lambda *a, **kw: (_ for _ in ()).throw(AssertionError("reposted")))
+    assert pt.main(["abc12345"]) != 0
+
+
+def test_definite_post_error_is_not_pending(tmp_path, monkeypatch):
+    drafts_dir, live_dir = _write_fixture_files(tmp_path, "abc12345")
+    pt = _patch_publisher(monkeypatch, drafts_dir, live_dir)
+    _patch_clients(monkeypatch, pt)
+    import tweepy
+    exc = tweepy.errors.Forbidden(MagicMock(status_code=403, reason="Forbidden",
+                                            json=lambda: {}, text=""))
+
+    def raise_it(*a, **kw):
+        raise exc
+    monkeypatch.setattr(pt, "post_tweet", raise_it)
+    assert pt.main(["abc12345"]) == 1
+    assert not (drafts_dir / "abc12345.txt.pending").exists()
 
 
 def test_publish_tweet_bad_argv_returns_2(monkeypatch):

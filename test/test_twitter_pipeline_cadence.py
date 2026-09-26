@@ -182,3 +182,19 @@ def test_cadence_skip_reason_window_already_used():
     recent = [_tw("2026-01-15T13:30:00+00:00")]  # 08:30 ET Jan 15 — morning
     assert (twitter_pipeline._cadence_skip_reason(now, recent)
             == "already posted in morning")
+
+
+# --- fail-closed on unknown state (handoff 3.2) ------------------------------
+
+def test_fetch_recent_tweets_db_error_fails_closed(monkeypatch):
+    # A DB error used to return [] -> "no posts today" -> the gate opened.
+    import tweet_utils
+
+    def boom(*a, **kw):
+        raise tweet_utils.psycopg2.OperationalError("db down")
+
+    monkeypatch.setattr(tweet_utils.psycopg2, "connect", boom)
+    recent = tweet_utils.fetch_recent_tweets(limit=10)
+    assert recent is None
+    now = datetime(2026, 1, 15, 14, 0, tzinfo=timezone.utc)  # 09:00 ET morning
+    assert twitter_pipeline._cadence_skip_reason(now, recent) is not None
