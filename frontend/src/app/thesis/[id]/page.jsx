@@ -3,19 +3,15 @@ import Link from "next/link";
 import WalletBadge from "../../../components/WalletBadge";
 import { marketSlug } from "../../../lib/slugify";
 import { API_URL } from "../../../lib/apiBase";
+import { fetchJsonOr404 } from "../../../lib/fetchJson";
 
 export const revalidate = 60;
 
-async function getThesis(id) {
-  try {
-    const res = await fetch(`${API_URL}/api/theses/${id}`, {
-      next: { revalidate: 60 },
-    });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
+// null only on a backend 404 (-> notFound()); other failures throw.
+function getThesis(id) {
+  return fetchJsonOr404(`${API_URL}/api/theses/${encodeURIComponent(id)}`, {
+    next: { revalidate: 60 },
+  });
 }
 
 export async function generateMetadata({ params }) {

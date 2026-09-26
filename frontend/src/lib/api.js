@@ -9,7 +9,9 @@ async function request(path, params = {}) {
   });
   const res = await fetch(url);
   if (!res.ok) {
-    throw new Error(`API error: ${res.status} ${res.statusText}`);
+    const err = new Error(`API error: ${res.status} ${res.statusText}`);
+    err.status = res.status;
+    throw err;
   }
   return res.json();
 }

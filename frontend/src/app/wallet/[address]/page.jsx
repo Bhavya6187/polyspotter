@@ -4,19 +4,15 @@ import WalletPageClient from "./wallet-page-client";
 import { computeTier } from "../../../lib/tiers";
 import { walletPseudonym } from "../../../lib/pseudonym";
 import { API_URL } from "../../../lib/apiBase";
+import { fetchJsonOr404 } from "../../../lib/fetchJson";
 
 export const revalidate = 60;
 
-async function getWalletData(address) {
-  try {
-    const res = await fetch(`${API_URL}/api/wallets/${address}`, {
-      next: { revalidate: 60 },
-    });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
+// null only on a backend 404 (-> notFound()); other failures throw.
+function getWalletData(address) {
+  return fetchJsonOr404(`${API_URL}/api/wallets/${encodeURIComponent(address)}`, {
+    next: { revalidate: 60 },
+  });
 }
 
 function generateProfileSummary(data, pseudonym, tier) {

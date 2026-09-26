@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { API_URL } from "../../../../lib/apiBase";
+import { fetchJsonOr404 } from "../../../../lib/fetchJson";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
 
@@ -10,18 +11,12 @@ export const revalidate = 60;
 
 const MONO = { fontFamily: "var(--font-display)" };
 
-async function getArticle(date, slug) {
-  try {
-    const res = await fetch(
-      `${API_URL}/api/articles/by-slug/${encodeURIComponent(date)}/${encodeURIComponent(slug)}`,
-      { next: { revalidate: 60 } },
-    );
-    if (res.status === 404) return null;
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
+// null only on a backend 404 (-> notFound()); other failures throw.
+function getArticle(date, slug) {
+  return fetchJsonOr404(
+    `${API_URL}/api/articles/by-slug/${encodeURIComponent(date)}/${encodeURIComponent(slug)}`,
+    { next: { revalidate: 60 } },
+  );
 }
 
 async function getArticleIndex() {
