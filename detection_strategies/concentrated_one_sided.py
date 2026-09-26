@@ -7,8 +7,9 @@ large bets on the same outcome within minutes is a strong directional
 signal.  Trades are grouped by effective direction and flagged when the
 cluster exceeds configured thresholds.
 
-For binary markets (exactly 2 outcomes per conditionId), opposing trades
-are collapsed into the same directional cluster:
+For binary markets (exactly 2 outcomes per conditionId, per Gamma's
+``outcomes``), opposing trades are collapsed into the same directional
+cluster:
   SELL outcome_A  ≡  BUY outcome_B   (both are pro-B / anti-A)
 This prevents double-counting the same directional flow as separate
 signals and inflating composite scores.
@@ -16,6 +17,7 @@ signals and inflating composite scores.
 
 from __future__ import annotations
 
+import json
 import math
 from collections import defaultdict
 
@@ -32,6 +34,21 @@ MIN_CLUSTER_USD = 2000  # minimum total USD in the cluster to flag
 FAVORITE_PRICE_THRESHOLD = 0.70  # suppress clusters buying above this price...
 FAVORITE_VOLUME_24H = 50_000  # ...on markets with 24h volume above this
 RESOLVED_TRADE_PRICE = 0.95  # skip individual trades at near-certain prices
+
+
+def _gamma_outcomes(condition_id: str) -> list[str]:
+    """Outcome names for a market from the Gamma cache ([] if unknown).
+    Gamma serves ``outcomes`` as a JSON-encoded string, e.g. '["Yes", "No"]'."""
+    market = get_market_by_condition(condition_id)
+    raw = market.get("outcomes") if market else None
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(raw, list):
+        return []
+    return [str(o) for o in raw if o]
 
 
 # ---------------------------------------------------------------------------
@@ -57,18 +74,29 @@ class ConcentratedOneSidedStrategy(DetectionStrategy):
         if not trades:
             return []
 
-        # Detect binary markets: conditionIds with exactly 2 outcomes
+        # Detect binary markets from Gamma's outcome list, so a SELL is
+        # remapped to the opposite BUY whether or not the other outcome traded
+        # in this batch (batch-dependent remapping flipped the cluster's dedup
+        # key between scans). Only markets with a SELL need the lookup; fall
+        # back to "exactly 2 outcomes seen in the batch" when Gamma has none.
         cid_outcomes: dict[str, set[str]] = defaultdict(set)
+        sell_cids: set[str] = set()
         for t in trades:
             cid = t.get("conditionId", "")
             outcome = t.get("outcome", "")
             if cid and outcome:
                 cid_outcomes[cid].add(outcome)
+                if t.get("side") == "SELL":
+                    sell_cids.add(cid)
 
         binary_cids: dict[str, tuple[str, str]] = {}
-        for cid, outcomes in cid_outcomes.items():
-            if len(outcomes) == 2:
-                binary_cids[cid] = tuple(sorted(outcomes))
+        for cid in sell_cids:
+            gamma_outcomes = _gamma_outcomes(cid)
+            if gamma_outcomes:
+                if len(gamma_outcomes) == 2:
+                    binary_cids[cid] = tuple(sorted(gamma_outcomes))
+            elif len(cid_outcomes[cid]) == 2:
+                binary_cids[cid] = tuple(sorted(cid_outcomes[cid]))
 
         clusters: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
 

@@ -36,6 +36,7 @@ def _make_trade(wallet, outcome, side, price, tx):
 @patch("seeder._resolve_market_media", return_value=(None, None))
 @patch("seeder._resolve_end_date", return_value=None)
 @patch("seeder._resolve_tags", return_value=[])
+@patch("detection_strategies.concentrated_one_sided.get_market_by_condition", return_value=None)
 @patch(
     "detection_strategies.concentrated_one_sided.get_cached_funder",
     return_value=(True, None),
