@@ -311,11 +311,12 @@ def fetch_recent_tweet_openers(limit: int = 5) -> list[str]:
     return [o for o in out if o]
 
 
-def fetch_recent_tweets(limit: int = 10) -> list[dict]:
+def fetch_recent_tweets(limit: int = 10) -> list[dict] | None:
     """Latest `limit` distinct tweets with their full text and the condition_ids
-    they covered. Newest first. Used by the event picker (and validator) to
-    avoid re-covering the same event back-to-back. Empty list on any failure —
-    callers degrade gracefully without this hint.
+    they covered. Newest first. Used by the cadence gate, the event picker and
+    the validator to avoid re-covering the same event back-to-back. Returns
+    None on any DB failure — "unknown", not "no tweets": the cadence gate must
+    fail closed rather than read an outage as a quiet day.
 
     Returns a list of {"tweet": str, "condition_ids": list[str],
     "tweeted_at": iso str} dicts.
@@ -324,7 +325,7 @@ def fetch_recent_tweets(limit: int = 10) -> list[dict]:
         conn = psycopg2.connect(DATABASE_URL, connect_timeout=QUERY_TIMEOUT_SECONDS)
     except Exception as exc:
         log("recent_tweets_db_error", error=f"{type(exc).__name__}: {exc}")
-        return []
+        return None
     try:
         cur = conn.cursor()
         cur.execute(
@@ -343,7 +344,7 @@ def fetch_recent_tweets(limit: int = 10) -> list[dict]:
         cur.close()
     except Exception as exc:
         log("recent_tweets_query_error", error=f"{type(exc).__name__}: {exc}")
-        return []
+        return None
     finally:
         conn.close()
     out: list[dict] = []

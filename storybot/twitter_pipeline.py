@@ -213,17 +213,20 @@ def _posts_in_window(recent_tweets: list[dict], window: str,
 
 
 def _cadence_skip_reason(now: datetime,
-                         recent_tweets: list[dict]) -> str | None:
+                         recent_tweets: list[dict] | None) -> str | None:
     """Return a human-readable skip reason if the cadence gate should block
     this run, or None to proceed.
 
-    Checks, in order: outside every peak window -> DAILY_POST_CAP reached
-    for the ET day -> this window already used. DRY_RUN bypassing is the
-    caller's responsibility, not this function's.
+    Checks, in order: outside every peak window -> recent tweets unknown
+    (None: the DB read failed, so fail closed) -> DAILY_POST_CAP reached for
+    the ET day -> this window already used. DRY_RUN bypassing is the caller's
+    responsibility, not this function's.
     """
     window = _current_peak_window(now)
     if window is None:
         return "outside peak window"
+    if recent_tweets is None:
+        return "recent tweets unavailable"
     if _posts_today(recent_tweets, now) >= DAILY_POST_CAP:
         return "daily cap reached"
     if _posts_in_window(recent_tweets, window, now) >= 1:
@@ -1998,18 +2001,21 @@ def main() -> int:
     # event picker and the stage-4 validator unchanged.
     now = datetime.now(timezone.utc)
     recent_tweets = fetch_recent_tweets(limit=10)
-    log("recent_tweets_loaded", run_id=run_id, count=len(recent_tweets))
+    log("recent_tweets_loaded", run_id=run_id,
+        count=(len(recent_tweets) if recent_tweets is not None else None))
     if not DRY_RUN:
         skip_reason = _cadence_skip_reason(now, recent_tweets)
         log("cadence_gate", run_id=run_id,
             window=_current_peak_window(now),
-            posts_today=_posts_today(recent_tweets, now),
+            posts_today=(_posts_today(recent_tweets, now)
+                         if recent_tweets is not None else None),
             skip_reason=skip_reason)
         if skip_reason:
             log("skip", run_id=run_id, reason=skip_reason)
             log("run_end", run_id=run_id, drafted=False,
                 elapsed_ms=int((time.monotonic() - run_start_t) * 1000))
             return 0
+    recent_tweets = recent_tweets or []  # only DRY_RUN reaches here with None
 
     # Seed
     t = time.monotonic()

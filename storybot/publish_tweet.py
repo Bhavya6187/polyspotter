@@ -8,16 +8,29 @@ Usage:
     python storybot/publish_tweet.py <run_id>
 
 Exit codes:
-    0  posted (record may have soft-failed but tweet is live)
+    0  posted and recorded in tweeted_alerts; draft and sidecars removed
     1  no draft / no transcript / missing publish_meta / validation failed /
-       post raised
+       post raised / post outcome unknown (.pending) / posted but not recorded
+       (.posted)
     2  bad argv
+
+Sidecars next to the draft (<run_id>.txt):
+    <run_id>.txt.posted   the tweet is live (holds its id) but record_tweet
+                          failed. A re-run records it without posting again.
+    <run_id>.txt.pending  the post call failed ambiguously (5xx, dropped
+                          connection, timeout) — the tweet may be live. Every
+                          run refuses to post until an operator checks X and
+                          deletes the marker (and the draft, if it posted).
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import sys
+
+import requests
+import tweepy
 
 # Make project root importable so `import db` and friends work when this
 # script runs directly via cron / the loop shell.
@@ -53,14 +66,61 @@ def _transcript_path(run_id: str) -> str:
     return os.path.join(LIVE_RUNS_DIR, f"twitter_pipeline_{run_id}.json")
 
 
-# NOTE: This script is not idempotent. Calling publish_tweet.py twice on
-# the same run_id will post the tweet to X twice. The loop shell in
-# run_twitter_pipeline_loop.sh handles idempotency by deleting the draft
-# .txt after a successful publish, so a re-run of the loop with the same
-# run_id will fail the "no draft found" check before reaching post_tweet.
-# Operators running publish_tweet.py manually after a failure should be
-# aware of this — re-running on an already-published run_id will duplicate
-# the tweet.
+def _is_ambiguous_post_error(exc: BaseException) -> bool:
+    """True when the post request may have reached X even though it raised:
+    a 5xx, a dropped connection, or a read timeout. Walks the cause chain
+    (tweepy/requests wrap the underlying socket error)."""
+    seen: set[int] = set()
+    e: BaseException | None = exc
+    while e is not None and id(e) not in seen:
+        seen.add(id(e))
+        if isinstance(e, requests.exceptions.ConnectTimeout):
+            return False  # never connected, so nothing was sent
+        if isinstance(e, (tweepy.errors.TwitterServerError,
+                          http.client.RemoteDisconnected, ConnectionResetError,
+                          TimeoutError, requests.exceptions.ConnectionError,
+                          requests.exceptions.Timeout)):
+            return True
+        e = e.__cause__ or e.__context__
+    return False
+
+
+def _record_and_clean_up(run_id: str, draft_path: str, alert_ids: list,
+                         tweet_id: str, tweet_text: str) -> int:
+    """Record a live tweet in tweeted_alerts, then drop the draft and its
+    .posted sidecar. On a record failure everything stays on disk and the run
+    exits 1, so the loop/operator retries the record (never the post)."""
+    posted_url = f"https://x.com/i/web/status/{tweet_id}"
+    try:
+        record_tweet([int(i) for i in alert_ids], tweet_id, tweet_text)
+    except Exception as exc:
+        log("publish_tweet_record_error",
+            run_id=run_id, tweet_id=tweet_id, error=f"{type(exc).__name__}: {exc}")
+        print(
+            f"error: tweet_id={tweet_id} is live but record_tweet raised "
+            f"{type(exc).__name__}: {exc}. Draft and {draft_path}.posted kept; "
+            f"re-run publish_tweet.py {run_id} to record it (it will not re-post).",
+            file=sys.stderr,
+        )
+        print(f"    tweet: {posted_url}", file=sys.stderr)
+        return 1
+    for path in (draft_path, draft_path + ".posted"):
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+    log("publish_tweet_done",
+        run_id=run_id, tweet_id=tweet_id, recorded=True, posted_url=posted_url)
+    print(f"[publish_tweet] published run_id={run_id} tweet_id={tweet_id}")
+    print(f"    tweet: {posted_url}")
+    return 0
+
+
+# Idempotency: the post is the only irreversible step. A tweet id is written
+# to <draft>.posted before recording, so a re-run records instead of
+# re-posting; an ambiguous post failure writes <draft>.pending, which blocks
+# every re-run until an operator has checked X. After a recorded publish the
+# draft is removed, so a re-run fails the "no draft found" check.
 def main(argv: list[str]) -> int:
     if len(argv) != 1:
         print("usage: publish_tweet.py <run_id>", file=sys.stderr)
@@ -73,6 +133,15 @@ def main(argv: list[str]) -> int:
     if not os.path.exists(draft_path):
         print(f"error: no draft found at {draft_path}", file=sys.stderr)
         log("publish_tweet_no_draft", run_id=run_id, path=draft_path)
+        return 1
+    if os.path.exists(draft_path + ".pending"):
+        print(
+            f"error: {draft_path}.pending exists — an earlier post attempt failed "
+            f"ambiguously and the tweet may be live. Check X; if it posted, delete "
+            f"the draft and marker; if not, delete the marker and re-run.",
+            file=sys.stderr,
+        )
+        log("publish_tweet_pending_marker", run_id=run_id, path=draft_path + ".pending")
         return 1
     with open(draft_path) as f:
         tweet_text = f.read().rstrip("\n")
@@ -106,6 +175,16 @@ def main(argv: list[str]) -> int:
         log("publish_tweet_alert_ids_malformed",
             run_id=run_id, alert_ids=alert_ids)
         return 1
+    posted_marker = draft_path + ".posted"
+    if os.path.exists(posted_marker):
+        with open(posted_marker) as f:
+            tweet_id = f.read().strip()
+        log("publish_tweet_already_posted", run_id=run_id, tweet_id=tweet_id)
+        if os.environ.get("DRY_RUN", "").strip().lower() == "true":
+            print(f"[publish_tweet] DRY_RUN=true — tweet_id={tweet_id} already posted; not recording.")
+            return 0
+        return _record_and_clean_up(run_id, draft_path, alert_ids, tweet_id, tweet_text)
+
     chart_png_path = pm["chart_png_path"]
 
     chart_png: bytes | None = None
@@ -148,42 +227,35 @@ def main(argv: list[str]) -> int:
             dry_run=False,
         )
     except Exception as exc:
-        log("publish_tweet_post_error",
-            run_id=run_id, error=f"{type(exc).__name__}: {exc}")
+        ambiguous = _is_ambiguous_post_error(exc)
+        log("publish_tweet_post_error", run_id=run_id, ambiguous=ambiguous,
+            error=f"{type(exc).__name__}: {exc}")
         print(
             f"error: post_tweet raised {type(exc).__name__}: {exc}",
             file=sys.stderr,
         )
+        if ambiguous:
+            with open(draft_path + ".pending", "w") as f:
+                f.write(f"{type(exc).__name__}: {exc}\n")
+            print(
+                f"error: the tweet may have posted — wrote {draft_path}.pending. "
+                f"Check X before deleting the marker.",
+                file=sys.stderr,
+            )
         return 1
 
     log("publish_tweet_posted",
         run_id=run_id, tweet_id=tweet_id, alert_ids=alert_ids,
         tweet_length=len(tweet_text))
 
+    # Persist the fact that the tweet is live before anything else can fail.
     try:
-        record_tweet([int(i) for i in alert_ids], tweet_id, tweet_text)
-    except Exception as exc:
-        # Tweet is already live; failing to record is a soft fail so the
-        # shell loop doesn't treat this as a publish failure.
-        log("publish_tweet_record_error",
-            run_id=run_id, error=f"{type(exc).__name__}: {exc}")
-        posted_url = f"https://x.com/i/web/status/{tweet_id}"
-        log("publish_tweet_done",
-            run_id=run_id, tweet_id=tweet_id, recorded=False, posted_url=posted_url)
-        print(
-            f"[publish_tweet] posted tweet_id={tweet_id} but record_tweet "
-            f"raised — dedup may miss this on the next run.",
-            file=sys.stderr,
-        )
-        print(f"    tweet: {posted_url}", file=sys.stderr)
-        return 0
-
-    posted_url = f"https://x.com/i/web/status/{tweet_id}"
-    log("publish_tweet_done",
-        run_id=run_id, tweet_id=tweet_id, recorded=True, posted_url=posted_url)
-    print(f"[publish_tweet] published run_id={run_id} tweet_id={tweet_id}")
-    print(f"    tweet: {posted_url}")
-    return 0
+        with open(posted_marker, "w") as f:
+            f.write(f"{tweet_id}\n")
+    except OSError as exc:
+        log("publish_tweet_posted_marker_error",
+            run_id=run_id, tweet_id=tweet_id, error=str(exc))
+    return _record_and_clean_up(run_id, draft_path, alert_ids, tweet_id, tweet_text)
 
 
 if __name__ == "__main__":
