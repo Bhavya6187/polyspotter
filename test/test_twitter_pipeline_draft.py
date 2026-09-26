@@ -49,3 +49,24 @@ def test_write_draft_creates_parent_dir(tmp_path, monkeypatch):
     tp._write_draft("xyz98765", "body")
 
     assert (target / "xyz98765.txt").read_text() == "body"
+
+
+def test_writer_prompt_carries_real_event_title(monkeypatch):
+    # Bare market titles ("Will France win on 2026-07-14?") name neither the
+    # opponent nor the tournament; the writer must see the Gamma event title.
+    import digestbot
+    import tweet_utils
+    import twitter_pipeline as tp
+
+    seed = [{"id": 7, "event_slug": "fifwc-fra-esp-2026-07-14", "condition_id": "0xc",
+             "market_title": "Will France win on 2026-07-14?"}]
+    monkeypatch.setattr(tp, "build_enriched_facts_bundle",
+                        lambda chosen: ({"has_sharp_wallet": None}, []))
+    monkeypatch.setattr(tweet_utils, "fetch_market_tokens", lambda cid: {})
+    monkeypatch.setattr(digestbot, "fetch_event_titles",
+                        lambda slugs: {"fifwc-fra-esp-2026-07-14": "France vs. Spain"})
+
+    bundle = tp.fetch_data_bundle([7], seed)
+    msg = tp._writer_user_message(bundle["chosen_alerts"], "summary",
+                                  bundle["facts_bundle"], {"chart_type": "none"})
+    assert "France vs. Spain" in msg
