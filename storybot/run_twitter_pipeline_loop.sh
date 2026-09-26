@@ -45,6 +45,9 @@ cd "$PROJECT_ROOT"
 trap 'echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] loop interrupted, exiting" | tee -a "$LOG_FILE"; exit 0' INT TERM
 
 while true; do
+    # Keep storybot/logs and storybot/live_runs bounded (scripts/rotate_logs.sh).
+    bash "$PROJECT_ROOT/scripts/rotate_logs.sh" || true
+
     {
         echo ""
         echo "===== run started $(date -u +%Y-%m-%dT%H:%M:%SZ) ====="

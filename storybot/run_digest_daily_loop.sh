@@ -57,6 +57,9 @@ while true; do
     echo "[$(date +%Y-%m-%dT%H:%M:%S%z)] sleeping ${wait_s}s until next run at ${next_at}" | tee -a "$LOG_FILE"
     sleep "$wait_s"
 
+    # Keep storybot/logs and storybot/live_runs bounded (scripts/rotate_logs.sh).
+    bash "$PROJECT_ROOT/scripts/rotate_logs.sh" || true
+
     {
         echo ""
         echo "===== digest run started $(date +%Y-%m-%dT%H:%M:%S%z) ====="

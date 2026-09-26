@@ -32,6 +32,9 @@ trap 'echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] loop interrupted, exiting" | tee -a
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] seo_worker loop started (INTERVAL_SECONDS=${INTERVAL_SECONDS})" | tee -a "$LOG_FILE"
 
 while true; do
+    # Keep storybot/logs and storybot/live_runs bounded (scripts/rotate_logs.sh).
+    bash "$PROJECT_ROOT/scripts/rotate_logs.sh" || true
+
     {
         echo ""
         echo "===== run started $(date -u +%Y-%m-%dT%H:%M:%SZ) ====="
