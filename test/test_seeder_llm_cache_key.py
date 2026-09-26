@@ -58,6 +58,32 @@ class TestIndividualCacheKeyBucketing(unittest.TestCase):
         self.assertNotEqual(self._key(2, cid="cond1"), self._key(2, cid="cond2"))
 
 
+class TestScoreBandInCacheKey(unittest.TestCase):
+    """Handoff 1.1: a per-wallet alert whose composite score moves across a
+    whole point must be re-evaluated instead of reusing a verdict made on
+    different content (2,511 of 10,109 reuse rows over 90 days would have
+    failed the pre-LLM gate on their own content)."""
+
+    def test_per_wallet_cache_key_includes_score_band(self):
+        def key(score):
+            return _build_llm_cache_key(
+                "0xabc", "cond1", trade_count=3, composite_score=score,
+            )
+
+        self.assertNotEqual(key(2.9), key(5.5))
+        self.assertEqual(key(5.1), key(5.9))
+
+    def test_cluster_cache_key_unchanged(self):
+        import hashlib
+
+        key = _build_llm_cache_key(
+            None, "cond1", cluster_direction="Yes:BUY",
+            trade_count=5, composite_score=5.5,
+        )
+        expected = hashlib.sha256(b"llm:cluster:cond1:Yes:BUY:2:2").hexdigest()[:32]
+        self.assertEqual(key, expected)
+
+
 class FakeSignal:
     """Minimal Signal-like object for testing."""
 
@@ -99,7 +125,10 @@ class TestIndividualAlertsGetLLMCacheKey(unittest.TestCase):
         alert = payload["alerts"][0]
         self.assertEqual(
             alert["llm_cache_key"],
-            _build_llm_cache_key("0xwallet1", "cond1", trade_count=1),
+            _build_llm_cache_key(
+                "0xwallet1", "cond1", trade_count=1,
+                composite_score=alert["composite_score"],
+            ),
         )
         # backend dedup key must stay tx-hash based (unchanged upsert identity)
         self.assertNotEqual(alert["llm_cache_key"], alert["dedup_key"])

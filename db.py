@@ -1105,15 +1105,32 @@ def get_orderbook_stats(token_id: str) -> dict | None:
 # ===========================================================================
 
 
+# Cached LLM verdicts older than this are treated as a miss (the row is kept,
+# not deleted; a fresh evaluation overwrites it). Handoff 1.1 (2026-09): p90
+# age of a reused verdict was 2.5 days but p99 37.8 days; a 7-day TTL costs
+# about +2 GPT calls/day.
+LLM_CACHE_TTL_S = 7 * 86400
+
+
 def get_llm_evaluation(dedup_key: str) -> dict | None:
     """Look up a cached LLM evaluation by dedup_key.
-    Returns dict with interesting (bool) and summary, or None if not cached."""
+    Returns dict with interesting (bool) and summary, or None if not cached
+    or if the cached verdict is older than LLM_CACHE_TTL_S."""
     conn = get_db()
     row = conn.execute(
-        "SELECT interesting, summary FROM llm_evaluations WHERE dedup_key = ?",
+        "SELECT interesting, summary, evaluated_at FROM llm_evaluations WHERE dedup_key = ?",
         (dedup_key,),
     ).fetchone()
     if not row:
+        return None
+    try:
+        evaluated_at = datetime.fromisoformat(row[2])
+    except (TypeError, ValueError):
+        return None
+    if evaluated_at.tzinfo is None:
+        evaluated_at = evaluated_at.replace(tzinfo=timezone.utc)
+    age_s = (datetime.now(timezone.utc) - evaluated_at).total_seconds()
+    if age_s > LLM_CACHE_TTL_S:
         return None
     return {"interesting": bool(row[0]), "summary": row[1]}
 
