@@ -47,6 +47,10 @@ POLYGON_CHAIN_ID = 137
 FUNDER_LOOKUP_DELAY = 0.25  # seconds between Etherscan calls
 MIN_SHARED_WALLETS = 2  # flag when >= N wallets share the same funder
 MAX_FUNDER_CHILDREN = 20  # skip funders with >= N children (likely exchange hot wallets)
+# Loop 2: a window wallet whose funder was linked before this window but was
+# not caught as a cluster by loop 1 -- weaker evidence than a two-wallet
+# in-window cluster (5.0).
+HISTORICAL_LINK_SEVERITY = 4.0
 
 # In-memory cache for the current run (avoids repeated DB reads within a run).
 # Only positive results are cached here: a None must go back to the DB so the
@@ -206,17 +210,18 @@ class WalletClusteringStrategy(DetectionStrategy):
             if w:
                 wallet_trades[w.lower()].append(t)
 
+        # Snapshot the funders already known to link >= 2 wallets BEFORE the
+        # lookups below: _get_first_funder saves this window's funders, so
+        # reading afterwards made every in-window cluster look "known" and
+        # gave all of them the +1.0 boost (handoff 1.3, 2026-09).
+        known_sybils = get_known_sybil_funders(MIN_SHARED_WALLETS)
+
         # Look up funders for each wallet (DB-cached + API)
         funder_to_wallets: dict[str, list[str]] = defaultdict(list)
         for wallet in wallet_trades:
             funder = _get_first_funder(wallet)
             if funder:
                 funder_to_wallets[funder].append(wallet)
-
-        # Also check historical DB for known linked funders that have wallets
-        # in the current scan, even if those wallets' co-funded siblings
-        # aren't in this window
-        known_sybils = get_known_sybil_funders(MIN_SHARED_WALLETS)
 
         signals: list[Signal] = []
         seen_funders: set[str] = set()
@@ -262,7 +267,7 @@ class WalletClusteringStrategy(DetectionStrategy):
 
             # Severity scales with cluster size:
             #   2 wallets -> 5.0, 4 -> 6.0, 8 -> 7.0, 16 -> 8.0
-            # Known linked funders get +1.0 boost
+            # Funders already linked before this window get +1.0 boost
             base = 4.0 + math.log2(n_total)
             severity = min(8.0, base + (1.0 if funder in known_sybils else 0.0))
 
@@ -277,8 +282,9 @@ class WalletClusteringStrategy(DetectionStrategy):
                 )
             )
 
-        # Second: check if any current-window wallet belongs to a known
-        # linked funder that wasn't already caught above
+        # Second: check if any current-window wallet belongs to a funder
+        # linked before this window (the snapshot above) that wasn't already
+        # caught above -- even if its co-funded siblings aren't in this window
         for funder, historical_wallets in known_sybils.items():
             if funder in seen_funders:
                 continue
@@ -302,7 +308,7 @@ class WalletClusteringStrategy(DetectionStrategy):
             signals.append(
                 Signal(
                     strategy=self.name,
-                    severity=6.0,
+                    severity=HISTORICAL_LINK_SEVERITY,
                     headline=(
                         f"Known linked funder {short_funder}: "
                         f"{len(current_wallets)} wallet(s) active, "
