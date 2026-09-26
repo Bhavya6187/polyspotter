@@ -278,6 +278,17 @@ def _fetch_wallet_profiles(wallets: list[str]) -> dict[str, dict]:
     return out
 
 
+def _pinned_record(params: dict) -> tuple[int, int] | None:
+    """(wins, losses) from params {'wallet', 'record': 'W-L'}, or None."""
+    if not params.get("wallet"):
+        return None
+    try:
+        wins, losses = (int(x) for x in str(params.get("record") or "").split("-"))
+    except ValueError:
+        return None
+    return (wins, losses) if wins + losses > 0 else None
+
+
 def fetch_wallet_record_card_data(
     alert: dict,
     *,
@@ -296,6 +307,11 @@ def fetch_wallet_record_card_data(
     Returns None when the wallet is unknown / not in the cluster, or has fewer
     than WALLET_RECORD_MIN_BETS resolved bets.
 
+    Pinned record (params has `wallet` + `record` "W-L", optional `bet_usd`):
+    render exactly that wallet and record without re-selecting or re-reading
+    wallet_profiles. The twitter pipeline passes the facts bundle's sharp
+    wallet this way so the card can't disagree with the tweet text.
+
     alert dict fields used:
         wallet          — Polymarket proxy wallet (single-wallet alerts only)
         trades          — list of trade dicts (cluster alerts; required there)
@@ -304,7 +320,15 @@ def fetch_wallet_record_card_data(
         llm_copy_action — JSON string (or dict) with outcome/side fields
     """
     wallet = alert.get("wallet")
-    if wallet:
+    pinned = _pinned_record(params or {})
+    if pinned is not None:
+        wallet = params["wallet"]
+        wins, losses = pinned
+        profile = {"wins": wins, "losses": losses, "win_rate": wins / (wins + losses)}
+        bet_size = params.get("bet_usd")
+        if bet_size is None:
+            bet_size = dict(_wallets_in_alert(alert)).get(wallet, float(alert.get("total_usd") or 0))
+    elif wallet:
         profiles = _fetch_wallet_profiles([wallet])
         profile = profiles.get(wallet)
         if profile is None:
