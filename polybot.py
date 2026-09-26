@@ -213,7 +213,7 @@ def filter_resolved_markets(trades: list[dict]) -> list[dict]:
     """Remove trades on markets that are effectively resolved.
 
     A market is considered resolved when any outcome's current price is
-    >= RESOLVED_MARKET_THRESHOLD (0.98).  Trading on these markets is
+    >= RESOLVED_MARKET_THRESHOLD (0.95).  Trading on these markets is
     just collecting pennies on a known result — not informed positioning.
 
     Uses the Gamma API market cache (already populated by
@@ -477,7 +477,8 @@ def _format_composite_alerts(signals: list[Signal], trades: list[dict]) -> str:
 
 
 def _format_summary(trades: list[dict], signals: list[Signal], strategy_names: str) -> str:
-    """Format a ranked summary of the most notable activity."""
+    """Format a summary of the most notable activity, ranked by
+    compute_composite_score (the same score the seeder pushes)."""
     # Build tx_hash -> actual trade dict lookup
     tx_to_trade: dict[str, dict] = {}
     for t in trades:
@@ -508,12 +509,14 @@ def _format_summary(trades: list[dict], signals: list[Signal], strategy_names: s
         if not cluster_sigs:
             continue
         cluster_sig = cluster_sigs[0]
-        shared_total = sum(s.severity for s in market_sigs)
-        # Find max score across cluster trades (shared + per-trade)
-        max_score = shared_total
+        # Same scoring as the pushed cluster alert: composite over the shared
+        # signals plus every member trade's per-trade signals.
+        all_sigs: dict[tuple[str, str], Signal] = {s.dedup_key: s for s in market_sigs}
         for tx in cluster_sig.trade_hashes:
-            extra = sum(s.severity for s in per_trade.get(tx, []))
-            max_score = max(max_score, shared_total + extra)
+            for s in per_trade.get(tx, []):
+                if s.dedup_key not in all_sigs or s.severity > all_sigs[s.dedup_key].severity:
+                    all_sigs[s.dedup_key] = s
+        max_score = compute_composite_score(all_sigs.values())
 
         total_usd = sum(
             float(tx_to_trade[tx].get("_usd_value", 0)) for tx in cluster_sig.trade_hashes if tx in tx_to_trade
@@ -555,7 +558,7 @@ def _format_summary(trades: list[dict], signals: list[Signal], strategy_names: s
                 if key not in seen_sigs or s.severity > seen_sigs[key].severity:
                     seen_sigs[key] = s
         deduped_sigs = list(seen_sigs.values())
-        score = sum(s.severity for s in deduped_sigs)
+        score = compute_composite_score(deduped_sigs)
         n = len(deduped_sigs)
         total_usd = sum(float(e[1].get("_usd_value", 0)) for e in entries)
         title = entries[0][1].get("title", "?")
@@ -573,7 +576,7 @@ def _format_summary(trades: list[dict], signals: list[Signal], strategy_names: s
         has_cluster = any(s.strategy == "concentrated_one_sided" for s in market_sigs)
         if has_cluster or cid in markets_with_per_trade:
             continue
-        score = sum(s.severity for s in market_sigs)
+        score = compute_composite_score(market_sigs)
         n = len(market_sigs)
         trade = market_sigs[0].trade
         title = trade.get("title", "?")
