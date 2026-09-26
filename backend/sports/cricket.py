@@ -638,11 +638,11 @@ def get_cricket_data(
     if not code_a or not code_b:
         return None
 
-    # Try today's scoreboard first, then the slug date
-    dates_to_try = [None]
+    # The slug's date identifies the game (series / doubleheaders put the
+    # same pair on consecutive days); today's board is only a fallback when
+    # the slug carries no date.
     date_str = _extract_date_from_slug(event_slug) if event_slug else None
-    if date_str:
-        dates_to_try.append(date_str)
+    dates_to_try = [date_str]
 
     espn_match_id = None
     for d in dates_to_try:

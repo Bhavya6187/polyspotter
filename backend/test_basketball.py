@@ -425,3 +425,76 @@ def test_overlay_request_timeouts_are_5s():
     import sports.soccer as soc
     for mod in (bb, cr, mlb, nhl, soc):
         assert mod._REQUEST_TIMEOUT == 5, mod.__name__
+
+
+# ---------------------------------------------------------------------------
+# Slug date before today's scoreboard; ESPN-only status; spread sign (2.3)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def lac_mil_two_days(monkeypatch):
+    """Today's NBA CDN board (2030-01-01) has LAC @ MIL live; ESPN has the
+    same pair today (live, 'today') and tomorrow (pre-game, 'tmrw')."""
+    import sports.basketball as bb
+    from sport_test_helpers import TOMORROW, espn_scoreboard, espn_summary
+
+    bb._game_cache.clear()
+    cdn = {"scoreboard": {"gameDate": "2030-01-01", "games": [_cdn_game("001", "MIL", "LAC", status=2)]}}
+    monkeypatch.setattr(bb, "_fetch_nba_scoreboard", lambda: cdn)
+    monkeypatch.setattr(
+        bb, "_fetch_espn_scoreboard",
+        lambda league="nba", date_str=None: espn_scoreboard(
+            "tmrw" if date_str == TOMORROW else "today", "MIL", "LAC"),
+    )
+    state = {"tmrw": "pre", "today": "in"}
+    monkeypatch.setattr(
+        bb, "_fetch_espn_summary",
+        lambda eid, league="nba": espn_summary(
+            eid, state[eid], "MIL", "LAC", home_score="51", away_score="48"),
+    )
+    monkeypatch.setattr(bb, "_fetch_nba_play_by_play", lambda gid: None)
+    monkeypatch.setattr(bb, "_fetch_nba_boxscore", lambda gid: None)
+    yield bb
+    bb._game_cache.clear()
+
+
+def test_slug_date_game_beats_todays_scoreboard(lac_mil_two_days):
+    data = lac_mil_two_days.get_basketball_data(
+        "Clippers vs. Bucks", ["NBA"], event_slug="nba-lac-mil-2030-01-02")
+    assert data is not None
+    assert data.espn_game_id == "tmrw"
+    assert data.status == "pre"
+
+
+def test_todays_slug_still_uses_nba_cdn(lac_mil_two_days):
+    data = lac_mil_two_days.get_basketball_data(
+        "Clippers vs. Bucks", ["NBA"], event_slug="nba-lac-mil-2030-01-01")
+    assert data is not None
+    assert data.game_id == "001"
+    assert data.status == "live"
+
+
+def test_espn_only_path_reads_real_status_and_score(lac_mil_two_days):
+    """ESPN-only path used to hardcode status='pre' and 0-0."""
+    data = lac_mil_two_days._build_game_data_espn_only("MIL", "LAC", "nba", None)
+    assert data is not None
+    assert data.espn_game_id == "today"
+    assert data.status == "live"
+    assert data.home.score == 51 and data.away.score == 48
+
+
+def test_spread_sign_home_favoured():
+    """SpreadInfo.value is the favoured team's line, so it is always <= 0
+    (models.SpreadInfo: display "LAC -17.5", value -17.5, team = favoured
+    tricode). The frontend (LiveScoreBanner.jsx) renders only spread.display,
+    so `value` must agree with it. ESPN's pickcenter `spread` is the home line:
+    -4.5 means the home team is favoured by 4.5."""
+    from sports.basketball import _parse_espn_odds
+
+    odds = _parse_espn_odds(
+        [{"provider": {"name": "DraftKings"}, "details": "MIL -4.5", "spread": -4.5,
+          "awayTeamOdds": {"moneyLine": 160}, "homeTeamOdds": {"moneyLine": -190}}],
+        away_abbr="LAC", home_abbr="MIL",
+    )
+    assert odds.spread.team == "MIL"
+    assert odds.spread.value == -4.5

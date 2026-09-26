@@ -488,14 +488,16 @@ def get_soccer_data(title: str, *, tags: list[str], event_slug: str = "") -> Soc
     if not league_id:
         return None
 
+    # Handicap / total titles name one team; for EPL the slug still carries
+    # both codes (the same fallback can_handle accepts).
     parsed = parse_team_names(title)
-    if not parsed:
+    if not parsed and not (league_id == "eng.1" and extract_codes_from_slug(event_slug)):
         return None
-    name_a, name_b = parsed
+    name_a, name_b = parsed or ("", "")
 
     # Resolve EPL via abbr; UCL/WC fall back to name match against scoreboard
-    abbr_a = resolve_epl_abbr(name_a) if league_id == "eng.1" else None
-    abbr_b = resolve_epl_abbr(name_b) if league_id == "eng.1" else None
+    abbr_a = resolve_epl_abbr(name_a) if league_id == "eng.1" and name_a else None
+    abbr_b = resolve_epl_abbr(name_b) if league_id == "eng.1" and name_b else None
     if league_id == "eng.1" and (not abbr_a or not abbr_b) and event_slug:
         from_slug = extract_codes_from_slug(event_slug)
         if from_slug:
@@ -504,10 +506,11 @@ def get_soccer_data(title: str, *, tags: list[str], event_slug: str = "") -> Soc
         # EPL needs at least one resolution path; can't continue
         return None
 
-    dates_to_try = [None]
+    # The slug's date identifies the game (series / doubleheaders put the
+    # same pair on consecutive days); today's board is only a fallback when
+    # the slug carries no date.
     date_str = _extract_date_from_slug(event_slug) if event_slug else None
-    if date_str:
-        dates_to_try.append(date_str)
+    dates_to_try = [date_str]
 
     espn_event_id = None
     for d in dates_to_try:

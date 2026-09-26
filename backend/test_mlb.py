@@ -174,3 +174,18 @@ def test_can_handle_rejects_unparseable_title_with_unresolvable_slug():
     assert plugin.can_handle(
         "Run Line: Foo -1.5", ["mlb"], "mlb-zzz-yyy-2026-05-09"
     ) is False
+
+
+def test_slug_date_game_beats_todays_scoreboard(monkeypatch):
+    """Series / doubleheader: today's board also has NYY-BOS, but the slug is
+    for tomorrow's game, so the overlay must show tomorrow's (pre) event."""
+    from sport_test_helpers import two_day_espn
+    from sports import mlb
+    sb, summ = two_day_espn("NYY", "BOS")
+    monkeypatch.setattr(mlb, "_fetch_espn_scoreboard", sb)
+    monkeypatch.setattr(mlb, "_fetch_espn_summary", summ)
+    mlb._game_cache.clear()
+    data = mlb.get_mlb_data("Yankees vs Red Sox", event_slug="mlb-nyy-bos-2030-01-02")
+    assert data is not None
+    assert data.espn_game_id == "tmrw"
+    assert data.status == "pre"
