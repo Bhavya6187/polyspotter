@@ -119,3 +119,18 @@ def test_can_handle_rejects_unparseable_title_with_unresolvable_slug():
     assert plugin.can_handle(
         "Puck Line: Foo (-1.5)", ["nhl"], "nhl-zzz-yyy-2026-04-15"
     ) is False
+
+
+def test_slug_date_game_beats_todays_scoreboard(monkeypatch):
+    """Back-to-back series: today's board also has TOR-BOS, but the slug is for
+    tomorrow's game, so the overlay must show tomorrow's (pre-game) event."""
+    from sport_test_helpers import two_day_espn
+    from sports import nhl
+    sb, summ = two_day_espn("TOR", "BOS")
+    monkeypatch.setattr(nhl, "_fetch_espn_scoreboard", sb)
+    monkeypatch.setattr(nhl, "_fetch_espn_summary", summ)
+    nhl._game_cache.clear()
+    data = nhl.get_nhl_data("Maple Leafs vs Bruins", event_slug="nhl-tor-bos-2030-01-02")
+    assert data is not None
+    assert data.espn_game_id == "tmrw"
+    assert data.status == "pre"

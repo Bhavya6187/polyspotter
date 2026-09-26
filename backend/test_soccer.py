@@ -188,3 +188,35 @@ def test_can_handle_rejects_handicap_title_with_unresolvable_slug():
     assert plugin.can_handle(
         "Handicap: Foo (-1.5)", ["epl"], "epl-zzz-yyy-2026-04-19"
     ) is False
+
+
+def test_slug_date_game_beats_todays_scoreboard(monkeypatch):
+    from sport_test_helpers import two_day_espn
+    from sports import soccer
+    sb, summ = two_day_espn("ARS", "LIV", "Arsenal", "Liverpool")
+    monkeypatch.setattr(soccer, "_fetch_espn_scoreboard", sb)
+    monkeypatch.setattr(soccer, "_fetch_espn_summary", summ)
+    soccer._match_cache.clear()
+    data = soccer.get_soccer_data(
+        "Liverpool vs Arsenal", tags=["epl"], event_slug="epl-liv-ars-2030-01-02")
+    assert data is not None
+    assert data.espn_game_id == "tmrw"
+    assert data.status == "pre"
+
+
+def test_soccer_can_handle_slug_fallback(monkeypatch):
+    """A handicap title names one team; only the EPL slug identifies the match.
+    can_handle accepted it but get_soccer_data bailed on the unparseable title,
+    so the fallback never produced an overlay."""
+    from sport_test_helpers import two_day_espn
+    from sports import soccer
+    sb, summ = two_day_espn("ARS", "MCI", "Arsenal", "Manchester City")
+    monkeypatch.setattr(soccer, "_fetch_espn_scoreboard", sb)
+    monkeypatch.setattr(soccer, "_fetch_espn_summary", summ)
+    soccer._match_cache.clear()
+    plugin = soccer.SoccerOverlay()
+    title, slug = "Handicap: Arsenal (-1.5)", "epl-ars-mci-2030-01-02"
+    assert plugin.can_handle(title, ["epl"], slug) is True
+    resp = plugin.fetch("0xabc", title, ["epl"], slug)
+    assert resp is not None
+    assert resp.payload["espn_game_id"] == "tmrw"

@@ -480,7 +480,7 @@ def _cache_set(key: str, field: str, data):
 def get_mlb_data(title: str, *, event_slug: str = "") -> MLBGameData | None:
     """Resolve a market title to live MLB game data.
 
-    Tries today's scoreboard first, then the slug date (for upcoming games).
+    Uses the slug date's scoreboard (today's when the slug has no date).
     """
     abbr_a: str | None = None
     abbr_b: str | None = None
@@ -495,10 +495,11 @@ def get_mlb_data(title: str, *, event_slug: str = "") -> MLBGameData | None:
     if not abbr_a or not abbr_b:
         return None
 
-    dates_to_try = [None]
+    # The slug's date identifies the game (series / doubleheaders put the
+    # same pair on consecutive days); today's board is only a fallback when
+    # the slug carries no date.
     date_str = _extract_date_from_slug(event_slug) if event_slug else None
-    if date_str:
-        dates_to_try.append(date_str)
+    dates_to_try = [date_str]
 
     espn_event_id = None
     for d in dates_to_try:

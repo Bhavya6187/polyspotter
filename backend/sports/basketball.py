@@ -301,9 +301,11 @@ def _parse_espn_odds(
     if spread_val is not None and details:
         spread_team = away_abbr if spread_val > 0 else home_abbr
         display = details
+        # ESPN's `spread` is the home line; `value` is the favoured team's
+        # line, so it is never positive.
         spread_info = SpreadInfo(
             display=display,
-            value=-abs(spread_val) if spread_team == away_abbr else abs(spread_val),
+            value=-abs(spread_val),
             team=spread_team,
         )
 
@@ -713,7 +715,12 @@ def get_basketball_data(
     if not tri_a or not tri_b:
         return None
 
-    # --- Try NBA CDN scoreboard first (today's games) ----------------------
+    # The slug's date identifies the game: in a playoff series the same pair
+    # is on today's board too, so today's NBA CDN board is only consulted when
+    # the slug has no date or its date is the board's date.
+    date_str = _extract_date_from_slug(event_slug) if event_slug else None
+
+    # --- NBA CDN scoreboard (today's games) --------------------------------
     scoreboard = _cache_get("__scoreboard__", "nba")
     if scoreboard is None:
         scoreboard = _fetch_nba_scoreboard()
@@ -721,16 +728,23 @@ def get_basketball_data(
             _cache_set("__scoreboard__", "nba", scoreboard)
 
     nba_game = None
-    if scoreboard:
+    if scoreboard and _slug_date_matches_board(date_str, scoreboard):
         nba_game = _match_game_in_scoreboard(scoreboard, tri_a, tri_b)
 
-    # --- If found on today's scoreboard, use NBA CDN path ------------------
     if nba_game:
         return _build_game_data_nba(nba_game, tri_a, tri_b, league)
 
-    # --- Not on today's scoreboard — try ESPN for the game date ------------
-    date_str = _extract_date_from_slug(event_slug) if event_slug else None
+    # --- Otherwise ESPN for the slug date (today when the slug has none) ---
     return _build_game_data_espn_only(tri_a, tri_b, league, date_str)
+
+
+def _slug_date_matches_board(date_str: str | None, scoreboard: dict) -> bool:
+    """True when the NBA CDN board may hold the slug's game: the slug has no
+    date, the board has no date, or they are the same day."""
+    board_date = (scoreboard.get("scoreboard") or {}).get("gameDate") or ""
+    if not date_str or not board_date:
+        return True
+    return board_date.replace("-", "") == date_str
 
 
 def _build_game_data_nba(
@@ -841,22 +855,23 @@ def _build_game_data_nba(
     )
 
 
+_ESPN_STATE_TO_STATUS = {"pre": "pre", "in": "live", "post": "final"}
+
+
+def _safe_int(value) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _build_game_data_espn_only(
     tri_a: str, tri_b: str, league: str, date_str: str | None,
 ) -> GameData | None:
-    """Build GameData purely from ESPN (for future games not on NBA CDN)."""
-    # Try today first, then the slug date
-    dates_to_try = [None]  # None = today's ESPN scoreboard
-    if date_str:
-        dates_to_try.append(date_str)
-
-    espn_game_id = None
-    for d in dates_to_try:
-        espn_sb = _get_espn_scoreboard(league, d)
-        if espn_sb:
-            espn_game_id = _match_espn_game(espn_sb, tri_a, tri_b)
-            if espn_game_id:
-                break
+    """Build GameData purely from ESPN for the game on `date_str` (YYYYMMDD;
+    None = today), e.g. future games not on the NBA CDN board."""
+    espn_sb = _get_espn_scoreboard(league, date_str)
+    espn_game_id = _match_espn_game(espn_sb, tri_a, tri_b) if espn_sb else None
 
     if not espn_game_id:
         return None
@@ -886,6 +901,7 @@ def _build_game_data_espn_only(
             "name": team.get("shortDisplayName", team.get("displayName", "")),
             "city": team.get("location", ""),
             "record": total_rec,
+            "score": _safe_int(comp.get("score")),
         }
         if comp.get("homeAway") == "home":
             home_info = entry
@@ -897,19 +913,28 @@ def _build_game_data_espn_only(
 
     game_id = f"espn_{espn_game_id}"
     game_time = comps[0].get("date")
+    status_data = comps[0].get("status") or {}
+    status = _ESPN_STATE_TO_STATUS.get((status_data.get("type") or {}).get("state"), "pre")
+    period = _safe_int(status_data.get("period"))
+    period_label = ""
+    if status == "live" and 0 < period <= 4:
+        period_label = f"Q{period}"
+    elif status == "live" and period > 4:
+        period_label = f"OT{period - 4}"
+    clock = status_data.get("displayClock", "") if status == "live" else ""
 
     home = GameTeam(
         tricode=home_info["tricode"],
         name=home_info["name"],
         city=home_info["city"],
-        score=0,
+        score=home_info["score"],
         record=home_info["record"],
     )
     away = GameTeam(
         tricode=away_info["tricode"],
         name=away_info["name"],
         city=away_info["city"],
-        score=0,
+        score=away_info["score"],
         record=away_info["record"],
     )
 
@@ -962,10 +987,10 @@ def _build_game_data_espn_only(
         game_id=game_id,
         espn_game_id=espn_game_id,
         league=league,
-        status="pre",
-        clock="",
-        period=0,
-        period_label="",
+        status=status,
+        clock=clock,
+        period=period,
+        period_label=period_label,
         game_time=game_time,
         home=home,
         away=away,

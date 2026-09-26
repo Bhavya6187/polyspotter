@@ -404,10 +404,11 @@ def get_nhl_data(title: str, *, event_slug: str = "") -> NHLGameData | None:
     if not abbr_a or not abbr_b:
         return None
 
-    dates_to_try = [None]
+    # The slug's date identifies the game (series / doubleheaders put the
+    # same pair on consecutive days); today's board is only a fallback when
+    # the slug carries no date.
     date_str = _extract_date_from_slug(event_slug) if event_slug else None
-    if date_str:
-        dates_to_try.append(date_str)
+    dates_to_try = [date_str]
 
     espn_event_id = None
     for d in dates_to_try:
