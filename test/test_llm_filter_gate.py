@@ -443,9 +443,6 @@ class TestMarketDayCap(unittest.TestCase):
         self.assertEqual(len(kept), 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class TestCachedVerdictTTL(unittest.TestCase):
     """Handoff 1.1: cached verdicts expire after LLM_CACHE_TTL_S (7 days); an
@@ -520,3 +517,7 @@ class TestCachedVerdictTTL(unittest.TestCase):
             "SELECT COUNT(*) FROM llm_evaluations WHERE dedup_key = 'dk-stale'"
         ).fetchone()
         self.assertEqual(row[0], 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

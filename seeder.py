@@ -68,14 +68,19 @@ def _build_llm_cache_key(
 
     Unlike the backend dedup key (which is stable for upserts), this key
     changes when the alert's content materially changes — forcing the LLM
-    to re-evaluate. trade_count is bucketed by doubling (floor(log2)) and
-    composite_score by 2-point bands, so an alert is only re-evaluated when
-    it materially grows (cluster 2→4→8 wallets, score crossing a band)
-    instead of on every incremental trade. Backtest replay (2026-06, see
-    STRATEGY_USAGE_REPORT.md addendum) showed per-tick re-evaluation wasted
-    ~22% of all GPT calls. Per-wallet keys also carry floor(composite_score)
-    (handoff 1.1, 2026-09): without it ~125 alerts/day reused a verdict made
-    on different content; the band costs ≈ +17-20 GPT calls/day."""
+    to re-evaluate. trade_count is bucketed by doubling (floor(log2)), so an
+    alert is only re-evaluated when it materially grows (cluster 2→4→8
+    wallets, score crossing a band) instead of on every incremental trade.
+    Backtest replay (2026-06, see STRATEGY_USAGE_REPORT.md addendum) showed
+    per-tick re-evaluation wasted ~22% of all GPT calls.
+
+    Score bands differ by key type:
+    - cluster keys (wallet is None) use 2-point bands,
+      ``composite_score // 2`` (unchanged);
+    - per-wallet keys use 1-point bands, ``floor(composite_score)``
+      (added in handoff 1.1, 2026-09): without it ~125 alerts/day reused a
+      verdict made on different content. The "≈ +17-20 GPT calls/day" cost
+      estimate refers to this per-wallet floor band only."""
     tc_bucket = int(math.log2(max(trade_count, 1)))
     if wallet is None:
         # Band width 2 on the compute_composite_score scale (~half the old

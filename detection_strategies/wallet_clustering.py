@@ -50,6 +50,10 @@ MAX_FUNDER_CHILDREN = 20  # skip funders with >= N children (likely exchange hot
 # Loop 2: a window wallet whose funder was linked before this window but was
 # not caught as a cluster by loop 1 -- weaker evidence than a two-wallet
 # in-window cluster (5.0).
+# In normal operation a window wallet's funder is always cached by the lookup
+# pass, so loop 1 claims the funder first and this branch is effectively
+# unreachable; it is kept for spec fidelity (tuning 4.0 changes nothing in
+# practice).
 HISTORICAL_LINK_SEVERITY = 4.0
 
 # In-memory cache for the current run (avoids repeated DB reads within a run).
@@ -231,6 +235,9 @@ class WalletClusteringStrategy(DetectionStrategy):
             # Skip likely exchange hot wallets
             all_known = get_wallets_by_funder(funder)
             if len(all_known) >= MAX_FUNDER_CHILDREN:
+                # Mark it seen so loop 2, which checks the smaller pre-window
+                # snapshot, cannot flag the same hot wallet (19 known + 1 new).
+                seen_funders.add(funder)
                 continue
 
             if len(wallets) < MIN_SHARED_WALLETS:
