@@ -205,10 +205,10 @@ CREATE TABLE IF NOT EXISTS tweeted_alerts (
 CREATE INDEX IF NOT EXISTS idx_tweeted_alerts_wallet_market
     ON tweeted_alerts (wallet, condition_id, tweeted_at DESC);
 
--- result_tweets: one row per flag-tweet we've settled with a result follow-up.
--- Source of truth for result dedup and (deferred) the scoreboard. One row per
--- original flag tweet (UNIQUE original_tweet_id). posted_at is NULL until the
--- result is actually published by publish_result.py.
+-- result_tweets: RETIRED with the twitter results loop (2026-06-16) — no
+-- writers or readers remain; the table is kept for history. It held one row
+-- per flag tweet settled with a result follow-up (UNIQUE original_tweet_id);
+-- posted_at was NULL until the result tweet went out.
 CREATE TABLE IF NOT EXISTS result_tweets (
     id                 BIGSERIAL PRIMARY KEY,
     original_tweet_id  TEXT NOT NULL UNIQUE,
@@ -228,8 +228,9 @@ CREATE TABLE IF NOT EXISTS result_tweets (
 CREATE INDEX IF NOT EXISTS idx_result_tweets_posted_at
     ON result_tweets (posted_at DESC);
 
--- weekly_scoreboards: one row per ISO week we've posted a Sunday scoreboard
--- tweet for. PK doubles as the once-per-week dedup guard.
+-- weekly_scoreboards: RETIRED with the twitter results loop (2026-06-16) — no
+-- writers remain; kept for history. It held one row per ISO week a Sunday
+-- scoreboard tweet was posted for (PK was the once-per-week dedup guard).
 CREATE TABLE IF NOT EXISTS weekly_scoreboards (
     iso_week    TEXT PRIMARY KEY,            -- e.g. '2026-W24'
     tweet_id    TEXT,
@@ -239,8 +240,9 @@ CREATE TABLE IF NOT EXISTS weekly_scoreboards (
     posted_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- follower_snapshots: one row per ET calendar day; free-tier get_me() read.
--- Gives the follower trend line the growth work is judged against.
+-- follower_snapshots: RETIRED with the twitter results loop (2026-06-16) — no
+-- writers remain; kept for history. It held one row per ET calendar day of
+-- follower/tweet counts (free-tier get_me() read) for the growth trend line.
 CREATE TABLE IF NOT EXISTS follower_snapshots (
     snapshot_date    DATE PRIMARY KEY,       -- ET calendar date
     followers_count  INTEGER NOT NULL,

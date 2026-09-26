@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -864,23 +865,31 @@ def unsubscribe_url(token) -> str:
     return f"{UNSUBSCRIBE_BASE_URL}/api/unsubscribe?token={token}"
 
 
+def _idempotency_key(digest_date: str, email: str) -> str:
+    """`digest-<date>-<24 hex of sha256(normalised email)>`: bounded well under
+    Resend's 256-char key limit and keeps the raw address out of the header."""
+    digest = hashlib.sha256(email.strip().lower().encode()).hexdigest()[:24]
+    return f"digest-{digest_date}-{digest}"
+
+
 def send_digest(content: dict, subscribers: list[dict],
-                browser_link: str | None = None, digest_date: str | None = None) -> dict:
+                browser_link: str | None = None, *, digest_date: str) -> dict:
     """Send the digest to each subscriber via Resend, one personalized message
     apiece (each carries its own unsubscribe link + List-Unsubscribe headers).
-    Each request carries an Idempotency-Key of `digest-<date>-<email>` so a
-    re-run within Resend's 24h key window cannot email anyone twice (the key
-    is per recipient: Resend rejects a reused key whose payload differs).
+    Each request carries an Idempotency-Key of `digest-<date>-<email hash>`
+    (see _idempotency_key) so a re-run within Resend's 24h key window cannot
+    email anyone twice (the key is per recipient: Resend rejects a reused key
+    whose payload differs). digest_date is required — the caller's date, not
+    a fresh now(), so the key cannot drift across a UTC midnight.
     Never raises per-recipient — failures are logged and counted. Returns
     {"sent": int, "failed": int}."""
     if not RESEND_API_KEY:
         raise RuntimeError("RESEND_API_KEY not set — cannot send")
-    digest_date = digest_date or datetime.now(timezone.utc).date().isoformat()
     sent = failed = 0
     for sub in subscribers:
         headers = {
             "Authorization": f"Bearer {RESEND_API_KEY}",
-            "Idempotency-Key": f"digest-{digest_date}-{sub['email']}",
+            "Idempotency-Key": _idempotency_key(digest_date, sub["email"]),
         }
         unsub = unsubscribe_url(sub["unsubscribe_token"])
         body = {
