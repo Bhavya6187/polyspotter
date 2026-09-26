@@ -399,7 +399,11 @@ def _parse_cluster_size_from_headline(headline: str) -> int | None:
 
 
 def _cluster_size(chosen_alerts: list[dict]) -> int | None:
-    """Largest cluster_size implied by wallet_clustering or concentrated_one_sided signals."""
+    """Largest cluster_size implied by wallet_clustering or concentrated_one_sided signals.
+
+    NOTE: for concentrated_one_sided this is the number of wallets betting
+    the same direction -- it says nothing about shared funding. Use
+    _linked_wallets for any "one funder" / "linked accounts" claim."""
     sizes = []
     for a in chosen_alerts:
         for s in a.get("signals") or []:
@@ -409,6 +413,36 @@ def _cluster_size(chosen_alerts: list[dict]) -> int | None:
             if n is not None:
                 sizes.append(n)
     return max(sizes) if sizes else None
+
+
+# concentrated_one_sided appends this only when wallets in the cluster share
+# a (non-relayer) funder: "... $564,695 — 8 share funder (linked)".
+_LINKED_SHARE_FUNDER_RE = re.compile(r"(\d+)\s+share funder \(linked\)")
+
+
+def _linked_wallets(chosen_alerts: list[dict]) -> int | None:
+    """Largest count of wallets that actually share a funder, or None.
+
+    wallet_clustering headlines are linked by definition (their count is the
+    cluster size); concentrated_one_sided headlines only count when they carry
+    the "N share funder (linked)" suffix, and then N -- not the same-direction
+    total -- is the linked count. Drives the LINKED ACCOUNTS grid tile, which
+    previously rendered "7 wallets / one funder" for seven unrelated wallets."""
+    counts = []
+    for a in chosen_alerts:
+        for s in a.get("signals") or []:
+            headline = s.get("headline") or ""
+            strategy = s.get("strategy")
+            if strategy == "wallet_clustering":
+                n = _parse_cluster_size_from_headline(headline)
+            elif strategy == "concentrated_one_sided":
+                m = _LINKED_SHARE_FUNDER_RE.search(headline)
+                n = int(m.group(1)) if m else None
+            else:
+                continue
+            if n:
+                counts.append(n)
+    return max(counts) if counts else None
 
 
 def _has_volume_spike(chosen_alerts: list[dict]) -> bool:
@@ -514,6 +548,7 @@ def build_facts_bundle(chosen_alerts: list[dict], trades: list[dict]) -> dict:
         "has_sharp_wallet": _extract_sharp_wallet(chosen_alerts, trades),
         "has_fresh_wallet": _extract_fresh_wallet(chosen_alerts, trades),
         "cluster_size": _cluster_size(chosen_alerts),
+        "linked_wallets": _linked_wallets(chosen_alerts),
         "has_volume_spike": _has_volume_spike(chosen_alerts),
         "minutes_to_resolution": _minutes_to_resolution(chosen_alerts),
         "volume_multiplier_x": None,

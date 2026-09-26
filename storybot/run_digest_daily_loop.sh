@@ -62,6 +62,13 @@ while true; do
         echo "===== digest run started $(date +%Y-%m-%dT%H:%M:%S%z) ====="
     } | tee -a "$LOG_FILE"
 
+    # digestbot's WRITE pass runs a headless `claude -p`; an expired CLI OAuth
+    # session made every daily run fail for 11 days in Sep 2026. Say so
+    # explicitly so the log has the cause, not just "exit 1".
+    if ! claude auth status 2>/dev/null | grep -q '"loggedIn": *true'; then
+        echo "[loop] ERROR: claude CLI is not logged in (run: claude auth login) — today's digest will fail" | tee -a "$LOG_FILE"
+    fi
+
     # stdbuf -oL -eL keeps output line-buffered so the tee'd log updates live.
     stdbuf -oL -eL python storybot/digestbot.py --send 2>&1 | tee -a "$LOG_FILE"
     status="${PIPESTATUS[0]}"

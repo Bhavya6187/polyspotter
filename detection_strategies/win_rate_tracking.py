@@ -186,6 +186,10 @@ def _update_resolutions(wallet: str | None = None) -> int:
         try:
             params = [("condition_ids", cid) for cid in batch]
             params.append(("limit", len(batch)))
+            # Gamma hides closed markets unless asked. Without this no bet
+            # ever resolved (last resolution 2026-04; 1.29M unresolved rows)
+            # and every wallet re-queried all of its open conditions each scan.
+            params.append(("closed", "true"))
             resp = requests.get(
                 f"{GAMMA_API}/markets",
                 params=params,

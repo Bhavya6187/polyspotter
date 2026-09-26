@@ -266,6 +266,17 @@ CREATE TABLE IF NOT EXISTS graded_calls (
 );
 CREATE INDEX IF NOT EXISTS idx_graded_calls_resolved ON graded_calls(resolved_at DESC);
 
+-- Per-market memory of failed grading passes (see backend/grade_worker.py).
+-- Lets the worker back off (ATTEMPT_BACKOFF_HOURS) and give up
+-- (MAX_GRADE_ATTEMPTS) on markets it can never grade: 50/50 voids, LLM
+-- outcome typos, team names on Yes/No markets.
+CREATE TABLE IF NOT EXISTS grade_attempts (
+    condition_id    TEXT PRIMARY KEY,
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    last_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_reason     TEXT
+);
+
 
 -- subscribers: homepage email captures. Idempotent on email. unsubscribe_token
 -- is added now for forward-compat (no mail is sent yet). gen_random_uuid() is

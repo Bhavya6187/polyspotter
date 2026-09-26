@@ -55,6 +55,7 @@ Order matters — some strategies depend on data written by earlier ones.
 
 - **Python virtual environment**: Always use the venv at `venv/`. Activate it before running any Python commands: `source venv/bin/activate`
 - **Environment variables**: Load from `.env` in the project root. This file contains API keys and other secrets — never commit it.
+- **Ingest auth**: `POLYBOT_INGEST_TOKEN` is a shared secret sent by the scanner as `X-Ingest-Token` and checked by `POST /api/ingest`. It must be set to the same value on the Railway backend service and in the local `.env`. The backend is fail-open while the variable is unset (it logs a warning at startup).
 
 ## Running
 
@@ -104,6 +105,10 @@ pytest                          # scanner tests
 cd backend && pytest            # backend tests
 cd frontend && npm run lint     # frontend lint
 ```
+
+Backend tests never touch the production database: `backend/conftest.py` pins `DATABASE_URL` to a placeholder before `app.py` can load `.env`, so DB-backed tests skip unless `TEST_DATABASE_URL` points at a scratch Postgres (or `ALLOW_LIVE_DB_TESTS=1` is set deliberately).
+
+Retention: the scanner prunes `price_candles` (>30 days) and idle `wallet_pnl` wallets (>90 days) once per day (`db.prune_old_rows`). For the historical backlog run `python scripts/prune_sqlite.py` (see its docstring; `--vacuum` needs the scanner stopped).
 
 ## Hosted Backend API
 

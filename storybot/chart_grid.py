@@ -91,7 +91,10 @@ def _tile_price_move(fb: dict, hero: str) -> TileSpec | None:
 def _tile_linked_accounts(fb: dict, hero: str) -> TileSpec | None:
     if hero == "cluster_card":
         return None
-    n = fb.get("cluster_size")
+    # linked_wallets counts wallets that share a funder. cluster_size is the
+    # same-direction total and must not be used here: it produced
+    # "7 wallets / one funder" tiles for seven unrelated wallets.
+    n = fb.get("linked_wallets")
     if n is None or n < MIN_CLUSTER_SIZE_FOR_TILE:
         return None
     return TileSpec("linked_accounts", f"{n} wallets", "one funder", accent=False)

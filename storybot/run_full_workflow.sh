@@ -23,7 +23,9 @@ cd "$(dirname "$0")/.."
 source venv/bin/activate
 
 echo "[workflow] running articlebot.py"
-output=$(python storybot/articlebot.py 2>&1 | tee /dev/tty)
+# tee to stderr, not /dev/tty: without a TTY (cron) `tee /dev/tty` exits 1
+# and `set -e` aborted the workflow right after articlebot wrote its draft.
+output=$(python storybot/articlebot.py 2>&1 | tee /dev/stderr)
 
 # `[articlebot] draft run_id=<hex>` is printed only on the post path.
 # A clean skip (no draft today) produces no such line and we exit 0 below.
@@ -53,7 +55,10 @@ Make your edits directly to the .md and improve both the article and the tweet. 
 
 Refer to validate_article_decision in @storybot/articlebot.py for the exact rules if anything is unclear. I want to run @storybot/publish_article.py with this id directly after you finish, so the article must be in a publishable state."
 
-claude -p "$prompt" --dangerously-skip-permissions
+# --model pinned and a hard timeout, for the same reasons as
+# run_twitter_pipeline_loop.sh (ambient default model flipped to one this
+# account can't use in Jun 2026; a hung CLI otherwise blocks forever).
+timeout "${CLAUDE_TIMEOUT_SECONDS:-900}" claude -p "$prompt" --model claude-opus-4-8 --dangerously-skip-permissions
 
 echo "[workflow] syncing edited .md back to Postgres"
 python storybot/sync_article_from_md.py "$run_id"

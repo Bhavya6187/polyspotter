@@ -493,3 +493,43 @@ def test_volume_multiplier_x_none_when_no_volume_spike():
     bundle = twitter_pipeline.build_facts_bundle([], [])
     assert bundle["has_volume_spike"] is False
     assert bundle["volume_multiplier_x"] is None
+
+
+# ---------------------------------------------------------------------------
+# linked_wallets (2026-09): the "N wallets / one funder" grid tile used
+# cluster_size, which for concentrated_one_sided is the number of wallets
+# betting the SAME DIRECTION -- not wallets sharing a funder. Only the
+# "... N share funder (linked)" suffix (or a wallet_clustering headline)
+# means linked. Published tweet images and article covers were claiming
+# "7 wallets, one funder" for seven unrelated wallets.
+# ---------------------------------------------------------------------------
+
+def test_linked_wallets_none_for_unlinked_same_direction_cluster():
+    alerts = [{"signals": [
+        {"strategy": "concentrated_one_sided", "severity": 6.0,
+         "headline": "7 wallets, same direction (Yes/BUY), $50,000"},
+    ]}]
+    b = twitter_pipeline.build_facts_bundle(alerts, [])
+    assert b["cluster_size"] == 7
+    assert b["linked_wallets"] is None
+
+
+def test_linked_wallets_uses_shared_funder_count_from_concentrated_marker():
+    alerts = [{"signals": [
+        {"strategy": "concentrated_one_sided", "severity": 8.0,
+         "headline": "37 wallets, same direction (Hawks/BUY), $564,695 — 8 share funder (linked)"},
+    ]}]
+    b = twitter_pipeline.build_facts_bundle(alerts, [])
+    assert b["cluster_size"] == 37
+    assert b["linked_wallets"] == 8
+
+
+def test_linked_wallets_from_wallet_clustering_headlines():
+    alerts = [{"signals": [
+        {"strategy": "wallet_clustering", "severity": 8.0,
+         "headline": "18 wallets share funder 0xabc...def, $25,000 total (+17 from prior runs)"},
+        {"strategy": "wallet_clustering", "severity": 6.0,
+         "headline": "Known linked funder 0xabc...def: 2 wallet(s) active, 21 total known, $3,000"},
+    ]}]
+    b = twitter_pipeline.build_facts_bundle(alerts, [])
+    assert b["linked_wallets"] == 21

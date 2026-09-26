@@ -71,8 +71,8 @@ export default function HomeClient({ initialMarkets, initialTotal, tags, initial
         setLastUpdated(new Date());
       })
       .catch(() => {
-        setMarkets([]);
-        setTotal(0);
+        // Keep the last good list: one failed 5-minute refresh used to wipe
+        // the SSR data and show "No signals detected yet".
       })
       .finally(() => setLoading(false));
   }, [perPage]);

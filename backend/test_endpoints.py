@@ -6,7 +6,6 @@ Run: cd backend && pytest test_endpoints.py -v
 """
 
 import json
-import os
 import psycopg2
 import pytest
 from datetime import datetime, timezone, timedelta
@@ -15,11 +14,12 @@ from contextlib import contextmanager
 from fastapi.testclient import TestClient
 
 
-# Set a dummy DATABASE_URL if not present (tests that hit DB will be skipped)
-_has_db = bool(os.environ.get("DATABASE_URL"))
+# DB-backed tests run only against an explicit test database (TEST_DATABASE_URL)
+# or with ALLOW_LIVE_DB_TESTS=1 -- see conftest.py, which pins DATABASE_URL to a
+# placeholder before any module can load ../.env (the production URL).
+from conftest import HAS_TEST_DB
 
-if not _has_db:
-    os.environ["DATABASE_URL"] = "postgresql://localhost/polybot_test"
+_has_db = HAS_TEST_DB
 
 
 try:
@@ -1198,6 +1198,7 @@ class TestMarketsSitemap:
         assert len(body["markets"]) <= 1
 
 
+@skip_no_db
 class TestUnsubscribe:
     """Unsubscribe endpoint. DB-free: db() is monkeypatched so these run without
     a live database (and without the autouse clean_db fixture mattering)."""

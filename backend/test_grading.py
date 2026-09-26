@@ -93,7 +93,7 @@ class _FakeCursor:
 
     def execute(self, sql, params=None):
         s = " ".join(sql.split())
-        if s.startswith("SELECT DISTINCT a.condition_id"):
+        if s.startswith("SELECT a.condition_id"):
             self._last = self._candidate_rows
         elif s.startswith("SELECT id, composite_score"):
             self._last = self._alert_rows_by_cid[params[0]]
@@ -133,7 +133,7 @@ def test_grade_once_grades_a_won_call():
 
     def fake_fetch(condition_id):
         return {"outcomes": ["San Diego Padres", "Philadelphia Phillies"],
-                "prices": [0.99, 0.01]}
+                "prices": [0.99, 0.01], "closed": True}
 
     graded = grade_once(conn, fake_fetch)
     assert graded == 1
@@ -158,7 +158,7 @@ def test_grade_once_skips_unresolved():
     conn = _FakeConn(cur)
 
     def fake_fetch(condition_id):
-        return {"outcomes": ["Yes", "No"], "prices": [0.6, 0.4]}  # not decided
+        return {"outcomes": ["Yes", "No"], "prices": [0.6, 0.4], "closed": True}  # not decided
 
     graded = grade_once(conn, fake_fetch)
     assert graded == 0
@@ -180,7 +180,7 @@ def test_grade_once_grades_a_lost_call():
     def fake_fetch(condition_id):
         # Phillies win -> the Padres call loses
         return {"outcomes": ["San Diego Padres", "Philadelphia Phillies"],
-                "prices": [0.01, 0.99]}
+                "prices": [0.01, 0.99], "closed": True}
 
     graded = grade_once(conn, fake_fetch)
     assert graded == 1
@@ -201,7 +201,7 @@ def test_grade_once_skips_entry_price_zero():
     conn = _FakeConn(cur)
 
     def fake_fetch(condition_id):
-        return {"outcomes": ["Yes", "No"], "prices": [0.99, 0.01]}  # resolved
+        return {"outcomes": ["Yes", "No"], "prices": [0.99, 0.01], "closed": True}  # resolved
 
     graded = grade_once(conn, fake_fetch)
     assert graded == 0
@@ -220,7 +220,7 @@ def test_grade_once_skips_bad_copy_action_json():
     conn = _FakeConn(cur)
 
     def fake_fetch(condition_id):
-        return {"outcomes": ["Yes", "No"], "prices": [0.99, 0.01]}  # resolved
+        return {"outcomes": ["Yes", "No"], "prices": [0.99, 0.01], "closed": True}  # resolved
 
     graded = grade_once(conn, fake_fetch)
     assert graded == 0
@@ -242,7 +242,7 @@ def test_grade_once_dedup_picks_highest_score():
 
     def fake_fetch(condition_id):
         # "Yes" wins -> alert 2's call (the higher-score one) is correct
-        return {"outcomes": ["Yes", "No"], "prices": [0.99, 0.01]}
+        return {"outcomes": ["Yes", "No"], "prices": [0.99, 0.01], "closed": True}
 
     graded = grade_once(conn, fake_fetch)
     assert graded == 1
@@ -271,7 +271,7 @@ def test_grade_once_one_poison_market_does_not_abort_batch():
     def fake_fetch(condition_id):
         if condition_id == poison:
             raise ValueError("boom")
-        return {"outcomes": ["Yes", "No"], "prices": [0.99, 0.01]}
+        return {"outcomes": ["Yes", "No"], "prices": [0.99, 0.01], "closed": True}
 
     graded = grade_once(conn, fake_fetch)
     assert graded == 1
@@ -298,7 +298,7 @@ def test_grade_once_resolved_at_uses_event_end_estimate():
 
     def fake_fetch(condition_id):
         return {"outcomes": ["San Diego Padres", "Philadelphia Phillies"],
-                "prices": [0.99, 0.01]}
+                "prices": [0.99, 0.01], "closed": True}
 
     graded = grade_once(conn, fake_fetch)
     assert graded == 1
@@ -318,7 +318,7 @@ def test_grade_once_skips_mislabeled_outcome():
     conn = _FakeConn(cur)
 
     def fake_fetch(condition_id):
-        return {"outcomes": ["Utah", "Denver"], "prices": [0.99, 0.01]}  # resolves "Utah"
+        return {"outcomes": ["Utah", "Denver"], "prices": [0.99, 0.01], "closed": True}  # resolves "Utah"
 
     graded = grade_once(conn, fake_fetch)
     assert graded == 0

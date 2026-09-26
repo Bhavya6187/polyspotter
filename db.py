@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "polybot.db")
 
@@ -1179,10 +1179,18 @@ def record_scan_finish(
 
 
 def get_last_scan_trade_ts() -> float | None:
-    """Return the latest_trade_ts from the most recent completed scan, or None."""
+    """Return the latest_trade_ts from the most recent completed scan that
+    actually produced a cursor, or None.
+
+    Runs that fetched no trades, filtered everything out, failed to push, or
+    raised are recorded with a NULL latest_trade_ts. Skipping them keeps the
+    cursor where it was instead of resetting to the full 24h default window
+    (which happened 40 times before this fix, at 60-108 minutes per rescan)."""
     conn = get_db()
     row = conn.execute(
-        "SELECT latest_trade_ts FROM scan_runs WHERE finished_at IS NOT NULL ORDER BY id DESC LIMIT 1"
+        """SELECT latest_trade_ts FROM scan_runs
+           WHERE finished_at IS NOT NULL AND latest_trade_ts IS NOT NULL
+           ORDER BY id DESC LIMIT 1"""
     ).fetchone()
     if row and row[0] is not None:
         return row[0]
@@ -1221,3 +1229,94 @@ def get_recent_price_candles(condition_ids: list[str], since_hours: int = 24) ->
     """, (*condition_ids, cutoff))
     return [{"condition_id": r[0], "token_id": r[1], "outcome": r[2], "t": r[3], "p": r[4]}
             for r in cur.fetchall()]
+
+
+# ===========================================================================
+# Retention (2026-09): the two tables below accounted for 22 of the 27 GB in
+# polybot.db. Nothing reads price candles older than a day (seeder) or beyond
+# the newest 100 per token (price_impact), and a wallet whose P&L cache has
+# not been refreshed in months is simply re-backfilled the next time it
+# trades (win_rate_tracking: no cached rows -> full fetch). Deletes are
+# batched so the write lock is never held for long on the live DB.
+# ===========================================================================
+CANDLE_RETENTION_DAYS = 30
+WALLET_PNL_RETENTION_DAYS = 90
+PRUNE_BATCH_SIZE = 20_000
+PRUNE_TIME_BUDGET_S = 60.0
+
+_last_prune_day: str | None = None
+
+
+def _today_utc() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def prune_price_candles(
+    max_age_days: int = CANDLE_RETENTION_DAYS,
+    batch_size: int = PRUNE_BATCH_SIZE,
+    time_budget_s: float | None = None,
+) -> int:
+    """Delete price_candles older than max_age_days in batches.
+
+    Returns the number of rows deleted. With a time budget the pass stops
+    early once the budget is spent and picks up where it left off next call."""
+    import time as _time
+
+    conn = get_db()
+    cutoff = _time.time() - max_age_days * 86400
+    started = _time.monotonic()
+    deleted = 0
+    while True:
+        cur = conn.execute(
+            """DELETE FROM price_candles
+               WHERE rowid IN (SELECT rowid FROM price_candles WHERE t < ? LIMIT ?)""",
+            (cutoff, batch_size),
+        )
+        conn.commit()
+        n = cur.rowcount or 0
+        deleted += n
+        if n < batch_size:
+            break
+        if time_budget_s is not None and _time.monotonic() - started >= time_budget_s:
+            break
+    return deleted
+
+
+def prune_stale_wallet_pnl(max_age_days: int = WALLET_PNL_RETENTION_DAYS) -> int:
+    """Delete every wallet_pnl row for wallets whose newest row is older than
+    max_age_days. Whole-wallet semantics: a wallet that is still being
+    refreshed keeps all of its history so win rates stay consistent."""
+    conn = get_db()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=max_age_days)).isoformat()
+    stale = [
+        r[0] for r in conn.execute(
+            "SELECT wallet FROM wallet_pnl GROUP BY wallet HAVING MAX(recorded_at) < ?",
+            (cutoff,),
+        )
+    ]
+    deleted = 0
+    for i in range(0, len(stale), 500):
+        chunk = stale[i:i + 500]
+        placeholders = ",".join("?" for _ in chunk)
+        cur = conn.execute(f"DELETE FROM wallet_pnl WHERE wallet IN ({placeholders})", chunk)
+        conn.commit()
+        deleted += cur.rowcount or 0
+    return deleted
+
+
+def prune_old_rows() -> bool:
+    """Run the retention pass at most once per UTC day. Called from the
+    scanner's main loop; returns True when a pass actually ran."""
+    global _last_prune_day
+    today = _today_utc()
+    if _last_prune_day == today:
+        return False
+    _last_prune_day = today
+    candles = prune_price_candles(time_budget_s=PRUNE_TIME_BUDGET_S)
+    pnl = prune_stale_wallet_pnl()
+    print(
+        f"[db] retention: pruned {candles:,} price_candles (> {CANDLE_RETENTION_DAYS}d) "
+        f"and {pnl:,} wallet_pnl rows (wallets idle > {WALLET_PNL_RETENTION_DAYS}d)",
+        flush=True,
+    )
+    return True

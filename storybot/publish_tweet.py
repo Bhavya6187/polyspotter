@@ -128,6 +128,15 @@ def main(argv: list[str]) -> int:
         log("publish_tweet_validation_error", run_id=run_id, error=err)
         return 1
 
+    # Honor DRY_RUN like publish_article.py does: validate, print, never post.
+    # (post_tweet was hardcoded dry_run=False, so `DRY_RUN=true python
+    # storybot/publish_tweet.py <id>` used to post for real.)
+    if os.environ.get("DRY_RUN", "").strip().lower() == "true":
+        log("publish_tweet_dry_run", run_id=run_id, alert_ids=alert_ids,
+            tweet_length=len(tweet_text), has_media=chart_png is not None)
+        print(f"[publish_tweet] DRY_RUN=true — not posting run_id={run_id}. Tweet would be:\n{tweet_text}")
+        return 0
+
     twitter_client = _build_twitter_client()
     twitter_api_v1 = _build_twitter_api_v1() if chart_png is not None else None
     try:

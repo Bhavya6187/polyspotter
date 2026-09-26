@@ -106,6 +106,7 @@ Create a `.env` file in the repo root:
 ETHERSCAN_API_KEY=<your-etherscan-api-key>    # Polygon wallet funding lookups
 AZURE_OPENAI_API_KEY=<your-azure-openai-api-key>  # Azure OpenAI GPT-5.4 LLM filtering
 POLYBOT_BACKEND_URL=<your-backend-url>        # Backend API for alert ingestion
+POLYBOT_INGEST_TOKEN=<random-secret>          # Shared secret for POST /api/ingest — set the SAME value on the backend (Railway) and here
 DATABASE_URL=<postgres-connection-string>     # PostgreSQL (backend only)
 
 # Optional

@@ -13,6 +13,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import re
@@ -30,7 +31,7 @@ from cachetools import TTLCache
 
 # Load .env from project root (one level up from backend/)
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Header, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, HTMLResponse
 
@@ -78,10 +79,29 @@ from models import (
 from grading import summarize, exclude_junk, top_categories
 
 
+# Shared secret for POST /api/ingest (header X-Ingest-Token). The scanner sends
+# it from the same POLYBOT_INGEST_TOKEN variable in its .env. Fail-open when
+# unset so the backend can deploy before the Railway variable is added -- but
+# until it is, anyone can write alerts that render on the homepage, get
+# tweeted / emailed, and are graded onto the public scoreboard.
+INGEST_TOKEN = os.environ.get("POLYBOT_INGEST_TOKEN", "").strip()
+
+
+def _require_ingest_token(presented: str | None) -> None:
+    if not INGEST_TOKEN:
+        return
+    if not presented or not hmac.compare_digest(presented, INGEST_TOKEN):
+        raise HTTPException(status_code=401, detail="invalid or missing X-Ingest-Token")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     init_db()
     warm_pool()
+    if not INGEST_TOKEN:
+        print("[WARN] POLYBOT_INGEST_TOKEN is not set — POST /api/ingest accepts "
+              "unauthenticated writes. Set it on the backend and in the scanner's .env.",
+              flush=True)
     yield
 
 
@@ -132,13 +152,22 @@ def _fetch_closed_positions(wallet: str) -> list[dict]:
 
 
 def _positions_to_bets(positions: list[dict]) -> list[WalletBet]:
-    """Convert raw API positions to WalletBet models."""
+    """Convert raw API positions to WalletBet models.
+
+    Data API `totalBought` is a share count, not dollars (realizedPnl on a
+    won position equals totalBought * (1 - avgPrice)). Stake in USD is
+    avgPrice * totalBought and an early-exit price is avgPrice +
+    realizedPnl / totalBought."""
     bets = []
     for pos in positions:
         avg_price = pos.get("avgPrice")
         cur_price = pos.get("curPrice")
         realized_pnl = pos.get("realizedPnl")
-        total_bought = pos.get("totalBought")
+        total_bought = pos.get("totalBought")  # shares
+        stake_usd = (
+            avg_price * total_bought
+            if avg_price is not None and total_bought is not None else None
+        )
 
         # Three-state, aligned with wallet stats: only mark won True/False when
         # the market actually resolved (curPrice ∈ {0, 1}); None means the
@@ -157,7 +186,7 @@ def _positions_to_bets(positions: list[dict]) -> list[WalletBet]:
             exit_price = cur_price
         elif (avg_price is not None and realized_pnl is not None
               and total_bought is not None and total_bought > 0):
-            exit_price = avg_price * (1 + realized_pnl / total_bought)
+            exit_price = avg_price + realized_pnl / total_bought
         else:
             exit_price = None
 
@@ -169,7 +198,7 @@ def _positions_to_bets(positions: list[dict]) -> list[WalletBet]:
             entry_price=avg_price,
             resolution_price=exit_price,
             pnl_usd=realized_pnl,
-            total_usd=total_bought,
+            total_usd=stake_usd,
             resolved_at=None,
         ))
     return bets
@@ -182,7 +211,10 @@ def _compute_wallet_stats(positions: list[dict]) -> dict:
     resolved = wins + losses
     win_rate = wins / resolved if resolved > 0 else None
     total_pnl = sum(p.get("realizedPnl", 0) or 0 for p in positions)
-    total_invested = sum(p.get("totalBought", 0) or 0 for p in positions)
+    # totalBought is shares; dollars invested = avgPrice * shares
+    total_invested = sum(
+        (p.get("avgPrice") or 0) * (p.get("totalBought") or 0) for p in positions
+    )
     avg_win_price = None
     win_prices = [p.get("avgPrice") for p in positions
                   if p.get("curPrice") == 1.0 and p.get("avgPrice") is not None]
@@ -292,8 +324,12 @@ def unsubscribe(token: str = Query(..., min_length=1, max_length=64)):
 
 
 @app.post("/api/ingest")
-def ingest(payload: IngestPayload):
+def ingest(
+    payload: IngestPayload,
+    x_ingest_token: str | None = Header(None, alias="X-Ingest-Token"),
+):
     """Bulk ingest alerts and wallet profiles from polybot."""
+    _require_ingest_token(x_ingest_token)
     inserted_alerts = 0
     updated_alerts = 0
     skipped_alerts = 0
@@ -302,6 +338,11 @@ def ingest(payload: IngestPayload):
         cur = conn.cursor()
 
         for alert in payload.alerts:
+            # Per-alert savepoint. Without it one failing INSERT aborts the
+            # whole transaction: every later statement raises
+            # InFailedSqlTransaction, the batch rolls back and the request
+            # 500s -- the "don't fail the whole batch" except below was a no-op.
+            cur.execute("SAVEPOINT alert_sp")
             try:
                 tags_json = json.dumps(alert.tags) if alert.tags else "[]"
                 bullets_json = json.dumps(alert.llm_bullets) if alert.llm_bullets else "[]"
@@ -410,9 +451,12 @@ def ingest(payload: IngestPayload):
                     )
 
             except Exception as e:
-                # Log but continue — don't fail the whole batch
+                # Undo just this alert and keep the transaction usable.
+                cur.execute("ROLLBACK TO SAVEPOINT alert_sp")
                 print(f"[WARN] Failed to insert alert: {e}")
                 skipped_alerts += 1
+            finally:
+                cur.execute("RELEASE SAVEPOINT alert_sp")
 
         # Wallet profiles
         for wp in payload.wallet_profiles:
@@ -1037,10 +1081,10 @@ def get_wallet(wallet_address: str):
     bet_history from live Polymarket Data API."""
     wallet = wallet_address.lower()
 
-    # Fetch recent closed positions for bet_history display
+    # Fetch recent closed positions for bet_history display. An empty list
+    # is NOT proof the wallet is unknown: the Data API call can time out or
+    # rate-limit, and a freshly flagged wallet may only have open positions.
     positions = _fetch_closed_positions(wallet)
-    if not positions:
-        raise HTTPException(status_code=404, detail="Wallet not found")
 
     with db() as conn:
         cur = conn.cursor()
@@ -1083,6 +1127,9 @@ def get_wallet(wallet_address: str):
             LIMIT 5
         """, (wallet,))
         recent_alerts = [WalletRecentAlert(**arow) for arow in cur.fetchall()]
+
+    if not positions and not wp_row and not recent_alerts:
+        raise HTTPException(status_code=404, detail="Wallet not found")
 
     # Build response — bet_history is the most recent 20 positions
     bet_history = _positions_to_bets(positions[:20])
@@ -2177,20 +2224,45 @@ def get_market_theses(condition_id: str):
     return {"theses": theses}
 
 
+_HEX_PREFIX_RE = re.compile(r"^0x[0-9a-f]{4,64}$")
+
+
+def _title_slug(title: str | None) -> str:
+    """Title part of a market URL slug -- mirrors frontend/src/lib/slugify.js
+    marketSlug(): lowercase, runs of non-alphanumerics -> '-', trimmed, 80 chars."""
+    return re.sub(r"[^a-z0-9]+", "-", (title or "").lower()).strip("-")[:80]
+
+
 @app.get("/api/market/resolve/{partial_id}")
-def resolve_condition_id(partial_id: str):
-    """Resolve a partial condition_id prefix to the full condition_id."""
+def resolve_condition_id(
+    partial_id: str,
+    slug: str | None = Query(None, description="Title part of the market URL slug, used to disambiguate colliding prefixes"),
+):
+    """Resolve a partial condition_id prefix to the full condition_id.
+
+    URLs carry only 5 hex chars of the id; ~1,150 prefixes are shared by
+    several markets, so when `slug` is given the candidate whose slugified
+    title matches wins. Falls back to the first candidate otherwise."""
     partial = partial_id.lower()
+    if not _HEX_PREFIX_RE.match(partial):
+        raise HTTPException(status_code=404, detail="Market not found")
     with db() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT DISTINCT condition_id FROM alerts WHERE condition_id LIKE %s LIMIT 1",
+            """SELECT condition_id, MAX(market_title) AS market_title
+               FROM alerts WHERE condition_id LIKE %s
+               GROUP BY condition_id ORDER BY condition_id LIMIT 50""",
             (f"{partial}%",),
         )
-        row = cur.fetchone()
-    if not row:
+        rows = cur.fetchall()
+    if not rows:
         raise HTTPException(status_code=404, detail="Market not found")
-    return {"condition_id": row["condition_id"]}
+    if slug:
+        want = slug.strip().lower()
+        for row in rows:
+            if _title_slug(row.get("market_title")) == want:
+                return {"condition_id": row["condition_id"]}
+    return {"condition_id": rows[0]["condition_id"]}
 
 
 @app.api_route("/api/health", methods=["GET", "HEAD"])

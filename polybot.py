@@ -33,7 +33,7 @@ from detection_strategies.price_impact import PriceImpactStrategy
 from detection_strategies.low_activity_large_bet import LowActivityLargeBetStrategy
 from detection_strategies.correlated_cross_market import CorrelatedCrossMarketStrategy
 import config
-from db import get_db, record_scan_start, record_scan_finish, get_last_scan_trade_ts
+from db import get_db, record_scan_start, record_scan_finish, get_last_scan_trade_ts, prune_old_rows
 from gamma_cache import get_market_by_condition
 from seeder import push_to_backend
 
@@ -106,9 +106,20 @@ def fetch_recent_trades(seconds: int = TRADE_WINDOW_SECONDS, since_ts: float | N
                 t["_usd_value"] = size * price
                 all_trades.append(t)
 
+        # The Data API returns trades newest-first, so once a page's oldest
+        # trade is older than the cutoff nothing further back can match.
+        # Without this early exit every iteration walked all 11 pages up to
+        # the API's 10,000-row offset cap, even for a 15-minute window.
+        if min((t.get("timestamp", 0) for t in page), default=cutoff_ts) < cutoff_ts:
+            break
+
         offset += TRADE_PAGE_SIZE
 
-    print(f"[*] Received {len(all_trades)} trades >= ${BET_THRESHOLD_USD:,} within the last {seconds}s", flush=True)
+    print(
+        f"[*] Received {len(all_trades)} trades >= ${BET_THRESHOLD_USD:,} "
+        f"since {cutoff.strftime('%Y-%m-%d %H:%M:%S UTC')}",
+        flush=True,
+    )
     return all_trades
 
 
@@ -606,6 +617,27 @@ def _format_summary(trades: list[dict], signals: list[Signal], strategy_names: s
 
 OVERLAP_SECONDS = 600  # 10 minutes overlap between scan windows
 
+# Cap on how far back a resumed scan reaches. After downtime the cursor can be
+# hours or days old; replaying the whole gap takes hours (the Data API caps
+# pagination at 11k trades, each of which triggers Gamma / Data API lookups)
+# and pushes stale trades as if they were fresh alerts. Trades older than this
+# are not actionable, so we skip them and log the gap instead.
+MAX_RESUME_LOOKBACK_SECONDS = 3600
+
+
+def resume_since_ts(last_ts: float | None, now: float | None = None) -> float | None:
+    """Cursor for the next continuous-mode iteration.
+
+    Returns None when there is no completed scan to resume from (the caller
+    falls back to the default TRADE_WINDOW_SECONDS window). Otherwise the
+    last trade timestamp minus the overlap, floored at
+    now - MAX_RESUME_LOOKBACK_SECONDS."""
+    if last_ts is None:
+        return None
+    if now is None:
+        now = time.time()
+    return max(last_ts - OVERLAP_SECONDS, now - MAX_RESUME_LOOKBACK_SECONDS)
+
 
 def _build_strategies():
     """Build and return (per_trade, batch, all, strategy_names)."""
@@ -719,6 +751,17 @@ def scan_once(per_trade_strategies, batch_strategies, all_strategies, strategy_n
 
         # -- record scan run -------------------------------------------------------
         latest_ts = max((t.get("timestamp", 0) for t in trades), default=None)
+        error = None
+        if alerts_pushed is None:
+            # The POST to /api/ingest failed. Leave the cursor unset so the
+            # next iteration re-scans this window (bounded by
+            # MAX_RESUME_LOOKBACK_SECONDS) instead of silently dropping every
+            # alert outside the 10-minute overlap. LLM verdicts are already
+            # cached, so the retry costs no GPT calls.
+            error = "backend push failed — cursor not advanced"
+            print(f"[WARN] {error}", file=sys.stderr, flush=True)
+            latest_ts = None
+            alerts_pushed = 0
         record_scan_finish(
             run_id,
             latest_trade_ts=latest_ts,
@@ -727,6 +770,7 @@ def scan_once(per_trade_strategies, batch_strategies, all_strategies, strategy_n
             signals_raised=len(all_signals),
             unique_markets=unique_markets,
             alerts_pushed=alerts_pushed,
+            error=error,
         )
 
         return latest_ts
@@ -779,15 +823,20 @@ def run():
     while True:
         iteration += 1
 
-        # Determine the cutoff: use last scan's latest trade ts minus overlap,
-        # or fall back to the default window on first run.
+        # Determine the cutoff: use last scan's latest trade ts minus overlap
+        # (capped at MAX_RESUME_LOOKBACK_SECONDS after downtime), or fall back
+        # to the default window on first run.
         last_ts = get_last_scan_trade_ts()
-        if last_ts is not None:
-            since_ts = last_ts - OVERLAP_SECONDS
+        since_ts = resume_since_ts(last_ts)
+        if since_ts is not None:
             since_dt = datetime.fromtimestamp(since_ts, tz=timezone.utc)
             print(f"\n{'#' * 72}")
             print(f"  Iteration {iteration} — scanning from {since_dt.strftime('%Y-%m-%d %H:%M:%S UTC')} "
                   f"(last trade minus {OVERLAP_SECONDS // 60}min overlap)")
+            gap = since_ts - (last_ts - OVERLAP_SECONDS)
+            if gap > 0:
+                print(f"  [WARN] cursor was {gap / 3600:.1f}h behind — skipping that gap "
+                      f"(MAX_RESUME_LOOKBACK_SECONDS={MAX_RESUME_LOOKBACK_SECONDS})")
             print(f"{'#' * 72}\n")
         else:
             since_ts = None
@@ -804,6 +853,13 @@ def run():
             print(f"\n[ERROR] Scan iteration {iteration} failed: {e}", file=sys.stderr)
             import traceback
             traceback.print_exc()
+
+        # Daily retention pass (price_candles / stale wallet_pnl) — no-op on
+        # every iteration but the first of each UTC day. See db.prune_old_rows.
+        try:
+            prune_old_rows()
+        except Exception as e:
+            print(f"[WARN] retention prune failed: {e}", file=sys.stderr)
 
         # Wait before the next iteration
         wait = 60
