@@ -91,7 +91,7 @@ def test_market_candidates_exclude_skipped_rows(monkeypatch):
 
     seo_worker.run_market_seo()
 
-    candidates_sql = conn.executed[0][0]
+    candidates_sql = next(sql for sql, _ in conn.executed if sql.startswith("SELECT condition_id"))
     assert "seo_skip_reason IS NULL" in candidates_sql
 
 
@@ -136,3 +136,28 @@ def test_other_errors_do_not_mark_skip(monkeypatch):
 
     assert generated == 0
     assert not any("seo_skip_reason" in sql and "UPDATE" in sql for sql, _ in conn.executed)
+
+
+def test_worker_copies_existing_seo_instead_of_regenerating(monkeypatch):
+    """A new alert row (seo_generated_at NULL) on a market that already has
+    SEO gets the existing fields copied, before candidate selection, so the
+    market is not re-sent to GPT."""
+    conn = FakeConn(fetchall_results=[[]])  # no candidates left after the copy
+
+    def _no_gpt(**kwargs):
+        raise AssertionError("GPT must not be called")
+
+    monkeypatch.setattr(seo_worker, "get_conn", lambda: conn)
+    monkeypatch.setattr(seo_worker, "generate_seo_content", _no_gpt)
+
+    assert seo_worker.run_market_seo() == 0
+
+    sqls = [sql for sql, _ in conn.executed]
+    copy_idx = next(i for i, sql in enumerate(sqls) if sql.startswith("UPDATE alerts") and "seo_title" in sql)
+    select_idx = next(i for i, sql in enumerate(sqls) if sql.startswith("SELECT condition_id"))
+    assert copy_idx < select_idx
+    copy_sql = sqls[copy_idx]
+    for col in ("seo_title", "seo_description", "seo_summary", "seo_faqs", "seo_generated_at"):
+        assert f"{col} = src.{col}" in copy_sql
+    assert "seo_title IS NOT NULL" in copy_sql
+    assert "a.seo_generated_at IS NULL" in copy_sql
