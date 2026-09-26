@@ -304,6 +304,7 @@ CREATE TABLE IF NOT EXISTS digests (
     content_json  JSONB NOT NULL,
     status        TEXT NOT NULL DEFAULT 'published',  -- 'draft' | 'published'
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    published_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    published_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    sent_at       TIMESTAMPTZ   -- set once the email went out; the digest is then final
 );
 CREATE INDEX IF NOT EXISTS idx_digests_date ON digests(digest_date DESC);

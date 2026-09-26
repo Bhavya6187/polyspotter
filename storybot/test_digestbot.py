@@ -550,3 +550,68 @@ def test_resolving_today_capped():
         _llm(today=list(reversed(slugs)) + [slugs[-1]]), _pool(*slugs), [], cap=cap)
     assert [p["event_slug"] for p in today] == list(reversed(slugs))[:cap]
     assert f"max {cap}" in digestbot.PICK_PROMPT
+
+
+# --- Idempotent send (handoff 3.1) --------------------------------------------
+
+def _wire_main(monkeypatch, tmp_path, sent_at=None):
+    """Fake every external edge of main(); returns the event log."""
+    events = []
+    monkeypatch.setattr(digestbot, "DRY_RUN", False)
+    monkeypatch.setattr(digestbot, "DATABASE_URL", "postgresql://fake")
+    monkeypatch.setattr(digestbot, "RESEND_API_KEY", "test_key")
+    monkeypatch.setattr(digestbot, "DIGESTS_DIR", str(tmp_path))
+    monkeypatch.setattr(digestbot, "fetch_digest_sent_at", lambda d: sent_at)
+    monkeypatch.setattr(digestbot, "fetch_candidates", lambda: {
+        "resolving_today": [dict(_TODAY_PICK)], "week_pool": []})
+
+    def fake_claude_json(prompt, payload):
+        events.append("claude")
+        if prompt == digestbot.PICK_PROMPT:
+            return {"resolving_today": [{"event_slug": "nba-finals"}], "top_this_week": []}
+        return _WRITE_OUT
+
+    monkeypatch.setattr(digestbot, "run_claude_json", fake_claude_json)
+    monkeypatch.setattr(digestbot, "fetch_event_titles", lambda slugs: {})
+    monkeypatch.setattr(digestbot, "persist_digest",
+                        lambda d, r, c: events.append(("persist", d)))
+    monkeypatch.setattr(digestbot, "fetch_subscribers", lambda: [
+        {"email": "a@x.com", "unsubscribe_token": "tok-a"},
+        {"email": "b@x.com", "unsubscribe_token": "tok-b"}])
+    monkeypatch.setattr(digestbot, "mark_digest_sent",
+                        lambda d: events.append(("sent_at", d)))
+
+    class FakeResp:
+        status_code = 200
+        def json(self):
+            return {"id": "email_1"}
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        events.append(("post", json["to"][0], headers.get("Idempotency-Key")))
+        return FakeResp()
+
+    monkeypatch.setattr(digestbot.requests, "post", fake_post)
+    return events
+
+
+def test_send_skipped_when_already_sent_today(monkeypatch, tmp_path):
+    events = _wire_main(monkeypatch, tmp_path, sent_at="2026-09-26T13:00:05+00:00")
+    assert digestbot.main(["--send"]) == 0
+    assert not [e for e in events if e[0] in ("post", "persist")]
+    assert "claude" not in events   # no paid LLM passes for a digest already out
+
+
+def test_send_sets_sent_at_and_idempotency_key(monkeypatch, tmp_path):
+    from datetime import datetime, timezone
+    today = datetime.now(timezone.utc).date().isoformat()
+    events = _wire_main(monkeypatch, tmp_path)
+    assert digestbot.main(["--send"]) == 0
+    posts = [e for e in events if e[0] == "post"]
+    assert [p[1] for p in posts] == ["a@x.com", "b@x.com"]
+    keys = [p[2] for p in posts]
+    # Keyed by day; one key per recipient (Resend rejects a reused key whose
+    # payload differs, so a single shared key would drop every recipient but one).
+    assert all(k.startswith(f"digest-{today}") for k in keys)
+    assert len(set(keys)) == 2
+    assert events[-1] == ("sent_at", today)
+    assert events.index(("sent_at", today)) > max(events.index(p) for p in posts)
