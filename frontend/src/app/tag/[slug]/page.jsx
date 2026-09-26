@@ -3,7 +3,8 @@ import TagPageClient from "./tag-page-client";
 import TagPageHeader from "./tag-page-header";
 import Ticker from "../../../components/Ticker";
 import TagFilters from "../../../components/TagFilters";
-import { marketSlug } from "../../../lib/slugify";
+import { marketSlug, resolveTagSlug, tagSlug as rawTagSlug } from "../../../lib/slugify";
+import { fetchAllTags } from "../../../lib/api";
 import { API_URL } from "../../../lib/apiBase";
 import { safeJsonLd } from "../../../lib/jsonld";
 
@@ -18,12 +19,34 @@ function tagFromSlug(slug) {
   return slug.replace(/-/g, " ");
 }
 
+async function getEveryTag() {
+  try {
+    const data = await fetchAllTags();
+    return data?.tags || data || [];
+  } catch {
+    return [];
+  }
+}
+
+// Slugs lose case and fold spaces into dashes, so "Spider-Man" / "US-Iran"
+// can't be recovered by string munging (the backend matches LOWER(tag)
+// exactly). Look the slug up in the full tag list; if it isn't there (or the
+// backend predates ?all=true and only returns the top 10) fall back to the
+// old dash->space guess, which still serves the common tags.
+async function resolveTag(slug) {
+  const everyTag = await getEveryTag();
+  return {
+    tag: resolveTagSlug(slug, everyTag) || tagFromSlug(slug),
+    everyTag,
+  };
+}
+
 function tagDisplayName(tag) {
   return tag.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function tagSlug(tag) {
-  return encodeURIComponent(tag.toLowerCase().replace(/\s+/g, "-"));
+  return encodeURIComponent(rawTagSlug(tag));
 }
 
 const PER_PAGE = 20;
@@ -65,11 +88,11 @@ async function getAllTags() {
   }
 }
 
-async function getTagDescription(allTags, tag) {
-  const match = allTags.find(
-    (t) => (typeof t === "string" ? t : t.tag).toLowerCase() === tag.toLowerCase()
-  );
-  return match?.description || null;
+async function getTagDescription(allTags, tag, everyTag = []) {
+  const key = tag.toLowerCase();
+  const find = (list) =>
+    list.find((t) => (typeof t === "string" ? t : t.tag)?.toLowerCase() === key);
+  return find(allTags)?.description || find(everyTag)?.description || null;
 }
 
 async function getTagEvents(tag) {
@@ -131,11 +154,10 @@ async function getTagData(tag, page = 1, resolves = "", severity = "") {
 export async function generateMetadata({ params, searchParams }) {
   const { slug } = await params;
   const page = Math.max(1, parseInt((await searchParams)?.page) || 1);
-  const tag = tagFromSlug(slug);
+  const [{ tag, everyTag }, allTags] = await Promise.all([resolveTag(slug), getAllTags()]);
   const display = tagDisplayName(tag);
 
-  const allTags = await getAllTags();
-  const tagDesc = await getTagDescription(allTags, tag);
+  const tagDesc = await getTagDescription(allTags, tag, everyTag);
   const title =
     page > 1
       ? `${display} Prediction Market Smart Money Alerts (Page ${page})`
@@ -170,7 +192,7 @@ export default async function TagPage({ params, searchParams }) {
   const page = Math.max(1, parseInt(sp.page) || 1);
   const resolves = VALID_RESOLVES.has(sp.resolves) ? sp.resolves : "";
   const severity = VALID_SEVERITIES.has(sp.severity) ? sp.severity : "";
-  const tag = tagFromSlug(slug);
+  const { tag, everyTag } = await resolveTag(slug);
   const display = tagDisplayName(tag);
 
   // Only show the events strip on page 1 — paginated views are deeper into
@@ -194,7 +216,7 @@ export default async function TagPage({ params, searchParams }) {
     process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
   const tagUrl = `${siteUrl}/tag/${tagSlug(tag)}`;
 
-  const tagDesc = await getTagDescription(allTags, tag);
+  const tagDesc = await getTagDescription(allTags, tag, everyTag);
 
   const usdFmt = new Intl.NumberFormat("en-US", {
     style: "currency",

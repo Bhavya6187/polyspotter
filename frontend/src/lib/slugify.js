@@ -31,3 +31,27 @@ export function partialIdFromSlug(slug) {
 export function titleSlugFromSlug(slug) {
   return slug.replace(/-?0x[a-fA-F0-9]+$/, "");
 }
+
+/**
+ * Tag -> URL slug (not percent-encoded). Hyphens survive and case is lost, so
+ * the slug can't be mapped back to the tag by string munging alone:
+ * "Spider-Man" -> "spider-man". Links wrap this in encodeURIComponent.
+ */
+export function tagSlug(tag) {
+  return tag.toLowerCase().replace(/\s+/g, "-");
+}
+
+/**
+ * Resolve an incoming /tag/<slug> (already decoded by the router) to the
+ * exact tag string from the known tag list. `tags` may hold strings or
+ * /api/tags objects ({ tag } or { name }). Returns the first match or null.
+ */
+export function resolveTagSlug(slug, tags) {
+  if (!slug || !Array.isArray(tags)) return null;
+  const want = slug.toLowerCase();
+  for (const t of tags) {
+    const name = typeof t === "string" ? t : t?.tag ?? t?.name;
+    if (typeof name === "string" && tagSlug(name) === want) return name;
+  }
+  return null;
+}
