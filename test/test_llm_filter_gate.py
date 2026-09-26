@@ -445,3 +445,78 @@ class TestMarketDayCap(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCachedVerdictTTL(unittest.TestCase):
+    """Handoff 1.1: cached verdicts expire after LLM_CACHE_TTL_S (7 days); an
+    expired row is a cache miss (a fresh evaluation runs) but is not deleted."""
+
+    def setUp(self):
+        import tempfile
+
+        import db
+
+        self.db = db
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patches = [
+            patch.object(db, "DB_PATH", f"{tmp.name}/polybot.db"),
+            patch.object(db, "_conn", None),
+            patch.object(llm_filter, "AZURE_OPENAI_API_KEY", "test-key"),
+            patch.object(llm_filter, "get_market_eval_count", return_value=0),
+            patch.object(llm_filter, "increment_market_eval_count"),
+            patch.object(llm_filter, "get_wallet_pnl_summary", return_value=DULL_PNL),
+        ]
+        self.llm_calls = []
+
+        def fake_evaluate(alert, alert_text=None):
+            self.llm_calls.append(alert)
+            return dict(INTERESTING_RESULT)
+
+        patches.append(patch.object(llm_filter, "evaluate_alert", fake_evaluate))
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        self.addCleanup(self._close)
+
+    def _close(self):
+        if self.db._conn is not None:
+            self.db._conn.close()
+            self.db._conn = None
+
+    def _seed_verdict(self, key, age_days):
+        from datetime import datetime, timedelta, timezone
+
+        evaluated_at = (datetime.now(timezone.utc) - timedelta(days=age_days)).isoformat()
+        payload = json.dumps(
+            {"summary": "old", "headline": "h", "bullets": [], "copy_action": {}}
+        )
+        conn = self.db.get_db()
+        conn.execute(
+            "INSERT OR REPLACE INTO llm_evaluations "
+            "(dedup_key, interesting, summary, evaluated_at) VALUES (?, 1, ?, ?)",
+            (key, payload, evaluated_at),
+        )
+        conn.commit()
+
+    def test_cached_verdict_older_than_ttl_is_ignored(self):
+        self.assertEqual(self.db.LLM_CACHE_TTL_S, 7 * 86400)
+        self._seed_verdict("dk-old", age_days=8)
+        filter_alerts([_alert(6.0, ["win_rate_tracking", "price_impact"], dedup_key="dk-old")])
+        self.assertEqual(len(self.llm_calls), 1)  # miss -> fresh evaluation
+
+    def test_cached_verdict_within_ttl_is_hit(self):
+        self._seed_verdict("dk-recent", age_days=6)
+        kept = filter_alerts(
+            [_alert(6.0, ["win_rate_tracking", "price_impact"], dedup_key="dk-recent")]
+        )
+        self.assertEqual(self.llm_calls, [])
+        self.assertEqual(len(kept), 1)
+
+    def test_expired_row_is_not_deleted(self):
+        self._seed_verdict("dk-stale", age_days=30)
+        self.assertIsNone(self.db.get_llm_evaluation("dk-stale"))
+        row = self.db.get_db().execute(
+            "SELECT COUNT(*) FROM llm_evaluations WHERE dedup_key = 'dk-stale'"
+        ).fetchone()
+        self.assertEqual(row[0], 1)
