@@ -3,10 +3,14 @@ import Link from "next/link";
 import { fetchAlertDetail } from "../lib/api";
 import PriceMovement from "./PriceMovement";
 import { useMediaQuery } from "../hooks/useMediaQuery";
+import { useNow } from "../hooks/useNow";
+import { formatUtc } from "../lib/time";
 
-function relativeTime(dateStr) {
+// `now` is null during SSR/hydration: fall back to an absolute UTC stamp so
+// server and client markup match.
+function relativeTime(dateStr, now) {
   if (!dateStr) return "\u2014";
-  const now = Date.now();
+  if (now == null) return formatUtc(dateStr);
   const then = new Date(dateStr).getTime();
   const diffSec = Math.floor((now - then) / 1000);
   if (diffSec < 60) return `${diffSec}s ago`;
@@ -18,9 +22,9 @@ function relativeTime(dateStr) {
   return `${diffDay}d ago`;
 }
 
-function timeToResolution(dateStr) {
-  if (!dateStr) return null;
-  const now = Date.now();
+// `now` is null during SSR/hydration: no badge until mounted.
+function timeToResolution(dateStr, now) {
+  if (!dateStr || now == null) return null;
   const end = new Date(dateStr).getTime();
   const diffMs = end - now;
   if (diffMs <= 0) return "Resolved";
@@ -56,6 +60,7 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
   const [expanded, setExpanded] = useState(false);
   const [manualCollapse, setManualCollapse] = useState(false);
   const isDesktop = useMediaQuery("(min-width: 640px)");
+  const now = useNow();
 
   // Reset manual collapse when forceExpand changes
   useEffect(() => {
@@ -73,7 +78,8 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
     (o) => o.name === alertOutcome
   );
   const currentPrice = liveOutcome?.price ?? null;
-  const resolution = timeToResolution(alert.end_date);
+  const resolution = timeToResolution(alert.end_date, now);
+  const msToEnd = resolution ? new Date(alert.end_date).getTime() - now : null;
 
   useEffect(() => {
     if (!autoExpand) return;
@@ -150,16 +156,16 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
               className={
                 resolution === "Resolved"
                   ? ""
-                  : new Date(alert.end_date).getTime() - Date.now() < 3600000
+                  : msToEnd < 3600000
                     ? "font-medium"
                     : ""
               }
               style={{
                 color: resolution === "Resolved"
                   ? 'var(--text-muted)'
-                  : new Date(alert.end_date).getTime() - Date.now() < 3600000
+                  : msToEnd < 3600000
                     ? 'var(--bearish)'
-                    : new Date(alert.end_date).getTime() - Date.now() < 86400000
+                    : msToEnd < 86400000
                       ? 'var(--warning)'
                       : 'var(--text-muted)'
               }}
@@ -167,7 +173,7 @@ export default function AlertRow({ alert, autoExpand, activeTag, onTagClick, com
               {resolution}
             </span>
           )}
-          <span>{relativeTime(alert.scanned_at)}</span>
+          <span>{relativeTime(alert.scanned_at, now)}</span>
         </div>
       </div>
 

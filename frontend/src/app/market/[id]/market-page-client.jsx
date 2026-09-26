@@ -12,6 +12,7 @@ import MarketPulse from "../../../components/MarketPulse";
 import MarketTheses from "../../../components/MarketTheses";
 import useLiveMarket from "../../../hooks/useLiveMarket";
 import useSportOverlay from "../../../hooks/useSportOverlay";
+import { useNow } from "../../../hooks/useNow";
 import { getPlugin } from "../../../sports";
 import ThemeToggle from "../../../components/ThemeToggle";
 import ShareButton from "../../../components/ShareButton";
@@ -24,9 +25,10 @@ const usdFmt = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
 
-function timeToResolution(dateStr) {
-  if (!dateStr) return null;
-  const diffMs = new Date(dateStr).getTime() - Date.now();
+// `now` is null during SSR/hydration: no badge, so server and client match.
+function timeToResolution(dateStr, now) {
+  if (!dateStr || now == null) return null;
+  const diffMs = new Date(dateStr).getTime() - now;
   if (diffMs <= 0) return "Resolved";
   const diffMin = Math.floor(diffMs / 60000);
   if (diffMin < 60) return `${diffMin}m`;
@@ -54,7 +56,8 @@ export default function MarketPageClient({
 
   const title = live?.title || alerts?.[0]?.market_title || "Market";
   const endDate = live?.end_date || alerts?.[0]?.end_date;
-  const resolution = timeToResolution(endDate);
+  const now = useNow();
+  const resolution = timeToResolution(endDate, now);
   const totalUsd = alerts.reduce((sum, a) => sum + (a.total_usd || 0), 0);
   const tags = [...new Set(alerts.flatMap((a) => a.tags || []))];
 
@@ -69,8 +72,9 @@ export default function MarketPageClient({
   const Header = sportPlugin?.Header ?? null;
   const Sidebar = sportPlugin?.Sidebar ?? null;
   const polymarketPrice = (live?.outcomes || [])[0]?.price;
-  const isUrgent = endDate && new Date(endDate).getTime() - Date.now() < 3600000 && new Date(endDate).getTime() - Date.now() > 0;
-  const isSoon = endDate && new Date(endDate).getTime() - Date.now() < 86400000 && new Date(endDate).getTime() - Date.now() > 0;
+  const msToEnd = endDate && now != null ? new Date(endDate).getTime() - now : null;
+  const isUrgent = msToEnd != null && msToEnd < 3600000 && msToEnd > 0;
+  const isSoon = msToEnd != null && msToEnd < 86400000 && msToEnd > 0;
 
   const outcomes = live?.outcomes || [];
   const description = alerts?.[0]?.market_description || live?.description;

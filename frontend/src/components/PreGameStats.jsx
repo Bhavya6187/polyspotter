@@ -1,3 +1,5 @@
+import { useNow } from "../hooks/useNow";
+
 export default function PreGameStats({
   home,
   away,
@@ -8,6 +10,10 @@ export default function PreGameStats({
   venue,
   broadcast,
 }) {
+  // Non-null only after mount; used to switch from the UTC (server-safe)
+  // rendering of the tip-off time to the viewer's local time without a
+  // hydration mismatch. tickMs=0: no re-render interval needed.
+  const mounted = useNow(0) != null;
   if (!homePregame && !awayPregame && !predictor) return null;
 
   const homeStats = homePregame?.stats;
@@ -29,11 +35,12 @@ export default function PreGameStats({
   ].filter((r) => r.home != null || r.away != null);
 
   const gameDate = gameTime ? new Date(gameTime) : null;
+  const tz = mounted ? undefined : "UTC";
   const formattedDate = gameDate
-    ? gameDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+    ? gameDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: tz })
     : null;
   const formattedTime = gameDate
-    ? gameDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+    ? gameDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: tz }) + (mounted ? "" : " UTC")
     : null;
 
   return (

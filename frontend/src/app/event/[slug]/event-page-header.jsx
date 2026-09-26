@@ -19,10 +19,13 @@ function tagSlugify(name) {
 function formatEndDate(d) {
   if (!d) return null;
   const dt = new Date(d);
+  // Pin the timezone: the server renders in UTC, and a viewer-local date
+  // could differ by a day and cause a hydration mismatch.
   return dt.toLocaleDateString("en-US", {
     year: "numeric",
     month: "short",
     day: "numeric",
+    timeZone: "UTC",
   });
 }
 

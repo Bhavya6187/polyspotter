@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRef, useState, useEffect, useCallback } from "react";
 import { fetchAlerts } from "../lib/api";
+import { useNow } from "../hooks/useNow";
 
 const TOPICS = [
   { name: "Sports",      family: "sport",    glyph: "trophy",     anim: "glyph-pop" },
@@ -31,17 +32,18 @@ function tagSlug(name) {
   return encodeURIComponent(name.toLowerCase().replace(/\s+/g, "-"));
 }
 
-function pulseStateFor(latestIso) {
-  if (!latestIso) return null;
-  const ageMs = Date.now() - new Date(latestIso).getTime();
+// `now` is null during SSR/hydration: no pulse/recency until mounted.
+function pulseStateFor(latestIso, now) {
+  if (!latestIso || now == null) return null;
+  const ageMs = now - new Date(latestIso).getTime();
   if (ageMs < HOUR) return "live";
   if (ageMs < DAY) return "recent";
   return null;
 }
 
-function formatRecency(iso) {
-  if (!iso) return null;
-  const ageMs = Date.now() - new Date(iso).getTime();
+function formatRecency(iso, now) {
+  if (!iso || now == null) return null;
+  const ageMs = now - new Date(iso).getTime();
   if (ageMs < 60_000) return "now";
   if (ageMs < HOUR) return `${Math.floor(ageMs / 60_000)}m`;
   if (ageMs < DAY) return `${Math.floor(ageMs / HOUR)}h`;
@@ -256,6 +258,7 @@ export default function TopicNav() {
   const [marquee, setMarquee] = useState({ enabled: false, duration: 40 });
   const [topicData, setTopicData] = useState({});
   const [hovered, setHovered] = useState(null);
+  const now = useNow();
 
   useEffect(() => {
     const outer = scrollRef.current;
@@ -397,8 +400,8 @@ export default function TopicNav() {
           {(marquee.enabled ? [...TOPICS, ...TOPICS] : TOPICS).map(({ name, family, glyph, anim }, i) => {
             const familyColor = FAMILY_COLORS[family];
             const data = topicData[name];
-            const pulse = pulseStateFor(data?.latest?.created_at);
-            const recency = formatRecency(data?.latest?.created_at);
+            const pulse = pulseStateFor(data?.latest?.created_at, now);
+            const recency = formatRecency(data?.latest?.created_at, now);
             const count = data ? formatCount(data.total) : "—";
             const isCopy = marquee.enabled && i >= TOPICS.length;
             return (
