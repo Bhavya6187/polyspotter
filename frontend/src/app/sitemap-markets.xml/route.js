@@ -36,9 +36,10 @@ export async function GET() {
     total = 0; // one child; corrected on the first hourly revalidation
   }
 
+  const lastmod = new Date().toISOString().slice(0, 10);
   const children = Array.from(
     { length: chunkCount(total, MARKETS_PER_SITEMAP) },
-    (_, i) => `<sitemap><loc>${escapeXml(SITE_URL)}/sitemap-markets-${i + 1}.xml</loc></sitemap>`
+    (_, i) => `<sitemap><loc>${escapeXml(SITE_URL)}/sitemap-markets-${i + 1}.xml</loc><lastmod>${lastmod}</lastmod></sitemap>`
   ).join("");
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${children}</sitemapindex>`;

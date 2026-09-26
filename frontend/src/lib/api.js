@@ -77,10 +77,6 @@ export function fetchHealth() {
   return request("/api/health");
 }
 
-export function fetchSpotlight() {
-  return request("/api/spotlight");
-}
-
 export function fetchTopThree() {
   return request("/api/top3");
 }
