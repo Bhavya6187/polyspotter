@@ -40,6 +40,7 @@ CLAUDE_MODEL = "opus"
 SITE_URL = os.environ.get("SITE_URL", "https://polyspotter.com")
 WEEK_POOL_LIMIT = 25      # max this-week candidates sent to the PICK pass
 WEEK_PICKS_MAX = 5        # max this-week events in the final digest
+TODAY_PICKS_MAX = 6       # max resolving-today events in the final digest
 
 # Conviction floor — keep lone tiny bets (a single $1k wager) out of the digest.
 # A candidate qualifies on EITHER heavy money OR many trades (coordinated flow).
@@ -427,6 +428,29 @@ def run_claude_json(prompt: str, payload: str) -> dict:
     raise RuntimeError(f"claude -p returned non-JSON twice: {last_err}")
 
 
+def normalise_picks(llm_picks: dict, today_pool: list[dict], week_pool: list[dict],
+                    cap: int = TODAY_PICKS_MAX) -> tuple[list[dict], list[dict]]:
+    """Map the PICK pass's slugs back onto candidates, trusting only what the
+    pools allow: a Resolving Today pick must come from today_pool, a Top This
+    Week pick from week_pool; an event never appears in both sections (Resolving
+    Today wins); duplicates collapse; both sections are capped in the LLM's
+    order (Resolving Today at `cap`, Top This Week at WEEK_PICKS_MAX)."""
+    def section(key: str, pool: list[dict], taken: set, limit: int) -> list[dict]:
+        by_slug = {c["event_slug"]: c for c in pool}
+        out: list[dict] = []
+        for p in llm_picks.get(key) or []:
+            slug = p.get("event_slug") if isinstance(p, dict) else None
+            if slug in by_slug and slug not in taken and len(out) < limit:
+                taken.add(slug)
+                out.append(by_slug[slug])
+        return out
+
+    taken: set = set()
+    today = section("resolving_today", today_pool, taken, cap)
+    week = section("top_this_week", week_pool, taken, WEEK_PICKS_MAX)
+    return today, week
+
+
 # --- Prompts -----------------------------------------------------------------
 
 PICK_PROMPT = (
@@ -441,7 +465,7 @@ PICK_PROMPT = (
     "business, pop culture) over niche ones. Niche esports markets (League of "
     "Legends, Dota 2, Counter-Strike) can be interesting but must NOT dominate: "
     "include at most 2 across the whole digest, and only the most notable. "
-    "Choose the genuinely interesting resolving_today events (max 6). From "
+    f"Choose the genuinely interesting resolving_today events (max {TODAY_PICKS_MAX}). From "
     "week_pool choose the 3-5 best, deliberately balancing popular (high "
     "total_usd/trade_count) against high-conviction (high composite_score). Do "
     "not pick the same event_slug twice. Respond with ONLY JSON, no prose, in "
@@ -871,14 +895,8 @@ def main(argv=None) -> int:
 
     # PICK
     selection = run_claude_json(PICK_PROMPT, json.dumps(candidates, default=str))
-    by_slug = {c["event_slug"]: c
-               for c in candidates["resolving_today"] + candidates["week_pool"]}
-    today_picks = [by_slug[p["event_slug"]]
-                   for p in selection.get("resolving_today", [])
-                   if p.get("event_slug") in by_slug]
-    week_picks = [by_slug[p["event_slug"]]
-                  for p in selection.get("top_this_week", [])
-                  if p.get("event_slug") in by_slug][:WEEK_PICKS_MAX]
+    today_picks, week_picks = normalise_picks(
+        selection, candidates["resolving_today"], candidates["week_pool"])
     # Reorder each section so broad-appeal markets (geopolitics, big games) lead
     # and niche esports trail, independent of the LLM's returned order.
     today_picks = order_by_appeal(today_picks)

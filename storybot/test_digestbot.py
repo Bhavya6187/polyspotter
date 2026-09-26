@@ -512,3 +512,41 @@ def test_week_hot_sql_requires_end_date():
     sql = " ".join(digestbot._WEEK_HOT_SQL.split())
     assert "COALESCE(a.event_end_estimate, a.end_date) IS NOT NULL" in sql
     assert "IS NULL OR" not in sql
+
+
+# --- PICK output hygiene (handoff 3.1) ---------------------------------------
+
+def _pool(*slugs):
+    return [{"event_slug": s, "title": s} for s in slugs]
+
+
+def _llm(today=(), week=()):
+    return {"resolving_today": [{"event_slug": s, "reason": "r"} for s in today],
+            "top_this_week": [{"event_slug": s, "reason": "r"} for s in week]}
+
+
+def test_today_picks_only_from_today_pool():
+    today, week = digestbot.normalise_picks(
+        _llm(today=["t1", "w1"], week=["w2"]),
+        _pool("t1"), _pool("w1", "w2"), cap=digestbot.TODAY_PICKS_MAX)
+    assert [p["event_slug"] for p in today] == ["t1"]
+    assert [p["event_slug"] for p in week] == ["w2"]
+
+
+def test_event_not_in_both_sections():
+    # Pools can overlap when the LLM echoes a slug twice; the event belongs to
+    # Resolving Today only.
+    today, week = digestbot.normalise_picks(
+        _llm(today=["t1"], week=["t1", "w1"]),
+        _pool("t1"), _pool("t1", "w1"), cap=digestbot.TODAY_PICKS_MAX)
+    assert [p["event_slug"] for p in today] == ["t1"]
+    assert [p["event_slug"] for p in week] == ["w1"]
+
+
+def test_resolving_today_capped():
+    cap = digestbot.TODAY_PICKS_MAX
+    slugs = [f"t{i}" for i in range(cap + 3)]
+    today, _ = digestbot.normalise_picks(
+        _llm(today=list(reversed(slugs)) + [slugs[-1]]), _pool(*slugs), [], cap=cap)
+    assert [p["event_slug"] for p in today] == list(reversed(slugs))[:cap]
+    assert f"max {cap}" in digestbot.PICK_PROMPT
