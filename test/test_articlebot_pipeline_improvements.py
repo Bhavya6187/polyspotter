@@ -703,3 +703,17 @@ def test_validate_cover_chart_spec_skipped_without_eligibility():
     })
     ok, err = articlebot.validate_article_decision(d)
     assert ok, err
+
+
+def test_article_writer_prompt_carries_real_event_title(monkeypatch):
+    import articlebot
+    import digestbot
+
+    monkeypatch.setattr(articlebot.storybot, "_derive_scope", lambda alerts: {})
+    monkeypatch.setattr(articlebot.storybot, "prefetch_bundle", lambda scope: {})
+    monkeypatch.setattr(digestbot, "fetch_event_titles",
+                        lambda slugs: {"fifwc-fra-esp-2026-07-14": "France vs. Spain"})
+    alerts = [{"id": 7, "event_slug": "fifwc-fra-esp-2026-07-14",
+               "market_title": "Will France win on 2026-07-14?"}]
+    message, _scope, _pre = articlebot._build_kickoff_message(alerts)
+    assert "France vs. Spain" in message

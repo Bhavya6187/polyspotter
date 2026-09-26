@@ -838,7 +838,10 @@ earlier stages have already decided is worth tweeting about.
 You see:
 - event_summary: a paragraph framing the story
 - facts_bundle: precise numbers (price moves, volume, sharp wallet record, etc.)
-- chosen_alerts: the compact alert rows
+- chosen_alerts: the compact alert rows. `event_title`, when present, is the
+  event's real display name (e.g. "France vs. Spain") — use it for the
+  matchup; `market_title` is often a bare question that omits the opponent
+  or tournament. Never reconstruct those facts from the slug.
 - chart_type: which chart will ship with the tweet
 - hook_anchor: a short phrase describing what the chart visualizes. This is a
   CHART LABEL, not a tweet opener. Do NOT echo it verbatim. Treat it as a hint
@@ -1279,6 +1282,9 @@ def _writer_user_message(chosen_alerts: list[dict], event_summary: str,
                          lede_shape_hint: str | None = None) -> str:
     from bot_utils import _compact_alert_for_picker
     compact = [_compact_alert_for_picker(a) for a in chosen_alerts]
+    for row, alert in zip(compact, chosen_alerts):
+        if alert.get("event_title"):
+            row["event_title"] = alert["event_title"]
     payload = {
         "event_summary": event_summary,
         "facts_bundle": bundle,
@@ -1905,10 +1911,13 @@ def fetch_data_bundle(alert_ids: list[int], seed_alerts: list[dict]) -> dict:
     Returns: {chosen_alerts, trades, token_map, facts_bundle}.
     Failures are absorbed — missing trades become [], missing tokens become {}.
     """
+    from digestbot import attach_event_titles, fetch_event_titles
     from tweet_utils import fetch_market_tokens
 
     chosen = _select_chosen_alerts(alert_ids, seed_alerts)
     facts_bundle, trades = build_enriched_facts_bundle(chosen)
+    # Ground the writer in the real event name (same helpers as the digest).
+    attach_event_titles(chosen, fetch_event_titles([a.get("event_slug") for a in chosen]))
 
     # token_map is flat {outcome_name -> token_id}. Multi-market clusters
     # would collide on shared outcome names (e.g. two markets each with a

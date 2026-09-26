@@ -1408,6 +1408,13 @@ def _build_kickoff_message(chosen_alerts: list[dict],
     menu so the writer doesn't pair a chart type with an alert whose
     precondition the renderer would reject (recurring failure: 801ec740).
     """
+    from digestbot import attach_event_titles, fetch_event_titles
+    # Ground the writer in the real event name (e.g. "France vs. Spain"); bare
+    # market titles omit the opponent/tournament and invite hallucination.
+    chosen_alerts = [dict(a) for a in chosen_alerts]
+    attach_event_titles(chosen_alerts,
+                        fetch_event_titles([a.get("event_slug") for a in chosen_alerts]))
+
     scope = storybot._derive_scope(chosen_alerts)
     prefetched = storybot.prefetch_bundle(scope)
     prefix = storybot._format_prefetched_block(prefetched) if prefetched else ""

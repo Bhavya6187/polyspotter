@@ -100,6 +100,8 @@ def test_articlebot_main_e2e_post(tmp_path, monkeypatch):
     # Stub storybot's prefetch + dispatcher (no real Postgres / Gamma during agent)
     import storybot
     monkeypatch.setattr(storybot, "prefetch_bundle", lambda scope: {})
+    import digestbot
+    monkeypatch.setattr(digestbot, "fetch_event_titles", lambda slugs: {})  # no Gamma
 
     # Stub chart render to drop a fake PNG
     def _fake_render(chart_type, alert, chosen_alerts, params=None):
@@ -213,6 +215,8 @@ def _make_validation_retry_harness(monkeypatch, tmp_path, agent_response, retry_
     monkeypatch.setattr(articlebot, "OpenAI", lambda **_kw: fake_client)
 
     monkeypatch.setattr(storybot, "prefetch_bundle", lambda scope: {})
+    import digestbot
+    monkeypatch.setattr(digestbot, "fetch_event_titles", lambda slugs: {})  # no Gamma
 
     def _fake_render(chart_type, alert, chosen_alerts, params=None):
         return b"\x89PNG\r\n\x1a\n"
