@@ -109,6 +109,8 @@ cd frontend && npm run lint     # frontend lint
 
 The backend is hosted at `https://api.polyspotter.com`. When working on the frontend, feel free to use it instead of running the backend locally. The frontend API client (`frontend/src/lib/api.js`) can be pointed at this URL.
 
+In production the frontend's server-side fetches go to the backend over Railway's private network (`API_URL_SERVER=http://polybot.railway.internal:8080`, resolved in `frontend/src/lib/apiBase.js`), with `API_URL_BUILD` as the public fallback during `next build`. The backend binds `[::]` (see `backend/Dockerfile`) because this Railway environment's private DNS is IPv6-only. `https://polyspotter.com/api/healthz?upstream=1` verifies the SSR path end to end.
+
 ## Key APIs
 
 - **Polymarket Data API**: `https://data-api.polymarket.com` — trade data, wallet positions

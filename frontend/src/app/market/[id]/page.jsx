@@ -2,16 +2,17 @@ import { cache } from "react";
 import Link from "next/link";
 import MarketPageClient from "./market-page-client";
 import { partialIdFromSlug, marketSlug } from "../../../lib/slugify";
+import { API_URL } from "../../../lib/apiBase";
 
 export const revalidate = 60;
-
-const API_URL = process.env.API_URL_SERVER || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 async function resolveConditionId(partialId) {
   if (/^0x[a-fA-F0-9]{64}$/.test(partialId)) return partialId;
   try {
+    // The prefix -> condition_id mapping never changes once an alert exists,
+    // and Next only caches 200s, so a miss is retried on the next render.
     const res = await fetch(`${API_URL}/api/market/resolve/${partialId}`, {
-      next: { revalidate: 60 },
+      next: { revalidate: 86400 },
     });
     if (res.ok) {
       const data = await res.json();
@@ -25,31 +26,44 @@ async function resolveConditionId(partialId) {
 // Wrapped in React's cache() so both render phases share one execution per request
 // — avoids the double JSON parsing and conditional basketball/cricket fetches that
 // previously ran twice.
+// Resolved markets don't change: their alerts, holders, theses, price history
+// and SEO copy are frozen. Most crawler traffic lands on old, resolved market
+// pages, and each render used to fan out to eight backend calls every 15-60s.
+// Once /live reports `closed`, every follow-up fetch is cached for an hour
+// (served from the Next data cache; no backend or database work).
+const CLOSED_REVALIDATE = 3600;
+
 const loadMarketPage = cache(async (partialId) => {
   const conditionId = await resolveConditionId(partialId);
 
-  const [liveRes, alertsRes, priceRes, holdersRes, thesesRes] =
-    await Promise.all([
-      fetch(`${API_URL}/api/market/${conditionId}/live`, {
-        next: { revalidate: 60 },
-      }).catch(() => null),
-      fetch(
-        `${API_URL}/api/alerts?condition_id=${conditionId}&per_page=50`,
-        { next: { revalidate: 60 } }
-      ).catch(() => null),
-      fetch(
-        `${API_URL}/api/market/${conditionId}/price-history?range=7d`,
-        { next: { revalidate: 60 } }
-      ).catch(() => null),
-      fetch(`${API_URL}/api/market/${conditionId}/holders`, {
-        next: { revalidate: 300 },
-      }).catch(() => null),
-      fetch(`${API_URL}/api/market/${conditionId}/theses`, {
-        next: { revalidate: 300 },
-      }).catch(() => null),
-    ]);
-
+  // /live first: it is the freshness signal (open vs closed) that decides how
+  // long everything else may be cached.
+  const liveRes = await fetch(`${API_URL}/api/market/${conditionId}/live`, {
+    next: { revalidate: 60 },
+  }).catch(() => null);
   const live = liveRes?.ok ? await liveRes.json() : null;
+  const closed = live?.closed === true;
+  const rv = (openSeconds) => ({
+    next: { revalidate: closed ? CLOSED_REVALIDATE : openSeconds },
+  });
+
+  const [alertsRes, priceRes, holdersRes, thesesRes] = await Promise.all([
+    fetch(
+      `${API_URL}/api/alerts?condition_id=${conditionId}&per_page=50`,
+      rv(60)
+    ).catch(() => null),
+    fetch(
+      `${API_URL}/api/market/${conditionId}/price-history?range=7d`,
+      rv(60)
+    ).catch(() => null),
+    fetch(`${API_URL}/api/market/${conditionId}/holders`, rv(300)).catch(
+      () => null
+    ),
+    fetch(`${API_URL}/api/market/${conditionId}/theses`, rv(300)).catch(
+      () => null
+    ),
+  ]);
+
   const alertsData = alertsRes?.ok ? await alertsRes.json() : null;
   const priceHistory = priceRes?.ok ? await priceRes.json() : null;
   const holdersData = holdersRes?.ok ? await holdersRes.json() : null;
@@ -69,9 +83,11 @@ const loadMarketPage = cache(async (partialId) => {
 
   let initialOverlay = null;
   try {
+    // 15s keeps live scores fresh on open games, but note it also becomes the
+    // whole route's ISR interval (Next uses the lowest revalidate on the page).
     const ovRes = await fetch(
       `${API_URL}/api/market/${conditionId}/overlay?${overlayParams}`,
-      { next: { revalidate: 15 } },
+      rv(15),
     );
     initialOverlay = ovRes?.ok ? await ovRes.json() : null;
   } catch {}
@@ -86,7 +102,7 @@ const loadMarketPage = cache(async (partialId) => {
     try {
       const evRes = await fetch(
         `${API_URL}/api/event/${encodeURIComponent(eventSlug)}`,
-        { next: { revalidate: 300 } }
+        rv(300)
       );
       if (evRes.ok) {
         const evData = await evRes.json();
@@ -104,7 +120,7 @@ const loadMarketPage = cache(async (partialId) => {
   try {
     const mgRes = await fetch(
       `${API_URL}/api/alerts/by-market?q=${encodeURIComponent(title)}&per_page=1`,
-      { next: { revalidate: 60 } }
+      rv(60)
     );
     if (mgRes.ok) {
       const mgData = await mgRes.json();

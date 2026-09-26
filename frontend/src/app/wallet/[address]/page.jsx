@@ -3,10 +3,9 @@ import Link from "next/link";
 import WalletPageClient from "./wallet-page-client";
 import { computeTier } from "../../../lib/tiers";
 import { walletPseudonym } from "../../../lib/pseudonym";
+import { API_URL } from "../../../lib/apiBase";
 
 export const revalidate = 60;
-
-const API_URL = process.env.API_URL_SERVER || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 async function getWalletData(address) {
   try {

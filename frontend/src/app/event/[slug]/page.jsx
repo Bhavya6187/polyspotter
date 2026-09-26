@@ -4,10 +4,9 @@ import { cache } from "react";
 import { marketSlug } from "../../../lib/slugify";
 import EventPageHeader from "./event-page-header";
 import EventSportOverlay from "./event-sport-overlay";
+import { API_URL } from "../../../lib/apiBase";
 
 export const revalidate = 60;
-
-const API_URL = process.env.API_URL_SERVER || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const usdFmt = new Intl.NumberFormat("en-US", {
   style: "currency",

@@ -302,6 +302,7 @@ class LiveMarketData(BaseModel):
     description: str | None = None
     image: str | None = None  # market image URL from Gamma API
     spread: float | None = None  # bid-ask spread in cents for leading outcome
+    closed: bool | None = None  # Gamma "closed": resolved/ended; frontend caches these longer
 
 
 # -- Price history (proxied from CLOB API) ------------------------------------

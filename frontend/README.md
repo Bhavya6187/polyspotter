@@ -87,6 +87,13 @@ NEXT_PUBLIC_API_URL=https://api.polyspotter.com   # or http://localhost:8000 for
 NEXT_PUBLIC_CLARITY_PROJECT_ID=<optional>
 ```
 
+Server-side rendering resolves its API base in `src/lib/apiBase.js`: `API_URL_SERVER`
+at runtime (on Railway this is the backend's private-network URL,
+`http://polybot.railway.internal:8080`, which is free of egress charges), and
+`API_URL_BUILD` during `next build`, when the private network isn't reachable.
+`GET /api/healthz?upstream=1` reports which base URL SSR is using and whether
+the backend answers through it.
+
 The hosted backend at `https://api.polyspotter.com` can be used directly — no need to run the backend locally unless you're changing API behavior.
 
 ## Conventions
