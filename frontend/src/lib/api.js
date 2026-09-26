@@ -1,13 +1,13 @@
 import { API_URL as BASE_URL } from "./apiBase";
 
-async function request(path, params = {}) {
+async function request(path, params = {}, init = undefined) {
   const url = new URL(path, BASE_URL);
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== "") {
       url.searchParams.set(key, value);
     }
   });
-  const res = await fetch(url);
+  const res = await fetch(url, init);
   if (!res.ok) {
     const err = new Error(`API error: ${res.status} ${res.statusText}`);
     err.status = res.status;
@@ -26,7 +26,7 @@ export function fetchAlerts({ page, perPage, minScore, wallet, tag } = {}) {
   });
 }
 
-export function fetchMarketAlerts({ page, perPage, minScore, wallet, tag, resolvesWithin, q, groupEvents } = {}) {
+export function fetchMarketAlerts({ page, perPage, minScore, wallet, tag, resolvesWithin, q, groupEvents, signal } = {}) {
   return request("/api/alerts/by-market", {
     page,
     per_page: perPage,
@@ -36,7 +36,7 @@ export function fetchMarketAlerts({ page, perPage, minScore, wallet, tag, resolv
     resolves_within: resolvesWithin || undefined,
     q: q || undefined,
     group_events: groupEvents ? "true" : undefined,
-  });
+  }, signal ? { signal } : undefined);
 }
 
 export function fetchAlertDetail(alertId) {

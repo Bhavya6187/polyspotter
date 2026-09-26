@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useId } from "react";
+import { useState, useId, useRef } from "react";
 
 const RANGES = ["24h", "7d", "30d", "all"];
 
@@ -9,11 +9,20 @@ export default function PriceChart({ history, outcome, alerts, conditionId }) {
   const [activeRange, setActiveRange] = useState("7d");
   const [points, setPoints] = useState(history || []);
   const [loading, setLoading] = useState(false);
+  // Set once the user picks a range. Before that, a market with no history
+  // renders nothing (as before); after it, the frame and range buttons stay
+  // so an empty range is never a dead end.
+  const [touched, setTouched] = useState(false);
+  // Monotonic id of the latest range request: a slow earlier response must
+  // not overwrite a later selection.
+  const requestSeq = useRef(0);
 
-  if (!points || points.length < 2) return null;
+  const hasData = !!points && points.length >= 2;
+  if (!hasData && !touched) return null;
 
-  const prices = points.map((pt) => pt.p);
-  const times = points.map((pt) => pt.t);
+  const safePoints = hasData ? points : [{ t: 0, p: 0 }, { t: 1, p: 0 }];
+  const prices = safePoints.map((pt) => pt.p);
+  const times = safePoints.map((pt) => pt.t);
   const minP = Math.min(...prices) * 0.98;
   const maxP = Math.max(...prices) * 1.02;
   const minT = Math.min(...times);
@@ -24,7 +33,7 @@ export default function PriceChart({ history, outcome, alerts, conditionId }) {
   const W = 600;
   const H = 140;
 
-  const svgPoints = points
+  const svgPoints = safePoints
     .map((pt) => {
       const x = ((pt.t - minT) / rangeT) * W;
       const y = H - ((pt.p - minP) / rangeP) * H;
@@ -33,7 +42,7 @@ export default function PriceChart({ history, outcome, alerts, conditionId }) {
     .join(" ");
 
   // Map alerts to chart coordinates
-  const alertMarkers = (alerts || [])
+  const alertMarkers = (hasData ? alerts || [] : [])
     .filter((a) => a.scanned_at)
     .map((a) => {
       const ts = new Date(a.scanned_at).getTime() / 1000;
@@ -63,16 +72,19 @@ export default function PriceChart({ history, outcome, alerts, conditionId }) {
 
   async function handleRangeChange(range) {
     if (range === activeRange) return;
+    const seq = ++requestSeq.current;
+    setTouched(true);
     setActiveRange(range);
     setLoading(true);
     try {
       const { fetchPriceHistory } = await import("../lib/api");
       const data = await fetchPriceHistory(conditionId, range);
+      if (seq !== requestSeq.current) return; // superseded by a later click
       setPoints(data.history || []);
     } catch {
       // keep existing points on error
     } finally {
-      setLoading(false);
+      if (seq === requestSeq.current) setLoading(false);
     }
   }
 
@@ -115,6 +127,15 @@ export default function PriceChart({ history, outcome, alerts, conditionId }) {
       </div>
 
       <div className="relative" style={{ height: 160, opacity: loading ? 0.5 : 1, transition: "opacity 0.2s" }}>
+        {!hasData ? (
+          <div
+            className="flex h-full items-center justify-center text-xs"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {loading ? "Loading\u2026" : "No price data for this range."}
+          </div>
+        ) : (
+        <>
         <svg
           viewBox={`0 0 ${W} ${H}`}
           className="h-full w-full"
@@ -196,6 +217,8 @@ export default function PriceChart({ history, outcome, alerts, conditionId }) {
             High-conviction
           </span>
         </div>
+        </>
+        )}
       </div>
     </div>
   );

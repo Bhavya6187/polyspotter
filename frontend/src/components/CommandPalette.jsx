@@ -123,33 +123,50 @@ export default function CommandPalette({ tags = [], topWallets = [] }) {
   const [resolvesIn, setResolvesIn] = useState("");
   const inputRef = useRef(null);
   const listRef = useRef(null);
+  const latestQueryRef = useRef("");
   const router = useRouter();
 
   // Build flat item list for keyboard nav
   const items = buildItems(query, results, tags, topWallets, loading);
 
   // Search — fetch more than needed, re-rank by relevance, show top 8
+  // Each debounced query gets its own AbortController; changing the input
+  // (or the resolve filter) aborts the previous request so a slow response
+  // for an old query can never replace results for the current one.
   useEffect(() => {
-    if (!query.trim()) {
+    const q = query.trim();
+    latestQueryRef.current = q;
+    if (!q) {
       setResults([]);
+      setLoading(false);
       return;
     }
     setLoading(true);
+    const controller = new AbortController();
     const id = setTimeout(() => {
       fetchMarketAlerts({
         page: 1,
         perPage: 20,
-        q: query.trim(),
+        q,
         resolvesWithin: resolvesIn || undefined,
+        signal: controller.signal,
       })
         .then((data) => {
-          const ranked = rankByRelevance(data.markets || [], query.trim());
+          if (controller.signal.aborted || latestQueryRef.current !== q) return;
+          const ranked = rankByRelevance(data.markets || [], q);
           setResults(ranked.slice(0, 8));
+          setLoading(false);
         })
-        .catch(() => setResults([]))
-        .finally(() => setLoading(false));
+        .catch(() => {
+          if (controller.signal.aborted || latestQueryRef.current !== q) return;
+          setResults([]);
+          setLoading(false);
+        });
     }, 200);
-    return () => clearTimeout(id);
+    return () => {
+      clearTimeout(id);
+      controller.abort();
+    };
   }, [query, resolvesIn]);
 
   // Reset active index when items change
