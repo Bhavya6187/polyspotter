@@ -42,6 +42,10 @@ class PreEventVolumeSpikeStrategy(DetectionStrategy):
         f"${MIN_WINDOW_VOLUME_USD:,} (using historical baselines when available)."
     )
     window_seconds = 300
+    # Length of the scanner's fetch window (now - since_ts), set by
+    # polybot.scan_once before the batch phase. None when no window is known
+    # (e.g. --once without a cursor): fall back to the market's trade span.
+    fetch_window_seconds: float | None = None
 
     def check_trade(self, trade: dict) -> Signal | None:
         # Batch-only strategy — analysis happens in analyze_all
@@ -76,8 +80,13 @@ class PreEventVolumeSpikeStrategy(DetectionStrategy):
             if vol_24h <= 0:
                 continue
 
+            # Scale the baseline to the fetch window the trades were drawn
+            # from. The trade span alone (p50 651 s vs a fetch window p50
+            # ~1,300 s) inflated ratios ~2x (handoff 1.6, 2026-09).
             window_seconds = self.window_seconds
-            if trades_by_market[cid]:
+            if self.fetch_window_seconds:
+                window_seconds = max(self.fetch_window_seconds, 60)
+            elif trades_by_market[cid]:
                 timestamps = [t.get("timestamp", 0) for t in trades_by_market[cid]]
                 span = max(timestamps) - min(timestamps)
                 if span > 0:
