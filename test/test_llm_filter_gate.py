@@ -7,9 +7,9 @@ The 2026-07 backtest removed the sharp-wallet exemption (the sharp cohort
 underperforms non-sharp under every definition tested) and tightened the
 tiers.
 
-Gate A: composite_score < GATE_MIN_SCORE (3.0 on the 2026-07
-        compute_composite_score scale, ≈ old severity-sum 4.0; that tier's
-        LLM keep rate was 21%).
+Gate A: composite_score < GATE_MIN_SCORE (4.0 on the 2026-07
+        compute_composite_score scale since 2026-09-26; the 3-4 band kept
+        at 51% and graded -2.4%, and gpt-6-luna keeps ~80% of it).
 Gate B: all signals from a single weak strategy (price_impact,
         low_activity_large_bet, pre_event_volume_spike,
         correlated_cross_market, timing_relative_resolution,
@@ -138,6 +138,26 @@ class _GateTestBase(unittest.TestCase):
 
 class TestPreLLMGate(_GateTestBase):
     # --- Gate A: low composite score ---
+
+    def test_score_between_3_and_4_discarded_without_llm_call(self):
+        # 2026-09 backtest: the 3-4 band keeps at 51% and its kept alerts
+        # grade -2.4% (n=140) vs +8.7% above; gpt-6-luna keeps ~80% of it,
+        # so the LLM no longer filters this band at all.
+        self._patch_pnl(SHARP_PNL)
+        kept = filter_alerts(
+            [_alert(3.5, ["win_rate_tracking", "price_impact"], dedup_key="dk-3-4")]
+        )
+        self.assertEqual(kept, [])
+        self.assertEqual(self.llm_calls, [])
+        self.assertEqual(
+            self.saves, [("dk-3-4", False, "auto-discarded: composite score 3.5 < 4")]
+        )
+
+    def test_score_4_is_evaluated(self):
+        self._patch_pnl(SHARP_PNL)
+        kept = filter_alerts([_alert(4.0, ["win_rate_tracking", "price_impact"])])
+        self.assertEqual(len(self.llm_calls), 1)
+        self.assertEqual(len(kept), 1)
 
     def test_low_score_discarded_without_llm_call(self):
         self._patch_pnl(DULL_PNL)

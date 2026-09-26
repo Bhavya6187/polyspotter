@@ -663,6 +663,12 @@ def _thesis_cache_key(thesis: dict) -> str:
     return f"thesis:{wallet}:{thesis.get('event_slug', '')}:{','.join(parts)}"
 
 
+# A 3-6 word headline needs no reasoning: at default effort gpt-6-luna spent
+# ~53 of ~74 output tokens thinking about it, and the replay at `none` gave
+# equivalent headlines at ~10 output tokens (2026-09-26 cost review).
+THESIS_REASONING_EFFORT = os.environ.get("THESIS_REASONING_EFFORT", "none")
+
+
 def _generate_thesis_headline(thesis: dict) -> str | None:
     """Generate a short thesis headline from market titles and bet directions.
 
@@ -702,7 +708,7 @@ def _generate_thesis_headline(thesis: dict) -> str | None:
         if not api_key:
             return None
         from openai import OpenAI
-        from llm_filter import _log_prompt
+        from llm_filter import _log_prompt, usage_from_response
         endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
         model = os.environ.get("AZURE_OPENAI_MODEL", "")
         client = OpenAI(base_url=endpoint, api_key=api_key)
@@ -713,10 +719,16 @@ def _generate_thesis_headline(thesis: dict) -> str | None:
             model=model,
             input=prompt,
             max_output_tokens=2000,
+            reasoning={"effort": THESIS_REASONING_EFFORT},
         )
         headline = (resp.output_text or "").strip().strip('"')
+        usage = usage_from_response(resp)
     except Exception:
         return None
+    try:
+        db.record_llm_usage("thesis_headline", model, cache_key, usage)
+    except sqlite3.Error as e:
+        print(f"[seeder] llm usage write failed ({e})")
     if headline:
         try:
             db.save_thesis_headline(cache_key, headline)

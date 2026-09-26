@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import threading
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -27,6 +28,7 @@ from db import (
     get_wallet_market_positions,
     get_wallet_pnl_summary,
     increment_market_eval_count,
+    record_llm_usage,
     save_llm_evaluation,
 )
 from gamma_cache import get_market_by_condition, invalidate_market
@@ -524,6 +526,33 @@ def _build_prompt(alert: dict) -> str:
     return "\n".join(parts)
 
 
+# Output budget for the verdict call. The largest real reasoning trace seen
+# on gpt-6-luna was 516 tokens on top of ~200 visible; the old 16,000 only
+# let degenerate whitespace replies (40 since 2026-07) burn the whole budget.
+MAX_OUTPUT_TOKENS = 4000
+
+# Reasoning effort for the verdict call. 2026-09-26 replay on gpt-6-luna:
+# `low` matched the default-effort verdict 12/12 (random) and 25/30
+# (borderline score 3-4) with 41% fewer output tokens; `none` 11/12 at -77%.
+# Reasoning tokens bill as output. Valid on gpt-6-luna: none, low, medium,
+# high, xhigh, max (no `minimal`).
+REASONING_EFFORT = os.environ.get("LLM_FILTER_REASONING_EFFORT", "low")
+
+
+def usage_from_response(response) -> dict:
+    """Token counts from a Responses API result (zeros when absent)."""
+    def _n(value) -> int:
+        return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
+
+    usage = getattr(response, "usage", None)
+    return {
+        "prompt_tokens": _n(getattr(usage, "input_tokens", 0)),
+        "cached_tokens": _n(getattr(getattr(usage, "input_tokens_details", None), "cached_tokens", 0)),
+        "completion_tokens": _n(getattr(usage, "output_tokens", 0)),
+        "reasoning_tokens": _n(getattr(getattr(usage, "output_tokens_details", None), "reasoning_tokens", 0)),
+    }
+
+
 def evaluate_alert(alert: dict, alert_text: str | None = None) -> dict:
     """Call GPT to evaluate whether an alert is interesting.
 
@@ -531,7 +560,9 @@ def evaluate_alert(alert: dict, alert_text: str | None = None) -> dict:
     This lets callers build the prompt on a thread that owns the SQLite
     connection while running the LLM call from a worker thread.
 
-    Returns a dict with keys: interesting, summary, bullets, copy_action.
+    Returns a dict with keys: interesting, summary, bullets, copy_action,
+    and (when a call was made) usage — the token counts, which filter_alerts
+    persists on the main thread.
     """
     if not AZURE_OPENAI_API_KEY:
         return {"interesting": False, "summary": "", "bullets": [], "copy_action": {}}
@@ -552,33 +583,23 @@ def evaluate_alert(alert: dict, alert_text: str | None = None) -> dict:
 
     response = client.responses.create(
         model=MODEL,
-        max_output_tokens=16000,
+        max_output_tokens=MAX_OUTPUT_TOKENS,
+        reasoning={"effort": REASONING_EFFORT},
         instructions=SYSTEM_PROMPT,
         input=alert_text,
         text={"format": RESPONSE_FORMAT},
     )
 
-    usage = response.usage
-    cached_tokens = 0
-    if usage and usage.input_tokens_details:
-        cached_tokens = getattr(usage.input_tokens_details, "cached_tokens", 0) or 0
-    prompt_tokens = usage.input_tokens if usage else 0
-    completion_tokens = usage.output_tokens if usage else 0
-    reasoning_tokens = 0
-    if usage and getattr(usage, "output_tokens_details", None):
-        reasoning_tokens = getattr(usage.output_tokens_details, "reasoning_tokens", 0) or 0
+    usage_dict = usage_from_response(response)
+    prompt_tokens = usage_dict["prompt_tokens"]
+    cached_tokens = usage_dict["cached_tokens"]
+    completion_tokens = usage_dict["completion_tokens"]
+    reasoning_tokens = usage_dict["reasoning_tokens"]
 
     if cached_tokens:
         print(f"[llm_filter] Cache hit: {cached_tokens}/{prompt_tokens} prompt tokens from cache")
     else:
         print(f"[llm_filter] Cache miss: {prompt_tokens} prompt tokens (none cached)")
-
-    usage_dict = {
-        "prompt_tokens": prompt_tokens,
-        "cached_tokens": cached_tokens,
-        "completion_tokens": completion_tokens,
-        "reasoning_tokens": reasoning_tokens,
-    }
 
     # Not a verdict: the model never judged the alert (truncated, content-
     # filtered, or unparseable). filter_alerts discards these without caching
@@ -589,6 +610,7 @@ def evaluate_alert(alert: dict, alert_text: str | None = None) -> dict:
         "bullets": [],
         "copy_action": {},
         "inconclusive": True,
+        "usage": usage_dict,
     }
 
     text = response.output_text
@@ -620,6 +642,7 @@ def evaluate_alert(alert: dict, alert_text: str | None = None) -> dict:
             "headline": result.get("headline"),
             "bullets": result.get("bullets", []),
             "copy_action": result.get("copy_action") or {},
+            "usage": usage_dict,
         }
     except (json.JSONDecodeError, KeyError, TypeError, AttributeError) as e:
         print(f"[llm_filter] WARNING: Failed to parse LLM response: {e}")
@@ -640,9 +663,12 @@ LLM_PARALLELISM = 5
 # cohort underperforms non-sharp under every definition tested, and exemption
 # survivors (kept at 93%) added no copy value.
 
-# 3.0 on the compute_composite_score scale ≈ 4.0 on the old severity-sum
-# scale; the gated tier's LLM keep rate was 21% and graded ~breakeven.
-GATE_MIN_SCORE = 3.0
+# 4.0 on the compute_composite_score scale. Raised from 3.0 on 2026-09-26:
+# the 3-4 band kept at 51% under gpt-5.6-luna and its kept alerts graded
+# -2.4% (n=140) vs +8.7% for 4+; gpt-6-luna keeps ~80% of the band, so the
+# LLM no longer filters it. (3.0 ≈ old severity-sum 4.0, whose tier kept at
+# 21% and graded ~breakeven.)
+GATE_MIN_SCORE = 4.0
 GATED_SOLO_STRATEGIES = {
     "price_impact",
     "low_activity_large_bet",
@@ -824,6 +850,7 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
     cached = 0
     gated_count = 0
     pending_saves: list[tuple[str, bool, str]] = []
+    pending_usage: list[tuple[str, dict]] = []
 
     for i, alert in enumerate(alerts):
         title = alert.get("market_title", "?")
@@ -868,6 +895,11 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
             discarded += 1
             continue
 
+        # Token accounting for every call that reached the model, verdict
+        # or not; written in phase 4 on this (the SQLite) thread.
+        if result.get("usage") is not None:
+            pending_usage.append((cache_key, result["usage"]))
+
         if result.get("inconclusive"):
             # No verdict was reached; discard for this scan but leave the
             # cache key untouched so the alert is judged properly next time.
@@ -899,9 +931,14 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
             if cache_key:
                 pending_saves.append((cache_key, False, summary))
 
-    # Phase 4: flush cache writes.
+    # Phase 4: flush cache writes and usage rows.
     for cache_key, interesting, summary in pending_saves:
         save_llm_evaluation(cache_key, interesting=interesting, summary=summary)
+    for cache_key, usage in pending_usage:
+        try:
+            record_llm_usage("alert_eval", MODEL, cache_key, usage)
+        except sqlite3.Error as e:
+            print(f"[llm_filter] WARNING: could not record LLM usage: {e}")
 
     if cached:
         print(f"[llm_filter] {cached} alert(s) resolved from cache.")

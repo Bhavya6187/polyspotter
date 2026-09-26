@@ -35,6 +35,30 @@ MARKET_SEO_LIMIT = 10
 EVENT_HYDRATE_LIMIT = 20
 EVENT_SEO_LIMIT = 5
 
+# Markets and events resolving sooner than this get no SEO page copy: 47% of
+# alerted markets end within a day of their first alert and 70% within three,
+# while market pages drew 63 organic-search sessions in 30 days — the page is
+# dead before a crawler can index it (2026-09-26 cost review). Such rows are
+# stamped seo_skip_reason='short_lived' so they leave the candidate pool.
+SEO_MIN_DAYS_TO_END = 3
+
+_SKIP_SHORT_LIVED_MARKETS_SQL = """
+    UPDATE alerts SET seo_skip_reason = 'short_lived'
+    WHERE seo_generated_at IS NULL
+      AND seo_skip_reason IS NULL
+      AND condition_id IS NOT NULL
+      AND end_date IS NOT NULL
+      AND end_date < NOW() + make_interval(days => %s)
+"""
+
+_SKIP_SHORT_LIVED_EVENTS_SQL = """
+    UPDATE events SET seo_skip_reason = 'short_lived'
+    WHERE seo_generated_at IS NULL
+      AND seo_skip_reason IS NULL
+      AND end_date IS NOT NULL
+      AND end_date < NOW() + make_interval(days => %s)
+"""
+
 
 def _autocommit_conn():
     conn = get_conn()
@@ -94,6 +118,7 @@ def run_market_seo() -> int:
     with closing(_autocommit_conn()) as conn:
         with conn.cursor() as cur:
             cur.execute(_COPY_EXISTING_MARKET_SEO_SQL)
+            cur.execute(_SKIP_SHORT_LIVED_MARKETS_SQL, (SEO_MIN_DAYS_TO_END,))
             cur.execute("""
                 SELECT condition_id, MAX(market_title) as market_title,
                        MAX(market_description) as market_description,
@@ -199,6 +224,7 @@ def run_event_seo() -> int:
     generated = 0
     with closing(_autocommit_conn()) as conn:
         with conn.cursor() as cur:
+            cur.execute(_SKIP_SHORT_LIVED_EVENTS_SQL, (SEO_MIN_DAYS_TO_END,))
             cur.execute("""
                 SELECT e.event_slug, e.title, e.description,
                        e.end_date::text AS end_date, e.tags

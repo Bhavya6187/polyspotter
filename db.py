@@ -262,6 +262,23 @@ def _init_tables(conn: sqlite3.Connection) -> None:
         )
     """)
 
+    # -- llm_usage (one row per GPT call: token counts by call type, so
+    #    spend can be tracked per day instead of reconstructed by replay) ---
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS llm_usage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            model TEXT,
+            cache_key TEXT,
+            prompt_tokens INTEGER NOT NULL DEFAULT 0,
+            cached_tokens INTEGER NOT NULL DEFAULT 0,
+            completion_tokens INTEGER NOT NULL DEFAULT 0,
+            reasoning_tokens INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_usage_ts ON llm_usage(ts)")
+
     # -- scan_runs (continuous mode: track last scan time) --------------------
     conn.execute("""
         CREATE TABLE IF NOT EXISTS scan_runs (
@@ -1186,6 +1203,59 @@ def increment_market_eval_count(condition_id: str, day: str) -> None:
         (condition_id, day),
     )
     conn.commit()
+
+
+# ===========================================================================
+# llm_usage operations (per-call GPT token accounting)
+# ===========================================================================
+
+
+_USAGE_FIELDS = ("prompt_tokens", "cached_tokens", "completion_tokens", "reasoning_tokens")
+
+
+def record_llm_usage(kind: str, model: str, cache_key: str, usage: dict) -> None:
+    """Persist one GPT call's token usage. `kind` names the call site
+    (alert_eval, thesis_headline); missing usage fields count as 0."""
+    conn = get_db()
+    conn.execute(
+        """INSERT INTO llm_usage
+           (ts, kind, model, cache_key, prompt_tokens, cached_tokens,
+            completion_tokens, reasoning_tokens)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            datetime.now(timezone.utc).isoformat(),
+            kind,
+            model,
+            cache_key,
+            *(int((usage or {}).get(f) or 0) for f in _USAGE_FIELDS),
+        ),
+    )
+    conn.commit()
+
+
+def get_llm_usage_by_day(days: int = 7) -> list[dict]:
+    """Calls and summed token counts per (UTC day, kind) over the last
+    `days` days, oldest first. Output tokens (completion, which includes
+    reasoning) are the cost driver at ~5x the input price."""
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    rows = get_db().execute(
+        """SELECT substr(ts, 1, 10) AS day, kind, COUNT(*),
+                  SUM(prompt_tokens), SUM(cached_tokens),
+                  SUM(completion_tokens), SUM(reasoning_tokens)
+           FROM llm_usage
+           WHERE ts >= ?
+           GROUP BY day, kind
+           ORDER BY day, kind""",
+        (since,),
+    ).fetchall()
+    return [
+        {
+            "day": r[0], "kind": r[1], "calls": r[2],
+            "prompt_tokens": r[3], "cached_tokens": r[4],
+            "completion_tokens": r[5], "reasoning_tokens": r[6],
+        }
+        for r in rows
+    ]
 
 
 # ===========================================================================

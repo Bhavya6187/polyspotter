@@ -17,7 +17,13 @@ import os
 from openai import OpenAI
 from dotenv import load_dotenv
 
-from seo_generator import ContentFilterError, _is_content_filter, _NEUTRAL_FRAMING
+from seo_generator import (
+    REASONING_EFFORT,
+    ContentFilterError,
+    _is_content_filter,
+    _NEUTRAL_FRAMING,
+    log_usage,
+)
 
 load_dotenv()
 
@@ -157,10 +163,12 @@ def generate_event_seo_content(
         response = client.responses.create(
             model=MODEL,
             max_output_tokens=2000,
+            reasoning={"effort": REASONING_EFFORT},
             instructions=SYSTEM_PROMPT,
             input=user_prompt,
             text={"format": RESPONSE_FORMAT},
         )
+        log_usage("event_seo", response)
         text = response.output_text
         result = json.loads(text)
         return {
