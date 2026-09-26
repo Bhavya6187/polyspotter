@@ -191,7 +191,6 @@ class ScanOncePushFailureTests(unittest.TestCase):
         self.assertEqual(pushed, 0)
 
 
-
 class ScanOnceFetchWindowTests(unittest.TestCase):
     """scan_once hands the fetch window (now - since_ts, >= 60 s) to the
     batch strategies that declare fetch_window_seconds (handoff 1.6)."""
@@ -249,6 +248,7 @@ class ScanOnceFetchWindowTests(unittest.TestCase):
         strategy = PreEventVolumeSpikeStrategy()
         strategy.fetch_window_seconds = 999.0  # stale value from a prior scan
         self.assertIsNone(self._run_scan(strategy, since_ts=None))
+
 
 if __name__ == "__main__":
     unittest.main()

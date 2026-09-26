@@ -343,10 +343,6 @@ class TestFunderNegativeCache(unittest.TestCase):
         self.assertEqual(mock_query.call_count, 4)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestKnownFunderBoostUsesPriorState(unittest.TestCase):
     """Handoff 1.3: the +1.0 known-funder boost read get_known_sybil_funders
     AFTER _get_first_funder had saved this window's funders, so every
@@ -423,3 +419,30 @@ class TestKnownFunderBoostUsesPriorState(unittest.TestCase):
         self.assertEqual(len(signals), 1)
         self.assertIn("from prior runs", signals[0].headline)
         self.assertEqual(signals[0].severity, 5.0)
+
+    def _hot_wallet_boundary_trades(self, n_historical):
+        # the funder already has n_historical children; this window holds one
+        # of them plus one brand-new wallet, whose lookup adds one more
+        for i in range(1, n_historical + 1):
+            db.save_funder(self._wallet(i), self.FUNDER)
+        return [self._trade(self._wallet(1)), self._trade(self._wallet(99))]
+
+    def test_funder_reaching_hot_wallet_cap_in_window_not_flagged(self):
+        # 19 known children + 1 new = 20 >= MAX_FUNDER_CHILDREN: loop 1 skips
+        # the funder as an exchange hot wallet, and loop 2 (which reads the
+        # pre-window snapshot of 19) must not flag it either.
+        self.assertEqual(wc_module.MAX_FUNDER_CHILDREN, 20)
+        trades = self._hot_wallet_boundary_trades(19)
+        self.assertEqual(self.strategy.analyze_all(trades), [])
+
+    def test_funder_below_hot_wallet_cap_flagged_by_loop_1(self):
+        # control: 18 known + 1 new = 19 < 20, loop 1 reports the cluster
+        trades = self._hot_wallet_boundary_trades(18)
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 1)
+        self.assertIn("share funder", signals[0].headline)
+        self.assertNotIn("Known linked funder", signals[0].headline)
+
+
+if __name__ == "__main__":
+    unittest.main()

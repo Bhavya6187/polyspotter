@@ -322,7 +322,6 @@ class TestPreEventVolumeSpikeStrategy(unittest.TestCase):
             mod.MIN_TRADES_FOR_SPIKE = original
 
 
-
 @patch("detection_strategies.pre_event_volume_spike.get_average_volume", return_value=None)
 @patch("detection_strategies.pre_event_volume_spike.record_volume_snapshot")
 class TestFetchWindowNormalisation(unittest.TestCase):
@@ -369,6 +368,7 @@ class TestFetchWindowNormalisation(unittest.TestCase):
         signals = self.strategy.analyze_all(self._trades(10_000))
         self.assertEqual(len(signals), 1)
         self.assertIn("48.0x", signals[0].headline)
+
 
 if __name__ == "__main__":
     unittest.main()
