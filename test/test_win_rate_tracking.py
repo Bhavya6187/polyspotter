@@ -117,10 +117,10 @@ class TestFetchWalletPnl(unittest.TestCase):
     @patch("detection_strategies.win_rate_tracking.PNL_FETCH_DELAY", 0)
     @patch("detection_strategies.win_rate_tracking.record_wallet_pnl")
     @patch("detection_strategies.win_rate_tracking.get_wallet_pnl_latest_timestamp", return_value=None)
-    @patch("detection_strategies.win_rate_tracking.clear_wallet_pnl_by_type")
+    @patch("detection_strategies.win_rate_tracking.replace_wallet_pnl_by_type")
     @patch("detection_strategies.win_rate_tracking.requests.get")
     def test_open_positions_recorded_despite_api_sortby_rules(
-        self, mock_get, mock_clear, mock_latest, mock_record
+        self, mock_get, mock_replace, mock_latest, mock_record
     ):
         """Against a fake Data API that mimics the real one's sortBy validation,
         the open position must still end up in record_wallet_pnl."""
@@ -156,11 +156,89 @@ class TestFetchWalletPnl(unittest.TestCase):
         mock_get.side_effect = fake_api
         _fetch_wallet_pnl("0xWallet1")
 
-        open_records = [c for c in mock_record.call_args_list if c.args[2] == "open"]
+        mock_replace.assert_called_once_with("0xWallet1", "open", [open_pos])
         closed_records = [c for c in mock_record.call_args_list if c.args[2] == "closed"]
-        self.assertEqual(len(open_records), 1, "open position was not recorded")
-        self.assertEqual(open_records[0].args[1], open_pos)
         self.assertEqual(len(closed_records), 1)
+
+
+class TestOpenPositionRefetch(unittest.TestCase):
+    """Open positions used to be wiped before the re-fetch: a Data API
+    timeout left the wallet with total_positions=0, which passes
+    new_wallet_large_bet's "genuinely new" gate."""
+
+    def setUp(self):
+        import tempfile
+
+        import db
+
+        _pnl_fetched.clear()
+        self._tmp = tempfile.TemporaryDirectory()
+        self._patches = [
+            patch.object(db, "DB_PATH", f"{self._tmp.name}/polybot.db"),
+            patch.object(db, "_conn", None),
+            patch("detection_strategies.win_rate_tracking.PNL_FETCH_DELAY", 0),
+        ]
+        for p in self._patches:
+            p.start()
+        self.db = db
+
+    def tearDown(self):
+        if self.db._conn is not None:
+            self.db._conn.close()
+        for p in reversed(self._patches):
+            p.stop()
+        self._tmp.cleanup()
+        _pnl_fetched.clear()
+
+    def _seed_open(self, wallet, n):
+        for i in range(n):
+            self.db.record_wallet_pnl(wallet, {
+                "conditionId": f"c{i}", "asset": f"a{i}", "outcome": "Yes",
+                "avgPrice": 0.5, "totalBought": 100.0, "curPrice": 0.5,
+                "timestamp": 1700000000 + i,
+            }, "open")
+
+    def _open_rows(self, wallet):
+        return self.db.get_db().execute(
+            "SELECT condition_id FROM wallet_pnl WHERE wallet = ? AND position_type = 'open'",
+            (wallet,),
+        ).fetchall()
+
+    @patch("detection_strategies.win_rate_tracking.requests.get")
+    def test_position_refetch_timeout_keeps_previous_rows(self, mock_get):
+        import requests
+
+        wallet = "0xwallet1"
+        self._seed_open(wallet, 3)
+        before = self.db.get_wallet_pnl_summary(wallet)["total_positions"]
+
+        mock_get.side_effect = requests.Timeout("data api slow")
+        _fetch_wallet_pnl(wallet)
+
+        self.assertEqual(len(self._open_rows(wallet)), 3)
+        self.assertEqual(self.db.get_wallet_pnl_summary(wallet)["total_positions"], before)
+
+    @patch("detection_strategies.win_rate_tracking.requests.get")
+    def test_successful_refetch_replaces_open_rows(self, mock_get):
+        wallet = "0xwallet1"
+        self._seed_open(wallet, 3)
+
+        def fake_api(url, params=None, timeout=None):
+            resp = MagicMock(status_code=200)
+            if url.endswith("/positions") and params.get("offset", 0) == 0:
+                resp.json.return_value = [{
+                    "conditionId": "c_new", "asset": "a_new", "outcome": "No",
+                    "avgPrice": 0.3, "totalBought": 10.0, "curPrice": 0.3,
+                    "timestamp": 1800000000,
+                }]
+            else:
+                resp.json.return_value = []
+            return resp
+
+        mock_get.side_effect = fake_api
+        _fetch_wallet_pnl(wallet)
+
+        self.assertEqual(self._open_rows(wallet), [("c_new",)])
 
 
 class TestWinRateTrackingStrategy(unittest.TestCase):

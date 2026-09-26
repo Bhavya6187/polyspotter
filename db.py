@@ -820,32 +820,52 @@ def clear_wallet_pnl(wallet: str) -> None:
     conn.commit()
 
 
-def record_wallet_pnl(wallet: str, position: dict, position_type: str) -> None:
-    """Record a wallet's position P&L data (open or closed)."""
-    conn = get_db()
-    conn.execute(
-        """INSERT OR REPLACE INTO wallet_pnl
+_WALLET_PNL_INSERT = """INSERT OR REPLACE INTO wallet_pnl
            (wallet, condition_id, asset, outcome, avg_price, total_bought,
             realized_pnl, cur_price, event_slug, end_date, position_type,
             recorded_at, api_timestamp)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            wallet.lower(),
-            position.get("conditionId", ""),
-            position.get("asset", ""),
-            position.get("outcome", ""),
-            float(position.get("avgPrice", 0) or 0),
-            float(position.get("totalBought", 0) or 0),
-            float(position.get("realizedPnl", 0) or 0),
-            float(position.get("curPrice", 0) or 0),
-            position.get("eventSlug", ""),
-            position.get("endDate", ""),
-            position_type,
-            datetime.now(timezone.utc).isoformat(),
-            position.get("timestamp"),
-        ),
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+
+
+def _wallet_pnl_row(wallet: str, position: dict, position_type: str) -> tuple:
+    return (
+        wallet.lower(),
+        position.get("conditionId", ""),
+        position.get("asset", ""),
+        position.get("outcome", ""),
+        float(position.get("avgPrice", 0) or 0),
+        float(position.get("totalBought", 0) or 0),
+        float(position.get("realizedPnl", 0) or 0),
+        float(position.get("curPrice", 0) or 0),
+        position.get("eventSlug", ""),
+        position.get("endDate", ""),
+        position_type,
+        datetime.now(timezone.utc).isoformat(),
+        position.get("timestamp"),
     )
+
+
+def record_wallet_pnl(wallet: str, position: dict, position_type: str) -> None:
+    """Record a wallet's position P&L data (open or closed)."""
+    conn = get_db()
+    conn.execute(_WALLET_PNL_INSERT, _wallet_pnl_row(wallet, position, position_type))
     conn.commit()
+
+
+def replace_wallet_pnl_by_type(wallet: str, position_type: str, positions: list[dict]) -> None:
+    """Atomically replace a wallet's cached positions of one type (delete +
+    insert in a single transaction), so a reader never sees the wallet
+    emptied mid-refresh."""
+    conn = get_db()
+    with conn:
+        conn.execute(
+            "DELETE FROM wallet_pnl WHERE wallet = ? AND position_type = ?",
+            (wallet.lower(), position_type),
+        )
+        conn.executemany(
+            _WALLET_PNL_INSERT,
+            [_wallet_pnl_row(wallet, pos, position_type) for pos in positions],
+        )
 
 
 def get_wallet_pnl_latest_timestamp(wallet: str, position_type: str) -> int | None:

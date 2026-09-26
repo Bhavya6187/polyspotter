@@ -18,7 +18,6 @@ import time
 import requests
 from detection_strategies import DetectionStrategy, Signal
 from db import (
-    clear_wallet_pnl_by_type,
     get_unresolved_condition_ids,
     get_unresolved_bets_for_condition,
     get_wallet_stats,
@@ -27,6 +26,7 @@ from db import (
     mark_bets_resolved_bulk,
     record_tracked_bet,
     record_wallet_pnl,
+    replace_wallet_pnl_by_type,
 )
 
 # ---------------------------------------------------------------------------
@@ -67,9 +67,12 @@ def _fetch_wallet_pnl(wallet: str) -> None:
         return
     _pnl_fetched.add(wallet.lower())
 
-    # -- Open positions: clear and re-fetch (they change frequently) --
-    clear_wallet_pnl_by_type(wallet, "open")
-    _fetch_positions_page(wallet, "positions", "open", limit=50)
+    # -- Open positions: re-fetch, then replace (they change frequently).
+    # Fetch first: wiping before a failed fetch left the wallet with
+    # total_positions=0, which reads as a brand-new wallet downstream.
+    open_positions = _fetch_open_positions(wallet)
+    if open_positions is not None:
+        replace_wallet_pnl_by_type(wallet, "open", open_positions)
 
     # -- Closed positions: incremental fetch --
     latest_ts = get_wallet_pnl_latest_timestamp(wallet, "closed")
@@ -81,6 +84,24 @@ def _fetch_wallet_pnl(wallet: str) -> None:
         # First time seeing this wallet — backfill up to MAX_PNL_POSITIONS
         _fetch_positions_page(wallet, "closed-positions", "closed",
                               limit=MAX_PNL_POSITIONS)
+
+
+def _fetch_open_positions(wallet: str, limit: int = 50) -> list[dict] | None:
+    """Fetch a wallet's open positions (first ``limit``). Returns None if the
+    request failed, so the caller keeps the previously cached rows."""
+    time.sleep(PNL_FETCH_DELAY)
+    try:
+        resp = requests.get(
+            f"{DATA_API}/positions",
+            params={"user": wallet, "limit": limit, "offset": 0},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return None
+        positions = resp.json()
+    except (requests.RequestException, ValueError):
+        return None
+    return positions if isinstance(positions, list) else None
 
 
 def _fetch_positions_page(wallet: str, endpoint: str, position_type: str,
