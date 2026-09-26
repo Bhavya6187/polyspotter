@@ -7,7 +7,7 @@
 #   2 grader    scripts/run_grade_worker_loop.sh       every 30 min
 #   3 seo       scripts/run_seo_worker_loop.sh         every 10 min
 #
-# results loop (run_result_pipeline_loop.sh) retired 2026-06-16 — do not re-add.
+# results loop retired 2026-06-16 and its code removed — do not re-add.
 #
 # Usage:
 #     ./scripts/start_bots.sh    # start detached; refuses if "bots" already exists
