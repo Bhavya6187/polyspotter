@@ -48,8 +48,10 @@ FUNDER_LOOKUP_DELAY = 0.25  # seconds between Etherscan calls
 MIN_SHARED_WALLETS = 2  # flag when >= N wallets share the same funder
 MAX_FUNDER_CHILDREN = 20  # skip funders with >= N children (likely exchange hot wallets)
 
-# In-memory cache for the current run (avoids repeated DB reads within a run)
-_funder_cache: dict[str, str | None] = {}
+# In-memory cache for the current run (avoids repeated DB reads within a run).
+# Only positive results are cached here: a None must go back to the DB so the
+# NULL row's retry window (NULL_FUNDER_MAX_AGE_HOURS) governs re-lookups.
+_funder_cache: dict[str, str] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -123,11 +125,11 @@ def _get_first_funder(address: str) -> str | None:
         short_f = f"{db_funder[:8]}...{db_funder[-6:]}" if db_funder else "?"
         if config.VERBOSE:
             print(f"    [cluster] {short} funded by {short_f} (from DB)")
-        _funder_cache[address] = db_funder
+        if db_funder:
+            _funder_cache[address] = db_funder
         return db_funder
 
     if not ETHERSCAN_API_KEY:
-        _funder_cache[address] = None
         return None
 
     time.sleep(FUNDER_LOOKUP_DELAY)
@@ -170,7 +172,6 @@ def _get_first_funder(address: str) -> str | None:
     # actually succeeded.  On API errors (rate limit, timeout, etc.),
     # skip caching so the wallet is retried on the next run.
     if api_succeeded:
-        _funder_cache[address] = None
         save_funder(address, None)
     return None
 

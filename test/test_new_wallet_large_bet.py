@@ -624,5 +624,41 @@ class TestProfileLookupFailure(unittest.TestCase):
         self.assertEqual(_wallet_cache, {})
 
 
+class TestProfileNegativeCacheExpires(unittest.TestCase):
+    """A 404 (no profile) used to be cached in memory as "new wallet" until
+    the scanner restarted; it must be re-checked after NEGATIVE_TTL_S."""
+
+    WALLET = "0xabc123def456abc123def456abc123def456abcd"
+
+    def setUp(self):
+        _wallet_cache.clear()
+
+    def tearDown(self):
+        _wallet_cache.clear()
+
+    @patch("detection_strategies.new_wallet_large_bet.PROFILE_LOOKUP_DELAY", 0)
+    @patch("detection_strategies.new_wallet_large_bet.requests.get")
+    def test_profile_404_not_cached_forever(self, mock_get):
+        from detection_strategies import new_wallet_large_bet as nw
+
+        not_found = MagicMock(status_code=404)
+        found = MagicMock(status_code=200)
+        found.json.return_value = {"createdAt": "2024-01-01T00:00:00Z", "pseudonym": "old-hand"}
+        mock_get.side_effect = [not_found, found]
+
+        t0 = 1_800_000_000.0
+        with patch.object(nw.time, "time", return_value=t0):
+            self.assertEqual(nw.get_wallet_profile(self.WALLET), (None, {}))
+        with patch.object(nw.time, "time", return_value=t0 + nw.NEGATIVE_TTL_S - 1):
+            self.assertEqual(nw.get_wallet_profile(self.WALLET), (None, {}))
+        self.assertEqual(mock_get.call_count, 1)
+
+        with patch.object(nw.time, "time", return_value=t0 + nw.NEGATIVE_TTL_S + 1):
+            created_at, profile = nw.get_wallet_profile(self.WALLET)
+        self.assertEqual(mock_get.call_count, 2)
+        self.assertEqual(profile["pseudonym"], "old-hand")
+        self.assertFalse(nw.is_new_wallet(created_at))
+
+
 if __name__ == "__main__":
     unittest.main()

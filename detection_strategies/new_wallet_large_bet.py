@@ -11,6 +11,7 @@ are escalated with higher severity on subsequent runs.
 
 from __future__ import annotations
 
+import math
 import sys
 import time
 from datetime import datetime, timezone, timedelta
@@ -32,11 +33,15 @@ from db import (
 GAMMA_API = "https://gamma-api.polymarket.com"
 WALLET_AGE_DAYS = 30
 PROFILE_LOOKUP_DELAY = 0.25  # seconds between profile lookups
+# A "no profile" (404) answer is re-checked after this long: profiles get
+# created, and a 404 cached until restart kept an established wallet "new".
+NEGATIVE_TTL_S = 6 * 3600
 
 # ---------------------------------------------------------------------------
-# Wallet profile cache:  address -> (created_at, profile dict)
+# Wallet profile cache:  address -> ((created_at, profile dict), expires_at)
+# expires_at is a time.time() deadline (math.inf for found profiles).
 # ---------------------------------------------------------------------------
-_wallet_cache: dict[str, tuple[datetime | None, dict]] = {}
+_wallet_cache: dict[str, tuple[tuple[datetime | None, dict], float]] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -51,10 +56,11 @@ def get_wallet_profile(address: str) -> tuple[datetime | None, dict] | None:
     not treat that as "new wallet" (a Gamma outage would flag every wallet
     in the batch and permanently inflate its repeat-flag counter)."""
     short = f"{address[:8]}...{address[-6:]}"
-    if address in _wallet_cache:
+    cached = _wallet_cache.get(address)
+    if cached is not None and time.time() < cached[1]:
         if config.VERBOSE:
             print(f"    [cache hit] {short}")
-        return _wallet_cache[address]
+        return cached[0]
 
     if config.VERBOSE:
         print(f"    [lookup] Fetching profile for {short} ...")
@@ -69,7 +75,7 @@ def get_wallet_profile(address: str) -> tuple[datetime | None, dict] | None:
         if resp.status_code == 404:
             if config.VERBOSE:
                 print(f"    [lookup] {short} — no profile found (treating as new)")
-            _wallet_cache[address] = (None, {})
+            _wallet_cache[address] = ((None, {}), time.time() + NEGATIVE_TTL_S)
             return (None, {})
         resp.raise_for_status()
         profile = resp.json()
@@ -89,7 +95,7 @@ def get_wallet_profile(address: str) -> tuple[datetime | None, dict] | None:
     age = wallet_age_str(created_at)
     if config.VERBOSE:
         print(f'    [lookup] {short} — "{pseudonym}", age: {age}')
-    _wallet_cache[address] = (created_at, profile)
+    _wallet_cache[address] = ((created_at, profile), math.inf)
     return (created_at, profile)
 
 
