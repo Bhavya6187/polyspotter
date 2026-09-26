@@ -11,12 +11,14 @@ const RESOLVE_OPTIONS = [
 
 const SEVERITY_OPTIONS = [
   { label: "All", value: "" },
+  // Thresholds track StrengthMeter.scoreToRating bands (composite score
+  // scale was halved in 2026-07): 6 = 3 bars, 8 = 4 bars, 10.5 = 5 bars.
   { label: "Medium+", value: "6" },
-  { label: "Strong+", value: "10" },
-  { label: "Very Strong", value: "15" },
+  { label: "Strong+", value: "8" },
+  { label: "Very Strong", value: "10.5" },
 ];
 
-const SEVERITY_LABELS = { "6": "Medium+", "10": "Strong+", "15": "Very Strong" };
+const SEVERITY_LABELS = { "6": "Medium+", "8": "Strong+", "10.5": "Very Strong" };
 const RESOLVE_LABELS = { "6h": "< 6h", "24h": "< 24h", "7d": "< 7d" };
 
 function Pill({ label, active, onClick }) {

@@ -20,7 +20,8 @@ import math
 from collections import defaultdict
 
 from detection_strategies import DetectionStrategy, Signal
-from db import get_cached_funder
+from detection_strategies.wallet_clustering import MAX_FUNDER_CHILDREN
+from db import get_cached_funder, get_wallets_by_funder
 from gamma_cache import get_market_by_condition
 
 # ---------------------------------------------------------------------------
@@ -152,7 +153,15 @@ class ConcentratedOneSidedStrategy(DetectionStrategy):
                 if funder:
                     funders.setdefault(funder, []).append(w)
 
-            shared_funders = {f: ws for f, ws in funders.items() if len(ws) >= 2}
+            # A funder with many known children is a Polymarket relayer or an
+            # exchange hot wallet, not one person funding sock puppets. Apply
+            # the same MAX_FUNDER_CHILDREN guard wallet_clustering uses;
+            # without it ~50 relayer addresses (95% of cached funders) made
+            # unrelated wallets read as "linked" in headlines and tweets.
+            shared_funders = {
+                f: ws for f, ws in funders.items()
+                if len(ws) >= 2 and len(get_wallets_by_funder(f)) < MAX_FUNDER_CHILDREN
+            }
             if shared_funders:
                 n_shared = sum(len(ws) for ws in shared_funders.values())
                 severity = min(8.0, severity + 1.5)

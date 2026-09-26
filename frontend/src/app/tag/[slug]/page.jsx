@@ -7,12 +7,14 @@ import { marketSlug } from "../../../lib/slugify";
 import { API_URL } from "../../../lib/apiBase";
 
 const VALID_RESOLVES = new Set(["6h", "24h", "7d"]);
-const VALID_SEVERITIES = new Set(["6", "10", "15"]);
+const VALID_SEVERITIES = new Set(["6", "8", "10.5"]);
 
 export const revalidate = 60;
 
 function tagFromSlug(slug) {
-  return decodeURIComponent(slug).replace(/-/g, " ");
+  // `slug` arrives already percent-decoded from the router; decoding it again
+  // throws URIError for tags with a literal "%" (e.g. "Earn 4%").
+  return slug.replace(/-/g, " ");
 }
 
 function tagDisplayName(tag) {

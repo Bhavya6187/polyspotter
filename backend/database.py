@@ -136,6 +136,7 @@ def init_db():
             _migrate_add_articles(cur)
             _migrate_add_events_table(cur)
             _migrate_add_graded_calls(cur)
+            _migrate_add_grade_attempts(cur)
             _migrate_add_subscribers(cur)
             _migrate_add_digests(cur)
             _migrate_add_seo_skip(cur)
@@ -356,6 +357,20 @@ def _migrate_add_graded_calls(cur):
     cur.execute("""
         CREATE INDEX IF NOT EXISTS idx_graded_calls_resolved
             ON graded_calls(resolved_at DESC)
+    """)
+
+
+def _migrate_add_grade_attempts(cur):
+    """Create grade_attempts (idempotent): per-market memory of failed grading
+    passes so grade_worker backs off and eventually abandons markets it can
+    never grade instead of retrying them at the front of the queue forever."""
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS grade_attempts (
+            condition_id    TEXT PRIMARY KEY,
+            attempts        INTEGER NOT NULL DEFAULT 0,
+            last_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            last_reason     TEXT
+        )
     """)
 
 

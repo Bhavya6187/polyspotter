@@ -1,17 +1,19 @@
 import { cache } from "react";
 import Link from "next/link";
 import MarketPageClient from "./market-page-client";
-import { partialIdFromSlug, marketSlug } from "../../../lib/slugify";
+import { partialIdFromSlug, titleSlugFromSlug, marketSlug } from "../../../lib/slugify";
 import { API_URL } from "../../../lib/apiBase";
 
 export const revalidate = 60;
 
-async function resolveConditionId(partialId) {
+async function resolveConditionId(partialId, titleSlug) {
   if (/^0x[a-fA-F0-9]{64}$/.test(partialId)) return partialId;
   try {
     // The prefix -> condition_id mapping never changes once an alert exists,
     // and Next only caches 200s, so a miss is retried on the next render.
-    const res = await fetch(`${API_URL}/api/market/resolve/${partialId}`, {
+    // The title slug disambiguates colliding 5-hex prefixes (~1,150 markets).
+    const qs = titleSlug ? `?slug=${encodeURIComponent(titleSlug)}` : "";
+    const res = await fetch(`${API_URL}/api/market/resolve/${partialId}${qs}`, {
       next: { revalidate: 86400 },
     });
     if (res.ok) {
@@ -33,8 +35,8 @@ async function resolveConditionId(partialId) {
 // (served from the Next data cache; no backend or database work).
 const CLOSED_REVALIDATE = 3600;
 
-const loadMarketPage = cache(async (partialId) => {
-  const conditionId = await resolveConditionId(partialId);
+const loadMarketPage = cache(async (partialId, titleSlug) => {
+  const conditionId = await resolveConditionId(partialId, titleSlug);
 
   // /live first: it is the freshness signal (open vs closed) that decides how
   // long everything else may be cached.
@@ -155,13 +157,14 @@ const loadMarketPage = cache(async (partialId) => {
 export async function generateMetadata({ params }) {
   const { id } = await params;
   const partialId = partialIdFromSlug(id);
+  const titleSlug = titleSlugFromSlug(id);
   const {
     conditionId,
     title,
     alerts,
     seoTitle,
     seoDescription,
-  } = await loadMarketPage(partialId);
+  } = await loadMarketPage(partialId, titleSlug);
 
   const alertCount = alerts.length;
   const totalUsd = alerts.reduce((sum, a) => sum + (a.total_usd || 0), 0);
@@ -214,6 +217,7 @@ export async function generateMetadata({ params }) {
 export default async function MarketPage({ params }) {
   const { id } = await params;
   const partialId = partialIdFromSlug(id);
+  const titleSlug = titleSlugFromSlug(id);
   const {
     conditionId,
     title,
@@ -227,7 +231,7 @@ export default async function MarketPage({ params }) {
     eventTitle,
     seoSummary,
     seoFaqs,
-  } = await loadMarketPage(partialId);
+  } = await loadMarketPage(partialId, titleSlug);
 
   const alertCount = alerts.length;
   const totalUsd = alerts.reduce((sum, a) => sum + (a.total_usd || 0), 0);

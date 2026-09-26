@@ -254,3 +254,27 @@ def test_publish_tweet_bad_argv_returns_2(monkeypatch):
     import publish_tweet as pt
     assert pt.main([]) == 2
     assert pt.main(["a", "b"]) == 2
+
+
+def test_publish_tweet_honors_dry_run(tmp_path, monkeypatch):
+    """DRY_RUN=true must never post or record; the draft stays on disk.
+    publish_article.py already behaves this way; publish_tweet hardcoded
+    dry_run=False, so `DRY_RUN=true python storybot/publish_tweet.py <id>`
+    posted for real."""
+    drafts_dir, live_dir = _write_fixture_files(tmp_path, "abc12345")
+    pt = _patch_publisher(monkeypatch, drafts_dir, live_dir)
+    monkeypatch.setenv("DRY_RUN", "true")
+    monkeypatch.setattr(pt, "_build_twitter_client", lambda: MagicMock())
+    monkeypatch.setattr(pt, "_build_twitter_api_v1", lambda: MagicMock())
+
+    posted = {}
+    monkeypatch.setattr(pt, "post_tweet", lambda *a, **kw: posted.setdefault("called", True))
+    recorded = {}
+    monkeypatch.setattr(pt, "record_tweet", lambda *a, **kw: recorded.setdefault("called", True))
+
+    rc = pt.main(["abc12345"])
+
+    assert rc == 0
+    assert posted == {}
+    assert recorded == {}
+    assert (drafts_dir / "abc12345.txt").exists()

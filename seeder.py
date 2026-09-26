@@ -655,10 +655,19 @@ def _generate_thesis_headline(thesis: dict) -> str | None:
         return None
 
 
-def push_to_backend(signals: list[Signal], trades: list[dict]) -> int:
+def _ingest_headers() -> dict[str, str]:
+    """Shared-secret header for POST /api/ingest. Read at call time so a
+    token added to .env takes effect on the next scan without a restart."""
+    token = os.environ.get("POLYBOT_INGEST_TOKEN", "").strip()
+    return {"X-Ingest-Token": token} if token else {}
+
+
+def push_to_backend(signals: list[Signal], trades: list[dict]) -> int | None:
     """Build the payload and POST it to the backend ingest endpoint.
 
-    Returns the number of alerts actually pushed (after LLM filtering)."""
+    Returns the number of alerts actually pushed (after LLM filtering), 0 when
+    there was nothing to push, or None when the POST itself failed so the
+    caller can hold the scan cursor and retry the window."""
     if not signals:
         print("[seeder] No signals to push.")
         return 0
@@ -703,6 +712,7 @@ def push_to_backend(signals: list[Signal], trades: list[dict]) -> int:
         resp = requests.post(
             ingest_url,
             json=payload,
+            headers=_ingest_headers(),
             timeout=120,
         )
         resp.raise_for_status()
@@ -716,4 +726,4 @@ def push_to_backend(signals: list[Signal], trades: list[dict]) -> int:
         return n_alerts
     except requests.RequestException as e:
         print(f"[seeder] ERROR pushing to backend: {e}", file=sys.stderr)
-        return 0
+        return None

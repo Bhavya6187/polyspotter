@@ -18,8 +18,17 @@ MARKET_LOOKUP_DELAY = 0.15
 # Tag ID that Polymarket uses for all sports markets.
 SPORTS_TAG_ID = "1"
 
-# Single shared cache: conditionId -> market dict
+# The scanner process runs for weeks. Market metadata (volume24hr, liquidity,
+# outcomePrices, endDate, closed) must expire or every volume/liquidity-based
+# strategy keeps reading the value from the market's first sighting: before
+# this TTL one market logged 32 identical volume snapshots over 27 days while
+# still trading. Keep this at or below pre_event_volume_spike's 30-minute
+# snapshot interval.
+MARKET_CACHE_TTL_SECONDS = 900
+
+# Single shared cache: conditionId -> market dict, plus when it was fetched.
 _market_cache: dict[str, dict] = {}
+_market_fetched_at: dict[str, float] = {}
 
 # Event tag cache: event_id (str) -> list of tag dicts (with id, label, slug)
 _event_tags_cache: dict[str, list[dict]] = {}
@@ -28,6 +37,13 @@ _event_tags_cache: dict[str, list[dict]] = {}
 def invalidate_market(condition_id: str) -> None:
     """Remove a cached market entry so the next lookup fetches fresh data."""
     _market_cache.pop(condition_id, None)
+    _market_fetched_at.pop(condition_id, None)
+
+
+def _is_fresh(condition_id: str) -> bool:
+    fetched_at = _market_fetched_at.get(condition_id)
+    # Entries placed directly into _market_cache (no timestamp) never expire.
+    return fetched_at is None or (time.time() - fetched_at) < MARKET_CACHE_TTL_SECONDS
 
 
 def get_market_by_condition(condition_id: str) -> dict | None:
@@ -40,9 +56,12 @@ def get_market_by_condition(condition_id: str) -> dict | None:
     game_start_time for concluded sports events and keeps them from
     lingering as 'zombie' alerts in Top 3.
 
-    Results are cached so repeated calls across strategies are free."""
-    if condition_id in _market_cache:
-        return _market_cache[condition_id]
+    Results are cached for MARKET_CACHE_TTL_SECONDS so repeated calls across
+    strategies within a scan are free. If a refresh fails the stale entry is
+    served rather than turning a known market into None mid-scan."""
+    cached = _market_cache.get(condition_id)
+    if cached is not None and _is_fresh(condition_id):
+        return cached
 
     for params in (
         {"condition_ids": condition_id},
@@ -55,11 +74,12 @@ def get_market_by_condition(condition_id: str) -> dict | None:
             markets = resp.json()
             if markets:
                 _market_cache[condition_id] = markets[0]
+                _market_fetched_at[condition_id] = time.time()
                 return markets[0]
         except requests.RequestException as e:
             print(f"[WARN] Market lookup failed for condition {condition_id}: {e}", file=sys.stderr)
             continue
-    return None
+    return cached
 
 
 def _get_event_id(market: dict) -> str | None:

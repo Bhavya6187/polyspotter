@@ -7,6 +7,8 @@
  *   - default: "Send feedback" text + X icon (used on pages with room)
  *   - compact: icons only (used on dense nav rows like market/wallet pages)
  */
+import Link from "next/link";
+
 export default function HeaderActions({ variant = "default" }) {
   const compact = variant === "compact";
 
@@ -36,7 +38,7 @@ export default function HeaderActions({ variant = "default" }) {
         </svg>
         {!compact && <span className="hidden md:inline">Blog</span>}
       </a>
-      <a
+      <Link
         href="/digest"
         className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:opacity-80"
         style={{ color: "var(--text-muted)" }}
@@ -58,7 +60,7 @@ export default function HeaderActions({ variant = "default" }) {
           <path d="M3 9h18M8 2v4M16 2v4M7 13h6M7 17h4" />
         </svg>
         {!compact && <span className="hidden md:inline">Digest</span>}
-      </a>
+      </Link>
       <a
         href="mailto:feedback@polyspotter.com"
         className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:opacity-80"

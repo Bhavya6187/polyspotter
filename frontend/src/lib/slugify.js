@@ -22,3 +22,12 @@ export function partialIdFromSlug(slug) {
   const match = slug.match(/(0x[a-fA-F0-9]+)$/);
   return match ? match[1] : slug;
 }
+
+/**
+ * Extract the title part of a market slug (everything before the trailing
+ * "-0x…" short id). Sent to /api/market/resolve as `slug` so colliding
+ * 5-hex-char prefixes (~1,150 of them) resolve to the right market.
+ */
+export function titleSlugFromSlug(slug) {
+  return slug.replace(/-?0x[a-fA-F0-9]+$/, "");
+}

@@ -18,6 +18,17 @@ set -u
 set -o pipefail
 
 INTERVAL_SECONDS="${INTERVAL_SECONDS:-3600}"  # 1 hour
+CLAUDE_TIMEOUT_SECONDS="${CLAUDE_TIMEOUT_SECONDS:-900}"   # hard cap on the headless edit step
+MAX_CONSECUTIVE_EDIT_FAILURES="${MAX_CONSECUTIVE_EDIT_FAILURES:-3}"
+consecutive_edit_failures=0
+
+# The headless `claude -p` edit step fails outright when the CLI's OAuth
+# session has expired (Sep 2026: every run for 11 days, no tweet published,
+# nothing alarmed because the loop just kept sleeping). Check before editing
+# so the log says why.
+claude_logged_in() {
+    claude auth status 2>/dev/null | grep -q '"loggedIn": *true'
+}
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_DIR="$PROJECT_ROOT/storybot/logs"
@@ -46,6 +57,10 @@ while true; do
 
     if [[ "$pipeline_status" -ne 0 ]]; then
         echo "[loop] twitter_pipeline.py exited $pipeline_status — skipping this iteration" | tee -a "$LOG_FILE"
+    elif [[ "${DRY_RUN:-false}" == "true" ]]; then
+        # Dry-run drafts land in storybot/dry_runs/ and must never reach the
+        # edit/publish chain (publish_tweet.py also refuses under DRY_RUN).
+        echo "[loop] DRY_RUN=true — draft (if any) left in dry_runs/, not editing or publishing" | tee -a "$LOG_FILE"
     else
         run_id=$(echo "$output" \
             | grep -oP '\[twitter_pipeline\] draft run_id=\K[a-f0-9]+' || true)
@@ -81,7 +96,17 @@ Refer to validate_tweet and validate_tweet_anchor in @storybot/twitter_pipeline.
             # resolves to. In Jun 2026 that default flipped to a model this account
             # can't access (claude-fable-5), the edit step exited non-zero, and the
             # loop silently stopped publishing for days. Pin a model we always have.
-            if claude -p "$prompt" --model claude-opus-4-8 --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"; then
+            if ! claude_logged_in; then
+                echo "[loop] ERROR: claude CLI is not logged in (run: claude auth login) — not editing or publishing run_id=$run_id" | tee -a "$LOG_FILE"
+                edit_ok=1
+            elif timeout "$CLAUDE_TIMEOUT_SECONDS" claude -p "$prompt" --model claude-opus-4-8 --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"; then
+                edit_ok=0
+            else
+                edit_ok=1
+            fi
+
+            if [[ "$edit_ok" -eq 0 ]]; then
+                consecutive_edit_failures=0
                 if python storybot/publish_tweet.py "$run_id" 2>&1 | tee -a "$LOG_FILE"; then
                     # remove draft after success — enforces idempotency.
                     # See the NOTE comment in storybot/publish_tweet.py.
@@ -91,7 +116,14 @@ Refer to validate_tweet and validate_tweet_anchor in @storybot/twitter_pipeline.
                     echo "[loop] publish_tweet failed for run_id=$run_id — draft preserved on disk" | tee -a "$LOG_FILE"
                 fi
             else
-                echo "[loop] claude edit failed for run_id=$run_id — not publishing. Draft remains on disk." | tee -a "$LOG_FILE"
+                consecutive_edit_failures=$((consecutive_edit_failures + 1))
+                echo "[loop] claude edit failed for run_id=$run_id (${consecutive_edit_failures}/${MAX_CONSECUTIVE_EDIT_FAILURES} consecutive) — not publishing. Draft remains on disk." | tee -a "$LOG_FILE"
+                if (( consecutive_edit_failures >= MAX_CONSECUTIVE_EDIT_FAILURES )); then
+                    # Die loudly instead of sleeping forever: under start_bots.sh's
+                    # zombie mode the window stays open showing this message.
+                    echo "[loop] FATAL: ${consecutive_edit_failures} consecutive claude edit failures — exiting so the outage is visible. Fix auth (claude auth login) and press r to relaunch." | tee -a "$LOG_FILE"
+                    exit 1
+                fi
             fi
         fi
     fi

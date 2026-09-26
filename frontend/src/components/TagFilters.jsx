@@ -12,9 +12,11 @@ const RESOLVE_OPTIONS = [
 
 const SEVERITY_OPTIONS = [
   { label: "All", value: "" },
+  // Thresholds track StrengthMeter.scoreToRating bands (composite score
+  // scale was halved in 2026-07): 6 = 3 bars, 8 = 4 bars, 10.5 = 5 bars.
   { label: "Medium+", value: "6" },
-  { label: "Strong+", value: "10" },
-  { label: "Very Strong", value: "15" },
+  { label: "Strong+", value: "8" },
+  { label: "Very Strong", value: "10.5" },
 ];
 
 function buildHref(slug, params) {

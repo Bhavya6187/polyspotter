@@ -38,6 +38,11 @@ AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
 MODEL = os.environ.get("AZURE_OPENAI_MODEL", "")
 PROMPT_LOG_FILE = Path(__file__).parent / "llm_prompts.jsonl"
 FAILURE_LOG_FILE = Path(__file__).parent / "llm_failures.jsonl"
+# Every GPT call appends its full prompt (~10 KB of system prompt + market
+# context) to llm_prompts.jsonl; unrotated it reached 4.3 GB. When the file
+# passes this size it is renamed to llm_prompts.jsonl.1 (one generation kept
+# for compare_models.py) and a fresh file is started.
+PROMPT_LOG_MAX_BYTES = int(os.environ.get("LLM_PROMPT_LOG_MAX_MB", "256")) * 1024 * 1024
 
 # Serializes appends to the JSONL log files. Large prompt payloads exceed
 # PIPE_BUF, so concurrent appends from worker threads can interleave bytes
@@ -45,16 +50,27 @@ FAILURE_LOG_FILE = Path(__file__).parent / "llm_failures.jsonl"
 _LOG_LOCK = threading.Lock()
 
 
+def _rotate_if_needed(path: Path, max_bytes: int) -> None:
+    """Rename `path` to `path.1` once it reaches max_bytes. Caller holds _LOG_LOCK."""
+    try:
+        if path.exists() and path.stat().st_size >= max_bytes:
+            path.replace(path.with_name(path.name + ".1"))
+    except OSError as e:
+        print(f"[llm_filter] WARNING: could not rotate {path.name}: {e}")
+
+
 def _log_prompt(messages: list[dict], model: str, cache_key: str) -> None:
     """Append a prompt to the JSONL log file for later analysis."""
     entry = {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "model": model,
         "cache_key": cache_key,
         "messages": messages,
     }
-    with _LOG_LOCK, open(PROMPT_LOG_FILE, "a") as f:
-        f.write(json.dumps(entry) + "\n")
+    with _LOG_LOCK:
+        _rotate_if_needed(PROMPT_LOG_FILE, PROMPT_LOG_MAX_BYTES)
+        with open(PROMPT_LOG_FILE, "a") as f:
+            f.write(json.dumps(entry) + "\n")
 
 
 def _log_failure(
@@ -71,7 +87,7 @@ def _log_failure(
     response text, and the failure mode so we can inspect patterns later.
     """
     entry = {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "model": MODEL,
         "cache_key": cache_key,
         "error": error,
@@ -86,7 +102,7 @@ def _log_failure(
 
 SYSTEM_PROMPT = (
     "You are a Polymarket trade analyst. You receive alerts about notable trades "
-    "flagged by 9 automated detection strategies. Your job: decide if this alert "
+    "flagged by 8 automated detection strategies. Your job: decide if this alert "
     "represents a genuinely interesting trade worth surfacing — something a user "
     "would want to copy-trade, follow, or study.\n\n"
 
@@ -564,11 +580,15 @@ def evaluate_alert(alert: dict, alert_text: str | None = None) -> dict:
         "reasoning_tokens": reasoning_tokens,
     }
 
+    # Not a verdict: the model never judged the alert (truncated, content-
+    # filtered, or unparseable). filter_alerts discards these without caching
+    # so a transient failure does not permanently block the cache key.
     inconclusive = {
         "interesting": False,
         "summary": "LLM evaluation inconclusive — discarded by default.",
         "bullets": [],
         "copy_action": {},
+        "inconclusive": True,
     }
 
     text = response.output_text
@@ -592,6 +612,8 @@ def evaluate_alert(alert: dict, alert_text: str | None = None) -> dict:
 
     try:
         result = json.loads(text)
+        if not isinstance(result, dict):
+            raise TypeError(f"expected a JSON object, got {type(result).__name__}")
         return {
             "interesting": bool(result.get("interesting")),
             "summary": result.get("summary", ""),
@@ -599,9 +621,12 @@ def evaluate_alert(alert: dict, alert_text: str | None = None) -> dict:
             "bullets": result.get("bullets", []),
             "copy_action": result.get("copy_action") or {},
         }
-    except (json.JSONDecodeError, KeyError, TypeError) as e:
+    except (json.JSONDecodeError, KeyError, TypeError, AttributeError) as e:
         print(f"[llm_filter] WARNING: Failed to parse LLM response: {e}")
-        _log_failure(cache_key, alert_text, finish_reason, text, usage_dict, error=f"parse_error: {e}")
+        _log_failure(
+            cache_key, alert_text, incomplete_reason or status, text, usage_dict,
+            error=f"parse_error: {e}",
+        )
         return inconclusive
 
 
@@ -840,6 +865,13 @@ def filter_alerts(alerts: list[dict]) -> list[dict]:
         result, error = llm_results[i]
         if error is not None:
             print(f"{prefix} ERROR ({error}) — discarding alert")
+            discarded += 1
+            continue
+
+        if result.get("inconclusive"):
+            # No verdict was reached; discard for this scan but leave the
+            # cache key untouched so the alert is judged properly next time.
+            print(f"{prefix} INCONCLUSIVE — discarding alert (not cached)")
             discarded += 1
             continue
 

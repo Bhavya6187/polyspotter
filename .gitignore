@@ -24,6 +24,8 @@ polybot.log
 storybot/dry_runs/
 storybot/live_runs/
 storybot/result_drafts/
+storybot/twitter_drafts/
+storybot/digests/
 
 # Articlebot drafts (Postgres is the source of truth; files are paste-ready copies)
 storybot/articles/*.md

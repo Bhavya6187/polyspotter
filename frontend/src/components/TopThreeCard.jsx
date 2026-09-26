@@ -19,7 +19,9 @@ const usdCompact = new Intl.NumberFormat("en-US", {
 
 function ifResolvesPct(entryPrice, outcome) {
   if (entryPrice == null || entryPrice <= 0 || entryPrice >= 1) return null;
-  const denom = outcome === "NO" ? 1 - entryPrice : entryPrice;
+  // copy_action.entry_price is already the price of the outcome being copied
+  // (for a "No" call it is the No-side price), so never complement it.
+  const denom = entryPrice;
   if (denom <= 0) return null;
   return Math.round((1 / denom - 1) * 100);
 }
