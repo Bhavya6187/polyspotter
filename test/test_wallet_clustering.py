@@ -1,6 +1,8 @@
 import unittest
 from unittest.mock import patch
 
+import db
+from detection_strategies import wallet_clustering as wc_module
 from detection_strategies.wallet_clustering import WalletClusteringStrategy
 
 
@@ -117,8 +119,11 @@ class TestWalletClusteringStrategy(unittest.TestCase):
 
     @patch("detection_strategies.wallet_clustering.ETHERSCAN_API_KEY", "test_key")
     @patch("detection_strategies.wallet_clustering._get_first_funder")
-    def test_known_sybil_funder_triggers(self, mock_funder, mock_get_wallets, mock_sybils):
-        """Known sybil funder triggers signal with severity 6.0 even without first-pass cluster."""
+    def test_lone_wallet_with_historical_funder_lower_severity(self, mock_funder, mock_get_wallets, mock_sybils):
+        """Loop 2: a lone window wallet whose funder was linked before this
+        window (and was not caught by loop 1) fires at
+        HISTORICAL_LINK_SEVERITY (4.0), below a two-wallet in-window
+        cluster (5.0)."""
         # Each wallet gets a unique funder so first pass finds no clusters
         mock_funder.side_effect = lambda addr: f"funder_of_{addr}"
         # Override known sybil funders to include 0xfunder_a with wallet1 in historical
@@ -128,7 +133,7 @@ class TestWalletClusteringStrategy(unittest.TestCase):
         trades = [self._make_trade("0xwallet1")]
         signals = self.strategy.analyze_all(trades)
         self.assertEqual(len(signals), 1)
-        self.assertEqual(signals[0].severity, 6.0)
+        self.assertEqual(signals[0].severity, 4.0)
         self.assertIn("Known linked funder", signals[0].headline)
 
     @patch("detection_strategies.wallet_clustering.ETHERSCAN_API_KEY", "test_key")
@@ -340,3 +345,81 @@ class TestFunderNegativeCache(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestKnownFunderBoostUsesPriorState(unittest.TestCase):
+    """Handoff 1.3: the +1.0 known-funder boost read get_known_sybil_funders
+    AFTER _get_first_funder had saved this window's funders, so every
+    in-window cluster was 'known' (100% of 1,552 signals over 90 days carried
+    the boost). The class above patches get_known_sybil_funders to {} and
+    _get_first_funder, which hid that; these tests run the real lookup path
+    (Etherscan stubbed) against a scratch database."""
+
+    FUNDER = "0x" + "f" * 40
+
+    def setUp(self):
+        import tempfile
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patches = [
+            patch.object(db, "DB_PATH", f"{tmp.name}/polybot.db"),
+            patch.object(db, "_conn", None),
+            patch.dict(wc_module._funder_cache, {}, clear=True),
+            patch.object(wc_module, "ETHERSCAN_API_KEY", "test_key"),
+            patch.object(wc_module, "FUNDER_LOOKUP_DELAY", 0),
+            patch.object(wc_module, "_query_etherscan", self._fake_etherscan),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        self.addCleanup(self._close)
+        self.strategy = WalletClusteringStrategy()
+
+    def _close(self):
+        if db._conn is not None:
+            db._conn.close()
+            db._conn = None
+
+    def _fake_etherscan(self, address, action, offset=10):
+        if action == "txlist":
+            return [{"to": address, "from": self.FUNDER, "blockNumber": "1"}]
+        return []
+
+    @staticmethod
+    def _wallet(i):
+        return "0x" + f"{i:040x}"
+
+    def _trade(self, wallet):
+        return {
+            "proxyWallet": wallet,
+            "conditionId": "cond_1",
+            "_usd_value": 5000,
+            "transactionHash": f"0xtx_{wallet}",
+        }
+
+    def test_two_wallet_cluster_without_prior_funder_scores_5(self):
+        trades = [self._trade(self._wallet(1)), self._trade(self._wallet(2))]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 1)
+        self.assertIn("2 wallets", signals[0].headline)
+        self.assertEqual(signals[0].severity, 5.0)
+
+    def test_cluster_with_previously_known_funder_scores_6(self):
+        # an earlier run already linked two wallets to this funder
+        db.save_funder(self._wallet(1), self.FUNDER)
+        db.save_funder(self._wallet(2), self.FUNDER)
+        trades = [self._trade(self._wallet(3)), self._trade(self._wallet(4))]
+        signals = self.strategy.analyze_all(trades)
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].severity, 6.0)
+
+    def test_lone_wallet_joining_single_historical_wallet_not_boosted(self):
+        # the funder had one wallet before this window; this window's lookup
+        # makes it two. Loop 1's cross-window branch reports the pair, but
+        # the funder was not a known linked funder before this window.
+        db.save_funder(self._wallet(1), self.FUNDER)
+        signals = self.strategy.analyze_all([self._trade(self._wallet(2))])
+        self.assertEqual(len(signals), 1)
+        self.assertIn("from prior runs", signals[0].headline)
+        self.assertEqual(signals[0].severity, 5.0)
