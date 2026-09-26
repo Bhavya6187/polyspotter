@@ -1,5 +1,14 @@
-requests
-python-dotenv
-openai
-matplotlib
-Pillow
+# Scanner, storybot, twitter_bot and scripts (backend has its own
+# backend/requirements.txt). Pinned to the versions in the production venv.
+dateparser==1.3.0
+jmespath==1.1.0
+matplotlib==3.10.9
+openai==2.29.0
+Pillow==12.2.0
+psycopg2-binary==2.9.11
+python-dotenv==1.2.2
+requests==2.34.2
+tweepy==4.16.0
+
+# Tests
+pytest==9.0.2
