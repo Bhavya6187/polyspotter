@@ -702,9 +702,10 @@ def validate_event_pick(pick: dict, seed_alerts: list[dict]) -> tuple[bool, str]
     if not isinstance(ids, list) or not ids:
         return False, "alert_ids must be a non-empty list when posting"
     try:
-        wanted = {int(i) for i in ids}
+        normalised = [int(i) for i in ids]
     except (TypeError, ValueError):
         return False, f"alert_ids must be integers, got {ids!r}"
+    wanted = set(normalised)
     seed_ids = {int(a.get("id") or 0) for a in seed_alerts}
     missing = wanted - seed_ids
     if missing:
@@ -712,6 +713,9 @@ def validate_event_pick(pick: dict, seed_alerts: list[dict]) -> tuple[bool, str]
     summary = pick.get("event_summary")
     if not isinstance(summary, str) or not summary.strip():
         return False, "event_summary must be a non-empty string when posting"
+    # Normalise in place: publish_tweet requires real ints (the LLM sometimes
+    # returns "123"), and it runs only after the paid edit step.
+    pick["alert_ids"] = normalised
     return True, ""
 
 

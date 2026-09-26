@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import unicodedata
 
 import psycopg2
 import requests
@@ -161,10 +162,42 @@ def format_track_record_closer(n_cashed: int, n_burned: int,
     return f"Recent flags: {int(n_cashed)}-{int(n_burned)}."
 
 
+# X's twitter-text v3 weighting: code points in these ranges weigh 1, all
+# others (CJK, emoji, "…" U+2026, "→" U+2192, ...) weigh 2.
+_LIGHT_RANGES = ((0, 4351), (8192, 8205), (8208, 8223), (8242, 8247))
+# URLs X will auto-link (and count as TWEET_URL_CHARS): anything with a scheme,
+# plus bare domains on common TLDs. Deliberately conservative — over-counting
+# a lookalike only makes the check stricter.
+_WEIGHTED_URL_RE = re.compile(
+    r"https?://\S+"
+    r"|(?<![\w@.])(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+"
+    r"(?:com|net|org|io|co|gov|edu|xyz|ai|app)\b(?:/\S*)?",
+    re.IGNORECASE,
+)
+
+
+def _char_weight(ch: str) -> int:
+    cp = ord(ch)
+    return 1 if any(lo <= cp <= hi for lo, hi in _LIGHT_RANGES) else 2
+
+
+def weighted_length(text: str) -> int:
+    """Tweet length as X counts it: NFC-normalised, weight 1 for code points
+    in _LIGHT_RANGES and 2 otherwise, every URL or bare domain
+    TWEET_URL_CHARS. (Emoji ZWJ sequences count per code point here — X
+    counts them as 2 total — so the check can only err on the strict side.)"""
+    text = unicodedata.normalize("NFC", text)
+    total = 0
+    pos = 0
+    for m in _WEIGHTED_URL_RE.finditer(text):
+        total += sum(_char_weight(c) for c in text[pos:m.start()]) + TWEET_URL_CHARS
+        pos = m.end()
+    return total + sum(_char_weight(c) for c in text[pos:])
+
+
 def _tweet_length(t: str) -> int:
-    """Twitter-counted length: every URL counts as TWEET_URL_CHARS regardless of actual length."""
-    urls = _URL_RE.findall(t)
-    return len(t) - sum(len(u) for u in urls) + TWEET_URL_CHARS * len(urls)
+    """Twitter-counted length (see weighted_length)."""
+    return weighted_length(t)
 
 
 # --- Twitter clients ---------------------------------------------------------
