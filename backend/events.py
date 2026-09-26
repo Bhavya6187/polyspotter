@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 
 import requests as _requests
 
-from database import get_conn
+from database import get_pooled_conn, release_conn
 
 GAMMA_API = "https://gamma-api.polymarket.com"
 GAMMA_TIMEOUT = 10
@@ -94,7 +94,7 @@ def upsert_event(slug: str) -> dict | None:
         return None
     norm = _normalize_event(raw)
 
-    conn = get_conn()
+    conn, pooled = get_pooled_conn()
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -131,7 +131,7 @@ def upsert_event(slug: str) -> dict | None:
         conn.commit()
         return dict(row) if row else None
     finally:
-        conn.close()
+        release_conn(conn, pooled)
 
 
 def get_event_or_fetch(slug: str) -> dict | None:
@@ -140,13 +140,13 @@ def get_event_or_fetch(slug: str) -> dict | None:
     Returns None if Gamma also doesn't recognize the slug. Callers can use
     None to decide whether to noindex / 404 / fall back to a humanized slug.
     """
-    conn = get_conn()
+    conn, pooled = get_pooled_conn()
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT * FROM events WHERE event_slug = %s", (slug,))
             row = cur.fetchone()
     finally:
-        conn.close()
+        release_conn(conn, pooled)
 
     if row is None:
         return upsert_event(slug)

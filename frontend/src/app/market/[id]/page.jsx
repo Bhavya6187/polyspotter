@@ -9,8 +9,10 @@ export const revalidate = 60;
 async function resolveConditionId(partialId) {
   if (/^0x[a-fA-F0-9]{64}$/.test(partialId)) return partialId;
   try {
+    // The prefix -> condition_id mapping never changes once an alert exists,
+    // and Next only caches 200s, so a miss is retried on the next render.
     const res = await fetch(`${API_URL}/api/market/resolve/${partialId}`, {
-      next: { revalidate: 60 },
+      next: { revalidate: 86400 },
     });
     if (res.ok) {
       const data = await res.json();

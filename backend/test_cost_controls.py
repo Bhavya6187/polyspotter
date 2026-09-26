@@ -44,6 +44,11 @@ class FakeConn:
         self.close_calls += 1
         self.closed = 1
 
+    def poll(self):
+        # psycopg2 raises when the server has closed the socket
+        if self.closed:
+            raise RuntimeError("connection already closed")
+
 
 class FakePool:
     def __init__(self, conns):
@@ -76,15 +81,54 @@ def test_pooled_connection_is_returned_not_closed(monkeypatch):
     assert conn.close_calls == 0
 
 
-def test_broken_pooled_connection_is_discarded(monkeypatch):
-    conn = FakeConn()
-    conn.closed = 2  # psycopg2 marks a dead socket as closed != 0
-    pool = FakePool([conn])
+def test_dead_pooled_connection_is_discarded_and_not_handed_out(monkeypatch):
+    dead = FakeConn()
+    dead.closed = 2  # psycopg2 marks a dead socket as closed != 0
+    healthy = FakeConn()
+    pool = FakePool([healthy, dead])  # .pop() hands out `dead` first
     monkeypatch.setattr(database, "_POOL", pool)
 
     got, pooled = database.get_pooled_conn()
-    database.release_conn(got, pooled)
-    assert pool.returned == [(conn, True)]
+    assert got is healthy and pooled is True
+    assert pool.returned == [(dead, True)]  # dead one discarded on the way
+
+
+def test_connection_that_died_while_pooled_is_detected_by_poll(monkeypatch):
+    class DiesOnPoll(FakeConn):
+        def poll(self):
+            self.closed = 2
+            raise RuntimeError("server closed the connection unexpectedly")
+
+    stale = DiesOnPoll()
+    pool = FakePool([stale])
+    monkeypatch.setattr(database, "_POOL", pool)
+    fresh = FakeConn()
+    monkeypatch.setattr(database, "get_conn", lambda: fresh)
+
+    got, pooled = database.get_pooled_conn()
+    assert got is fresh and pooled is False
+    assert pool.returned == [(stale, True)]
+
+
+def test_pool_keeps_warm_connections(monkeypatch):
+    """psycopg2 only keeps `minconn` idle connections; anything returned
+    beyond that is closed. A minconn of 1 would re-handshake under any
+    concurrency, which is what this pool exists to avoid."""
+    created = {}
+
+    class FakeThreadedPool:
+        def __init__(self, minconn, maxconn, dsn, **kwargs):
+            created.update(minconn=minconn, maxconn=maxconn, kwargs=kwargs)
+
+    monkeypatch.setattr(database, "_POOL", None)
+    monkeypatch.setattr(database._pgpool, "ThreadedConnectionPool", FakeThreadedPool)
+    database.warm_pool()
+
+    assert created["minconn"] == database.POOL_MIN >= 2
+    assert created["maxconn"] == database.POOL_MAX >= created["minconn"]
+    assert created["kwargs"]["connect_timeout"] > 0
+    assert created["kwargs"]["keepalives"] == 1
+    monkeypatch.setattr(database, "_POOL", None)
 
 
 def test_exhausted_pool_falls_back_to_fresh_connection(monkeypatch):
@@ -154,6 +198,30 @@ def test_live_market_reports_closed_on_gamma_fallback_path(monkeypatch):
     assert data.closed is True
 
 
+def test_live_market_retries_with_closed_true_when_gamma_hides_market(monkeypatch):
+    """Gamma's /markets omits closed markets unless asked; without the retry
+    every resolved market came back as an empty snapshot with closed=None."""
+    calls = []
+
+    def fake_get(url, params=None, **kwargs):
+        calls.append(dict(params or {}))
+        if params and params.get("closed") == "true":
+            return FakeResp([{
+                "closed": True,
+                "outcomes": "[]",
+                "clobTokenIds": "[]",
+                "outcomePrices": '["1", "0"]',
+            }])
+        return FakeResp([])
+
+    monkeypatch.setattr(app_module._requests, "get", fake_get)
+
+    data = app_module._fetch_live_market("0xsettled")
+    assert data.closed is True
+    assert [c.get("closed") for c in calls] == [None, "true"]
+    assert data.outcomes[0].price == pytest.approx(1.0)
+
+
 def test_live_market_reports_closed_on_clob_path(monkeypatch):
     gamma = [{
         "closed": False,
@@ -194,6 +262,27 @@ def test_closed_markets_are_cached_longer_than_open_ones(monkeypatch):
     closed_expiry = app_module._live_cache["0xclosed"][0]
     assert open_expiry - now <= app_module._LIVE_CACHE_TTL + 1
     assert closed_expiry - now > app_module._LIVE_CACHE_TTL + 60
+
+
+def test_stale_open_market_entry_is_evicted_on_read(monkeypatch):
+    """The live cache's own TTL is the long (closed) one; an open entry that
+    passed its 30s logical expiry must not keep occupying a slot."""
+    app_module._live_cache.clear()
+    fetches = []
+
+    def fake_fetch(cid):
+        fetches.append(cid)
+        return LiveMarketData(condition_id=cid, closed=False)
+
+    monkeypatch.setattr(app_module, "_fetch_live_market", fake_fetch)
+    app_module.get_market_live("0xopen")
+    # age the entry past its logical expiry
+    data = app_module._live_cache["0xopen"][1]
+    app_module._live_cache["0xopen"] = (time.time() - 1, data)
+
+    app_module.get_market_live("0xopen")
+    assert fetches == ["0xopen", "0xopen"]  # refetched
+    assert app_module._live_cache["0xopen"][0] > time.time()  # fresh entry replaced the stale one
 
 
 # ---------------------------------------------------------------------------

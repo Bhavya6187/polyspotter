@@ -14,8 +14,13 @@ const runtimeUrl = process.env.API_URL_SERVER;
 const buildUrl = process.env.API_URL_BUILD;
 const publicUrl = process.env.NEXT_PUBLIC_API_URL;
 
-export const API_URL =
+const resolved =
   (isBuildPhase && (buildUrl || publicUrl)) ||
   runtimeUrl ||
   publicUrl ||
   "http://localhost:8000";
+
+// Consumers build URLs with `${API_URL}/api/...`; a trailing slash would turn
+// that into `//api/...`, which FastAPI 404s. That exact misconfiguration
+// blanked the site once (2026-07), so normalise here rather than trust .env.
+export const API_URL = resolved.replace(/\/+$/, "");

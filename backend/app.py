@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time as _time
 import uuid as _uuid
 from datetime import datetime, timedelta, timezone
@@ -33,7 +34,7 @@ from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, HTMLResponse
 
-from database import get_conn, get_pooled_conn, init_db, release_conn
+from database import get_conn, get_pooled_conn, init_db, release_conn, warm_pool
 from events import get_event_or_fetch
 import sports
 from sports.base import OverlayResponse
@@ -80,6 +81,7 @@ from grading import summarize, exclude_junk, top_categories
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     init_db()
+    warm_pool()
     yield
 
 
@@ -1263,6 +1265,26 @@ _RESOLVING_SOON_TTL = 60  # seconds
 _GAMMA_STATUS_TTL = 60  # seconds
 _gamma_status_cache: TTLCache = TTLCache(maxsize=2000, ttl=_GAMMA_STATUS_TTL)
 
+# cachetools caches are not thread-safe and sync endpoints run on FastAPI's
+# threadpool; TTLCache additionally walks its expiry list on every write. One
+# lock for all the small proxy caches — the critical sections are microseconds.
+_CACHE_LOCK = threading.Lock()
+
+
+def _cache_get(cache, key):
+    with _CACHE_LOCK:
+        return cache.get(key)
+
+
+def _cache_set(cache, key, value) -> None:
+    with _CACHE_LOCK:
+        cache[key] = value
+
+
+def _cache_pop(cache, key) -> None:
+    with _CACHE_LOCK:
+        cache.pop(key, None)
+
 
 def _fetch_gamma_status(condition_ids: list[str]) -> dict[str, dict]:
     """Batch-fetch Gamma market status for the given condition_ids.
@@ -1275,7 +1297,7 @@ def _fetch_gamma_status(condition_ids: list[str]) -> dict[str, dict]:
     out: dict[str, dict] = {}
     to_fetch: list[str] = []
     for cid in condition_ids:
-        cached = _gamma_status_cache.get(cid)
+        cached = _cache_get(_gamma_status_cache, cid)
         if cached and cached[0] > now:
             out[cid] = cached[1]
         else:
@@ -1303,7 +1325,7 @@ def _fetch_gamma_status(condition_ids: list[str]) -> dict[str, dict]:
                 "game_start_time": m.get("gameStartTime"),
             }
             out[cid] = info
-            _gamma_status_cache[cid] = (now + _GAMMA_STATUS_TTL, info)
+            _cache_set(_gamma_status_cache, cid, (now + _GAMMA_STATUS_TTL, info))
 
     for attempt_params in ({}, {"closed": "true"}):
         if not to_fetch:
@@ -1824,13 +1846,21 @@ _holders_cache: TTLCache = TTLCache(maxsize=1000, ttl=_HOLDERS_CACHE_TTL)
 def _fetch_live_market(condition_id: str) -> LiveMarketData:
     """Fetch live prices from Gamma + CLOB APIs for a market."""
     # 1. Get market metadata from Gamma (token IDs, outcomes, volume)
-    gamma_resp = _requests.get(
-        f"{GAMMA_API}/markets",
-        params={"condition_ids": condition_id},
-        timeout=10,
-    )
-    gamma_resp.raise_for_status()
-    markets = gamma_resp.json()
+    # Gamma's /markets hides closed markets by default: an empty first answer
+    # usually means "settled", not "unknown". Retry with closed=true (as
+    # _fetch_gamma_status does) so resolved markets come back with closed=True
+    # and their final prices instead of an empty snapshot.
+    markets = []
+    for extra in ({}, {"closed": "true"}):
+        gamma_resp = _requests.get(
+            f"{GAMMA_API}/markets",
+            params={"condition_ids": condition_id, **extra},
+            timeout=10,
+        )
+        gamma_resp.raise_for_status()
+        markets = gamma_resp.json()
+        if markets:
+            break
     if not markets:
         return LiveMarketData(condition_id=condition_id)
 
@@ -1938,9 +1968,14 @@ def get_market_live(condition_id: str):
     Returns current midpoint prices for each outcome, plus market metadata.
     Cached for 30 seconds to avoid hammering upstream APIs."""
     now = _time.time()
-    cached = _live_cache.get(condition_id)
+    cached = _cache_get(_live_cache, condition_id)
     if cached and cached[0] > now:
         return cached[1]
+    if cached:
+        # Open-market entries go logically stale after 30s but the cache's own
+        # TTL is the closed-market one; free the slot instead of letting stale
+        # open entries crowd out the closed markets worth holding.
+        _cache_pop(_live_cache, condition_id)
 
     try:
         data = _fetch_live_market(condition_id)
@@ -1948,7 +1983,7 @@ def get_market_live(condition_id: str):
         raise HTTPException(status_code=502, detail=f"Upstream API error: {e}")
 
     ttl = _LIVE_CACHE_TTL_CLOSED if data.closed else _LIVE_CACHE_TTL
-    _live_cache[condition_id] = (now + ttl, data)
+    _cache_set(_live_cache, condition_id, (now + ttl, data))
     return data
 
 
@@ -1997,7 +2032,7 @@ def get_price_history(
     Proxies CLOB /prices-history. Cached for 60 seconds."""
     cache_key = f"{condition_id}:{range}"
     now = _time.time()
-    cached = _price_history_cache.get(cache_key)
+    cached = _cache_get(_price_history_cache, cache_key)
     if cached and cached[0] > now:
         return cached[1]
 
@@ -2034,7 +2069,7 @@ def get_price_history(
         outcome=leading.name,
         history=points,
     )
-    _price_history_cache[cache_key] = (now + _PRICE_HISTORY_CACHE_TTL, data)
+    _cache_set(_price_history_cache, cache_key, (now + _PRICE_HISTORY_CACHE_TTL, data))
     return data
 
 
@@ -2044,7 +2079,7 @@ def get_market_holders(condition_id: str):
 
     Proxies Polymarket Data API /positions. Cached for 5 minutes."""
     now = _time.time()
-    cached = _holders_cache.get(condition_id)
+    cached = _cache_get(_holders_cache, condition_id)
     if cached and cached[0] > now:
         return cached[1]
 
@@ -2108,7 +2143,7 @@ def get_market_holders(condition_id: str):
         ))
 
     data = MarketHoldersData(condition_id=condition_id, holders=holders)
-    _holders_cache[condition_id] = (now + _HOLDERS_CACHE_TTL, data)
+    _cache_set(_holders_cache, condition_id, (now + _HOLDERS_CACHE_TTL, data))
     return data
 
 

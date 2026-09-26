@@ -17,9 +17,21 @@ if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL environment variable is not set")
 
 
+# libpq options applied to every connection: fail fast instead of hanging a
+# request thread on an unreachable server, and let TCP keepalives notice a
+# peer that vanished while a pooled connection sat idle.
+_CONNECT_KWARGS = dict(
+    connect_timeout=5,
+    keepalives=1,
+    keepalives_idle=30,
+    keepalives_interval=10,
+    keepalives_count=3,
+)
+
+
 def get_conn():
     """Return a new database connection."""
-    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor, **_CONNECT_KWARGS)
 
 
 # ---------------------------------------------------------------------------
@@ -32,6 +44,10 @@ def get_conn():
 # we fall back to a one-off connection so request handling never blocks.
 # ---------------------------------------------------------------------------
 
+# psycopg2 pool semantics: `minconn` is the number of idle connections the
+# pool KEEPS (anything returned beyond that is closed), `maxconn` the ceiling
+# on simultaneous checkouts. So minconn is the real "warm" count.
+POOL_MIN = int(os.environ.get("DB_POOL_MIN", "4"))
 POOL_MAX = int(os.environ.get("DB_POOL_MAX", "8"))
 
 _POOL: _pgpool.ThreadedConnectionPool | None = None
@@ -44,18 +60,47 @@ def _pool() -> _pgpool.ThreadedConnectionPool:
         with _POOL_LOCK:
             if _POOL is None:
                 _POOL = _pgpool.ThreadedConnectionPool(
-                    1, POOL_MAX, DATABASE_URL, cursor_factory=RealDictCursor
+                    POOL_MIN, POOL_MAX, DATABASE_URL,
+                    cursor_factory=RealDictCursor, **_CONNECT_KWARGS,
                 )
     return _POOL
 
 
+def warm_pool() -> None:
+    """Open the pool's warm connections at startup so the first requests don't
+    pay for handshakes under the pool lock."""
+    _pool()
+
+
+def _is_alive(conn) -> bool:
+    """Cheap liveness check for an idle pooled connection: poll() does a
+    non-blocking read, which surfaces a socket the server closed while the
+    connection sat in the pool (e.g. a Postgres restart) without a round trip."""
+    if conn.closed:
+        return False
+    try:
+        conn.poll()
+    except Exception:
+        return False
+    return not conn.closed
+
+
 def get_pooled_conn():
     """Return (conn, pooled). `pooled` is False when the pool was exhausted and
-    a one-off connection was opened instead; pass it back to release_conn()."""
-    try:
-        return _pool().getconn(), True
-    except _pgpool.PoolError:
-        return get_conn(), False
+    a one-off connection was opened instead; pass it back to release_conn().
+    Dead connections found in the pool are discarded, not handed out."""
+    for _ in range(POOL_MAX + 1):
+        try:
+            conn = _pool().getconn()
+        except _pgpool.PoolError:
+            break
+        if _is_alive(conn):
+            return conn, True
+        try:
+            _pool().putconn(conn, close=True)
+        except Exception:
+            pass
+    return get_conn(), False
 
 
 def release_conn(conn, pooled: bool = True) -> None:
