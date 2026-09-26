@@ -1,22 +1,17 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { API_URL } from "../../../lib/apiBase";
+import { fetchJsonOr404 } from "../../../lib/fetchJson";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://polyspotter.com";
 
 export const revalidate = 60;
 
-async function getDigest(date) {
-  try {
-    const res = await fetch(`${API_URL}/api/digest/${encodeURIComponent(date)}`, {
-      next: { revalidate: 60 },
-    });
-    if (res.status === 404) return null;
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
+// null only on a backend 404 (-> notFound()); other failures throw.
+function getDigest(date) {
+  return fetchJsonOr404(`${API_URL}/api/digest/${encodeURIComponent(date)}`, {
+    next: { revalidate: 60 },
+  });
 }
 
 function formatLongDate(iso) {

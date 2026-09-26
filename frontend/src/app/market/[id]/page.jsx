@@ -2,26 +2,26 @@ import { cache } from "react";
 import Link from "next/link";
 import MarketPageClient from "./market-page-client";
 import { partialIdFromSlug, titleSlugFromSlug, marketSlug } from "../../../lib/slugify";
+import { notFound } from "next/navigation";
 import { API_URL } from "../../../lib/apiBase";
+import { fetchJsonOr404 } from "../../../lib/fetchJson";
 
 export const revalidate = 60;
 
 async function resolveConditionId(partialId, titleSlug) {
   if (/^0x[a-fA-F0-9]{64}$/.test(partialId)) return partialId;
-  try {
-    // The prefix -> condition_id mapping never changes once an alert exists,
-    // and Next only caches 200s, so a miss is retried on the next render.
-    // The title slug disambiguates colliding 5-hex prefixes (~1,150 markets).
-    const qs = titleSlug ? `?slug=${encodeURIComponent(titleSlug)}` : "";
-    const res = await fetch(`${API_URL}/api/market/resolve/${partialId}${qs}`, {
-      next: { revalidate: 86400 },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return data.condition_id;
-    }
-  } catch {}
-  return partialId;
+  // The prefix -> condition_id mapping never changes once an alert exists,
+  // and Next only caches 200s, so a miss is retried on the next render.
+  // The title slug disambiguates colliding 5-hex prefixes (~1,150 markets).
+  // A backend 404 (no market with this prefix) is a real 404; any other
+  // failure throws so it renders the error boundary, never a soft 404.
+  const qs = titleSlug ? `?slug=${encodeURIComponent(titleSlug)}` : "";
+  const data = await fetchJsonOr404(
+    `${API_URL}/api/market/resolve/${encodeURIComponent(partialId)}${qs}`,
+    { next: { revalidate: 86400 } }
+  );
+  if (!data?.condition_id) notFound();
+  return data.condition_id;
 }
 
 // Single source of truth for everything generateMetadata and the page body need.

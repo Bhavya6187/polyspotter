@@ -5,6 +5,7 @@ import { marketSlug } from "../../../lib/slugify";
 import EventPageHeader from "./event-page-header";
 import EventSportOverlay from "./event-sport-overlay";
 import { API_URL } from "../../../lib/apiBase";
+import { fetchJsonOr404 } from "../../../lib/fetchJson";
 
 export const revalidate = 60;
 
@@ -26,18 +27,13 @@ function humanizeSlug(slug) {
     .join(" ");
 }
 
-const loadEvent = cache(async (slug) => {
-  try {
-    const res = await fetch(`${API_URL}/api/event/${encodeURIComponent(slug)}`, {
-      next: { revalidate: 60 },
-    });
-    if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`API ${res.status}`);
-    return res.json();
-  } catch {
-    return null;
-  }
-});
+// null only on a backend 404 (-> notFound()); other failures throw so a
+// transient 5xx renders the error boundary instead of a 404.
+const loadEvent = cache((slug) =>
+  fetchJsonOr404(`${API_URL}/api/event/${encodeURIComponent(slug)}`, {
+    next: { revalidate: 60 },
+  })
+);
 
 async function getAllTags() {
   try {
