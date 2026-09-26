@@ -9,7 +9,10 @@ import { safeJsonLd } from "../../../lib/jsonld";
 export const revalidate = 60;
 
 // null only on a backend 404 (-> notFound()); other failures throw.
+// The backend route takes an int id and 422s anything else, so a non-numeric
+// id is a 404 here rather than an error page.
 function getThesis(id) {
+  if (!/^\d+$/.test(id)) return Promise.resolve(null);
   return fetchJsonOr404(`${API_URL}/api/theses/${encodeURIComponent(id)}`, {
     next: { revalidate: 60 },
   });
