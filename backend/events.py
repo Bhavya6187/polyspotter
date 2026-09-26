@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 from datetime import datetime, timezone
 
 import requests as _requests
@@ -30,26 +31,46 @@ REFRESH_AFTER_SECONDS = 7 * 24 * 3600
 # Slugs Gamma didn't recognise. Event pages for unknown slugs (crawlers, stale
 # links) otherwise hit Gamma on every request.
 MISS_TTL_S = 300
+# Only a clean "Gamma answered, no such event" lands here — never a transport
+# failure. TTLCache isn't thread-safe; guard it like app.py's _CACHE_LOCK.
 _event_miss_cache: TTLCache = TTLCache(maxsize=2048, ttl=MISS_TTL_S)
+_MISS_LOCK = threading.Lock()
 
 
-def fetch_event_from_gamma(slug: str) -> dict | None:
-    """Fetch raw event payload from Gamma. Returns None if not found."""
+class GammaUnavailable(Exception):
+    """Gamma couldn't answer (timeout, connection error, non-200, bad JSON)."""
+
+
+def _fetch_event_strict(slug: str) -> dict | None:
+    """Fetch raw event payload from Gamma.
+
+    Returns None only when Gamma answered 200 with no matching event; raises
+    GammaUnavailable when it couldn't answer at all.
+    """
     try:
         resp = _requests.get(
             f"{GAMMA_API}/events", params={"slug": slug}, timeout=GAMMA_TIMEOUT
         )
         if resp.status_code != 200:
-            return None
+            raise GammaUnavailable(f"HTTP {resp.status_code}")
         data = resp.json()
-        if isinstance(data, list) and data:
-            return data[0]
-    except _requests.RequestException as e:
+    except (_requests.RequestException, ValueError) as e:
+        raise GammaUnavailable(str(e)) from e
+    if isinstance(data, list) and data:
+        return data[0]
+    return None
+
+
+def fetch_event_from_gamma(slug: str) -> dict | None:
+    """Fetch raw event payload from Gamma. Returns None if not found or on error."""
+    try:
+        return _fetch_event_strict(slug)
+    except GammaUnavailable as e:
         print(
             f"[WARN] Gamma /events lookup failed for slug={slug}: {e}",
             file=sys.stderr,
         )
-    return None
+        return None
 
 
 def _parse_iso(s: str | None) -> datetime | None:
@@ -92,9 +113,21 @@ def upsert_event(slug: str) -> dict | None:
     """Fetch event from Gamma and write to the events table.
 
     Returns the row that's now in the DB (dict shape), or None if Gamma
-    didn't recognize the slug.
+    didn't recognize the slug or couldn't be reached.
     """
-    raw = fetch_event_from_gamma(slug)
+    try:
+        return _upsert_event_strict(slug)
+    except GammaUnavailable as e:
+        print(
+            f"[WARN] Gamma /events lookup failed for slug={slug}: {e}",
+            file=sys.stderr,
+        )
+        return None
+
+
+def _upsert_event_strict(slug: str) -> dict | None:
+    """upsert_event, but raises GammaUnavailable instead of returning None."""
+    raw = _fetch_event_strict(slug)
     if not raw:
         return None
     norm = _normalize_event(raw)
@@ -154,11 +187,21 @@ def get_event_or_fetch(slug: str) -> dict | None:
         release_conn(conn, pooled)
 
     if row is None:
-        if slug in _event_miss_cache:
+        with _MISS_LOCK:
+            if slug in _event_miss_cache:
+                return None
+        try:
+            fetched = _upsert_event_strict(slug)
+        except GammaUnavailable as e:
+            # Transient: don't cache, so the next request retries Gamma.
+            print(
+                f"[WARN] Gamma /events lookup failed for slug={slug}: {e}",
+                file=sys.stderr,
+            )
             return None
-        fetched = upsert_event(slug)
         if fetched is None:
-            _event_miss_cache[slug] = True
+            with _MISS_LOCK:
+                _event_miss_cache[slug] = True
         return fetched
 
     now = datetime.now(timezone.utc)

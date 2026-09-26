@@ -404,25 +404,15 @@ def get_nhl_data(title: str, *, event_slug: str = "") -> NHLGameData | None:
     if not abbr_a or not abbr_b:
         return None
 
-    # The slug's date identifies the game (series / doubleheaders put the
-    # same pair on consecutive days); today's board is only a fallback when
-    # the slug carries no date.
+    # Slug date picks the game (teams can meet again within days); else today.
     date_str = _extract_date_from_slug(event_slug) if event_slug else None
-    dates_to_try = [date_str]
-
-    espn_event_id = None
-    for d in dates_to_try:
-        cache_key = f"__nhl_sb_{d or 'today'}__"
-        sb = _cache_get(cache_key, "scoreboard")
-        if sb is None:
-            sb = _fetch_espn_scoreboard(d)
-            if sb:
-                _cache_set(cache_key, "scoreboard", sb)
+    cache_key = f"__nhl_sb_{date_str or 'today'}__"
+    sb = _cache_get(cache_key, "scoreboard")
+    if sb is None:
+        sb = _fetch_espn_scoreboard(date_str)
         if sb:
-            espn_event_id = _match_espn_game(sb, abbr_a, abbr_b)
-            if espn_event_id:
-                break
-
+            _cache_set(cache_key, "scoreboard", sb)
+    espn_event_id = _match_espn_game(sb, abbr_a, abbr_b) if sb else None
     if not espn_event_id:
         return None
 
