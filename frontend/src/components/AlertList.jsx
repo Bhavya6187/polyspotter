@@ -9,10 +9,14 @@ import { scoreToRating } from "./StrengthMeter";
 import ThesisCard from "./ThesisCard";
 import WalletBadge from "./WalletBadge";
 import ShareButton from "./ShareButton";
+import { useNow } from "../hooks/useNow";
+import { formatUtc } from "../lib/time";
 
-function relativeTime(dateStr) {
+// `now` is null during SSR/hydration: fall back to an absolute UTC stamp so
+// server and client markup match.
+function relativeTime(dateStr, now) {
   if (!dateStr) return "\u2014";
-  const now = Date.now();
+  if (now == null) return formatUtc(dateStr);
   const then = new Date(dateStr).getTime();
   const diffSec = Math.floor((now - then) / 1000);
   if (diffSec < 60) return `${diffSec}s ago`;
@@ -24,9 +28,10 @@ function relativeTime(dateStr) {
   return `${diffDay}d ago`;
 }
 
-function timeToResolution(dateStr) {
-  if (!dateStr) return null;
-  const diffMs = new Date(dateStr).getTime() - Date.now();
+// `now` is null during SSR/hydration: no badge until mounted.
+function timeToResolution(dateStr, now) {
+  if (!dateStr || now == null) return null;
+  const diffMs = new Date(dateStr).getTime() - now;
   if (diffMs <= 0) return null;
   const diffMin = Math.floor(diffMs / 60000);
   if (diffMin < 60) return `${diffMin}m`;
@@ -192,6 +197,7 @@ function MarketGroupCard({ market, liveData, index }) {
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
   }, []);
+  const now = useNow();
 
   const alert = pickBestAlert(market.alerts);
   if (!alert) return null;
@@ -202,8 +208,8 @@ function MarketGroupCard({ market, liveData, index }) {
 
   const showExpanded = isDesktop || expanded;
 
-  const resolution = timeToResolution(market.end_date);
-  const resolutionMs = market.end_date ? new Date(market.end_date).getTime() - Date.now() : null;
+  const resolution = timeToResolution(market.end_date, now);
+  const resolutionMs = market.end_date && now != null ? new Date(market.end_date).getTime() - now : null;
   const isResolved = resolutionMs != null && resolutionMs <= 0;
   const isUrgent = resolutionMs != null && resolutionMs > 0 && resolutionMs < 3600000;
   const isSoon = resolutionMs != null && resolutionMs > 0 && resolutionMs < 86400000;
@@ -335,8 +341,8 @@ function MarketGroupCard({ market, liveData, index }) {
               {resolution}
             </span>
           )}
-          <span className="text-xs" style={{ color: 'var(--text-muted)' }} suppressHydrationWarning>
-            {relativeTime(alert.created_at)}
+          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            {relativeTime(alert.created_at, now)}
           </span>
           <svg className="h-4 w-4 shrink-0 opacity-30 group-hover/header:opacity-70 group-hover/header:translate-x-0.5 transition-all duration-200" style={{ color: 'var(--text-muted)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
@@ -449,6 +455,7 @@ function MarketGroupCard({ market, liveData, index }) {
 
 export default function AlertList({ markets, filters, loading, theses = [] }) {
   const [liveData, setLiveData] = useState({});
+  const now = useNow();
 
   useEffect(() => {
     if (!markets || markets.length === 0) return;
@@ -497,10 +504,12 @@ export default function AlertList({ markets, filters, loading, theses = [] }) {
     "7d": 604800000,
   }[filters.resolvesIn] || null;
 
-  const afterResolve = resolvesInMs
+  // Skipped while `now` is null (SSR/hydration) so server and client render
+  // the same list; the server fetch already applies resolves_within.
+  const afterResolve = resolvesInMs && now != null
     ? markets.filter((m) => {
         if (!m.end_date) return false;
-        const ms = new Date(m.end_date).getTime() - Date.now();
+        const ms = new Date(m.end_date).getTime() - now;
         return ms > 0 && ms <= resolvesInMs;
       })
     : markets;
