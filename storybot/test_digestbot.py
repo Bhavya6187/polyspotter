@@ -150,7 +150,6 @@ def test_run_claude_builds_argv_and_passes_stdin(monkeypatch):
     assert captured["argv"][:3] == ["claude", "-p", "PROMPT"]
     assert "--model" in captured["argv"]
     assert "opus" in captured["argv"]
-    assert "--dangerously-skip-permissions" in captured["argv"]
     assert captured["input"] == "PAYLOAD"
 
 
@@ -615,3 +614,24 @@ def test_send_sets_sent_at_and_idempotency_key(monkeypatch, tmp_path):
     assert len(set(keys)) == 2
     assert events[-1] == ("sent_at", today)
     assert events.index(("sent_at", today)) > max(events.index(p) for p in posts)
+
+
+def test_digest_claude_invocation_disables_tools(monkeypatch):
+    # The payload carries market titles and LLM text; the write pass must not
+    # be able to act on anything injected there.
+    captured = {}
+
+    class FakeProc:
+        returncode = 0
+        stdout = "{}"
+        stderr = ""
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = argv
+        return FakeProc()
+
+    monkeypatch.setattr(digestbot.subprocess, "run", fake_run)
+    digestbot.run_claude("PROMPT", "PAYLOAD")
+    argv = captured["argv"]
+    assert argv[argv.index("--tools") + 1] == ""
+    assert "--dangerously-skip-permissions" not in argv
