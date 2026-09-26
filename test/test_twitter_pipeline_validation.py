@@ -900,3 +900,18 @@ def _extract_user_payload(input_text: str) -> str:
     start = input_text.find("{")
     end = input_text.rfind("}")
     return input_text[start:end + 1] if start >= 0 and end > start else "{}"
+
+
+def test_length_check_uses_weighted_length():
+    # "…" counts 2 on X: 278 + 2 = 280 fits, 279 + 2 = 281 doesn't, even
+    # though len() says 279 / 280 for these strings.
+    body = ("Sharp money piled into the Under while the line held steady and "
+            "nobody else followed. ")
+    fits = (body * 4)[:278] + "…"
+    over = (body * 4)[:279] + "…"
+    assert len(over) == 280
+    ok, err = twitter_pipeline.validate_tweet(fits)
+    assert ok, err
+    ok, err = twitter_pipeline.validate_tweet(over)
+    assert not ok
+    assert "exceeds" in err

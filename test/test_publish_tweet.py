@@ -353,3 +353,26 @@ def test_publish_tweet_honors_dry_run(tmp_path, monkeypatch):
     assert posted == {}
     assert recorded == {}
     assert (drafts_dir / "abc12345.txt").exists()
+
+
+def test_alert_ids_accept_numeric_strings(tmp_path, monkeypatch):
+    # The picker LLM sometimes returns ids as strings; validate_event_pick
+    # accepted "123" but publish_tweet rejected it after the paid edit step.
+    import twitter_pipeline
+    pick = {"decision": "post", "alert_ids": ["42", 43],
+            "event_summary": "Informed flow on Yes."}
+    ok, err = twitter_pipeline.validate_event_pick(pick, [{"id": 42}, {"id": 43}])
+    assert ok, err
+    assert pick["alert_ids"] == [42, 43]
+
+    publish_meta = {"alert_ids": pick["alert_ids"], "chart_type": "none",
+                    "target_alert_id": 42, "chart_png_path": None}
+    drafts_dir, live_dir = _write_fixture_files(
+        tmp_path, "abc12345", publish_meta=publish_meta, write_chart=False)
+    pt = _patch_publisher(monkeypatch, drafts_dir, live_dir)
+    _patch_clients(monkeypatch, pt)
+    monkeypatch.setattr(pt, "post_tweet", lambda *a, **kw: "999")
+    recorded = {}
+    monkeypatch.setattr(pt, "record_tweet", lambda ids, tid, text: recorded.update(ids=ids))
+    assert pt.main(["abc12345"]) == 0
+    assert recorded["ids"] == [42, 43]
