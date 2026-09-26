@@ -545,8 +545,30 @@ def build_alerts_payload(
     }
 
 
-def build_theses_payload(signals: list, trades: list[dict]) -> list[dict]:
-    """Build thesis payloads from correlated_cross_market signals."""
+def _kept_wallet_events(alerts: list[dict]) -> set[tuple[str, str]]:
+    """(wallet, event_slug) pairs covered by the alerts that survived the
+    gate/LLM filter: the alert's own wallet, plus every trade wallet (so a
+    wallet inside a kept cluster alert counts)."""
+    kept: set[tuple[str, str]] = set()
+    for a in alerts:
+        evt = a.get("event_slug") or ""
+        wallets = [a.get("wallet")] + [t.get("wallet") for t in a.get("trades", [])]
+        for w in wallets:
+            if w:
+                kept.add((w.lower(), evt))
+    return kept
+
+
+def build_theses_payload(
+    signals: list,
+    trades: list[dict],
+    kept_wallet_events: set[tuple[str, str]] | None = None,
+) -> list[dict]:
+    """Build thesis payloads from correlated_cross_market signals.
+
+    When ``kept_wallet_events`` is given, only (wallet, event_slug) groups in
+    it get a thesis, so theses (and their GPT headline calls) are built only
+    for alerts that survived the gate/LLM filter."""
     from db import get_wallet_event_history
     from gamma_cache import get_market_by_condition
 
@@ -561,6 +583,9 @@ def build_theses_payload(signals: list, trades: list[dict]) -> list[dict]:
         event_slug = sig.trade.get("eventSlug", "")
         if wallet and event_slug:
             groups.setdefault((wallet, event_slug), []).append(sig)
+
+    if kept_wallet_events is not None:
+        groups = {k: v for k, v in groups.items() if k in kept_wallet_events}
 
     theses = []
     for (wallet, event_slug), sigs in groups.items():
@@ -617,7 +642,19 @@ def build_theses_payload(signals: list, trades: list[dict]) -> list[dict]:
 
 
 def _generate_thesis_headline(thesis: dict) -> str | None:
-    """Generate a short thesis headline from market titles and bet directions."""
+    """Generate a short thesis headline from market titles and bet directions.
+
+    Headlines are cached in polybot.db by (wallet, event_slug, sorted
+    condition_ids): an unchanged thesis costs no GPT call on later scans and
+    keeps a stable headline; a new market in the thesis changes the key."""
+    from db import get_thesis_headline, save_thesis_headline
+
+    cids = sorted(m.get("condition_id", "") for m in thesis["markets"])
+    cache_key = f"thesis:{thesis.get('wallet', '')}:{thesis.get('event_slug', '')}:{','.join(cids)}"
+    cached = get_thesis_headline(cache_key)
+    if cached:
+        return cached
+
     market_descriptions = []
     for m in thesis["markets"]:
         direction = f"{m['side']} {m['outcome']}" if m.get("side") and m.get("outcome") else ""
@@ -641,7 +678,6 @@ def _generate_thesis_headline(thesis: dict) -> str | None:
         endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
         model = os.environ.get("AZURE_OPENAI_MODEL", "")
         client = OpenAI(base_url=endpoint, api_key=api_key)
-        cache_key = f"thesis:{thesis.get('wallet', '')}:{thesis.get('event_slug', '')}"
         _log_prompt([{"role": "user", "content": prompt}], model, cache_key)
         # Generous budget: max_output_tokens includes reasoning tokens on
         # GPT-5-class models, so a tight cap can starve the visible output.
@@ -650,9 +686,12 @@ def _generate_thesis_headline(thesis: dict) -> str | None:
             input=prompt,
             max_output_tokens=2000,
         )
-        return (resp.output_text or "").strip().strip('"')
+        headline = (resp.output_text or "").strip().strip('"')
     except Exception:
         return None
+    if headline:
+        save_thesis_headline(cache_key, headline)
+    return headline
 
 
 def _ingest_headers() -> dict[str, str]:
@@ -697,7 +736,9 @@ def push_to_backend(signals: list[Signal], trades: list[dict]) -> int | None:
     ]
 
     # Build and add theses
-    theses = build_theses_payload(signals, trades)
+    theses = build_theses_payload(
+        signals, trades, kept_wallet_events=_kept_wallet_events(payload["alerts"]),
+    )
     for thesis in theses:
         if not thesis["thesis_headline"]:
             thesis["thesis_headline"] = _generate_thesis_headline(thesis)

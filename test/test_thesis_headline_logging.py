@@ -5,10 +5,23 @@ call goes through (see llm_filter._log_prompt).
 """
 
 import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
+import pytest
+
+import db
 import llm_filter
 from seeder import _generate_thesis_headline
+
+
+@pytest.fixture(autouse=True)
+def fresh_db(tmp_path, monkeypatch):
+    """Isolate the thesis headline cache so runs don't see each other's rows."""
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "polybot.db"))
+    monkeypatch.setattr(db, "_conn", None)
+    yield
+    if db._conn is not None:
+        db._conn.close()
 
 
 def _thesis():
@@ -43,7 +56,7 @@ def test_headline_call_is_logged(tmp_path, monkeypatch):
     assert len(lines) == 1
     entry = json.loads(lines[0])
     assert entry["model"] == "gpt-test"
-    assert entry["cache_key"] == "thesis:0xabc:test-event"
+    assert entry["cache_key"] == "thesis:0xabc:test-event:"
     assert "Will X happen?" in entry["messages"][-1]["content"]
 
 
