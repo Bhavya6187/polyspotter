@@ -401,9 +401,13 @@ def _migrate_add_digests(cur):
             content_json  JSONB NOT NULL,
             status        TEXT NOT NULL DEFAULT 'published',
             created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            published_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            published_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            sent_at       TIMESTAMPTZ
         )
     """)
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_digests_date ON digests(digest_date DESC)"
     )
+    # Backward-compat for tables created before idempotent sends (storybot
+    # digestbot reads/writes sent_at).
+    cur.execute("ALTER TABLE digests ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ")

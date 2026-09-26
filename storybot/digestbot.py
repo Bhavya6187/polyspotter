@@ -779,8 +779,35 @@ def output_dir() -> str:
     return DRY_RUNS_DIR if DRY_RUN else DIGESTS_DIR
 
 
+def fetch_digest_sent_at(digest_date: str):
+    """When the digest for `digest_date` was emailed, or None if it hasn't been
+    (or no row exists yet)."""
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT sent_at FROM digests WHERE digest_date = %s", (digest_date,))
+            row = cur.fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
+def mark_digest_sent(digest_date: str) -> None:
+    """Stamp sent_at on the day's digest once the email has gone out."""
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE digests SET sent_at = NOW() WHERE digest_date = %s",
+                        (digest_date,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def persist_digest(digest_date: str, run_id: str, content: dict) -> None:
-    """Upsert the digest row (published). No-op in DRY_RUN."""
+    """Upsert the digest row (published). No-op in DRY_RUN. Never overwrites a
+    digest that has already been emailed (sent_at set): the web version must
+    match what subscribers received."""
     if DRY_RUN:
         log("digest_persist_skipped_dry_run", digest_date=digest_date)
         return
@@ -798,6 +825,7 @@ def persist_digest(digest_date: str, run_id: str, content: dict) -> None:
                     content_json = EXCLUDED.content_json,
                     status       = 'published',
                     published_at = NOW()
+                WHERE digests.sent_at IS NULL
             """, (
                 digest_date, run_id, content["subject"], content.get("intro", ""),
                 json.dumps(content),
@@ -834,16 +862,23 @@ def unsubscribe_url(token) -> str:
 
 
 def send_digest(content: dict, subscribers: list[dict],
-                browser_link: str | None = None) -> dict:
+                browser_link: str | None = None, digest_date: str | None = None) -> dict:
     """Send the digest to each subscriber via Resend, one personalized message
     apiece (each carries its own unsubscribe link + List-Unsubscribe headers).
+    Each request carries an Idempotency-Key of `digest-<date>-<email>` so a
+    re-run within Resend's 24h key window cannot email anyone twice (the key
+    is per recipient: Resend rejects a reused key whose payload differs).
     Never raises per-recipient — failures are logged and counted. Returns
     {"sent": int, "failed": int}."""
     if not RESEND_API_KEY:
         raise RuntimeError("RESEND_API_KEY not set — cannot send")
-    headers = {"Authorization": f"Bearer {RESEND_API_KEY}"}
+    digest_date = digest_date or datetime.now(timezone.utc).date().isoformat()
     sent = failed = 0
     for sub in subscribers:
+        headers = {
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Idempotency-Key": f"digest-{digest_date}-{sub['email']}",
+        }
         unsub = unsubscribe_url(sub["unsubscribe_token"])
         body = {
             "from": DIGEST_FROM_EMAIL,
@@ -884,6 +919,15 @@ def main(argv=None) -> int:
     if not DATABASE_URL:
         log("config_error", run_id=run_id, error="DATABASE_URL not set")
         return 1
+
+    # Once today's digest has been emailed it is final: a manual re-run must
+    # neither re-email subscribers nor overwrite the web version they link to.
+    if not DRY_RUN:
+        sent_at = fetch_digest_sent_at(digest_date)
+        if sent_at:
+            log("digest_noop", run_id=run_id, reason="already sent",
+                digest_date=digest_date, sent_at=str(sent_at))
+            return 0
 
     candidates = fetch_candidates()
     n_today = len(candidates["resolving_today"])
@@ -946,8 +990,16 @@ def main(argv=None) -> int:
         elif not subscribers:
             log("digest_send_noop", run_id=run_id, reason="no subscribers")
         else:
-            result = send_digest(content, subscribers, browser_link=browser_link)
+            result = send_digest(content, subscribers, browser_link=browser_link,
+                                 digest_date=digest_date)
             log("digest_send_done", run_id=run_id, **result)
+            if result["sent"]:
+                try:
+                    mark_digest_sent(digest_date)
+                except Exception as err:
+                    log("digest_mark_sent_failed", run_id=run_id,
+                        digest_date=digest_date, error=str(err))
+                    return 1
 
     log("digest_run_done", run_id=run_id, digest_date=digest_date,
         published=not DRY_RUN, email=html_path)
