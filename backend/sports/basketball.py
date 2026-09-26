@@ -672,9 +672,13 @@ def _unmiss(value):
 
 
 def _get_espn_scoreboard(league: str, date_str: str | None) -> dict | None:
-    """ESPN scoreboard for `date_str` (YYYYMMDD; None = today), cached per
-    league and date."""
-    day = date_str or datetime.now(timezone.utc).strftime("%Y%m%d")
+    """ESPN scoreboard for `date_str` (YYYYMMDD; None = ESPN's default day),
+    cached per league and date.
+
+    The no-date board gets its own key: ESPN's default day follows US time,
+    so around 00:00 UTC it is still yesterday's board and must not be served
+    to an explicit-date request for the UTC day."""
+    day = date_str or "today"
     cache_key = f"__espn_sb_{league}_{day}__"
     espn_sb = _cache_get(cache_key, "espn")
     if espn_sb is None:

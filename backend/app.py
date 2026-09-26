@@ -2383,7 +2383,7 @@ def health(response: Response):
             SELECT
                 MAX(scanned_at) AS latest_scanned_at,
                 EXTRACT(EPOCH FROM (NOW() - MAX(scanned_at)))::BIGINT AS seconds_since_latest,
-                (SELECT reltuples::BIGINT FROM pg_class WHERE oid = 'alerts'::regclass) AS approx_count
+                (SELECT GREATEST(reltuples, 0)::BIGINT FROM pg_class WHERE oid = 'alerts'::regclass) AS approx_count
             FROM alerts
             """,
         )
@@ -2394,7 +2394,8 @@ def health(response: Response):
         response.status_code = 503
     return {
         "status": "ok" if is_fresh else "stale",
-        "alert_count": row["approx_count"],
+        # reltuples is -1 until the table is first analysed (Postgres 14+).
+        "alert_count": max(row["approx_count"] or 0, 0),
         "latest_scanned_at": row["latest_scanned_at"].isoformat() if row["latest_scanned_at"] else None,
         "seconds_since_latest_alert": seconds_since,
     }
