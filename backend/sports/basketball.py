@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import time as _time
+from datetime import datetime, timezone
 from typing import Optional
 
 import requests as _requests
@@ -125,7 +126,7 @@ def resolve_tricode(name: str) -> str | None:
 NBA_CDN = "https://cdn.nba.com/static/json/liveData"
 ESPN_API = "https://site.api.espn.com/apis/site/v2/sports/basketball"
 
-_REQUEST_TIMEOUT = 10
+_REQUEST_TIMEOUT = 5
 
 
 def _parse_game_status(status_code: int) -> str:
@@ -638,8 +639,16 @@ _CACHE_TTL = {
 
 _game_cache: LRUCache = LRUCache(maxsize=200)
 
+# Sentinel cached when ESPN legitimately has no value for a field (no
+# predictor, no season series yet, no win probability pre-game). Without it
+# every request re-fetched the ESPN scoreboard + summary. Misses live for at
+# most MISS_TTL_S (or the field's own TTL when shorter).
+_MISS = object()
+MISS_TTL_S = 300
+
 
 def _cache_get(game_id: str, field: str):
+    """Cached value, `_MISS` for a cached miss, or None when not cached."""
     entry = _game_cache.get(game_id, {}).get(field)
     if entry and entry[0] > _time.time():
         return entry[1]
@@ -650,7 +659,27 @@ def _cache_set(game_id: str, field: str, data: object):
     if game_id not in _game_cache:
         _game_cache[game_id] = {}
     ttl = _CACHE_TTL.get(field, 30)
+    if data is None or data is _MISS:
+        data = _MISS
+        ttl = min(ttl, MISS_TTL_S)
     _game_cache[game_id][field] = (_time.time() + ttl, data)
+
+
+def _unmiss(value):
+    return None if value is _MISS else value
+
+
+def _get_espn_scoreboard(league: str, date_str: str | None) -> dict | None:
+    """ESPN scoreboard for `date_str` (YYYYMMDD; None = today), cached per
+    league and date."""
+    day = date_str or datetime.now(timezone.utc).strftime("%Y%m%d")
+    cache_key = f"__espn_sb_{league}_{day}__"
+    espn_sb = _cache_get(cache_key, "espn")
+    if espn_sb is None:
+        espn_sb = _fetch_espn_scoreboard(league, date_str)
+        if espn_sb:
+            _cache_set(cache_key, "espn", espn_sb)
+    return espn_sb
 
 
 # ---------------------------------------------------------------------------
@@ -774,7 +803,7 @@ def _build_game_data_nba(
         or (status == "pre" and home_pregame is None)
     )
     if needs_espn:
-        espn_scoreboard = _fetch_espn_scoreboard(league)
+        espn_scoreboard = _get_espn_scoreboard(league, None)
         espn_game_id = _match_espn_game(espn_scoreboard, tri_a, tri_b)
         if espn_game_id:
             summary = _fetch_espn_summary(espn_game_id, league)
@@ -798,15 +827,15 @@ def _build_game_data_nba(
         game_time=game_time,
         home=home,
         away=away,
-        odds=odds,
-        win_probability=win_prob,
-        predictor=predictor,
+        odds=_unmiss(odds),
+        win_probability=_unmiss(win_prob),
+        predictor=_unmiss(predictor),
         plays=plays[:50],
         box_score=box_score,
-        injuries=injuries or [],
-        season_series=season_series,
-        home_pregame=home_pregame,
-        away_pregame=away_pregame,
+        injuries=_unmiss(injuries) or [],
+        season_series=_unmiss(season_series),
+        home_pregame=_unmiss(home_pregame),
+        away_pregame=_unmiss(away_pregame),
         venue=venue,
         broadcast=broadcast,
     )
@@ -823,12 +852,7 @@ def _build_game_data_espn_only(
 
     espn_game_id = None
     for d in dates_to_try:
-        cache_key = f"__espn_sb_{d or 'today'}__"
-        espn_sb = _cache_get(cache_key, "espn")
-        if espn_sb is None:
-            espn_sb = _fetch_espn_scoreboard(league, d)
-            if espn_sb:
-                _cache_set(cache_key, "espn", espn_sb)
+        espn_sb = _get_espn_scoreboard(league, d)
         if espn_sb:
             espn_game_id = _match_espn_game(espn_sb, tri_a, tri_b)
             if espn_game_id:
@@ -974,13 +998,11 @@ def _extract_espn_fields(
             summary.get("pickcenter"),
             away_abbr=away_tri, home_abbr=home_tri,
         )
-        if odds:
-            _cache_set(game_id, "odds", odds)
+        _cache_set(game_id, "odds", odds)
 
     if win_prob is None:
         win_prob = _parse_espn_win_probability(summary.get("winprobability"))
-        if win_prob:
-            _cache_set(game_id, "win_probability", win_prob)
+        _cache_set(game_id, "win_probability", win_prob)
 
     if injuries is None:
         injuries = _parse_espn_injuries(summary.get("injuries"))
@@ -988,13 +1010,11 @@ def _extract_espn_fields(
 
     if season_series is None:
         season_series = _parse_espn_season_series(summary.get("seasonseries"))
-        if season_series:
-            _cache_set(game_id, "season_series", season_series)
+        _cache_set(game_id, "season_series", season_series)
 
     if predictor is None:
         predictor = _parse_espn_predictor(summary.get("predictor"))
-        if predictor:
-            _cache_set(game_id, "predictor", predictor)
+        _cache_set(game_id, "predictor", predictor)
 
     if home_pregame is None:
         header = summary.get("header", {})
@@ -1035,8 +1055,6 @@ def _extract_espn_fields(
 # ---------------------------------------------------------------------------
 # Plugin wrapper
 # ---------------------------------------------------------------------------
-
-from datetime import datetime, timezone
 
 from sports import register
 from sports.base import OverlayResponse, SportOverlay

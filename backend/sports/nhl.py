@@ -108,7 +108,7 @@ def extract_codes_from_slug(event_slug: str) -> tuple[str, str] | None:
 # ---------------------------------------------------------------------------
 
 ESPN_API = "https://site.api.espn.com/apis/site/v2/sports/hockey/nhl"
-_REQUEST_TIMEOUT = 10
+_REQUEST_TIMEOUT = 5
 
 
 def _fetch_espn_scoreboard(date_str: str | None = None) -> dict | None:

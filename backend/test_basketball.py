@@ -345,3 +345,83 @@ def test_can_handle_still_accepts_vs_title_without_slug():
     from sports.basketball import BasketballOverlay
     plugin = BasketballOverlay()
     assert plugin.can_handle("Lakers vs Celtics", ["NBA"], "") is True
+
+
+# ---------------------------------------------------------------------------
+# Caching of misses and the scoreboard (handoff 2.2)
+# ---------------------------------------------------------------------------
+
+def _cdn_game(game_id, home, away, status=1):
+    return {
+        "gameId": game_id, "gameStatus": status, "period": 0, "gameClock": "",
+        "gameTimeUTC": "2026-04-02T23:00:00Z",
+        "homeTeam": {"teamTricode": home, "teamName": home, "teamCity": home,
+                     "wins": 1, "losses": 1, "score": 0, "periods": []},
+        "awayTeam": {"teamTricode": away, "teamName": away, "teamCity": away,
+                     "wins": 1, "losses": 1, "score": 0, "periods": []},
+    }
+
+
+def _espn_event(event_id, home, away):
+    return {"id": event_id, "competitions": [{"competitors": [
+        {"homeAway": "home", "team": {"abbreviation": home}},
+        {"homeAway": "away", "team": {"abbreviation": away}},
+    ]}]}
+
+
+@pytest.fixture
+def nba_today(monkeypatch):
+    """Today's NBA CDN scoreboard has MIL-LAC and IND-MIA (both pre-game);
+    ESPN returns a summary with no predictor / season series / win prob."""
+    import sports.basketball as bb
+
+    bb._game_cache.clear()
+    calls = {"espn_sb": 0, "summary": 0}
+    cdn = {"scoreboard": {"games": [
+        _cdn_game("001", "MIL", "LAC"), _cdn_game("002", "IND", "MIA"),
+    ]}}
+    espn_sb = {"events": [_espn_event("e1", "MIL", "LAC"), _espn_event("e2", "IND", "MIA")]}
+
+    def fake_espn_sb(league="nba", date_str=None):
+        calls["espn_sb"] += 1
+        return espn_sb
+
+    def fake_summary(game_id, league="nba"):
+        calls["summary"] += 1
+        return {"pickcenter": [], "injuries": []}
+
+    monkeypatch.setattr(bb, "_fetch_nba_scoreboard", lambda: cdn)
+    monkeypatch.setattr(bb, "_fetch_espn_scoreboard", fake_espn_sb)
+    monkeypatch.setattr(bb, "_fetch_espn_summary", fake_summary)
+    yield calls
+    bb._game_cache.clear()
+
+
+def test_missing_predictor_is_cached_as_miss(nba_today):
+    from sports.basketball import get_basketball_data
+
+    first = get_basketball_data("Clippers vs. Bucks", ["NBA"])
+    second = get_basketball_data("Clippers vs. Bucks", ["NBA"])
+    assert first is not None and second is not None
+    assert first.predictor is None and second.predictor is None
+    assert second.season_series is None and second.odds is None
+    assert nba_today["summary"] == 1
+
+
+def test_scoreboard_fetched_once_per_ttl(nba_today):
+    from sports.basketball import get_basketball_data
+
+    assert get_basketball_data("Clippers vs. Bucks", ["NBA"]) is not None
+    assert get_basketball_data("Heat vs. Pacers", ["NBA"]) is not None
+    assert nba_today["summary"] == 2  # two different games
+    assert nba_today["espn_sb"] == 1  # one scoreboard for the day
+
+
+def test_overlay_request_timeouts_are_5s():
+    import sports.basketball as bb
+    import sports.cricket as cr
+    import sports.mlb as mlb
+    import sports.nhl as nhl
+    import sports.soccer as soc
+    for mod in (bb, cr, mlb, nhl, soc):
+        assert mod._REQUEST_TIMEOUT == 5, mod.__name__

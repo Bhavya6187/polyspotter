@@ -98,7 +98,7 @@ def resolve_short_name(name: str) -> str | None:
 
 ESPN_CRICKET_API = "https://site.api.espn.com/apis/site/v2/sports/cricket"
 IPL_LEAGUE_ID = "8048"
-_REQUEST_TIMEOUT = 10
+_REQUEST_TIMEOUT = 5
 
 
 def _fetch_espn_scoreboard(date_str: str | None = None) -> dict | None:
