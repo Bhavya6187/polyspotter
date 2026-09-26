@@ -239,6 +239,16 @@ def _init_tables(conn: sqlite3.Connection) -> None:
         )
     """)
 
+    # -- thesis_headlines (GPT thesis headline cache, keyed by
+    #    wallet + event + sorted condition ids) ---------------------------------
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS thesis_headlines (
+            cache_key TEXT PRIMARY KEY,
+            headline TEXT NOT NULL,
+            created_at REAL NOT NULL
+        )
+    """)
+
     # -- llm_market_evals (per-market-day GPT call counters for the
     #    market-day evaluation cap in llm_filter) ------------------------------
     conn.execute("""
@@ -1101,6 +1111,24 @@ def save_llm_evaluation(dedup_key: str, interesting: bool, summary: str | None) 
            (dedup_key, interesting, summary, evaluated_at)
            VALUES (?, ?, ?, ?)""",
         (dedup_key, int(interesting), summary, datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()
+
+
+def get_thesis_headline(cache_key: str) -> str | None:
+    """Cached thesis headline for this key, or None."""
+    row = get_db().execute(
+        "SELECT headline FROM thesis_headlines WHERE cache_key = ?", (cache_key,),
+    ).fetchone()
+    return row[0] if row else None
+
+
+def save_thesis_headline(cache_key: str, headline: str) -> None:
+    """Cache a generated thesis headline."""
+    conn = get_db()
+    conn.execute(
+        "INSERT OR REPLACE INTO thesis_headlines (cache_key, headline, created_at) VALUES (?, ?, ?)",
+        (cache_key, headline, datetime.now(timezone.utc).timestamp()),
     )
     conn.commit()
 

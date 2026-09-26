@@ -3,8 +3,7 @@ Tests for seeder thesis-building and resolution-checking logic.
 """
 
 import unittest
-from unittest.mock import patch, MagicMock
-from collections import namedtuple
+from unittest.mock import MagicMock, patch
 
 from seeder import build_theses_payload
 
@@ -95,6 +94,61 @@ class TestBuildThesesPayload(unittest.TestCase):
         sig2.trade["_usd_value"] = 3000
         theses = build_theses_payload([sig1, sig2], [])
         assert theses[0]["total_usd"] == 5000.0
+
+
+class TestThesesOnlyForKeptAlerts(unittest.TestCase):
+    """A correlated_cross_market group whose alert the gate/LLM discarded must
+    not produce a thesis (nor a GPT headline call)."""
+
+    @patch("db.get_wallet_event_history", return_value=[])
+    @patch("gamma_cache.get_market_by_condition", return_value={"title": "Test"})
+    def test_build_skips_groups_without_kept_alert(self, mock_market, mock_history):
+        signals = [
+            FakeSignal("correlated_cross_market", "0xKEEP", "event-1", "cond_1"),
+            FakeSignal("correlated_cross_market", "0xdrop", "event-2", "cond_2"),
+        ]
+        theses = build_theses_payload(signals, [], kept_wallet_events={("0xkeep", "event-1")})
+        assert [(t["wallet"], t["event_slug"]) for t in theses] == [("0xkeep", "event-1")]
+
+    @patch("db.get_wallet_event_history", return_value=[])
+    @patch("gamma_cache.get_market_by_condition", return_value={"title": "Test"})
+    def test_theses_built_only_for_kept_alerts(self, mock_market, mock_history):
+        import seeder
+
+        signals = [
+            FakeSignal("correlated_cross_market", "0xkeep", "event-1", "cond_1"),
+            FakeSignal("correlated_cross_market", "0xdrop", "event-2", "cond_2"),
+        ]
+        kept = {"alert_type": "composite", "wallet": "0xKeep", "event_slug": "event-1",
+                "condition_id": "cond_1", "dedup_key": "k",
+                "trades": [{"wallet": "0xKeep", "condition_id": "cond_1"}]}
+        dropped = {"alert_type": "composite", "wallet": "0xdrop", "event_slug": "event-2",
+                   "condition_id": "cond_2", "dedup_key": "d",
+                   "trades": [{"wallet": "0xdrop", "condition_id": "cond_2"}]}
+        post = MagicMock()
+        post.return_value.json.return_value = {}
+        headline = MagicMock(return_value="Keep wins")
+        with patch("seeder.build_alerts_payload",
+                   return_value={"alerts": [kept, dropped], "wallet_profiles": []}), \
+             patch("llm_filter.filter_alerts",
+                   side_effect=lambda alerts: [a for a in alerts if a["dedup_key"] == "k"]), \
+             patch("db.get_recent_price_candles", return_value=[]), \
+             patch("seeder._generate_thesis_headline", headline), \
+             patch("seeder.requests.post", post):
+            seeder.push_to_backend(signals, [])
+
+        payload = post.call_args.kwargs["json"]
+        assert [(t["wallet"], t["event_slug"]) for t in payload["theses"]] == [("0xkeep", "event-1")]
+        assert headline.call_count == 1
+
+    @patch("db.get_wallet_event_history", return_value=[])
+    @patch("gamma_cache.get_market_by_condition", return_value={"title": "Test"})
+    def test_wallet_inside_kept_cluster_alert_keeps_its_thesis(self, mock_market, mock_history):
+        from seeder import _kept_wallet_events
+
+        cluster = {"alert_type": "cluster", "wallet": None, "event_slug": "event-1",
+                   "trades": [{"wallet": "0xAbc"}, {"wallet": "0xdef"}]}
+        assert _kept_wallet_events([cluster]) == {("0xabc", "event-1"), ("0xdef", "event-1")}
 
 
 if __name__ == "__main__":
