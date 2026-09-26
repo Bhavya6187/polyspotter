@@ -24,7 +24,14 @@ import psycopg2
 import requests
 from psycopg2.extras import RealDictCursor
 
-from bot_utils import DATABASE_URL, GAMMA_BASE_URL, QUERY_TIMEOUT_SECONDS, log
+from bot_utils import (
+    DATABASE_URL,
+    GAMMA_BASE_URL,
+    QUERY_TIMEOUT_SECONDS,
+    _gamma_status_for_markets,
+    _is_settled,
+    log,
+)
 
 # --- Config -----------------------------------------------------------------
 
@@ -310,6 +317,7 @@ def shape_candidate(row: dict) -> dict:
     effective = row.get("event_end_estimate") or row.get("end_date")
     return {
         "event_slug": row.get("event_slug") or row.get("condition_id"),
+        "condition_id": row.get("condition_id"),
         "title": row.get("market_title"),
         "market_url": row.get("market_url"),
         "image": row.get("market_image"),
@@ -654,8 +662,8 @@ _WEEK_UPCOMING_SQL = """
 """
 
 # Recent alert activity alone doesn't mean the market is still open — a game
-# alerted on 5 days ago may have resolved 4 days ago. Require the effective end
-# to be in the future (or unknown: no deadline info means we can't call it over).
+# alerted on 5 days ago may have resolved 4 days ago. Require a known effective
+# end in the future: a NULL end date is no evidence the market is still open.
 _WEEK_HOT_SQL = """
     SELECT DISTINCT ON (COALESCE(a.event_slug, a.condition_id))
         a.event_slug, a.condition_id, a.market_title, a.market_url, a.market_image,
@@ -663,8 +671,8 @@ _WEEK_HOT_SQL = """
         a.composite_score, a.llm_copy_action, a.tags
     FROM alerts a
     WHERE a.created_at >= now() - interval '7 days'
-      AND (COALESCE(a.event_end_estimate, a.end_date) IS NULL
-           OR COALESCE(a.event_end_estimate, a.end_date) > now())
+      AND COALESCE(a.event_end_estimate, a.end_date) IS NOT NULL
+      AND COALESCE(a.event_end_estimate, a.end_date) > now()
     ORDER BY COALESCE(a.event_slug, a.condition_id), a.composite_score DESC
 """
 
@@ -698,12 +706,24 @@ def fetch_recent_featured_slugs(days: int = FEATURED_LOOKBACK_DAYS) -> set:
             conn.close()
 
 
+def settled_event_slugs(cands: list[dict]) -> set:
+    """event_slugs whose market Gamma reports as settled (closed, in UMA
+    resolution, or priced ~decided) — the same check the twitter and article
+    bots run. SQL end times lag reality (a game ends hours before its market
+    closes), so without this the digest can feature an already-decided event."""
+    cids = [c["condition_id"] for c in cands if c.get("condition_id")]
+    status_by_cid = _gamma_status_for_markets(cids)
+    return {c["event_slug"] for c in cands
+            if c.get("condition_id") and _is_settled(status_by_cid.get(c["condition_id"]))}
+
+
 def fetch_candidates() -> dict:
     """Query the three pools and return shaped, deduped candidate lists. Both
     pools enforce the conviction floor and drop already-concluded events (the
     SQL filters on end time too — this is a second layer so no pool can leak a
-    finished market into the email); week_pool also excludes anything already
-    in resolving_today or featured in a recent digest, and is capped."""
+    finished market into the email) and events Gamma reports as settled;
+    week_pool also excludes anything already in resolving_today or featured in
+    a recent digest, and is capped."""
     conn = _get_conn()
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -718,9 +738,14 @@ def fetch_candidates() -> dict:
 
     now = datetime.now(timezone.utc)
     today = [c for c in today if meets_conviction(c) and not is_concluded(c, now)]
+    week_cands = [c for c in upcoming + hot if meets_conviction(c) and not is_concluded(c, now)]
+    settled = settled_event_slugs(today + week_cands)
+    if settled:
+        log("digest_settled_dropped", count=len(settled))
+    today = [c for c in today if c["event_slug"] not in settled]
     today_slugs = {c["event_slug"] for c in today}
     featured = fetch_recent_featured_slugs()
-    week = build_week_pool(upcoming, hot, today_slugs, featured, now=now)
+    week = build_week_pool(week_cands, [], today_slugs, featured | settled, now=now)
     return {"resolving_today": today, "week_pool": week}
 
 
