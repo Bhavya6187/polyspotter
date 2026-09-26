@@ -68,7 +68,7 @@ from detection_strategies.timing_relative_resolution import (
     MIN_BET_USD as TIMING_MIN_BET_USD,
 )
 from detection_strategies.new_wallet_large_bet import WALLET_AGE_DAYS
-from detection_strategies.win_rate_tracking import _fetch_open_positions
+from detection_strategies.win_rate_tracking import fetch_open_positions
 from gamma_cache import is_sport_market, get_event_slug
 from polybot import _is_penny_collecting
 
@@ -866,7 +866,7 @@ def backfill_wallet_pnl(trades: list[dict]) -> None:
 
         # Fetch first, then replace atomically (matching live strategy): a
         # failed fetch must leave the cached open rows untouched.
-        open_positions = _fetch_open_positions(wallet)
+        open_positions = fetch_open_positions(wallet)
         if open_positions is not None:
             replace_wallet_pnl_by_type(wallet, "open", open_positions)
             open_count += len(open_positions)

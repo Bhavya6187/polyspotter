@@ -56,7 +56,7 @@ def test_headline_call_is_logged(tmp_path, monkeypatch):
     assert len(lines) == 1
     entry = json.loads(lines[0])
     assert entry["model"] == "gpt-test"
-    assert entry["cache_key"] == "thesis:0xabc:test-event:"
+    assert entry["cache_key"] == "thesis:0xabc:test-event:=BUY:Yes"
     assert "Will X happen?" in entry["messages"][-1]["content"]
 
 

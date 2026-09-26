@@ -880,16 +880,6 @@ def get_wallet_pnl_latest_timestamp(wallet: str, position_type: str) -> int | No
     return row[0] if row and row[0] else None
 
 
-def clear_wallet_pnl_by_type(wallet: str, position_type: str) -> None:
-    """Delete cached P&L records for a wallet filtered by position type."""
-    conn = get_db()
-    conn.execute(
-        "DELETE FROM wallet_pnl WHERE wallet = ? AND position_type = ?",
-        (wallet.lower(), position_type),
-    )
-    conn.commit()
-
-
 def get_wallet_pnl_summary(wallet: str) -> dict:
     """Get aggregate P&L summary for a wallet, including odds-adjusted stats.
 

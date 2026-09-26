@@ -70,7 +70,7 @@ def _fetch_wallet_pnl(wallet: str) -> None:
     # -- Open positions: re-fetch, then replace (they change frequently).
     # Fetch first: wiping before a failed fetch left the wallet with
     # total_positions=0, which reads as a brand-new wallet downstream.
-    open_positions = _fetch_open_positions(wallet)
+    open_positions = fetch_open_positions(wallet)
     if open_positions is not None:
         replace_wallet_pnl_by_type(wallet, "open", open_positions)
 
@@ -86,7 +86,7 @@ def _fetch_wallet_pnl(wallet: str) -> None:
                               limit=MAX_PNL_POSITIONS)
 
 
-def _fetch_open_positions(wallet: str, limit: int = 50) -> list[dict] | None:
+def fetch_open_positions(wallet: str, limit: int = 50) -> list[dict] | None:
     """Fetch a wallet's open positions (first ``limit``). Returns None if the
     request failed, so the caller keeps the previously cached rows."""
     time.sleep(PNL_FETCH_DELAY)
